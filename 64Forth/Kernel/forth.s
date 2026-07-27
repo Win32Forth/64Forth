@@ -2146,13 +2146,13 @@ _next_filespec:
 3:
     cmp  w0, #'"'
     b.eq 4f
-    // unquoted: restore cursor and use _next_word
+    // unquoted: set cursor then _next_word (must not restore LR before bl)
     mov  x0, x19
     bl   _cursor_store
-    ldp  x19, x20, [sp], #16
-    ldp  x29, x30, [sp], #16
     bl   _next_word
     mov  x25, x1
+    ldp  x19, x20, [sp], #16
+    ldp  x29, x30, [sp], #16
     ret
 4:  // quoted
     add  x19, x19, #1              // skip opening "
