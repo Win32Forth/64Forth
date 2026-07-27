@@ -42,6 +42,26 @@ private func kernel_set_load_file(
     ) -> Int32)?
 )
 
+@_silgen_name("kernel_set_resolve_key")
+private func kernel_set_resolve_key(
+    _ fn: (@convention(c) (
+        UnsafePointer<CChar>?,
+        Int,
+        UnsafeMutablePointer<CChar>?,
+        Int,
+        UnsafeMutablePointer<Int>?
+    ) -> Int32)?
+)
+
+@_silgen_name("kernel_set_last_load_key")
+private func kernel_set_last_load_key(
+    _ fn: (@convention(c) (
+        UnsafeMutablePointer<CChar>?,
+        Int,
+        UnsafeMutablePointer<Int>?
+    ) -> Int32)?
+)
+
 @_silgen_name("kernel_set_chdir")
 private func kernel_set_chdir(
     _ fn: (@convention(c) (UnsafePointer<CChar>?, Int) -> Void)?
@@ -112,6 +132,36 @@ private let kernelLoadFileTrampoline: @convention(c) (
         outPtr: outPtr,
         outLen: outLen
     )
+}
+
+private let kernelResolveKeyTrampoline: @convention(c) (
+    UnsafePointer<CChar>?,
+    Int,
+    UnsafeMutablePointer<CChar>?,
+    Int,
+    UnsafeMutablePointer<Int>?
+) -> Int32 = { path, pathLen, out, outMax, outLen in
+    guard let key = FileHost.shared.resolveRegistryKey(path: path, pathLen: pathLen),
+          let out, outMax > 0 else { return -1 }
+    let bytes = Array(key.utf8)
+    let n = min(bytes.count, outMax)
+    for i in 0..<n { out[i] = CChar(bitPattern: bytes[i]) }
+    outLen?.pointee = n
+    return 0
+}
+
+private let kernelLastLoadKeyTrampoline: @convention(c) (
+    UnsafeMutablePointer<CChar>?,
+    Int,
+    UnsafeMutablePointer<Int>?
+) -> Int32 = { out, outMax, outLen in
+    guard let key = FileHost.shared.lastLoadRegistryKey, !key.isEmpty,
+          let out, outMax > 0 else { return -1 }
+    let bytes = Array(key.utf8)
+    let n = min(bytes.count, outMax)
+    for i in 0..<n { out[i] = CChar(bitPattern: bytes[i]) }
+    outLen?.pointee = n
+    return 0
 }
 
 private let kernelChdirTrampoline: @convention(c) (UnsafePointer<CChar>?, Int) -> Void = { path, pathLen in
@@ -192,6 +242,8 @@ final class KernelBridge {
         kernel_set_fromlib(kernelFromlibTrampoline)
         kernel_set_fromlib_clear(kernelFromlibClearTrampoline)
         kernel_set_load_file(kernelLoadFileTrampoline)
+        kernel_set_resolve_key(kernelResolveKeyTrampoline)
+        kernel_set_last_load_key(kernelLastLoadKeyTrampoline)
         kernel_set_chdir(kernelChdirTrampoline)
         kernel_set_pwd(kernelPwdTrampoline)
         kernel_set_dir(kernelDirTrampoline)
@@ -333,10 +385,24 @@ final class KernelBridge {
     }
 
     fileprivate func handleKeyFromKernel() -> Int32 {
-        lock.lock()
-        defer { lock.unlock() }
-        if keyQueue.isEmpty { return -1 }
-        return keyQueue.removeFirst()
+        // Wait briefly for console input (KEY during kernel_eval). Spin the
+        // main run loop so typed keys can reach pushKey without freezing forever.
+        let deadline = Date().addingTimeInterval(30)
+        while true {
+            lock.lock()
+            if !keyQueue.isEmpty {
+                let c = keyQueue.removeFirst()
+                lock.unlock()
+                return c
+            }
+            lock.unlock()
+            if Date() > deadline { return -1 }
+            if Thread.isMainThread {
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            } else {
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+        }
     }
 
     private func handleEmitString(_ s: String) {

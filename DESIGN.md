@@ -106,6 +106,15 @@
 - [x] Host `BI-MUL` / `BI-DIVMOD` / `BI-ISQRT` (`BigIntHost.swift`, TZForth algorithms)
 - [x] Locals: `{: … :}`, `TO`, `(LOCAL-INIT)` / `(LOCAL@)` / `(LOCAL!)` for stock `big-int.fth`
 
+### Phase 7 — File registry, FORGET, RESIZE, KEY
+- [x] ANS-shaped `INCLUDED` / `REQUIRED` / `REQUIRE` (`PARSE-NAME REQUIRED`)
+- [x] Absolute-path REQUIRE registry keys (host resolve + last-load key hooks)
+- [x] `.INCLUDED` lists the load-once registry
+- [x] `FORGET` multi-wordlist prune + USER-DICT fence (CODE)
+- [x] `RESIZE` (libc realloc)
+- [x] Quoted paths with spaces: `INCLUDE "path with spaces.fth"`
+- [x] Console KEY: pushKey from typing + run-loop wait in host KEY hook
+
 ---
 
 ## 4. FROMLIB (intended semantics)

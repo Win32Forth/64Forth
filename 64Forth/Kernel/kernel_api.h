@@ -35,6 +35,16 @@ typedef int (*kernel_load_file_fn)(const char *path, size_t path_len,
                                    const char **out_ptr, size_t *out_len);
 void kernel_set_load_file(kernel_load_file_fn fn);
 
+/// Resolve load name → absolute registry key (consumes FROMLIB). Return 0 ok, -1 fail.
+/// Writes UTF-8 path (no trailing NUL required; *out_len set).
+typedef int (*kernel_resolve_key_fn)(const char *path, size_t path_len,
+                                     char *out, size_t out_max, size_t *out_len);
+void kernel_set_resolve_key(kernel_resolve_key_fn fn);
+
+/// Absolute path of last successful load_file (REQUIRE registry). Return 0 ok, -1 none.
+typedef int (*kernel_last_load_key_fn)(char *out, size_t out_max, size_t *out_len);
+void kernel_set_last_load_key(kernel_last_load_key_fn fn);
+
 /// CHDIR — path_len == 0 → bare folder picker.
 void kernel_set_chdir(void (*fn)(const char *path, size_t n));
 

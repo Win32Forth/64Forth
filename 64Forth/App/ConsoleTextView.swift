@@ -24,6 +24,8 @@ struct ConsoleTextView: NSViewRepresentable {
     /// Up/Down on the input line → command history (not caret into protected text).
     var onHistoryUp: () -> Void = {}
     var onHistoryDown: () -> Void = {}
+    /// Raw key bytes for kernel KEY while evaluate is waiting (Latin-1 / UTF-8 bytes).
+    var onKeyCharacter: (Int32) -> Void = { _ in }
     var onTextViewReady: (NSTextView) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -243,6 +245,12 @@ struct ConsoleTextView: NSViewRepresentable {
             let minLoc = min(max(0, parent.editableStartUTF16), (textView.string as NSString).length)
             if affectedCharRange.location < minLoc {
                 return false
+            }
+            // Feed KEY queue while kernel_eval may be blocked in KEY.
+            if let s = replacementString {
+                for b in s.utf8 {
+                    parent.onKeyCharacter(Int32(b))
+                }
             }
             return true
         }

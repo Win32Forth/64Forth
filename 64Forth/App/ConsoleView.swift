@@ -56,6 +56,9 @@ struct ConsoleView: View {
             onReturnPressed: { handleReturnKey() },
             onHistoryUp: { recallHistory(up: true) },
             onHistoryDown: { recallHistory(up: false) },
+            onKeyCharacter: { c in
+                kernel.pushKey(c)
+            },
             onTextViewReady: { textView in
                 DispatchQueue.main.async {
                     consoleTextView = textView

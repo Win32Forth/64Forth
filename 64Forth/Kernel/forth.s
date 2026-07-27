@@ -315,6 +315,22 @@ _kernel_set_load_file:
     str  x0, [x1]
     ret
 
+// void kernel_set_resolve_key(int (*)(path, path_len, out, out_max, out_len*))
+.globl _kernel_set_resolve_key
+_kernel_set_resolve_key:
+    adrp x1, resolve_key_hook@page
+    add  x1, x1, resolve_key_hook@pageoff
+    str  x0, [x1]
+    ret
+
+// void kernel_set_last_load_key(int (*)(out, out_max, out_len*))
+.globl _kernel_set_last_load_key
+_kernel_set_last_load_key:
+    adrp x1, last_load_key_hook@page
+    add  x1, x1, last_load_key_hook@pageoff
+    str  x0, [x1]
+    ret
+
 // void kernel_set_chdir(void (*fn)(const char *path, size_t n))
 // n==0 → bare CHDIR (host folder picker).
 .globl _kernel_set_chdir
@@ -1867,45 +1883,57 @@ XDIR:
     NEXT
 
 // ============================================================================
-// File load: INCLUDE / FLOAD / INCLUDED / REQUIRED / REQUIRE
+// File load: INCLUDE / FLOAD / INCLUDED / REQUIRED / REQUIRE / .INCLUDED
 // ============================================================================
 // ANS-shaped:
 //   INCLUDED  ( c-addr u -- )  always load named file (string on stack)
-//   REQUIRED  ( c-addr u -- )  INCLUDED if name not yet in registry
+//   REQUIRED  ( c-addr u -- )  load once (registry; prefers absolute path keys)
 //   REQUIRE   ( "name" -- )    high-level: PARSE-NAME REQUIRED
-//   INCLUDE   ( "name"|bare -- )  parse name (or dialog if bare); always load
+//   INCLUDE   ( "name"|bare|"quoted path" -- ) always load
 //   FLOAD     alias of INCLUDE
+//   .INCLUDED ( -- )           list load-once registry
 //
-// Host load_file_hook when set: path_len 0 = bare dialog (TZForth FLOAD).
-// Registry key = file-spec string (parse-name / REQUIRED string), case-insensitive.
-// (Tighter absolute-path keys need host resolve callback — future.)
+// Registry keys: after a successful host load, the absolute standardized path
+// (from last_load_key_hook) is registered. REQUIRED resolves the name via
+// resolve_key_hook first so FROMLIB FLOAD and later REQUIRE match.
 // ============================================================================
-.equ INCL_MAX, 48
-.equ INCL_NAME, 128
+.equ INCL_MAX, 64
+.equ INCL_NAME, 256
 
-// INCLUDE / FLOAD ( "filename" | bare -- )  always load
+// INCLUDE / FLOAD ( "filename" | bare | "quoted path" -- )  always load
 XINCLUDE:
-    bl   _next_word
-    mov  x25, x1                   // path len (0 = bare)
-    cbz  x25, _include_with_len
-    // named: ensure scratch holds path (already does)
+    bl   _next_filespec            // x25=len; word_scratch filled (0 = bare)
     b    _include_with_len
 
 // INCLUDED ( c-addr u -- )  always load from string
 XINCLUDED:
     mov  x1, x20                   // u
     ldr  x0, [x22], #8             // c-addr
-    ldr  x20, [x22], #8            // drop pair from stack
-    bl   _copy_to_word_scratch     // → x25=len, word_scratch filled
+    ldr  x20, [x22], #8
+    bl   _copy_to_word_scratch
     b    _include_with_len
 
-// REQUIRED ( c-addr u -- )  load once (skip if registry hit)
+// REQUIRED ( c-addr u -- )  load once
 XREQUIRED:
-    mov  x1, x20                   // u
-    ldr  x0, [x22], #8             // c-addr
+    mov  x1, x20
+    ldr  x0, [x22], #8
     ldr  x20, [x22], #8
     cbz  x1, _required_empty
-    bl   _copy_to_word_scratch     // x25=len
+    bl   _copy_to_word_scratch     // typed name in word_scratch, x25=len
+    // Try host absolute resolve first (consumes FROMLIB)
+    bl   _resolve_abs_key          // x0=1 if absolute key now in pending/scratch
+    // Check registry (pending has key to check)
+    adrp x0, include_name_pending@page
+    add  x0, x0, include_name_pending@pageoff
+    adrp x1, include_name_len@page
+    add  x1, x1, include_name_len@pageoff
+    ldr  x1, [x1]
+    cbz  x1, 1f
+    bl   _included_find_buf
+    cbnz x0, _require_skip
+1:
+    // Also check original typed name (if different / no resolve)
+    // word_scratch still holds load path (absolute if resolve succeeded)
     bl   _include_save_name
     adrp x0, include_name_pending@page
     add  x0, x0, include_name_pending@pageoff
@@ -1917,7 +1945,6 @@ XREQUIRED:
     b    _include_with_len
 
 _required_empty:
-    // empty name — soft fail like tick
     adrp x0, str_quest@page
     add  x0, x0, str_quest@pageoff
     mov  x1, #2
@@ -1925,8 +1952,57 @@ _required_empty:
     b    _error_abandon
 
 _require_skip:
-    // Disarm FROMLIB so a no-op REQUIRED does not leave Library mode sticky
     bl   _fromlib_clear
+    NEXT
+
+// .INCLUDED ( -- ) list registry
+XDOT_INCLUDED:
+    SAVE_VM
+    adrp x0, str_included_hdr@page
+    add  x0, x0, str_included_hdr@pageoff
+    bl   _print_string_svc
+    adrp x0, included_count@page
+    add  x0, x0, included_count@pageoff
+    ldr  x19, [x0]                 // count
+    cbz  x19, 8f
+    mov  x20, #0                   // i
+1:
+    cmp  x20, x19
+    b.hs 9f
+    mov  x0, #32
+    bl   _putchar
+    mov  x0, #32
+    bl   _putchar
+    mov  x0, #INCL_NAME
+    mul  x0, x0, x20
+    adrp x1, included_names@page
+    add  x1, x1, included_names@pageoff
+    add  x1, x1, x0
+    ldrb w2, [x1], #1              // len; x1 → chars
+    // TYPE len bytes
+    mov  x3, #0
+2:
+    cmp  x3, x2
+    b.hs 3f
+    ldrb w0, [x1, x3]
+    stp  x1, x2, [sp, #-16]!
+    stp  x3, x20, [sp, #-16]!
+    bl   _putchar
+    ldp  x3, x20, [sp], #16
+    ldp  x1, x2, [sp], #16
+    add  x3, x3, #1
+    b    2b
+3:
+    mov  x0, #10
+    bl   _putchar
+    add  x20, x20, #1
+    b    1b
+8:
+    adrp x0, str_included_none@page
+    add  x0, x0, str_included_none@pageoff
+    bl   _print_string_svc
+9:
+    RESTORE_VM
     NEXT
 
 // Shared loader. x25 = path len; name in word_scratch when x25 != 0.
@@ -1937,11 +2013,11 @@ _include_with_len:
     str  xzr, [x0]
     b    2f
 1:
-    bl   _include_save_name
+    bl   _include_save_name        // typed / resolved path as provisional key
 2:
     SAVE_VM
     stp  x25, x26, [sp, #-16]!
-    mov  x26, x25                  // path length for open
+    mov  x26, x25
 
     adrp x0, load_file_hook@page
     add  x0, x0, load_file_hook@pageoff
@@ -1976,6 +2052,8 @@ _include_with_len:
     add  x0, x0, source_id_var@pageoff
     mov  x1, #1
     str  x1, [x0]
+    // Prefer absolute last-load key for registry
+    bl   _apply_last_load_key
     bl   _included_register_pending
     ldp  x25, x26, [sp], #16
     RESTORE_VM
@@ -2039,14 +2117,167 @@ _include_fail_restore:
 _include_fail:
     b    _error_abandon
 
-// _fromlib_clear: disarm FROMLIB host arm if hook set
+// _next_filespec: like _next_word but supports "quoted paths with spaces"
+// → x25=len, word_scratch filled; x25=0 if bare/EOF
+_next_filespec:
+    stp  x29, x30, [sp, #-16]!
+    stp  x19, x20, [sp, #-16]!
+    bl   _cursor_load
+    mov  x19, x0
+    bl   _source_end
+    mov  x20, x0
+1:  // skip blanks
+    cmp  x19, x20
+    b.hs 8f
+    ldrb w0, [x19]
+    cbz  w0, 8f
+    cmp  w0, #32
+    b.eq 2f
+    cmp  w0, #9
+    b.eq 2f
+    cmp  w0, #10
+    b.eq 2f
+    cmp  w0, #13
+    b.eq 2f
+    b    3f
+2:
+    add  x19, x19, #1
+    b    1b
+3:
+    cmp  w0, #'"'
+    b.eq 4f
+    // unquoted: restore cursor and use _next_word
+    mov  x0, x19
+    bl   _cursor_store
+    ldp  x19, x20, [sp], #16
+    ldp  x29, x30, [sp], #16
+    bl   _next_word
+    mov  x25, x1
+    ret
+4:  // quoted
+    add  x19, x19, #1              // skip opening "
+    mov  x1, x19                   // start
+5:
+    cmp  x19, x20
+    b.hs 6f
+    ldrb w0, [x19]
+    cbz  w0, 6f
+    cmp  w0, #'"'
+    b.eq 6f
+    add  x19, x19, #1
+    b    5b
+6:
+    sub  x2, x19, x1               // len
+    cmp  x19, x20
+    b.hs 7f
+    ldrb w0, [x19]
+    cmp  w0, #'"'
+    b.ne 7f
+    add  x19, x19, #1              // skip closing "
+7:
+    mov  x0, x19
+    stp  x1, x2, [sp, #-16]!
+    bl   _cursor_store
+    ldp  x0, x1, [sp], #16         // src, len
+    bl   _copy_to_word_scratch     // x25=len
+    ldp  x19, x20, [sp], #16
+    ldp  x29, x30, [sp], #16
+    ret
+8:
+    mov  x0, x19
+    bl   _cursor_store
+    mov  x25, #0
+    ldp  x19, x20, [sp], #16
+    ldp  x29, x30, [sp], #16
+    ret
+
+// _resolve_abs_key: if resolve_key_hook set, replace word_scratch/x25 with absolute
+// path and fill include_name_pending. Returns via x0=1 if absolute available.
+// Leaves typed name in word_scratch if resolve fails.
+_resolve_abs_key:
+    stp  x29, x30, [sp, #-16]!
+    adrp x0, resolve_key_hook@page
+    add  x0, x0, resolve_key_hook@pageoff
+    ldr  x9, [x0]
+    cbz  x9, 9f
+    // provisional: save typed into pending for lookup even if resolve fails
+    bl   _include_save_name
+    adrp x0, word_scratch@page
+    add  x0, x0, word_scratch@pageoff
+    mov  x1, x25
+    adrp x2, include_name_pending@page
+    add  x2, x2, include_name_pending@pageoff
+    mov  x3, #INCL_NAME
+    sub  sp, sp, #16
+    mov  x4, sp                    // out_len slot
+    str  xzr, [sp]
+    // args: path, path_len, out, out_max, out_len*
+    // x0=path x1=len already; x2=out x3=max
+    mov  x0, x0
+    // reload path into x0
+    adrp x0, word_scratch@page
+    add  x0, x0, word_scratch@pageoff
+    mov  x1, x25
+    adrp x2, include_name_pending@page
+    add  x2, x2, include_name_pending@pageoff
+    mov  x3, #INCL_NAME - 1
+    mov  x4, sp
+    blr  x9
+    ldr  x1, [sp]
+    add  sp, sp, #16
+    cbnz x0, 9f                    // fail
+    cbz  x1, 9f
+    // x1 = absolute len; host wrote absolute bytes into include_name_pending
+    adrp x0, include_name_len@page
+    add  x0, x0, include_name_len@pageoff
+    str  x1, [x0]
+    // copy absolute into word_scratch for the subsequent load
+    adrp x0, include_name_pending@page
+    add  x0, x0, include_name_pending@pageoff
+    mov  x1, x1
+    bl   _copy_to_word_scratch
+    mov  x0, #1
+    ldp  x29, x30, [sp], #16
+    ret
+9:
+    // keep typed name in word_scratch / pending
+    bl   _include_save_name
+    mov  x0, #0
+    ldp  x29, x30, [sp], #16
+    ret
+
+// _apply_last_load_key: if last_load_key_hook, overwrite pending with absolute
+_apply_last_load_key:
+    stp  x29, x30, [sp, #-16]!
+    adrp x0, last_load_key_hook@page
+    add  x0, x0, last_load_key_hook@pageoff
+    ldr  x9, [x0]
+    cbz  x9, 9f
+    adrp x0, include_name_pending@page
+    add  x0, x0, include_name_pending@pageoff
+    mov  x1, #INCL_NAME - 1
+    sub  sp, sp, #16
+    mov  x2, sp
+    str  xzr, [sp]
+    blr  x9
+    ldr  x1, [sp]
+    add  sp, sp, #16
+    cbnz x0, 9f
+    cbz  x1, 9f
+    adrp x0, include_name_len@page
+    add  x0, x0, include_name_len@pageoff
+    str  x1, [x0]
+9:
+    ldp  x29, x30, [sp], #16
+    ret
+
+// _fromlib_clear
 _fromlib_clear:
     stp  x29, x30, [sp, #-16]!
     adrp x0, fromlib_clear_hook@page
     add  x0, x0, fromlib_clear_hook@pageoff
     ldr  x0, [x0]
     cbz  x0, 1f
-    // SAVE_VM not needed if hook only clears a Swift flag (no VM use)
     blr  x0
 1:
     ldp  x29, x30, [sp], #16
@@ -2059,7 +2290,6 @@ _copy_to_word_scratch:
     b.ls 1f
     mov  x25, #INCL_NAME - 1
 1:
-    // also cap to word_scratch (512)
     mov  x2, #511
     cmp  x25, x2
     csel x25, x2, x25, hi
@@ -2077,7 +2307,7 @@ _copy_to_word_scratch:
     strb wzr, [x2, x3]
     ret
 
-// _include_save_name: word_scratch[0..x25) → include_name_pending + include_name_len
+// _include_save_name: word_scratch[0..x25) → include_name_pending + len
 _include_save_name:
     adrp x0, include_name_len@page
     add  x0, x0, include_name_len@pageoff
@@ -2159,7 +2389,7 @@ _included_find_buf:
     ldp  x19, x20, [sp], #16
     ret
 
-// _included_register_pending: add include_name_pending to registry if new
+// _included_register_pending: add include_name_pending if new
 _included_register_pending:
     stp  x29, x30, [sp, #-16]!
     adrp x0, include_name_len@page
@@ -2538,6 +2768,115 @@ _print_wid_name:
     ldp x29, x30, [sp], #16
     ret
 
+
+// ============================================================================
+// FORGET ( "name" -- ) — reclaim from name's CFA; prune ALL wordlist heads
+// ============================================================================
+// Finds name via search order (FIND). Refuses CFA below USER-DICT.
+// Rewinds HERE to the forgotten CFA. Prunes latest_var, current, search_order,
+// and every VOCABULARY wordlist head found in the FORTH chain.
+XFORGET:
+    bl   _next_word
+    cbz  x1, 8f
+    bl   _find_word
+    cbz  x0, 9f
+    // x0 = CFA (cut)
+    adrp x1, user_dict_area@page
+    add  x1, x1, user_dict_area@pageoff
+    cmp  x0, x1
+    b.lo 7f                        // protected
+    mov  x19, x0                   // cut CFA
+    // HERE = cut
+    adrp x1, here_ptr@page
+    add  x1, x1, here_ptr@pageoff
+    str  x19, [x1]
+    // prune FORTH latest
+    adrp x0, latest_var@page
+    add  x0, x0, latest_var@pageoff
+    mov  x1, x19
+    bl   _prune_wid
+    // prune CURRENT
+    adrp x0, current_var@page
+    add  x0, x0, current_var@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 1f
+    mov  x1, x19
+    bl   _prune_wid
+1:
+    // prune search_order entries
+    adrp x2, search_order_n@page
+    add  x2, x2, search_order_n@pageoff
+    ldr  x2, [x2]
+    adrp x3, search_order@page
+    add  x3, x3, search_order@pageoff
+    mov  x4, #0
+2:
+    cmp  x4, x2
+    b.hs 3f
+    ldr  x0, [x3, x4, lsl #3]
+    cbz  x0, 21f
+    mov  x1, x19
+    stp  x2, x3, [sp, #-16]!
+    stp  x4, x19, [sp, #-16]!
+    bl   _prune_wid
+    ldp  x4, x19, [sp], #16
+    ldp  x2, x3, [sp], #16
+21:
+    add  x4, x4, #1
+    b    2b
+3:
+    // Scan FORTH chain for DODOES vocabularies; prune their PFA (wid)
+    adrp x0, DODOES@page
+    add  x0, x0, DODOES@pageoff
+    mov  x20, x0                   // DODOES code
+    adrp x0, latest_var@page
+    add  x0, x0, latest_var@pageoff
+    ldr  x21, [x0]                 // cfa walk
+4:
+    cbz  x21, 6f
+    ldr  x0, [x21]
+    cmp  x0, x20
+    b.ne 5f
+    add  x0, x21, #16              // wid = PFA
+    mov  x1, x19
+    stp  x20, x21, [sp, #-16]!
+    bl   _prune_wid
+    ldp  x20, x21, [sp], #16
+5:
+    ldr  x21, [x21, #-16]
+    b    4b
+6:
+    NEXT
+7:
+    adrp x0, str_protected@page
+    add  x0, x0, str_protected@pageoff
+    bl   _print_string_svc
+    NEXT
+8:
+    adrp x0, str_quest@page
+    add  x0, x0, str_quest@pageoff
+    mov  x1, #2
+    bl   _write_stdout
+    NEXT
+9:
+    bl   _report_undefined
+    b    _error_abandon
+
+// _prune_wid: x0 = wid (addr of head cell), x1 = cut CFA
+// Unlink heads with CFA >= cut (newest-first chains grow with HERE).
+_prune_wid:
+    cbz  x0, 9f
+1:
+    ldr  x2, [x0]                  // head CFA
+    cbz  x2, 9f
+    cmp  x2, x1
+    b.lo 9f
+    ldr  x2, [x2, #-16]            // link
+    str  x2, [x0]
+    b    1b
+9:
+    ret
+
 // ALLOCATE ( u -- a-addr ior )  libc malloc; ior 0 ok, -1 fail
 // Host hook optional (same stack result). Never leave a null a-addr with ior 0.
 XALLOCATE:
@@ -2590,6 +2929,46 @@ XFREE:
 1:
     RESTORE_VM
     mov  x20, #0                   // ior ok
+    NEXT
+
+// RESIZE ( a-addr1 u -- a-addr2 ior )  ANS Memory-Allocation
+// a-addr1 may be 0 (like ALLOCATE). ior 0 ok, -1 fail (a-addr2 = a-addr1 on fail).
+XRESIZE:
+    // TOS = u, under = a-addr1
+    mov  x1, x20                   // u
+    ldr  x0, [x22], #8             // a-addr1
+    // save for fail path
+    adrp x2, host_tmp0@page
+    add  x2, x2, host_tmp0@pageoff
+    str  x0, [x2]                  // old ptr
+    str  x1, [x2, #8]              // new size
+    SAVE_VM
+    adrp x2, host_tmp0@page
+    add  x2, x2, host_tmp0@pageoff
+    ldr  x0, [x2]
+    ldr  x1, [x2, #8]
+    cbnz x1, 0f
+    mov  x1, #1                    // realloc(p,0) is free-ish; keep 1 byte
+0:
+    bl   _realloc                  // x0 = new ptr or 0
+    adrp x1, host_tmp0@page
+    add  x1, x1, host_tmp0@pageoff
+    str  x0, [x1, #16]             // new ptr
+    RESTORE_VM
+    adrp x1, host_tmp0@page
+    add  x1, x1, host_tmp0@pageoff
+    ldr  x0, [x1, #16]             // new
+    ldr  x2, [x1]                  // old
+    cbnz x0, 1f
+    // fail: leave old a-addr, ior -1
+    mov  x20, x2
+    str  x20, [x22, #-8]!
+    mov  x20, #-1
+    NEXT
+1:
+    mov  x20, x0
+    str  x20, [x22, #-8]!
+    mov  x20, #0
     NEXT
 
 // BI-MUL ( a b r -- )
@@ -7318,6 +7697,8 @@ str_cant_open:  .ascii "can't open: "
                 .byte 0
 str_undefined:  .ascii "undefined: "
                 .byte 0
+str_protected:  .asciz "protected\n"
+                .byte 0
 str_underflow:  .asciz "stack underflow\n"
 str_overflow:   .asciz "stack overflow\n"
 str_memfault:   .asciz "memory access error\n"
@@ -7335,6 +7716,8 @@ key_hook:       .quad 0            // int (*)(void)
 fromlib_hook:   .quad 0            // void (*)(void) — FROMLIB arm
 fromlib_clear_hook: .quad 0        // void (*)(void) — FROMLIB disarm (REQUIRE skip)
 load_file_hook: .quad 0            // int (*)(path, path_len, out_ptr*, out_len*); path_len 0 = bare
+resolve_key_hook: .quad 0          // resolve path → absolute key
+last_load_key_hook: .quad 0        // absolute key of last successful load
 chdir_hook:     .quad 0            // void (*)(path, path_len); path_len 0 = bare picker
 pwd_hook:       .quad 0            // void (*)(void)
 dir_hook:       .quad 0            // void (*)(path, path_len); path_len 0 = list cwd
@@ -7351,6 +7734,8 @@ str_forth_name:   .asciz "FORTH"
 str_wid:          .asciz "wid"
 str_words_hdr1:   .asciz "--- "
 str_words_hdr2:   .asciz " ---"
+str_included_hdr: .asciz "Included:\n"
+str_included_none: .asciz "  (none)\n"
 .align 8
 words_filter_len: .quad 0
 words_filter:     .skip 64          // uppercased filter substring
@@ -7626,8 +8011,7 @@ forth_init_str:
     // FORGET <name>  remove name and all newer words; rewind HERE to name's header.
     // FIND leaves (c-addr 0|xt flag); 0= IF consumes flag — do not DROP xt after THEN.
     // Refuses names below USER-DICT (static kernel). HERE rewound via negative ALLOT.
-    .ascii "DOC\" FORGET ( 'name' -- ) remove name and all newer words\" "
-    .ascii ": FORGET BL WORD FIND 0= IF DROP 63 EMIT CR EXIT THEN DUP USER-DICT U< IF DROP S\" protected\" TYPE CR EXIT THEN DUP >LINK @ LATEST ! DUP HERE - ALLOT DROP ; "
+        // FORGET is CODE (XFORGET): multi-wordlist prune + USER-DICT fence.
     // ANEW <name>  marker for reloadable modules (classic FPC/Win32Forth style).
     .ascii "DOC\" ANEW ( 'name' -- ) if name exists FORGET it, then CREATE name\" "
     .ascii ": ANEW >IN @ >R BL WORD FIND IF EXECUTE ELSE DROP THEN R> >IN ! CREATE LATEST @ , DOES> @ DUP >LINK @ LATEST ! DUP HERE - ALLOT DROP ; "

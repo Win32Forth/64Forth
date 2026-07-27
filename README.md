@@ -45,6 +45,8 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 - [x] DIR + Phase 5 hardening (reentrancy, bookmarks, entitlements)  
 - [x] Search-Order vocabularies + BIG-INTEGER + host BI-MUL/DIVMOD/ISQRT + ALLOCATE  
 - [x] Locals (`{:` / `TO`) for full `big-int.fth`  
+- [x] `REQUIRED` / absolute-path include registry / `.INCLUDED`  
+- [x] Multi-wordlist `FORGET`, `RESIZE`, quoted `INCLUDE "…"` paths, console KEY  
 
 Open `64Forth.xcodeproj` in **full Xcode** (Apple Silicon; not Command Line Tools alone). Build the **64Forth** app target.
 

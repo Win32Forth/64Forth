@@ -36,6 +36,9 @@ final class FileHost {
     /// Last error message for INCLUDE/FLOAD (also emitted via KernelBridge when set).
     private(set) var lastLoadError: String?
 
+    /// Absolute standardized path of the last successful load (REQUIRE registry key).
+    private(set) var lastLoadRegistryKey: String?
+
     /// Optional emit sink (KernelBridge sets this for load/chdir messages).
     var onMessage: ((String) -> Void)?
 
@@ -198,6 +201,18 @@ final class FileHost {
 
         let path = (base.path as NSString).appendingPathComponent(n)
         return URL(fileURLWithPath: path).standardizedFileURL
+    }
+
+    /// Resolve a load name to an absolute registry key (consumes FROMLIB like a real load).
+    /// Does not require the file to exist on disk.
+    func resolveRegistryKey(path: UnsafePointer<CChar>?, pathLen: Int) -> String? {
+        guard let path, pathLen > 0 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: pathLen)
+        for i in 0..<pathLen { bytes[i] = UInt8(bitPattern: path[i]) }
+        let raw = String(bytes: bytes, encoding: .utf8) ?? ""
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let url = resolveLoadPath(name) else { return nil }
+        return url.standardizedFileURL.path
     }
 
     private func pushFromLibraryCwd(library: URL) {
@@ -601,6 +616,7 @@ final class FileHost {
         p[n] = 0
         includeAllocs.append(p)
 
+        lastLoadRegistryKey = url.standardizedFileURL.path
         outPtr?.pointee = UnsafePointer(p)
         outLen?.pointee = n
         return 0
