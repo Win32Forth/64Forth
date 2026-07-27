@@ -1,0 +1,320 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		B1000001 /* SixtyFourForthApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000101 /* SixtyFourForthApp.swift */; };
+		B1000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000102 /* ContentView.swift */; };
+		B1000003 /* ConsoleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000103 /* ConsoleView.swift */; };
+		B1000004 /* KernelBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000104 /* KernelBridge.swift */; };
+		B1000005 /* FileHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000105 /* FileHost.swift */; };
+		B1000006 /* forth.s in Sources */ = {isa = PBXBuildFile; fileRef = B1000106 /* forth.s */; };
+		B1000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000107 /* Assets.xcassets */; };
+		B1000008 /* AutoLoad in Resources */ = {isa = PBXBuildFile; fileRef = B1000108 /* AutoLoad */; };
+		B1000009 /* Library in Resources */ = {isa = PBXBuildFile; fileRef = B1000109 /* Library */; };
+		B100000A /* Docs in Resources */ = {isa = PBXBuildFile; fileRef = B100010A /* Docs */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		B1000100 /* 64Forth.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = 64Forth.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B1000101 /* SixtyFourForthApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SixtyFourForthApp.swift; sourceTree = "<group>"; };
+		B1000102 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B1000103 /* ConsoleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleView.swift; sourceTree = "<group>"; };
+		B1000104 /* KernelBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KernelBridge.swift; sourceTree = "<group>"; };
+		B1000105 /* FileHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileHost.swift; sourceTree = "<group>"; };
+		B1000106 /* forth.s */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.asm; path = forth.s; sourceTree = "<group>"; };
+		B1000107 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B1000108 /* AutoLoad */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AutoLoad; sourceTree = "<group>"; };
+		B1000109 /* Library */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Library; sourceTree = "<group>"; };
+		B100010A /* Docs */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Docs; sourceTree = "<group>"; };
+		B100010B /* boot_words.inc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.asm; path = boot_words.inc; sourceTree = "<group>"; };
+		B100010C /* colon_words.inc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.asm; path = colon_words.inc; sourceTree = "<group>"; };
+		B100010D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B100010E /* DESIGN.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = DESIGN.md; path = DESIGN.md; sourceTree = "<group>"; };
+		B100010F /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = README.md; path = README.md; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B1000200 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		B1000300 = {
+			isa = PBXGroup;
+			children = (
+				B100010F /* README.md */,
+				B100010E /* DESIGN.md */,
+				B1000301 /* 64Forth */,
+				B1000305 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		B1000301 /* 64Forth */ = {
+			isa = PBXGroup;
+			children = (
+				B1000302 /* App */,
+				B1000303 /* Host */,
+				B1000304 /* Kernel */,
+				B1000107 /* Assets.xcassets */,
+				B1000306 /* Resources */,
+				B100010D /* Info.plist */,
+			);
+			path = 64Forth;
+			sourceTree = "<group>";
+		};
+		B1000302 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				B1000101 /* SixtyFourForthApp.swift */,
+				B1000102 /* ContentView.swift */,
+				B1000103 /* ConsoleView.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		B1000303 /* Host */ = {
+			isa = PBXGroup;
+			children = (
+				B1000104 /* KernelBridge.swift */,
+				B1000105 /* FileHost.swift */,
+			);
+			path = Host;
+			sourceTree = "<group>";
+		};
+		B1000304 /* Kernel */ = {
+			isa = PBXGroup;
+			children = (
+				B1000106 /* forth.s */,
+				B100010B /* boot_words.inc */,
+				B100010C /* colon_words.inc */,
+			);
+			path = Kernel;
+			sourceTree = "<group>";
+		};
+		B1000305 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B1000100 /* 64Forth.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		B1000306 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				B1000108 /* AutoLoad */,
+				B1000109 /* Library */,
+				B100010A /* Docs */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B1000400 /* 64Forth */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B1000502 /* Build configuration list for PBXNativeTarget "64Forth" */;
+			buildPhases = (
+				B1000401 /* Sources */,
+				B1000200 /* Frameworks */,
+				B1000402 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = 64Forth;
+			productName = 64Forth;
+			productReference = B1000100 /* 64Forth.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		B1000403 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1600;
+			};
+			buildConfigurationList = B1000500 /* Build configuration list for PBXProject "64Forth" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = B1000300;
+			productRefGroup = B1000305 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B1000400 /* 64Forth */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B1000402 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1000007 /* Assets.xcassets in Resources */,
+				B1000008 /* AutoLoad in Resources */,
+				B1000009 /* Library in Resources */,
+				B100000A /* Docs in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		B1000401 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1000001 /* SixtyFourForthApp.swift in Sources */,
+				B1000002 /* ContentView.swift in Sources */,
+				B1000003 /* ConsoleView.swift in Sources */,
+				B1000004 /* KernelBridge.swift in Sources */,
+				B1000005 /* FileHost.swift in Sources */,
+				B1000006 /* forth.s in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		B1000600 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				EXCLUDED_ARCHS = "x86_64 i386";
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				VALID_ARCHS = arm64;
+			};
+			name = Debug;
+		};
+		B1000601 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				EXCLUDED_ARCHS = "x86_64 i386";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALID_ARCHS = arm64;
+			};
+			name = Release;
+		};
+		B1000602 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = 64Forth/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.win32forth.SixtyFourForth;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				/* Kernel .include paths */
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/64Forth/Kernel",
+				);
+				OTHER_CFLAGS = (
+					"-I$(SRCROOT)/64Forth/Kernel",
+				);
+			};
+			name = Debug;
+		};
+		B1000603 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = 64Forth/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.win32forth.SixtyFourForth;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/64Forth/Kernel",
+				);
+				OTHER_CFLAGS = (
+					"-I$(SRCROOT)/64Forth/Kernel",
+				);
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		B1000500 /* Build configuration list for PBXProject "64Forth" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B1000600 /* Debug */,
+				B1000601 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B1000502 /* Build configuration list for PBXNativeTarget "64Forth" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B1000602 /* Debug */,
+				B1000603 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = B1000403 /* Project object */;
+}
