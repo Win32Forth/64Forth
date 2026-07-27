@@ -90,7 +90,8 @@ boot_word_table:
     BOOT_WORD "BRANCH", "BRANCH ( -- ) internal: unconditional branch", 0, XBranch
     BOOT_WORD "BYE", "BYE ( -- ) exit Forth to the host", 0, XBYE
     BOOT_WORD "INCLUDE", "INCLUDE ( -- ) name|dialog load and interpret file", 0, XINCLUDE
-    BOOT_WORD "REQUIRE", "REQUIRE ( -- ) name load file once (skip if already loaded)", 0, XREQUIRE
+    BOOT_WORD "INCLUDED", "INCLUDED ( c-addr u -- ) load and interpret named file (always)", 0, XINCLUDED
+    BOOT_WORD "REQUIRED", "REQUIRED ( c-addr u -- ) INCLUDED if file-spec not yet loaded", 0, XREQUIRED
     BOOT_WORD "CHDIR", "CHDIR ( -- ) path|dialog change working directory", 0, XCHDIR
     BOOT_WORD "PWD", "PWD ( -- ) print logical current directory", 0, XPWD
     BOOT_WORD "DIR", "DIR ( -- ) path|filespec list directory (* ? wildcards; FROMLIB ok)", 0, XDIR
@@ -140,6 +141,7 @@ boot_word_table:
     BOOT_WORD "\\", "\\ ( -- ) comment to end of line (immediate)", 1, XBACKSLASH
     BOOT_WORD "(", "( -- ) comment until ) (immediate)", 1, XPAREN
     BOOT_WORD "DOCON-ADDR", "DOCON-ADDR ( -- addr ) address of DOCON code", 0, XDOCON_ADDR
+    BOOT_WORD "DOCOL-ADDR", "DOCOL-ADDR ( -- addr ) address of DOCOL code (colon definitions)", 0, XDOCOL_ADDR
     BOOT_WORD "SOURCE", "SOURCE ( -- c-addr u ) current input source buffer and length", 0, XSOURCE
     BOOT_WORD ">IN", ">IN ( -- addr ) current input pointer variable ( >IN @ for offset)", 0, XTOIN
     BOOT_WORD "(S\")", "(S\") ( -- c-addr u ) runtime for S\" / .\"", 0, XSLIT

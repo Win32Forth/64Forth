@@ -1549,13 +1549,10 @@ XTICK:
     mov x20, x0                 // CFA
     NEXT
 _tick_fail:
-    mov x0, #1
-    adrp x1, str_quest@page
-    add x1, x1, str_quest@pageoff
-    mov x2, #2
-    mov x16, #4
-    svc #0x80
-    b _do_quit
+    // Must use emit_hook path (not raw write) so the SwiftUI console shows it.
+    // word_scratch is still the failed name (NUL-terminated by _next_word).
+    bl   _report_undefined
+    b    _do_quit
 
 // EXECUTE ( xt -- )  xt = CFA
 XEXECUTE:
@@ -1665,12 +1662,10 @@ XCOLON:
     ldp x29, x30, [sp], #16
     NEXT
 _colon_fail:
-    mov x0, #1
-    adrp x1, str_quest@page
-    add x1, x1, str_quest@pageoff
-    mov x2, #2
-    mov x16, #4
-    svc #0x80
+    adrp x0, str_quest@page
+    add  x0, x0, str_quest@pageoff
+    mov  x1, #2
+    bl   _write_stdout
     ldp x23, x24, [sp], #16
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
@@ -1757,12 +1752,10 @@ XCREATE:
     ldp x29, x30, [sp], #16
     NEXT
 _create_fail:
-    mov x0, #1
-    adrp x1, str_quest@page
-    add x1, x1, str_quest@pageoff
-    mov x2, #2
-    mov x16, #4
-    svc #0x80
+    adrp x0, str_quest@page
+    add  x0, x0, str_quest@pageoff
+    mov  x1, #2
+    bl   _write_stdout
     ldp x23, x24, [sp], #16
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
@@ -1874,46 +1867,66 @@ XDIR:
     NEXT
 
 // ============================================================================
-// INCLUDE / FLOAD — always load and interpret a file
-// REQUIRE        — load once per name (TZForth / ANS REQUIRED semantics)
+// File load: INCLUDE / FLOAD / INCLUDED / REQUIRED / REQUIRE
+// ============================================================================
+// ANS-shaped:
+//   INCLUDED  ( c-addr u -- )  always load named file (string on stack)
+//   REQUIRED  ( c-addr u -- )  INCLUDED if name not yet in registry
+//   REQUIRE   ( "name" -- )    high-level: PARSE-NAME REQUIRED
+//   INCLUDE   ( "name"|bare -- )  parse name (or dialog if bare); always load
+//   FLOAD     alias of INCLUDE
+//
 // Host load_file_hook when set: path_len 0 = bare dialog (TZForth FLOAD).
-// Else terminal open/read (named only).
-// Registry key = parse-name string (e.g. BigInteger/big-int.fth), case-insensitive.
+// Registry key = file-spec string (parse-name / REQUIRED string), case-insensitive.
+// (Tighter absolute-path keys need host resolve callback — future.)
 // ============================================================================
 .equ INCL_MAX, 48
 .equ INCL_NAME, 128
 
-// INCLUDE / FLOAD ( "filename" | bare -- )
+// INCLUDE / FLOAD ( "filename" | bare -- )  always load
 XINCLUDE:
     bl   _next_word
     mov  x25, x1                   // path len (0 = bare)
+    cbz  x25, _include_with_len
+    // named: ensure scratch holds path (already does)
     b    _include_with_len
 
-// REQUIRE ( "filename" -- )  skip if name already successfully loaded
-XREQUIRE:
-    bl   _next_word
-    mov  x25, x1
-    cbz  x25, _include_with_len    // bare → dialog / same as INCLUDE
-    // Snapshot name, then look up registry
+// INCLUDED ( c-addr u -- )  always load from string
+XINCLUDED:
+    mov  x1, x20                   // u
+    ldr  x0, [x22], #8             // c-addr
+    ldr  x20, [x22], #8            // drop pair from stack
+    bl   _copy_to_word_scratch     // → x25=len, word_scratch filled
+    b    _include_with_len
+
+// REQUIRED ( c-addr u -- )  load once (skip if registry hit)
+XREQUIRED:
+    mov  x1, x20                   // u
+    ldr  x0, [x22], #8             // c-addr
+    ldr  x20, [x22], #8
+    cbz  x1, _required_empty
+    bl   _copy_to_word_scratch     // x25=len
     bl   _include_save_name
     adrp x0, include_name_pending@page
     add  x0, x0, include_name_pending@pageoff
     adrp x1, include_name_len@page
     add  x1, x1, include_name_len@pageoff
     ldr  x1, [x1]
-    bl   _included_find_buf        // x0=1 if already loaded
+    bl   _included_find_buf
     cbnz x0, _require_skip
     b    _include_with_len
+
+_required_empty:
+    // empty name — soft fail like tick
+    adrp x0, str_quest@page
+    add  x0, x0, str_quest@pageoff
+    mov  x1, #2
+    bl   _write_stdout
+    b    _error_abandon
+
 _require_skip:
-    // Disarm FROMLIB so a no-op REQUIRE does not leave Library mode sticky
-    adrp x0, fromlib_clear_hook@page
-    add  x0, x0, fromlib_clear_hook@pageoff
-    ldr  x0, [x0]
-    cbz  x0, 1f
-    SAVE_VM
-    blr  x0
-    RESTORE_VM
-1:
+    // Disarm FROMLIB so a no-op REQUIRED does not leave Library mode sticky
+    bl   _fromlib_clear
     NEXT
 
 // Shared loader. x25 = path len; name in word_scratch when x25 != 0.
@@ -2025,6 +2038,44 @@ _include_fail_restore:
     RESTORE_VM
 _include_fail:
     b    _error_abandon
+
+// _fromlib_clear: disarm FROMLIB host arm if hook set
+_fromlib_clear:
+    stp  x29, x30, [sp, #-16]!
+    adrp x0, fromlib_clear_hook@page
+    add  x0, x0, fromlib_clear_hook@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 1f
+    // SAVE_VM not needed if hook only clears a Swift flag (no VM use)
+    blr  x0
+1:
+    ldp  x29, x30, [sp], #16
+    ret
+
+// _copy_to_word_scratch: x0=src, x1=len → word_scratch + NUL, x25=clamped len
+_copy_to_word_scratch:
+    mov  x25, x1
+    cmp  x25, #INCL_NAME - 1
+    b.ls 1f
+    mov  x25, #INCL_NAME - 1
+1:
+    // also cap to word_scratch (512)
+    mov  x2, #511
+    cmp  x25, x2
+    csel x25, x2, x25, hi
+    adrp x2, word_scratch@page
+    add  x2, x2, word_scratch@pageoff
+    mov  x3, #0
+2:
+    cmp  x3, x25
+    b.hs 3f
+    ldrb w4, [x0, x3]
+    strb w4, [x2, x3]
+    add  x3, x3, #1
+    b    2b
+3:
+    strb wzr, [x2, x3]
+    ret
 
 // _include_save_name: word_scratch[0..x25) → include_name_pending + include_name_len
 _include_save_name:
@@ -3382,14 +3433,8 @@ _bracket_tick_interpret:
     NEXT
 
 _bracket_tick_fail:
-    // Print "?" and abort
-    mov x0, #1
-    adrp x1, str_quest@page
-    add x1, x1, str_quest@pageoff
-    mov x2, #2
-    mov x16, #4
-    svc #0x80
-    b _do_quit
+    bl   _report_undefined
+    b    _do_quit
 
 // LIT-ADDR ( -- addr ) push dict_lit entry address
 XLIT_ADDR:
@@ -3433,6 +3478,14 @@ XDOCON_ADDR:
     adrp x0, DOCON@page
     add x0, x0, DOCON@pageoff
     mov x20, x0
+    NEXT
+
+// DOCOL-ADDR ( -- addr ) address of DOCOL code (colon entry; for DOCOL? / SEE)
+XDOCOL_ADDR:
+    DPUSH
+    adrp x0, DOCOL@page
+    add  x0, x0, DOCOL@pageoff
+    mov  x20, x0
     NEXT
 
 // ============================================================================
@@ -5505,7 +5558,14 @@ _compile_entry:
     b _interpret_loop
 
 _word_not_found:
-    // "undefined: <word>\n"
+    bl   _report_undefined
+    b    _error_abandon
+
+// _report_undefined: print "undefined: <word_scratch>\n" via host emit_hook
+// (raw svc write never appears in the SwiftUI console). word_scratch must be
+// the failed name, NUL-terminated (_next_word always does this).
+_report_undefined:
+    stp  x29, x30, [sp, #-16]!
     adrp x0, str_undefined@page
     add  x0, x0, str_undefined@pageoff
     mov  x1, #11                   // "undefined: "
@@ -5515,7 +5575,8 @@ _word_not_found:
     bl   _print_string_svc
     mov  x0, #10
     bl   _putchar
-    b _error_abandon
+    ldp  x29, x30, [sp], #16
+    ret
 
 // Data-stack check between outer-interpreter words (not inside primitives).
 // Stack grows down; empty DSP = data_stack+4096. Underflow if DSP > SP0.
@@ -7499,8 +7560,9 @@ forth_init_str:
 
     // --- 5. Tools / extensions ---
     // WORDS is CODE (XWORDS): first search-order wordlist only, alpha-sorted (TZForth).
+    // Colon CFAs hold DOCOL; EXIT's code field is DOEXIT — never equal. Use DOCOL-ADDR.
     .ascii "DOC\" DOCOL? ( xt -- flag ) true if colon definition\" "
-    .ascii ": DOCOL? @ ['] EXIT @ = ; "
+    .ascii ": DOCOL? @ DOCOL-ADDR = ; "
     // SEE: walk colon body; skip inline data after LIT, (S"), BRANCH, 0BRANCH,
     // (LOOP), and (+LOOP). Ordinary xts (including (DO), (DOES>), EXIT) are 1 cell.
     // ALIAS copies CODE field only — correct for CODE words (e.g. FLOAD/INCLUDE)
@@ -7517,7 +7579,9 @@ forth_init_str:
     .ascii "DOC\" HELP ( 'name' -- ) show help and decompile word (same as SEE)\" "
     .ascii ": HELP SEE ; "
     .ascii "' INCLUDE ALIAS FLOAD "
-    // REQUIRE is a CODE word (XREQUIRE): load-once registry, not an INCLUDE alias.
+    // ANS: REQUIRE = PARSE-NAME REQUIRED  (REQUIRED is CODE; load-once registry)
+    .ascii "DOC\" REQUIRE ( 'name' -- ) load file once (PARSE-NAME REQUIRED)\" "
+    .ascii ": REQUIRE PARSE-NAME REQUIRED ; "
 
     // .FREE ( -- )  print free user-dictionary bytes (UNUSED is the cell value)
     .ascii "DOC\" .FREE ( -- ) print free dictionary bytes remaining (unsigned, like UNUSED U.)\" "
