@@ -89,8 +89,39 @@ boot_word_table:
     BOOT_WORD "0BRANCH", "0BRANCH ( -- ) internal: branch if zero", 0, X0Branch
     BOOT_WORD "BRANCH", "BRANCH ( -- ) internal: unconditional branch", 0, XBranch
     BOOT_WORD "BYE", "BYE ( -- ) exit Forth to the host", 0, XBYE
-    BOOT_WORD "INCLUDE", "INCLUDE ( -- ) name parse name and INCLUDED (immediate)", 0, XINCLUDE
-    BOOT_WORD "LATEST", "LATEST ( -- addr ) latest dictionary header", 0, XLATEST
+    BOOT_WORD "INCLUDE", "INCLUDE ( -- ) name|dialog load and interpret file", 0, XINCLUDE
+    BOOT_WORD "REQUIRE", "REQUIRE ( -- ) name load file once (skip if already loaded)", 0, XREQUIRE
+    BOOT_WORD "CHDIR", "CHDIR ( -- ) path|dialog change working directory", 0, XCHDIR
+    BOOT_WORD "PWD", "PWD ( -- ) print logical current directory", 0, XPWD
+    BOOT_WORD "DIR", "DIR ( -- ) path|filespec list directory (* ? wildcards; FROMLIB ok)", 0, XDIR
+    BOOT_WORD "FROMLIB", "FROMLIB ( -- ) next FLOAD/INCLUDE/REQUIRE/CHDIR/DIR uses Resources/Library", 0, XFROMLIB
+    BOOT_WORD "FROM-LIBRARY", "FROM-LIBRARY ( -- ) synonym for FROMLIB", 0, XFROMLIB
+    BOOT_WORD "LATEST", "LATEST ( -- addr ) FORTH wordlist head cell", 0, XLATEST
+    BOOT_WORD "CURRENT", "CURRENT ( -- addr ) compilation wordlist variable", 0, XCURRENT
+    BOOT_WORD "WORDLIST", "WORDLIST ( -- wid ) create empty word list", 0, XWORDLIST
+    BOOT_WORD "FORTH-WORDLIST", "FORTH-WORDLIST ( -- wid ) main FORTH word list", 0, XFORTH_WORDLIST
+    BOOT_WORD "GET-CURRENT", "GET-CURRENT ( -- wid )", 0, XGET_CURRENT
+    BOOT_WORD "SET-CURRENT", "SET-CURRENT ( wid -- )", 0, XSET_CURRENT
+    BOOT_WORD "GET-ORDER", "GET-ORDER ( -- widn ... wid1 n )", 0, XGET_ORDER
+    BOOT_WORD "SET-ORDER", "SET-ORDER ( widn ... wid1 n -- )", 0, XSET_ORDER
+    BOOT_WORD "PUSH-ORDER", "PUSH-ORDER ( wid -- ) prepend wid to search order", 0, XPUSH_ORDER
+    BOOT_WORD "DEFINITIONS", "DEFINITIONS ( -- ) CURRENT = first in search order", 0, XDEFINITIONS
+    BOOT_WORD "ONLY", "ONLY ( -- ) search order = FORTH only", 0, XONLY
+    BOOT_WORD "ALSO", "ALSO ( -- ) duplicate first search-order entry", 0, XALSO
+    BOOT_WORD "PREVIOUS", "PREVIOUS ( -- ) drop first search-order entry", 0, XPREVIOUS
+    BOOT_WORD "FORTH", "FORTH ( -- ) set first search-order entry to FORTH", 0, XFORTH
+    BOOT_WORD "ORDER", "ORDER ( -- ) print search order and CURRENT", 0, XORDER
+    BOOT_WORD "ALLOCATE", "ALLOCATE ( u -- a-addr ior ) allocate u bytes", 0, XALLOCATE
+    BOOT_WORD "FREE", "FREE ( a-addr -- ior ) free ALLOCATE block", 0, XFREE
+    BOOT_WORD "BI-MUL", "BI-MUL ( a b r -- ) BIG-INTEGER host multiply", 0, XBIMUL
+    BOOT_WORD "BI-DIVMOD", "BI-DIVMOD ( num den quot rem work -- ) BIG-INTEGER host divmod", 0, XBIDIVMOD
+    BOOT_WORD "BI-ISQRT", "BI-ISQRT ( a r quot rem work t1 t2 -- ) BIG-INTEGER host isqrt", 0, XBIISQRT
+    BOOT_WORD "(LOCAL-INIT)", "(LOCAL-INIT) ( n nInit rev -- ) create locals frame", 0, XLOCAL_INIT
+    BOOT_WORD "(LOCAL@)", "(LOCAL@) ( idx -- x ) fetch local", 0, XLOCAL_AT
+    BOOT_WORD "(LOCAL!)", "(LOCAL!) ( x idx -- ) store local", 0, XLOCAL_STORE
+    BOOT_WORD "{:", "{: ( -- ) declare locals {: args | vals -- outs :} (immediate)", 1, XLOCAL_BRACE
+    BOOT_WORD "TO", "TO ( x 'name' -- ) store to VALUE or local (immediate)", 1, XTO_IMM
+    BOOT_WORD "WORDS", "WORDS ( ['filter'] -- ) list first search-order wordlist, sorted", 0, XWORDS
     BOOT_WORD "?DUP", "?DUP ( n -- n n | 0 ) dup if non-zero", 0, XQDUP
     BOOT_WORD "[']", "['] ( -- xt ) compile xt of next name", 1, XBRACKET_TICK
     BOOT_WORD "LIT-ADDR", "LIT-ADDR ( -- xt ) address/xt of LIT (for SEE)", 0, XLIT_ADDR
@@ -170,7 +201,7 @@ boot_word_table:
     BOOT_WORD "SETDOC", "SETDOC ( c-addr u -- ) pending help for next defining word", 0, XSETDOC
     .quad 0, 0, 0, 0
 
-.equ BOOT_WORD_COUNT, 145
+.equ BOOT_WORD_COUNT, 176
 
 // Empty help used by : / CREATE / :NONAME
 .align 8
@@ -188,3 +219,6 @@ boot_cmp_branch: .asciz "BRANCH"
 boot_cmp_0branch: .asciz "0BRANCH"
 boot_cmp_does_rt: .asciz "(DOES>)"
 boot_cmp_catch_ok: .asciz "(CATCH-OK)"
+boot_cmp_local_init: .asciz "(LOCAL-INIT)"
+boot_cmp_local_at: .asciz "(LOCAL@)"
+boot_cmp_local_store: .asciz "(LOCAL!)"

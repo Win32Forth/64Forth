@@ -1,59 +1,33 @@
-TZForth AutoLoad (product boot)
+64Forth AutoLoad (product boot)
 ===============================
 
-Full documentation: repository README.md section "AutoLoad (product boot)".
+This folder is copied into the app as:
 
-Build
------
-This folder is copied wholesale into the app at build time:
-
-  YourApp.app/Contents/Resources/AutoLoad/
-
-via the Xcode "Copy AutoLoad" Run Script phase (entire directory).
+  64Forth.app/Contents/Resources/AutoLoad/
 
 Boot (at launch)
 ----------------
 1. If Resources/AutoLoad/autoload.fth is missing → silent; normal REPL.
-2. If present → load/interpret it (no host path banners).
+2. If present → load/interpret it after the console attaches.
    During load, cwd is this AutoLoad folder. Nested FLOAD / INCLUDE of bare
-   names (e.g. FLOAD ANEW.fth) reads siblings from Resources/AutoLoad without
-   a security-scope dialog — the folder is inside the app bundle.
-3. If MAIN is defined → execute MAIN once (silent if MAIN is absent).
-4. Console stays open.
+   names (e.g. FLOAD ANEW.fth) reads siblings from Resources/AutoLoad.
+3. If MAIN is defined → execute MAIN once.
+4. Session cwd is restored; console stays open with ok> prompt.
 
 Boot file name must be lowercase: autoload.fth
 
-Files in this project folder
-----------------------------
-  autoload.fth          Product boot (optional; omit for pure REPL)
-  AutoLoad-Sample.fth   Example MAIN + CATCH pattern (not auto-loaded)
-  ANEW.fth              Classic ANEW reload marker (loaded by default autoload)
+Files
+-----
+  autoload.fth          Product boot (edit freely)
+  ANEW.fth              Classic ANEW reload marker
+  AutoLoad-Sample.fth   Example patterns (not auto-loaded)
   README.txt            This note
-  (any other .fth)      Copied into the app; include from autoload.fth as needed
-
-Default autoload.fth loads ANEW.fth and FROMLIB FLOAD Editor/SZ-EDITOR.fth
-so the in-app editor is always available (File menu / SZEDIT).
-
-Other Library modules (see TZForth/Library/ and Library/README.txt):
-
-  FROMLIB FLOAD BigInteger/big-int.fth
-  FROMLIB FLOAD PI/pi-test.fth
 
 Tools menu
 ----------
-  Tools → AUTOLOAD → VIEW AutoLoad Folder
-    Opens Contents/Resources/AutoLoad/ in Finder so you can add/edit/remove
-    files (zip-style customization after install). Use Finder to open/save
-    files; there is no separate EDIT autoload.fth menu.
+  Tools → Show AutoLoad Folder — open this directory in Finder.
 
-Ship a product
---------------
-  1. Edit/add files under project TZForth/AutoLoad/ (especially autoload.fth).
-  2. Define : MAIN ( -- ) ... ; if you want a startup entry (see sample).
-  3. Archive or Release-build; distribute the .app.
-
-Notes
------
-- CLS clears the whole console including the TZForth banner.
-- Editing inside a signed .app can affect code signature; fine for personal
-  zip use. App Store products should ship the intended AutoLoad at Archive time.
+Examples to add in autoload.fth
+-------------------------------
+  FROMLIB FLOAD smoke-load.fth
+  FROMLIB FLOAD BigInteger/big-int.fth   (needs more kernel/host words)

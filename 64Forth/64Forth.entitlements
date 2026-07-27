@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Phase 5: App Sandbox OFF for developer builds (DESIGN open decision #1).
+	  File access uses normal FS + security-scoped bookmarks when panels grant them.
+	  To ship sandboxed later: set com.apple.security.app-sandbox true and
+	  add user-selected file read-write + bookmarks.
+	-->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+</dict>
+</plist>

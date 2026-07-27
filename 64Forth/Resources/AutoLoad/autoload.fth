@@ -1,19 +1,18 @@
-\ autoload.fth — product boot (lowercase name required)
+\ autoload.fth — 64Forth product boot (lowercase name required)
+\ Loaded automatically after kernel_init when present in Resources/AutoLoad/.
+\ During load, session cwd is this AutoLoad folder (nested FLOAD sees siblings).
 
 FLOAD ANEW.fth
 
-\ Always load SZ-EDITOR so File menu / SZEDIT work without a manual FLOAD.
-FROMLIB FLOAD Editor/SZ-EDITOR.fth
+\ Optional: pull Library modules here, e.g.
+\   FROMLIB FLOAD smoke-load.fth
+\
+\ TZForth ships FROMLIB FLOAD Editor/SZ-EDITOR.fth — not in the Pickle kernel stack yet.
 
-\ Required: define MAIN so the host can start the app after load.
 : APP-RUN  ( -- )
-\   .( AutoLoad APP-RUN finished.) CR
+  .( 64Forth AutoLoad complete.) CR
   ;
 
 : MAIN  ( -- )
-  ['] APP-RUN CATCH
-  ?DUP IF
-    .( AutoLoad MAIN: exception ) CR
-    .ERROR CR
-  THEN
+  APP-RUN
   ;

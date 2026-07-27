@@ -32,16 +32,42 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 
 ---
 
-## Status (scaffold)
+## Status
 
 - [x] Project folder and design doc  
 - [x] Kernel sources copied from PickleForth (`_kernel_cold_start` entry, not `_main`)  
-- [x] SwiftUI app shell + console placeholder  
+- [x] SwiftUI app shell + console  
 - [x] Resource folders (AutoLoad sample, Library/BigInteger & PI samples)  
-- [ ] Embeddable `kernel_init` / `kernel_eval` / host EMIT·KEY (Phase 1)  
-- [ ] Full ConsoleView parity + FROMLIB (Phase 2–3)  
+- [x] Embeddable `kernel_init` / `kernel_eval` / host EMIT·KEY (Phase 1)  
+- [x] Console parity: protected region, Return commit, ↑/↓ history, Tools menus (Phase 2)  
+- [x] FROMLIB + host-driven INCLUDE/FLOAD/REQUIRE (Phase 3)  
+- [x] AutoLoad on launch (`Resources/AutoLoad/autoload.fth` → MAIN) (Phase 4)  
+- [x] DIR + Phase 5 hardening (reentrancy, bookmarks, entitlements)  
+- [x] Search-Order vocabularies + BIG-INTEGER + host BI-MUL/DIVMOD/ISQRT + ALLOCATE  
+- [x] Locals (`{:` / `TO`) for full `big-int.fth`  
 
-Open `64Forth.xcodeproj` in Xcode (Apple Silicon). Build the **64Forth** app target.
+Open `64Forth.xcodeproj` in **full Xcode** (Apple Silicon; not Command Line Tools alone). Build the **64Forth** app target.
+
+### Phase 1 API (assembly ↔ Swift)
+
+| Symbol | Role |
+|--------|------|
+| `kernel_init()` | Boot dict + `forth_init_str`; returns (no QUIT loop) |
+| `kernel_eval(line, n)` | Interpret one line; `" ok\n"` via emit |
+| `kernel_set_emit(fn)` | Host character output |
+| `kernel_set_key(fn)` | Host KEY (−1 if none) |
+| `kernel_set_fromlib(fn)` | Host arms FROMLIB resolve |
+| `kernel_set_load_file(fn)` | Host reads file for INCLUDE/FLOAD |
+
+**FROMLIB example** (after rebuild):
+
+```text
+FROMLIB FLOAD BigInteger/big-int.fth
+```
+
+(Resolves under `Resources/Library`. Full BigInteger stack needs TZForth words not yet in the Pickle kernel — use simple `.fth` files to smoke-test loads.)
+
+See `64Forth/Kernel/kernel_api.h`. Do **not** call `_kernel_cold_start` from the UI.
 
 ---
 
@@ -62,7 +88,7 @@ You are currently able to open Grok in **any project root**. Treat **one primary
 3. You can still **read** PickleForth or TZForth from a 64Forth chat when integrating (`../PickleForth`, `../TZForth`); prefer **writing** only under `64Forth` unless you explicitly want a PickleForth fix.  
 4. Kernel improvements: implement/test in PickleForth when pure assembly is easier, then **copy or cherry-pick** into `64Forth/64Forth/Kernel/`.
 
-This chat was started under PickleForth; after scaffolding, continue 64Forth work in a **64Forth-rooted** session when convenient.
+Use a **64Forth-rooted** Grok session for hybrid-app work; keep PickleForth sessions for pure terminal-kernel experiments.
 
 ---
 

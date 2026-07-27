@@ -43,7 +43,7 @@
 └─────────────────────────────────────────────────────────┘
 ```
 
-**v0.1 reality:** Kernel still has terminal-style I/O (`svc` read/write) and a standalone cold start. The app builds, shows a console stub, and documents the bridge. Full line feed + FROMLIB is Phase 2–3.
+**v0.1 reality:** Phase 1 embed API is wired: host sets emit/key hooks, calls `kernel_init` once, then `kernel_eval` per line. Fallback TTY syscalls remain for terminal `_kernel_cold_start` and when hooks are unset. Console protected-region parity and FROMLIB→kernel FLOAD are Phase 2–3.
 
 ---
 
@@ -57,32 +57,54 @@
 - [x] DESIGN.md + README.md
 
 ### Phase 1 — Embeddable kernel API
-- Export C-callable:
+- [x] Export C-callable:
   - `kernel_init(void)` — cold dictionary build, no infinite QUIT
   - `kernel_eval(const char *line, size_t n)` — interpret one line / buffer
   - `kernel_set_emit(void (*fn)(int c))` / `kernel_set_key(int (*fn)(void))`
-- Split PickleForth’s `_quit_loop` so init does not block the UI thread forever
-- Host: `KernelBridge.shared.eval(line)` → console
+- [x] Split PickleForth’s `_quit_loop` so init does not block the UI thread forever
+- [x] Host: `KernelBridge.shared.evaluate(line)` → emit → console
+- [x] `kernel_api.h` documents the ABI; `_kernel_cold_start` remains terminal-only
+- Notes: KEY queue is stubby (−1 when empty); ACCEPT/REFILL still TTY-oriented; full console protected region is Phase 2
 
 ### Phase 2 — Console parity (TZForth UX)
-- Port ConsoleView patterns: protected region, history, Return handling
-- Wire feedLine → kernel_eval; append emit buffer to consoleText
-- Menus: CLS, FLOAD panel, CHDIR, open Library/AutoLoad/Docs in Finder
+- [x] Port ConsoleView patterns: protected region, history, Return handling
+- [x] AppKit `ConsoleTextView` (NSTextView): editableStart, scroll-to-caret
+- [x] Wire feedLine → `KernelBridge.evaluate`; emit → console
+- [x] Menus: CLS, FLOAD panel, CHDIR, open Library/AutoLoad/Docs in Finder
+- Notes: KEY still stubby; FLOAD uses kernel `INCLUDE` with absolute path (spaces fragile); full FROMLIB resolve is Phase 3
 
 ### Phase 3 — File / FROMLIB architecture
-- Port TZForth resolution:
+- [x] Port TZForth resolution in `FileHost`:
   - `logicalCurrentDirectory`
-  - FROMLIB sets “next path base = Bundle Resources/Library”
-  - Named FLOAD: resolve relative to cwd or library; host opens file, passes text to kernel (or kernel open via host callback)
-- Kernel `INCLUDE`/`FLOAD`: either keep syscalls with host-supplied absolute paths, or host loads entire file and `EVALUATE`s / nested SOURCE (Pickle already has SOURCE stack)
+  - FROMLIB sets “next path base = Bundle Resources/Library” (+ cwd switch for nested relatives)
+  - Named FLOAD/INCLUDE/REQUIRE: host opens file, pins buffer, kernel nests SOURCE
+- [x] Kernel: `FROMLIB`/`FROM-LIBRARY` CODE words → `fromlib_hook`
+- [x] Kernel: `INCLUDE` uses `load_file_hook` when set (else terminal open/read)
+- [x] `FLOAD` / `REQUIRE` aliases of `INCLUDE`; `word_scratch` 512 for long paths
+- [x] TZForth-style host words: bare `FLOAD`/`INCLUDE` → open panel; `CHDIR` path|dialog; `PWD`
+- [x] Bare FLOAD no longer mis-reports `can't open: FLOAD` (stale word_scratch)
+- Notes: library `.fth` may need TZForth words (ALLOCATE, vocabularies, …) not in Pickle kernel; path-with-spaces still limited by WORD parse; AutoLoad on launch is Phase 4
 
 ### Phase 4 — AutoLoad
-- On launch: if `Resources/AutoLoad/autoload.fth` exists, load after kernel_init (TZForth `runAutoLoadIfPresent`)
+- [x] On launch: if `Resources/AutoLoad/autoload.fth` exists, load after console attaches (TZForth `runAutoLoadIfPresent`)
+- [x] During load: cwd = AutoLoad/ so nested `FLOAD ANEW.fth` works; restore cwd after
+- [x] Run `MAIN` if defined (plain `MAIN` after load)
+- [x] 64Forth-friendly default `autoload.fth` (ANEW + MAIN; no SZ-EDITOR)
 
-### Phase 5 — Hardening
-- No blocking QUIT on main thread (background or cooperative REPL)
-- Sandbox entitlements / bookmarks as TZForth
-- Optional: port Hayes suite under Library/HayesTest when INCLUDE is solid
+### Phase 5 — Hardening (+ DIR)
+- [x] **DIR** host word (TZForth-style: bare cwd, path, `*`/`?` filters, FROMLIB → Library)
+- [x] Eval **reentrancy guard** (`isEvaluating` / try-lock; kernel not re-entrant)
+- [x] **Entitlements**: App Sandbox off for v0.1 (`64Forth.entitlements`); ready to flip later
+- [x] **Security-scoped bookmarks** + last cwd persistence (UserDefaults) for panel picks / CHDIR
+- [ ] Optional later: background kernel_eval for huge loads; full sandbox + Hayes suite
+
+### Phase 6 — Search-Order, BIG-INTEGER, host BI math
+- [x] Multi-wordlist FIND + CURRENT linking (`_header_build` / `_find_word`)
+- [x] Search-Order words: WORDLIST, ONLY, ALSO, DEFINITIONS, FORTH, ORDER, GET/SET-ORDER, …
+- [x] `VOCABULARY` + `BIG-INTEGER` / `EDITOR` / `ASSEMBLER` at bootstrap
+- [x] `ALLOCATE` / `FREE` host hooks
+- [x] Host `BI-MUL` / `BI-DIVMOD` / `BI-ISQRT` (`BigIntHost.swift`, TZForth algorithms)
+- [x] Locals: `{: … :}`, `TO`, `(LOCAL-INIT)` / `(LOCAL@)` / `(LOCAL!)` for stock `big-int.fth`
 
 ---
 
