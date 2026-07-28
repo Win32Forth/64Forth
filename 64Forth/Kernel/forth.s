@@ -2880,35 +2880,53 @@ _print_wid_name:
 // ============================================================================
 // FORGET ( "name" -- ) — reclaim from name's CFA; prune ALL wordlist heads
 // ============================================================================
-// Finds name via search order (FIND). Refuses CFA below USER-DICT.
+// Finds name via search order (FIND). Refuses system/kernel words:
+//   CFA < words_user_base (HERE after bootstrap; same fence as WORDS).
+//   Fallback if fence unset: CFA < USER-DICT base.
 // Rewinds HERE to the forgotten CFA. Prunes latest_var, current, search_order,
 // and every VOCABULARY wordlist head found in the FORTH chain.
+//
+// Must SAVE_VM + forget_cut BSS: must not keep cut in x19 (IP for CODE words).
 XFORGET:
+    SAVE_VM
     bl   _next_word
     cbz  x1, 8f
     bl   _find_word
     cbz  x0, 9f
-    // x0 = CFA (cut)
+    // x0 = CFA (cut). Protect system dictionary (boot + forth_init_str).
+    adrp x1, words_user_base@page
+    add  x1, x1, words_user_base@pageoff
+    ldr  x1, [x1]
+    cbnz x1, 0f
+    // Fence not set yet — never forget below physical dict base
     adrp x1, user_dict_area@page
     add  x1, x1, user_dict_area@pageoff
+0:
     cmp  x0, x1
-    b.lo 7f                        // protected
-    mov  x19, x0                   // cut CFA
+    b.lo 7f                        // protected (system word)
+    // cut in BSS — free for entire routine (helpers clobber x0–x18)
+    adrp x2, forget_cut@page
+    add  x2, x2, forget_cut@pageoff
+    str  x0, [x2]
     // HERE = cut
     adrp x1, here_ptr@page
     add  x1, x1, here_ptr@pageoff
-    str  x19, [x1]
+    str  x0, [x1]
     // prune FORTH latest
     adrp x0, latest_var@page
     add  x0, x0, latest_var@pageoff
-    mov  x1, x19
+    adrp x1, forget_cut@page
+    add  x1, x1, forget_cut@pageoff
+    ldr  x1, [x1]
     bl   _prune_wid
     // prune CURRENT
     adrp x0, current_var@page
     add  x0, x0, current_var@pageoff
     ldr  x0, [x0]
     cbz  x0, 1f
-    mov  x1, x19
+    adrp x1, forget_cut@page
+    add  x1, x1, forget_cut@pageoff
+    ldr  x1, [x1]
     bl   _prune_wid
 1:
     // prune search_order entries
@@ -2923,11 +2941,13 @@ XFORGET:
     b.hs 3f
     ldr  x0, [x3, x4, lsl #3]
     cbz  x0, 21f
-    mov  x1, x19
+    adrp x1, forget_cut@page
+    add  x1, x1, forget_cut@pageoff
+    ldr  x1, [x1]
     stp  x2, x3, [sp, #-16]!
-    stp  x4, x19, [sp, #-16]!
+    stp  x4, xzr, [sp, #-16]!
     bl   _prune_wid
-    ldp  x4, x19, [sp], #16
+    ldp  x4, xzr, [sp], #16
     ldp  x2, x3, [sp], #16
 21:
     add  x4, x4, #1
@@ -2936,17 +2956,37 @@ XFORGET:
     // Scan FORTH chain for DODOES vocabularies; prune their PFA (wid)
     adrp x0, DODOES@page
     add  x0, x0, DODOES@pageoff
-    mov  x20, x0                   // DODOES code
+    mov  x20, x0                   // DODOES code (TOS saved by SAVE_VM)
     adrp x0, latest_var@page
     add  x0, x0, latest_var@pageoff
     ldr  x21, [x0]                 // cfa walk
 4:
     cbz  x21, 6f
+    // Guard: CFA must be in user dict range (avoid following garbage links)
+    adrp x0, user_dict_area@page
+    add  x0, x0, user_dict_area@pageoff
+    cmp  x21, x0
+    b.lo 6f
+    adrp x0, here_ptr@page
+    add  x0, x0, here_ptr@pageoff
+    ldr  x0, [x0]
+    // After HERE=cut, chain heads are < cut; still allow walk of remaining dict
+    // Use dict end (base+logical size) as upper bound for a valid CFA pointer
+    adrp x1, user_dict_area@page
+    add  x1, x1, user_dict_area@pageoff
+    adrp x2, user_dict_size_cell@page
+    add  x2, x2, user_dict_size_cell@pageoff
+    ldr  x2, [x2]
+    add  x1, x1, x2
+    cmp  x21, x1
+    b.hs 6f
     ldr  x0, [x21]
     cmp  x0, x20
     b.ne 5f
     add  x0, x21, #16              // wid = PFA
-    mov  x1, x19
+    adrp x1, forget_cut@page
+    add  x1, x1, forget_cut@pageoff
+    ldr  x1, [x1]
     stp  x20, x21, [sp, #-16]!
     bl   _prune_wid
     ldp  x20, x21, [sp], #16
@@ -2954,20 +2994,24 @@ XFORGET:
     ldr  x21, [x21, #-16]
     b    4b
 6:
+    RESTORE_VM
     NEXT
 7:
     adrp x0, str_protected@page
     add  x0, x0, str_protected@pageoff
     bl   _print_string_svc
+    RESTORE_VM
     NEXT
 8:
     adrp x0, str_quest@page
     add  x0, x0, str_quest@pageoff
     mov  x1, #2
     bl   _write_stdout
+    RESTORE_VM
     NEXT
 9:
     bl   _report_undefined
+    RESTORE_VM
     b    _error_abandon
 
 // _prune_wid: x0 = wid (addr of head cell), x1 = cut CFA
@@ -8074,7 +8118,7 @@ str_cant_open:  .ascii "can't open: "
                 .byte 0
 str_undefined:  .ascii "undefined: "
                 .byte 0
-str_protected:  .asciz "protected\n"
+str_protected:  .asciz "protected (system word)\n"
                 .byte 0
 str_underflow:  .asciz "stack underflow\n"
 str_overflow:   .asciz "stack overflow\n"
@@ -8130,6 +8174,7 @@ words_filter:     .skip 64          // uppercased filter substring
 words_cfa:        .skip WORDS_MAX * 8  // CFA list for WORDS (kernel then user)
 words_user_base:  .quad 0           // HERE after bootstrap; CFA >= this → user word
 words_nk_tmp:     .quad 0           // kernel count during WORDS
+forget_cut:       .quad 0           // FORGET cut CFA (must not live in x19/IP)
 // REQUIRE / INCLUDED-NAMES style registry (parse-name keys)
 .align 8
 included_count:       .quad 0

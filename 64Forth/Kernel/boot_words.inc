@@ -93,7 +93,7 @@ boot_word_table:
     BOOT_WORD "INCLUDED", "INCLUDED ( c-addr u -- ) load and interpret named file (always)", 0, XINCLUDED
     BOOT_WORD "REQUIRED", "REQUIRED ( c-addr u -- ) INCLUDED if file-spec not yet loaded", 0, XREQUIRED
     BOOT_WORD ".INCLUDED", ".INCLUDED ( -- ) list files registered by INCLUDE/REQUIRED", 0, XDOT_INCLUDED
-    BOOT_WORD "FORGET", "FORGET ( 'name' -- ) remove name and all newer words (all wordlists)", 0, XFORGET
+    BOOT_WORD "FORGET", "FORGET ( 'name' -- ) remove user name and all newer words; system words protected", 0, XFORGET
     BOOT_WORD "CHDIR", "CHDIR ( -- ) path|dialog change working directory", 0, XCHDIR
     BOOT_WORD "PWD", "PWD ( -- ) print logical current directory", 0, XPWD
     BOOT_WORD "DIR", "DIR ( -- ) path|filespec list directory (* ? wildcards; FROMLIB ok)", 0, XDIR

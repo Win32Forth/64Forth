@@ -1,7 +1,9 @@
-# 64Forth — Design & Integration Plan
+# 64Forth — Design Document
 
 **Public domain.**  
-**Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage), not a pure terminal binary and not the full Swift lbForth engine.
+**Updated:** 2026-07-28 (reflects implementation through GROWMEMORYMB, WORDS sections, fault recovery, PI/BI fixes).
+
+**Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
 ---
 
@@ -10,124 +12,122 @@
 | Piece | Source | Role in 64Forth |
 |--------|--------|------------------|
 | Kernel (ITC, dictionary, CODE/COLON bootstrap) | **PickleForth** `forth.s` + `boot_words.inc` + `colon_words.inc` | Execution engine |
-| Console UI, menus, history, protected output region | **TZForth** `ConsoleView` / `ContentView` / `TZForthApp` | Host REPL surface |
-| Resources layout (`AutoLoad/`, `Library/`, `Docs/`) | **TZForth** `Contents/Resources` pattern | Bundled libraries & samples |
-| FROMLIB / FROM-LIBRARY, named FLOAD, CHDIR, sandbox scope | **TZForth** host file architecture | Path resolution for loads |
-| Float/BigInt/Block/XChar (optional later) | TZForth or new ports | Not required for v0.1 |
+| Console UI, menus, history, protected output region | **TZForth** `ConsoleView` / `ContentView` / app shell | Host REPL surface |
+| Resources layout (`AutoLoad/`, `Library/`, `Docs/`) | **TZForth** bundle pattern | Bundled libraries & samples |
+| FROMLIB / FLOAD / CHDIR / DIR / EDIT | **TZForth** host file architecture | Path resolution & UX |
+| Host multiprecision BI-MUL / BI-DIVMOD / BI-ISQRT | **TZForth** algorithms (`BigIntHost.swift`) | BIG-INTEGER library support |
+| Float / Block / XChar / full ANS suites | TZForth (not yet) | Future optional ports |
 
 ---
 
-## 2. Target architecture
+## 2. Architecture (as built)
 
 ```text
-┌─────────────────────────────────────────────────────────┐
-│  SwiftUI App (64ForthApp / ContentView / ConsoleView)   │
-│    • line commit → host.feedLine(String)                │
-│    • menus: FLOAD, CHDIR, AutoLoad, Library, Docs       │
-│    • security-scoped bookmarks (as TZForth)               │
-└───────────────────────────┬─────────────────────────────┘
-                            │
-┌───────────────────────────▼─────────────────────────────┐
-│  Host layer (Swift)                                       │
-│    • KernelBridge — C ABI to assembly                     │
-│    • FileHost — resolve paths, FROMLIB, open/read files  │
-│    • I/O: capture kernel putchar → console append        │
-│    • KEY: deliver keystrokes into kernel when blocked    │
-└───────────────────────────┬─────────────────────────────┘
-                            │
-┌───────────────────────────▼─────────────────────────────┐
-│  Kernel (ARM64 assembly)                                  │
-│    • _kernel_cold_start / _kernel_init / feed API (phased)│
-│    • Dictionary, NEXT, BOOT_WORD, DOC", INCLUDE/FLOAD    │
-│    • Eventually: host-hooked EMIT/KEY instead of raw TTY  │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  SwiftUI App (SixtyFourForthApp / ContentView / ConsoleView) │
+│    • line / multi-line paste → KernelBridge.evaluate          │
+│    • menus: FLOAD, CHDIR, EDIT, CLS, Library/AutoLoad/Docs  │
+│    • security-scoped bookmarks + last cwd (UserDefaults)     │
+│    • LLDB: .lldbinit-64forth passes SIGSEGV/SIGBUS to app    │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+┌────────────────────────────▼────────────────────────────────┐
+│  Host layer (Swift)                                           │
+│    • KernelBridge — C ABI, emit/key, eval reentrancy guard    │
+│    • FileHost — FROMLIB, INCLUDE buffers, DIR, EDIT, CHDIR    │
+│    • BigIntHost — BI-MUL / BI-DIVMOD / BI-ISQRT (base 10^9)  │
+│    • SIGSEGV/SIGBUS → kernel_on_memory_fault (soft recover)   │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+┌────────────────────────────▼────────────────────────────────┐
+│  Kernel (ARM64 assembly ITC)                                  │
+│    • kernel_init / kernel_eval (embed); _kernel_cold_start    │
+│    • Dictionary in user_dict_area; CODE bodies in .text       │
+│    • INCLUDE nests whole-file SOURCE; FILE-ECHO; \S           │
+│    • GROWMEMORYMB raises logical dict size (CFA-stable)       │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**v0.1 reality:** Phase 1 embed API is wired: host sets emit/key hooks, calls `kernel_init` once, then `kernel_eval` per line. Fallback TTY syscalls remain for terminal `_kernel_cold_start` and when hooks are unset. Console protected-region parity and FROMLIB→kernel FLOAD are Phase 2–3.
+**Embed vs terminal**
+
+| Mode | Entry | Loop |
+|------|--------|------|
+| **App (embed)** | `kernel_init` once, then `kernel_eval` per line | Host owns UI; emit/key hooks |
+| **Terminal** | `_kernel_cold_start` | Kernel QUIT / line editor (no SwiftUI) |
+
+Do **not** call `_kernel_cold_start` from the SwiftUI host.
 
 ---
 
-## 3. Phased plan
+## 3. Phased delivery (historical + current)
 
-### Phase 0 — Scaffold (this check-in)
-- [x] Repo/folder under `XCodeProjects/64Forth`
-- [x] Copy Pickle kernel; rename entry `_kernel_cold_start` (no clash with Swift `@main`)
-- [x] Minimal SwiftUI app + `KernelBridge` stubs
-- [x] Resource folders: AutoLoad, Library (samples), Docs
-- [x] DESIGN.md + README.md
+### Phase 0–1 — Scaffold & embed API — **done**
 
-### Phase 1 — Embeddable kernel API
-- [x] Export C-callable:
-  - `kernel_init(void)` — cold dictionary build, no infinite QUIT
-  - `kernel_eval(const char *line, size_t n)` — interpret one line / buffer
-  - `kernel_set_emit(void (*fn)(int c))` / `kernel_set_key(int (*fn)(void))`
-- [x] Split PickleForth’s `_quit_loop` so init does not block the UI thread forever
-- [x] Host: `KernelBridge.shared.evaluate(line)` → emit → console
-- [x] `kernel_api.h` documents the ABI; `_kernel_cold_start` remains terminal-only
-- Notes: KEY queue is stubby (−1 when empty); ACCEPT/REFILL still TTY-oriented; full console protected region is Phase 2
+- Repo, Pickle kernel copy (`_kernel_cold_start` not `_main`)
+- `kernel_init` / `kernel_eval` / `kernel_set_emit` / `kernel_set_key`
+- `kernel_api.h`; host evaluates lines into the console
 
-### Phase 2 — Console parity (TZForth UX)
-- [x] Port ConsoleView patterns: protected region, history, Return handling
-- [x] AppKit `ConsoleTextView` (NSTextView): editableStart, scroll-to-caret
-- [x] Wire feedLine → `KernelBridge.evaluate`; emit → console
-- [x] Menus: CLS, FLOAD panel, CHDIR, open Library/AutoLoad/Docs in Finder
-- Notes: KEY still stubby; FLOAD uses kernel `INCLUDE` with absolute path (spaces fragile); full FROMLIB resolve is Phase 3
+### Phase 2 — Console parity — **done**
 
-### Phase 3 — File / FROMLIB architecture
-- [x] Port TZForth resolution in `FileHost`:
-  - `logicalCurrentDirectory`
-  - FROMLIB sets “next path base = Bundle Resources/Library” (+ cwd switch for nested relatives)
-  - Named FLOAD/INCLUDE/REQUIRE: host opens file, pins buffer, kernel nests SOURCE
-- [x] Kernel: `FROMLIB`/`FROM-LIBRARY` CODE words → `fromlib_hook`
-- [x] Kernel: `INCLUDE` uses `load_file_hook` when set (else terminal open/read)
-- [x] `FLOAD` / `REQUIRE` aliases of `INCLUDE`; `word_scratch` 512 for long paths
-- [x] TZForth-style host words: bare `FLOAD`/`INCLUDE` → open panel; `CHDIR` path|dialog; `PWD`
-- [x] Bare FLOAD no longer mis-reports `can't open: FLOAD` (stale word_scratch)
-- Notes: library `.fth` may need TZForth words (ALLOCATE, vocabularies, …) not in Pickle kernel; path-with-spaces still limited by WORD parse; AutoLoad on launch is Phase 4
+- Protected region, history, Return / multi-line paste
+- AppKit `ConsoleTextView`; Tools menus (CLS, FLOAD, CHDIR, folder reveals)
 
-### Phase 4 — AutoLoad
-- [x] On launch: if `Resources/AutoLoad/autoload.fth` exists, load after console attaches (TZForth `runAutoLoadIfPresent`)
-- [x] During load: cwd = AutoLoad/ so nested relative FLOAD works; restore cwd after
-- [x] Run `MAIN` if defined (plain `MAIN` after load)
-- [x] Default `autoload.fth` (MAIN); `ANEW` is a single kernel definition
+### Phase 3 — File / FROMLIB — **done**
 
-### Phase 5 — Hardening (+ DIR)
-- [x] **DIR** host word (TZForth-style: bare cwd, path, `*`/`?` filters, FROMLIB → Library)
-- [x] Eval **reentrancy guard** (`isEvaluating` / try-lock; kernel not re-entrant)
-- [x] **Entitlements**: App Sandbox off for v0.1 (`64Forth.entitlements`); ready to flip later
-- [x] **Security-scoped bookmarks** + last cwd persistence (UserDefaults) for panel picks / CHDIR
-- [ ] Optional later: background kernel_eval for huge loads; full sandbox + Hayes suite
+- `FileHost`: logical cwd, FROMLIB → `Resources/Library`, nested relatives
+- Kernel `INCLUDE` via `load_file_hook`; `FLOAD` / `REQUIRE` aliases
+- Bare FLOAD/CHDIR → panels; `PWD`; quoted paths with spaces
 
-### Phase 6 — Search-Order, BIG-INTEGER, host BI math
-- [x] Multi-wordlist FIND + CURRENT linking (`_header_build` / `_find_word`)
-- [x] Search-Order words: WORDLIST, ONLY, ALSO, DEFINITIONS, FORTH, ORDER, GET/SET-ORDER, …
-- [x] `VOCABULARY` + `BIG-INTEGER` / `EDITOR` / `ASSEMBLER` at bootstrap
-- [x] `ALLOCATE` / `FREE` host hooks
-- [x] Host `BI-MUL` / `BI-DIVMOD` / `BI-ISQRT` (`BigIntHost.swift`, TZForth algorithms)
-- [x] Locals: `{: … :}`, `TO`, `(LOCAL-INIT)` / `(LOCAL@)` / `(LOCAL!)` for stock `big-int.fth`
+### Phase 4 — AutoLoad — **done**
 
-### Phase 7 — File registry, FORGET, RESIZE, KEY
-- [x] ANS-shaped `INCLUDED` / `REQUIRED` / `REQUIRE` (`PARSE-NAME REQUIRED`)
-- [x] Absolute-path REQUIRE registry keys (host resolve + last-load key hooks)
-- [x] `.INCLUDED` lists the load-once registry
-- [x] `FORGET` multi-wordlist prune + USER-DICT fence (CODE)
-- [x] `RESIZE` (libc realloc)
-- [x] Quoted paths with spaces: `INCLUDE "path with spaces.fth"`
-- [x] Console KEY: pushKey from typing + run-loop wait in host KEY hook
+- Launch: `Resources/AutoLoad/autoload.fth`, cwd = AutoLoad during load, then `MAIN` if defined
+- `ANEW` is a **kernel** definition (not AutoLoad/ANEW.fth)
+
+### Phase 5 — Hardening — **done** (+ optional follow-ups)
+
+- **DIR** (wildcards, FROMLIB)
+- Eval reentrancy guard; App Sandbox off for v0.1; bookmarks + cwd persistence
+- [ ] Later: background `kernel_eval` for huge loads; full sandbox; Hayes suite in-tree
+
+### Phase 6 — Search-Order, BIG-INTEGER, locals — **done**
+
+- Multi-wordlist FIND / CURRENT; WORDLIST, ONLY, ALSO, DEFINITIONS, ORDER, …
+- `VOCABULARY` + `BIG-INTEGER` / `EDITOR` / `ASSEMBLER`
+- Host `ALLOCATE` / `FREE` / `RESIZE`; `BI-MUL` / `BI-DIVMOD` / `BI-ISQRT`
+- Locals `{: … :}`, `TO` for stock `big-int.fth` / π
+
+### Phase 7 — Registry, FORGET, KEY, quotes — **done**
+
+- `INCLUDED` / `REQUIRED` / `REQUIRE` / `.INCLUDED` (absolute registry keys)
+- Multi-wordlist `FORGET` + USER-DICT fence
+- Console KEY (queue + run-loop wait)
+- Quoted `INCLUDE "path with spaces.fth"`
+
+### Phase 8 — Product polish (post–Phase 7) — **done**
+
+| Item | Design notes |
+|------|----------------|
+| **EDIT** | Host opens file in system editor; honors FROMLIB; updates cwd |
+| **`\S` / `\s`** | Immediate: pin `>IN` to end of current SOURCE (file/eval/line). Nested INCLUDE only stops the inner file. Console SOURCE-ID 0 sets host multi-line paste stop (`replBatchStop`) |
+| **FILE-ECHO** | Echo INCLUDE/FLOAD source through emit_hook (not raw `write(1)`). Advance `file_echo_pos` **before** `_putchar` (emit clobbers caller-saved regs) |
+| **ANS pictured `#` / `#S` / `#>`** | Double-cell (ud = lo under, hi TOS). Single-cell `#` broke `BI.` / π (`n 0 <# #S #>` printed only hi → `0.000…`) |
+| **`.ELAPSED` / `.H2` / `.HA` / `U.R`** | Use `0 <# #S #>` (or equivalent) for single-cell values as doubles |
+| **`ABORT"`** | Must test flag: compile `IF S" …" TYPE CR ABORT THEN` (old body always aborted → bubble-sort “not sorted”) |
+| **PI pool** | Generous BI buffer budget; host BI capacity overflow must not soft-zero results |
+| **WORDS** | First search-order wordlist only; optional filter. **System** words (CFA &lt; fence after bootstrap): A–Z under banner `64Forth System Words`. **User** words (CFA ≥ fence): load order under `64Forth User Words` (banner only if any) |
+| **User dict memory** | See §6 |
+| **Fault recovery** | See §7 |
 
 ---
 
-## 4. FROMLIB (intended semantics)
+## 4. FROMLIB semantics
 
-From TZForth:
-
-- `FROMLIB` (or FROM-LIBRARY) sets a flag / next-resolve-root to  
-  `Bundle.main.resourceURL/Library`
-- Next `FLOAD` / `INCLUDE` / `EDIT` / `CHDIR` / open-file uses that root
+- `FROMLIB` / `FROM-LIBRARY` arms the next path resolve root to  
+  `Bundle.main.resourceURL/Library` (via host hook).
+- Applies to next `FLOAD` / `INCLUDE` / `REQUIRE` / `EDIT` / `CHDIR` / `DIR` as implemented.
 - Relative names: `FROMLIB FLOAD BigInteger/big-int.fth`
-- Session cwd for user files remains separate (Documents / last CHDIR)
-
-64Forth will implement this in **Swift FileHost**, not by re-creating the whole TZForth engine.
+- Session cwd for user files remains separate (Documents / last CHDIR / bookmarks).
+- Implemented in **Swift FileHost**, not by re-creating the TZForth engine.
 
 ---
 
@@ -135,37 +135,161 @@ From TZForth:
 
 | Concern | Owner |
 |---------|--------|
-| Dictionary, compilation, arithmetic, SEE/HELP | Kernel |
-| Display buffer, menus, panels | Host |
-| Path resolution, bundle roots, sandbox | Host |
-| Opening file bytes for FLOAD | Host (preferred) or kernel syscall with absolute path from host |
-| EMIT / KEY while UI owns the window | Host callbacks into kernel |
+| Dictionary, compilation, arithmetic, control flow, SEE/HELP | Kernel |
+| Display buffer, menus, panels, paste/history | Host |
+| Path resolution, bundle roots, bookmarks | Host |
+| Opening file bytes for INCLUDE/FLOAD | Host (`load_file_hook`) preferred |
+| EMIT / KEY while UI owns the window | Host hooks |
+| Multiprecision mul/divmod/isqrt | Host (`BigIntHost`), CODE entry in BIG-INTEGER |
+| Soft recovery from bad pointers | Kernel signal handler + host `sigaction` + LLDB init |
 
 ---
 
-## 6. Relationship to PickleForth & TZForth
+## 6. User dictionary & GROWMEMORYMB
 
-- **PickleForth** remains the pure terminal / kernel lab (fast iteration on assembly).
-- **TZForth** remains the full Swift Forth product.
-- **64Forth** is the hybrid product: pick the best of both.
-- Kernel fixes can be cherry-picked between PickleForth ↔ 64Forth/Kernel until they diverge.
+### Layout
+
+| Region | Content |
+|--------|---------|
+| **`.text`** | Machine code for CODE words (`XDUP`, `NEXT`, …). CFAs **point here**. Not limited by the 1 MiB logical dict. |
+| **`user_dict_area`** | Headers, names, help, colon bodies, `ALLOT` data. `HERE` grows upward. |
+| **Host malloc** | `ALLOCATE` / `FREE` / `RESIZE` — separate from the Forth dict |
+
+Cold start: `HERE := user_dict_area`, then `_boot_kernel` + `forth_init_str`. Kernel **headers and colon definitions consume part of the logical dict** (~30–40 KiB today); assembly **implementations** stay in `.text`.
+
+### Sizes
+
+| Constant | Value | Role |
+|----------|--------|------|
+| Logical default | **1 MiB** | Initial `user_dict_size_cell`; ALLOT / `,` / `C,` bound |
+| Physical reserve | **64 MiB** BSS (demand-zero) | Max without relocating CFAs |
+| `GROWMEMORYMB` | `( n -- )` | Set logical size to **n MiB**, once per session |
+
+### GROWMEMORYMB rules (TZForth-aligned, adapted)
+
+- **Once per process/session**
+- **Cannot shrink** (n MiB must be **greater** than current logical size)
+- **1 ≤ n ≤ 64**
+- Base address **never moves** (unlike a moving `realloc`), so existing CFAs remain valid
+- **No** “forbidden after ALLOCATE” rule (host heap is separate from the dict)
+
+Example:
+
+```forth
+.FREE                 \ ~1 MiB free after boot (minus kernel headers)
+8 GROWMEMORYMB        \ before large ALLOT / PLDI-style codegen
+```
+
+On overflow: clear messages (`ALLOT: dictionary full…`, `dictionary full (code/data space exhausted)`), not a silent SEGV when bounds checks run.
+
+### Design note (not implemented)
+
+Putting **primitive machine code** inside the 1 MiB dict (so every CFA is “in-dict”) is possible via boot-time copy or generated code into executable pages; 64Forth intentionally keeps primitives in `.text` and only dict data in `user_dict_area`.
 
 ---
 
-## 7. Open decisions (for later)
+## 7. Fault recovery (vs TZForth)
 
-1. App sandbox on/off for first public builds  
-2. Whether INCLUDE stays raw `open`/`read` or always host-injected  
-3. Single-threaded kernel only vs re-entrancy rules for KEY  
-4. Branding / icon (TZForth icons vs new)
+**TZForth** rarely SIGSEGVs: memory is a bounds-checked byte array; errors become soft throws.
+
+**64Forth** uses real pointers. Recovery:
+
+1. Kernel installs **`sigaction(SIGSEGV/SIGBUS)`** → `kernel_on_memory_fault` → sticky flag + **`siglongjmp`** to `kernel_eval` / QUIT setjmp  
+2. Host reinstalls the same handlers from Swift  
+3. After longjmp: reset stacks/STATE/locals, emit `memory access error` via **emit_hook**, `kernel_eval` returns **−1**  
+4. Xcode: scheme **`customLLDBInitFile`** = `.lldbinit-64forth` so LLDB **passes** SIGSEGV/SIGBUS to the process (`-p true -s false`) instead of stopping on EXC_BAD_ACCESS first  
+
+`BYE` returns **1** → host may terminate the app (intentional). Accidental `Bye` in a loaded `.fth` file will quit the app.
 
 ---
 
-## 8. Chat / Grok workflow (see also README)
+## 8. Source loading model
 
-Work on **64Forth** with Grok’s working directory set to:
+| Topic | 64Forth behavior |
+|-------|------------------|
+| INCLUDE/FLOAD | Host loads **entire file** into one nested SOURCE (`SOURCE-ID` &gt; 0) |
+| REFILL on file | False (whole file already in SOURCE) |
+| FILE-ECHO | Line-oriented echo of pending source through emit_hook |
+| `\S` | Stop rest of **current** SOURCE only; outer INCLUDE continues |
+| REQUIRE | Load-once by absolute registry key |
+
+---
+
+## 9. Pictured numeric & multiprecision I/O
+
+ANS Core pictured output is **double-cell**:
+
+```forth
+\ ud = lo under, hi TOS
+: #  0 BASE @ UM/MOD >R BASE @ UM/MOD R> ROT ... HOLD ;
+: #S BEGIN # 2DUP OR 0= UNTIL ;
+: #> 2DROP HLD @ ... ;
+```
+
+Single-cell values must be presented as doubles, e.g. `n 0 <# #S #>` (used by `BI.`, `BI-U.9`, `.ELAPSED` hours, `.H2`, `.HA`, `U.R`, `D.`).
+
+Library π: `Resources/Library/PI/pi-chudnovsky.fth` + `BigInteger/big-int.fth`; demos via `FROMLIB FLOAD PI/pi-test.fth`.
+
+---
+
+## 10. Relationship to PickleForth & TZForth
+
+| Project | Role |
+|---------|------|
+| **PickleForth** | Terminal kernel lab; fast assembly iteration |
+| **TZForth** | Full Swift Forth product; reference for UX, FileHost, BI algorithms, ANS breadth |
+| **64Forth** | Hybrid product: TZForth host + Pickle kernel |
+
+Kernel improvements can be cherry-picked PickleForth ↔ `64Forth/Kernel` until they diverge.
+
+### Still missing vs full TZForth (high level)
+
+- Full **File-Access** word set (OPEN-FILE, READ-LINE, …) beyond host INCLUDE  
+- **Facility** (`PAGE`, `MS`, `TIME&DATE`, …)  
+- **Float**, **Block**, **Extended-Character**  
+- Hayes / `ANS-VALIDATE` in-tree  
+- **SZ-EDITOR** library  
+- Line-at-a-time INCLUDE with real fileids (TZForth model)
+
+---
+
+## 11. Open decisions
+
+1. App sandbox on/off for public builds  
+2. Whether to add TZForth-style “no GROWMEMORYMB after ALLOCATE” (currently N/A)  
+3. Background `kernel_eval` for multi-second loads (PLDI `MAIN`, etc.)  
+4. Branding / icon  
+5. How much ANS optional word set to port vs keep host-only features  
+
+---
+
+## 12. Chat / Grok workflow (see also README)
+
+Primary working directory for 64Forth work:
 
 `/Users/thomaszimmer/Documents/XCodeProjects/64Forth`
 
-Keep **PickleForth** sessions separate for terminal-kernel-only work.  
-Do not mix “commit PickleForth” and “scaffold 64Forth” in one ambiguous chat if avoidable.
+| Work on… | Prefer cwd / chat |
+|----------|-------------------|
+| **64Forth** hybrid app | This repo |
+| **PickleForth** kernel-only | Separate PickleForth chat/cwd |
+| **TZForth** reference | Read-only from sibling tree when needed |
+
+Prefer writing only under `64Forth` unless explicitly changing PickleForth/TZForth.
+
+---
+
+## 13. Key source map
+
+| Path | Role |
+|------|------|
+| `64Forth/Kernel/forth.s` | ITC kernel, colon bootstrap, WORDS, faults, dict |
+| `64Forth/Kernel/boot_words.inc` | CODE word catalog |
+| `64Forth/Kernel/kernel_api.h` | C ABI for host |
+| `64Forth/Host/KernelBridge.swift` | Embed bridge, eval, signals |
+| `64Forth/Host/FileHost.swift` | Paths, INCLUDE, DIR, EDIT |
+| `64Forth/Host/BigIntHost.swift` | Multiprecision host ops |
+| `64Forth/App/ConsoleView.swift` | REPL, paste, `\S` batch stop |
+| `64Forth/Resources/Library/` | BigInteger, PI, smoke tests |
+| `.lldbinit-64forth` | LLDB: pass memory faults to process |
+| `64Forth.xcodeproj/.../64Forth.xcscheme` | `customLLDBInitFile` → that lldbinit |

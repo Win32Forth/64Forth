@@ -22,11 +22,7 @@ extension Notification.Name {
     static let toolsEdit = Notification.Name("SixtyFourForthToolsEdit")
 }
 
-private let banner =
-    "=== 64Forth ===\n" +
-    "Host: SwiftUI / AppKit console (TZForth lineage)\n" +
-    "Kernel: PickleForth ARM64 ITC (embed API)\n" +
-    "FROMLIB FLOAD · DIR · CHDIR · PWD · bare FLOAD/CHDIR = dialog · ↑/↓ history\n\n"
+private let banner = "=== 64Forth 0.2.0 ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner
@@ -72,22 +68,18 @@ struct ConsoleView: View {
             kernel.onEmit = { chunk in
                 appendEngineOutput(chunk)
             }
+            // Startup: banner (already in consoleText) → cwd → AutoLoad → prompt.
             isProgrammaticConsoleAppend = true
-            appendEngineOutput(kernel.statusLine())
-            appendEngineOutput(host.resourceRootsDescription())
+            appendEngineOutput("cwd: \(host.logicalCurrentDirectory)\n")
             markProtectedThroughEndOfText()
             isProgrammaticConsoleAppend = false
             keepCursorVisible(followPrompt: true)
 
-            // Product boot after the first frame (TZForth pattern). AutoLoad
-            // inside onAppear before state settles can lose console appends.
+            // AutoLoad after first frame so onEmit appends reliably (TZForth pattern).
             DispatchQueue.main.async {
                 isProgrammaticConsoleAppend = true
-                if kernel.runAutoLoadIfPresent() {
-                    // AutoLoad messages already streamed via onEmit
-                }
+                _ = kernel.runAutoLoadIfPresent()
                 markProtectedThroughEndOfText()
-                appendEngineOutput("cwd: \(host.logicalCurrentDirectory)\n")
                 appendPrompt()
                 isProgrammaticConsoleAppend = false
                 keepCursorVisible(followPrompt: true)
@@ -329,7 +321,6 @@ struct ConsoleView: View {
         isProgrammaticConsoleAppend = true
         consoleText = banner
         markProtectedThroughEndOfText()
-        appendEngineOutput(kernel.statusLine())
         appendEngineOutput("cwd: \(host.logicalCurrentDirectory)\n")
         appendPrompt()
         isProgrammaticConsoleAppend = false
