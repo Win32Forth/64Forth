@@ -44,6 +44,11 @@ struct SixtyFourForthApp: App {
                 }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
 
+                Button("EDIT…") {
+                    NotificationCenter.default.post(name: .toolsEdit, object: nil)
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+
                 Divider()
 
                 Button("Show Library Folder") {

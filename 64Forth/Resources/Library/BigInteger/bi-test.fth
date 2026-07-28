@@ -124,7 +124,6 @@ C @ BI-SGN -1 =  S" BI* sign" BI-ASSERT
 \ π to 20 places (loads Chudnovsky)
 .( --- pi 20 places ---) CR
 FROMLIB REQUIRE PI/pi-chudnovsky.fth
-0 STEP-LIMIT !
 20 PI. CR
 \ Cannot easily capture TYPE output; smoke-test only that PI. completed.
 TRUE S" PI. 20 completed" BI-ASSERT

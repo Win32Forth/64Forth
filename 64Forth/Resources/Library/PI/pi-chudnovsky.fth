@@ -80,24 +80,26 @@ VARIABLE BI-C3              \ 640320^3
   BI-C3 @ ?DUP IF BI-FREE THEN  0 BI-C3 !
   FALSE PI-POOL-OK ! ;
 
-\ Allocate one buffer for `digits` decimal digits; abort on failure.
+\ Allocate one buffer sized for `digits` decimal digits of *product* headroom.
+\ Host BI-MUL needs room for len(a)+len(b) limbs; under-size used to soft-zero
+\ results and made PI. print 0.  We pass 2× digit budget into BI-NEW.
 : PI-ALLOC1  ( digits var -- )
   {: digs var | bi ior :}
-  digs BI-NEW TO ior TO bi
+  digs 2 * BI-NEW TO ior TO bi
   ior IF  ." PI: ALLOCATE failed" CR  ABORT  THEN
   bi var ! ;
 
 \ ( digits -- )  size the pool for a computation of that many places.
 \ Capacity must cover the largest intermediate (mainly X ≈ 18·terms digits
-\ and products like M*L*D).  We over-allocate so BI-ENSURE never aborts.
+\ and products like M*L*D).  We over-allocate so BI-ENSURE / host BI-MUL fit.
 : PI-POOL  ( digits -- )
   {: digs | bud prec terms :}
   PI-FREE
   digs 6 + TO prec
   prec 14 / 2 + TO terms
-  \ X digits ≈ terms * log10(640320^3) ≈ terms * 17.4; products a bit larger.
-  \ Generous capacity so BI-DIV-STEP can double work without capacity abort.
-  terms 30 *  digs 8 *  MAX  320 +  TO bud
+  \ X digits ≈ terms * log10(640320^3) ≈ terms * 17.4; products need ~2×.
+  \ Larger budget than the original TZForth port (host soft-fail is fatal for PI).
+  terms 40 *  digs 12 *  MAX  640 +  TO bud
   bud BI-M    PI-ALLOC1
   bud BI-L    PI-ALLOC1
   bud BI-X    PI-ALLOC1
@@ -113,7 +115,7 @@ VARIABLE BI-C3              \ 640320^3
   bud BI-T2   PI-ALLOC1
   bud BI-PI   PI-ALLOC1
   bud BI-SQ   PI-ALLOC1
-  32  BI-C3   PI-ALLOC1          \ 640320^3 fits in 2 limbs
+  64  BI-C3   PI-ALLOC1          \ 640320^3 fits in 2 limbs (extra room for *U)
   TRUE PI-POOL-OK ! ;
 
 \ ---- Chudnovsky core ---------------------------------------------------------

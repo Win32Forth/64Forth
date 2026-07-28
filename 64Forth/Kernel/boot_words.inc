@@ -97,7 +97,8 @@ boot_word_table:
     BOOT_WORD "CHDIR", "CHDIR ( -- ) path|dialog change working directory", 0, XCHDIR
     BOOT_WORD "PWD", "PWD ( -- ) print logical current directory", 0, XPWD
     BOOT_WORD "DIR", "DIR ( -- ) path|filespec list directory (* ? wildcards; FROMLIB ok)", 0, XDIR
-    BOOT_WORD "FROMLIB", "FROMLIB ( -- ) next FLOAD/INCLUDE/REQUIRE/CHDIR/DIR uses Resources/Library", 0, XFROMLIB
+    BOOT_WORD "EDIT", "EDIT ( -- ) name|dialog open in system editor; updates cwd (FROMLIB ok)", 0, XEDIT
+    BOOT_WORD "FROMLIB", "FROMLIB ( -- ) next FLOAD/INCLUDE/REQUIRE/EDIT/CHDIR/DIR uses Resources/Library", 0, XFROMLIB
     BOOT_WORD "FROM-LIBRARY", "FROM-LIBRARY ( -- ) synonym for FROMLIB", 0, XFROMLIB
     BOOT_WORD "LATEST", "LATEST ( -- addr ) FORTH wordlist head cell", 0, XLATEST
     BOOT_WORD "CURRENT", "CURRENT ( -- addr ) compilation wordlist variable", 0, XCURRENT
@@ -117,6 +118,7 @@ boot_word_table:
     BOOT_WORD "ALLOCATE", "ALLOCATE ( u -- a-addr ior ) allocate u bytes", 0, XALLOCATE
     BOOT_WORD "FREE", "FREE ( a-addr -- ior ) free ALLOCATE block", 0, XFREE
     BOOT_WORD "RESIZE", "RESIZE ( a-addr1 u -- a-addr2 ior ) resize ALLOCATE block", 0, XRESIZE
+    BOOT_WORD "GROWMEMORYMB", "GROWMEMORYMB ( n -- ) grow user dictionary to n MiB (once/session; no shrink; max 64)", 0, XGROWMEMORYMB
     BOOT_WORD "BI-MUL", "BI-MUL ( a b r -- ) BIG-INTEGER host multiply", 0, XBIMUL
     BOOT_WORD "BI-DIVMOD", "BI-DIVMOD ( num den quot rem work -- ) BIG-INTEGER host divmod", 0, XBIDIVMOD
     BOOT_WORD "BI-ISQRT", "BI-ISQRT ( a r quot rem work t1 t2 -- ) BIG-INTEGER host isqrt", 0, XBIISQRT
@@ -142,6 +144,7 @@ boot_word_table:
     BOOT_WORD "PARSE", "PARSE ( xchar -- c-addr u ) parse text delimited by xchar in SOURCE (UTF-8; updates >IN)", 0, XPARSE
     BOOT_WORD "WORD", "WORD ( char -- addr ) parse input up to delimiter char, return addr of counted string (trailing NUL)", 0, XWORD
     BOOT_WORD "\\", "\\ ( -- ) comment to end of line (immediate)", 1, XBACKSLASH
+    BOOT_WORD "\\S", "\\S ( -- ) stop rest of FLOAD/INCLUDE file or multi-line console paste (immediate; also \\s)", 1, XBACKSLASH_S
     BOOT_WORD "(", "( -- ) comment until ) (immediate)", 1, XPAREN
     BOOT_WORD "DOCON-ADDR", "DOCON-ADDR ( -- addr ) address of DOCON code", 0, XDOCON_ADDR
     BOOT_WORD "DOCOL-ADDR", "DOCOL-ADDR ( -- addr ) address of DOCOL code (colon definitions)", 0, XDOCOL_ADDR
@@ -206,7 +209,7 @@ boot_word_table:
     BOOT_WORD "SETDOC", "SETDOC ( c-addr u -- ) pending help for next defining word", 0, XSETDOC
     .quad 0, 0, 0, 0
 
-.equ BOOT_WORD_COUNT, 176
+.equ BOOT_WORD_COUNT, 178
 
 // Empty help used by : / CREATE / :NONAME
 .align 8

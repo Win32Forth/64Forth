@@ -15,7 +15,16 @@ enum BigIntHost {
     private static let biBase: Int64 = 1_000_000_000
     private static let cell = 8
 
+    /// Sticky count of capacity overflows (result would not fit). Soft-fail used to
+    /// zero the destination, which made π (and other BI) collapse to 0.
+    private(set) static var capacityOverflows: Int = 0
+
     // MARK: - Memory
+
+    /// Preserve all bits of a kernel cell used as a raw pointer (ASLR-safe).
+    private static func asAddr(_ cell: Int64) -> Int {
+        Int(bitPattern: UInt(bitPattern: Int(truncatingIfNeeded: cell)))
+    }
 
     private static func readCell(_ addr: Int) -> Int64 {
         UnsafePointer<Int64>(bitPattern: addr)!.pointee
@@ -25,8 +34,14 @@ enum BigIntHost {
         UnsafeMutablePointer<Int64>(bitPattern: addr)!.pointee = v
     }
 
-    private static func biCap(_ bi: Int) -> Int { Int(readCell(bi)) }
-    private static func biLen(_ bi: Int) -> Int { Int(readCell(bi + cell)) }
+    private static func biCap(_ bi: Int) -> Int {
+        let c = Int(readCell(bi))
+        return c < 0 ? 0 : c
+    }
+    private static func biLen(_ bi: Int) -> Int {
+        let n = Int(readCell(bi + cell))
+        return n < 0 ? 0 : n
+    }
     private static func biSgn(_ bi: Int) -> Int {
         let s = Int(readCell(bi + 2 * cell))
         return s < 0 ? -1 : 1
@@ -42,7 +57,10 @@ enum BigIntHost {
     }
 
     private static func biReadLimbs(_ bi: Int) -> (sign: Int, limbs: [Int64]) {
-        let n = biLen(bi)
+        let cap = biCap(bi)
+        var n = biLen(bi)
+        // Clamp: corrupt/oversize len must not read past the allocation.
+        if n > cap { n = cap }
         if n <= 0 { return (1, []) }
         var limbs = [Int64]()
         limbs.reserveCapacity(n)
@@ -64,9 +82,12 @@ enum BigIntHost {
         }
         let cap = biCap(bi)
         if ls.count > cap {
-            // Soft fail: leave destination unchanged length 0
-            biSetLen(bi, 0)
-            biSetSgn(bi, 1)
+            // TZForth throws here. We must not zero the destination (that made PI. print 0).
+            // Leave the buffer unchanged so callers can detect a missing update; count overflows.
+            capacityOverflows += 1
+            let msg = "BigIntHost: BI capacity exceeded (need \(ls.count) limbs, cap \(cap))\n"
+            fputs("64Forth \(msg)", stderr)
+            FileHost.shared.onMessage?(msg)
             return
         }
         for i in 0..<ls.count {
@@ -297,33 +318,125 @@ enum BigIntHost {
     // MARK: - C ABI entry points
 
     static func mul(a: Int64, b: Int64, r: Int64) {
-        let (sa, la) = biReadLimbs(Int(a))
-        let (sb, lb) = biReadLimbs(Int(b))
-        biWriteLimbs(Int(r), sign: sa * sb, limbs: biMulLimbs(la, lb))
+        let aa = asAddr(a), bb = asAddr(b), rr = asAddr(r)
+        let (sa, la) = biReadLimbs(aa)
+        let (sb, lb) = biReadLimbs(bb)
+        biWriteLimbs(rr, sign: sa * sb, limbs: biMulLimbs(la, lb))
     }
 
     static func divmod(num: Int64, den: Int64, quot: Int64, rem: Int64) {
-        let (sn, ln) = biReadLimbs(Int(num))
-        let (sd, ld) = biReadLimbs(Int(den))
+        let nn = asAddr(num), dd = asAddr(den), qq = asAddr(quot), rr = asAddr(rem)
+        let (sn, ln) = biReadLimbs(nn)
+        let (sd, ld) = biReadLimbs(dd)
         if ld.isEmpty {
-            biWriteLimbs(Int(quot), sign: 1, limbs: [])
-            biWriteLimbs(Int(rem), sign: 1, limbs: [])
+            biWriteLimbs(qq, sign: 1, limbs: [])
+            biWriteLimbs(rr, sign: 1, limbs: [])
             return
         }
         if ln.isEmpty {
-            biWriteLimbs(Int(quot), sign: 1, limbs: [])
-            biWriteLimbs(Int(rem), sign: 1, limbs: [])
+            biWriteLimbs(qq, sign: 1, limbs: [])
+            biWriteLimbs(rr, sign: 1, limbs: [])
             return
         }
-        let (q, r) = biDivModLimbs(ln, ld)
+        let (q, rlimbs) = biDivModLimbs(ln, ld)
         let qs = q.isEmpty ? 1 : sn * sd
-        let rs = r.isEmpty ? 1 : sn
-        biWriteLimbs(Int(quot), sign: qs, limbs: q)
-        biWriteLimbs(Int(rem), sign: rs, limbs: r)
+        let rs = rlimbs.isEmpty ? 1 : sn
+        biWriteLimbs(qq, sign: qs, limbs: q)
+        biWriteLimbs(rr, sign: rs, limbs: rlimbs)
     }
 
     static func isqrt(a: Int64, r: Int64) {
-        let (_, la) = biReadLimbs(Int(a))
-        biWriteLimbs(Int(r), sign: 1, limbs: biIsqrtLimbs(la))
+        let aa = asAddr(a), rr = asAddr(r)
+        let (_, la) = biReadLimbs(aa)
+        biWriteLimbs(rr, sign: 1, limbs: biIsqrtLimbs(la))
+    }
+
+    /// Heap self-test for mul / divmod / multi-limb isqrt (called once at host boot).
+    /// Returns nil on success, or an error string.
+    static func selfTest() -> String? {
+        func allocBI(cap: Int) -> UnsafeMutablePointer<Int64> {
+            let words = 3 + cap
+            let p = UnsafeMutablePointer<Int64>.allocate(capacity: words)
+            p.initialize(repeating: 0, count: words)
+            p[0] = Int64(cap)
+            p[1] = 0
+            p[2] = 1
+            return p
+        }
+        func freeBI(_ p: UnsafeMutablePointer<Int64>, cap: Int) {
+            p.deinitialize(count: 3 + cap)
+            p.deallocate()
+        }
+        func cell(_ p: UnsafeMutablePointer<Int64>) -> Int64 {
+            Int64(bitPattern: UInt64(UInt(bitPattern: p)))
+        }
+        func setU(_ p: UnsafeMutablePointer<Int64>, _ u: Int64) {
+            if u == 0 {
+                p[1] = 0
+                p[2] = 1
+                return
+            }
+            var x = u
+            var i = 0
+            while x != 0 {
+                p[3 + i] = x % biBase
+                x /= biBase
+                i += 1
+            }
+            p[1] = Int64(i)
+            p[2] = 1
+        }
+        func getU(_ p: UnsafeMutablePointer<Int64>) -> Int64? {
+            let n = Int(p[1])
+            if n <= 0 { return 0 }
+            if n > 3 { return nil }
+            var v: Int64 = 0
+            var place: Int64 = 1
+            for i in 0..<n {
+                let limb = p[3 + i]
+                if limb < 0 || limb >= biBase { return nil }
+                v += limb * place
+                place *= biBase
+            }
+            return v
+        }
+
+        capacityOverflows = 0
+        let cap = 16
+        let a = allocBI(cap: cap)
+        let b = allocBI(cap: cap)
+        let r = allocBI(cap: cap)
+        let q = allocBI(cap: cap)
+        let rem = allocBI(cap: cap)
+        defer {
+            freeBI(a, cap: cap); freeBI(b, cap: cap); freeBI(r, cap: cap)
+            freeBI(q, cap: cap); freeBI(rem, cap: cap)
+        }
+
+        setU(a, 123); setU(b, 456)
+        mul(a: cell(a), b: cell(b), r: cell(r))
+        if getU(r) != 56088 { return "mul 123*456 failed (\(String(describing: getU(r))))" }
+
+        setU(a, biBase)
+        setU(b, biBase)
+        mul(a: cell(a), b: cell(b), r: cell(r))
+        // 1e18 = limbs [0, 0, 1]
+        if r[1] != 3 || r[3] != 0 || r[4] != 0 || r[5] != 1 {
+            return "mul 1e9*1e9 limbs failed len=\(r[1]) L0=\(r[3]) L1=\(r[4]) L2=\(r[5])"
+        }
+
+        isqrt(a: cell(r), r: cell(q))
+        if getU(q) != biBase { return "isqrt(1e18) failed (\(String(describing: getU(q))))" }
+
+        setU(a, 100); setU(b, 7)
+        divmod(num: cell(a), den: cell(b), quot: cell(q), rem: cell(rem))
+        if getU(q) != 14 || getU(rem) != 2 {
+            return "divmod 100/7 failed q=\(String(describing: getU(q))) r=\(String(describing: getU(rem)))"
+        }
+
+        if capacityOverflows != 0 {
+            return "unexpected capacity overflow during self-test"
+        }
+        return nil
     }
 }

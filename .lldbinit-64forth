@@ -1,0 +1,8 @@
+# 64Forth — LLDB: do not stop on memory faults from the Forth kernel.
+# The kernel installs SIGSEGV/SIGBUS handlers that siglongjmp back to the REPL
+# (same idea as TZForth soft throws). Without this, Xcode stops in the debugger
+# on EXC_BAD_ACCESS before the Unix signal is delivered to the process.
+#
+# Wired via the 64Forth shared scheme: customLLDBInitFile.
+process handle SIGSEGV -n true -p true -s false
+process handle SIGBUS  -n true -p true -s false

@@ -50,7 +50,7 @@
 //   Memory:   @ ! C@ C! C, +! FILL ERASE MOVE CELL+ CELLS CHAR+ CHARS
 //             ALIGN ALIGNED
 //   Parse:    WORD PARSE CHAR [CHAR] BL >NUMBER
-//   Comments: \  (
+//   Comments: \  (   (plus common \S stop-load)
 //   I/O:      EMIT KEY CR TYPE SPACE SPACES . U. ACCEPT
 //   Strings:  S" ." COUNT
 //   Numeric:  BASE DECIMAL HEX  pictured <# # #S #> HOLD SIGN
@@ -71,6 +71,8 @@
 //   FIND                    = case-insensitive names.
 //   INCLUDE                 = loads whole file into one SOURCE (REFILL is false
 //                             for file/EVALUATE sources; true only for terminal).
+//   \S                      = pin >IN to end of current SOURCE (file stop);
+//                             console multi-line paste stopped via host flag.
 //   Header layout           = link | flags|len | code | name | body  (see above).
 //
 // ----------------------------------------------------------------------------
@@ -94,6 +96,8 @@
 //
 // Related non-Core-Ext but present (File / tools / common):
 //   CMOVE  CMOVE>  INCLUDE  (FLOAD is an alias of INCLUDE)
+//   \S / \s     stop remainder of current INCLUDE/FLOAD SOURCE, or remainder
+//               of a multi-line console paste (TZForth / F-PC model; immediate)
 //
 // ENVIRONMENT? returns CORE-EXT true (names present; not a formal ANS certificate).
 //
@@ -106,7 +110,7 @@
 //   LIT BRANCH 0BRANCH and *-ADDR plumbing
 //   ALIAS SEE WORDS .S DUMP FORGET ANEW USER-DICT REDEF-WARNING
 //   FILE-ECHO ON OFF      echo INCLUDE/FLOAD source lines when FILE-ECHO is on
-//   .FREE MS@ ELAPSED .ELAPSED CONTAINS
+//   .FREE GROWMEMORYMB MS@ ELAPSED .ELAPSED CONTAINS
 //   Line editor + history; "undefined:" and stack error reporting
 //   SIGSEGV/SIGBUS recovery back to QUIT
 //
@@ -357,6 +361,15 @@ _kernel_set_dir:
     str  x0, [x1]
     ret
 
+// void kernel_set_edit(void (*fn)(const char *path, size_t n))
+// n==0 → open panel; named → system editor + cwd (FROMLIB ok).
+.globl _kernel_set_edit
+_kernel_set_edit:
+    adrp x1, edit_hook@page
+    add  x1, x1, edit_hook@pageoff
+    str  x0, [x1]
+    ret
+
 .globl _kernel_set_allocate
 _kernel_set_allocate:
     adrp x1, alloc_hook@page
@@ -390,6 +403,48 @@ _kernel_set_bi_isqrt:
     adrp x1, bi_isqrt_hook@page
     add  x1, x1, bi_isqrt_hook@pageoff
     str  x0, [x1]
+    ret
+
+// int kernel_take_repl_batch_stop(void)
+// Return 1 if \S ran on the console SOURCE (SOURCE-ID 0) since last take, else 0.
+// Clears the sticky flag (TZForth clearReplBatchStop / replBatchStopRequested).
+.globl _kernel_take_repl_batch_stop
+_kernel_take_repl_batch_stop:
+    adrp x1, repl_batch_stop@page
+    add  x1, x1, repl_batch_stop@pageoff
+    ldr  x0, [x1]
+    str  xzr, [x1]
+    ret
+
+// void kernel_on_memory_fault(int sig)
+// Host or kernel signal handler entry: recover via siglongjmp to active setjmp
+// (kernel_eval / QUIT). Async-signal-safe (no emit_hook here).
+.globl _kernel_on_memory_fault
+_kernel_on_memory_fault:
+    // Sticky note for host after recovery (read via kernel_take_fault_flag)
+    adrp x0, fault_pending@page
+    add  x0, x0, fault_pending@pageoff
+    mov  x1, #1
+    str  x1, [x0]
+    // stderr note (may be invisible in GUI; host also prints after evaluate returns -1)
+    mov  x0, #2
+    adrp x1, str_memfault@page
+    add  x1, x1, str_memfault@pageoff
+    mov  x2, #20
+    mov  x16, #4
+    svc  #0x80
+    adrp x0, quit_jmpbuf@page
+    add  x0, x0, quit_jmpbuf@pageoff
+    mov  x1, #1
+    bl   _siglongjmp               // does not return
+
+// int kernel_take_fault_flag(void) — 1 if a memory fault recovered since last take
+.globl _kernel_take_fault_flag
+_kernel_take_fault_flag:
+    adrp x1, fault_pending@page
+    add  x1, x1, fault_pending@pageoff
+    ldr  x0, [x1]
+    str  xzr, [x1]
     ret
 
 // int kernel_init(void)
@@ -438,6 +493,7 @@ _kernel_init:
     bl   _sigsetjmp
     cbz  x0, 1f
     bl   _vm_reset_stacks
+    bl   _emit_memfault_msg
     mov  x0, #-1
     b    _embed_ret_x0
 1:
@@ -508,7 +564,9 @@ _kernel_eval:
     mov  x1, #1
     bl   _sigsetjmp
     cbz  x0, 2f
+    // Recovered from SIGSEGV/SIGBUS (or host kernel_on_memory_fault)
     bl   _vm_reset_stacks
+    bl   _emit_memfault_msg        // console-visible (emit_hook), not only stderr
     bl   _vm_save
     mov  x0, #-1
     b    _embed_ret_x0
@@ -651,42 +709,45 @@ _embed_ret_x0:
     ret
 
 // ---------------------------------------------------------------------------
-// Fault recovery: SIGSEGV / SIGBUS → message → QUIT (no process death)
-// Does not slow primitives; only runs if a memory fault occurs.
+// Fault recovery: SIGSEGV / SIGBUS → siglongjmp to kernel_eval/QUIT setjmp
+// (TZForth-style soft recover; process stays alive). Uses sigaction so the
+// handler is not reset after the first delivery (BSD signal() semantics).
+// Under Xcode LLDB also needs: process handle SIGSEGV -p true -s false
+// (see .lldbinit-64forth + scheme customLLDBInitFile).
 // ---------------------------------------------------------------------------
+// Darwin arm64 struct sigaction is 16 bytes: handler@0, sa_mask@8, sa_flags@12
+.equ SA_NODEFER_FLAG, 16
+.equ SIGSEGV_N, 11
+.equ SIGBUS_N, 10
+
 _install_fault_handlers:
     stp x29, x30, [sp, #-16]!
     adrp x0, fault_handlers_on@page
-    add x0, x0, fault_handlers_on@pageoff
-    ldr x1, [x0]
+    add  x0, x0, fault_handlers_on@pageoff
+    ldr  x1, [x0]
     cbnz x1, 1f
-    mov x1, #1
-    str x1, [x0]
-    mov x0, #11                    // SIGSEGV
-    adrp x1, _fault_handler@page
-    add x1, x1, _fault_handler@pageoff
-    bl _signal
-    mov x0, #10                    // SIGBUS
-    adrp x1, _fault_handler@page
-    add x1, x1, _fault_handler@pageoff
-    bl _signal
+    mov  x1, #1
+    str  x1, [x0]
+    // Build sigaction on stack
+    sub  sp, sp, #16
+    adrp x0, _kernel_on_memory_fault@page
+    add  x0, x0, _kernel_on_memory_fault@pageoff
+    str  x0, [sp]                  // sa_handler
+    str  wzr, [sp, #8]             // sa_mask = 0
+    mov  w0, #SA_NODEFER_FLAG
+    str  w0, [sp, #12]             // sa_flags
+    mov  x0, #SIGSEGV_N
+    mov  x1, sp
+    mov  x2, #0                    // oact = NULL
+    bl   _sigaction
+    mov  x0, #SIGBUS_N
+    mov  x1, sp
+    mov  x2, #0
+    bl   _sigaction
+    add  sp, sp, #16
 1:
     ldp x29, x30, [sp], #16
     ret
-
-// async-signal-safe: write(2) + siglongjmp only
-.align 4
-_fault_handler:
-    mov x0, #2                     // stderr
-    adrp x1, str_memfault@page
-    add x1, x1, str_memfault@pageoff
-    mov x2, #20                    // "memory access error\n"
-    mov x16, #4
-    svc #0x80
-    adrp x0, quit_jmpbuf@page
-    add x0, x0, quit_jmpbuf@pageoff
-    mov x1, #1
-    bl _siglongjmp                 // does not return
 
 // ============================================================================
 // DOCOL / DOEXIT / DOVAR
@@ -1512,16 +1573,39 @@ XHERE:
     NEXT
 
 // ALLOT ( n -- ) advance HERE by n bytes
+// Bounds-check against logical dict end (user_dict_size_cell); grow via GROWMEMORYMB.
 XALLOT:
-    mov x0, x20
+    mov x0, x20                    // n
     ldr x20, [x22], #8
-    // Use _compile_cell's approach to access here_ptr
     adrp x1, here_ptr@page
     add x1, x1, here_ptr@pageoff
-    ldr x2, [x1]
-    add x2, x2, x0
-    str x2, [x1]
+    ldr x2, [x1]                   // HERE
+    add x3, x2, x0                 // candidate HERE
+    // lower bound = start of user dictionary
+    adrp x4, user_dict_area@page
+    add x4, x4, user_dict_area@pageoff
+    cmp x3, x4
+    b.lo _allot_under
+    // upper bound = start + logical size
+    adrp x5, user_dict_size_cell@page
+    add x5, x5, user_dict_size_cell@pageoff
+    ldr x5, [x5]
+    add x5, x4, x5                 // end
+    cmp x3, x5
+    b.hi _allot_over
+    str x3, [x1]
     NEXT
+_allot_under:
+    adrp x0, str_allot_under@page
+    add  x0, x0, str_allot_under@pageoff
+    b    _allot_fail
+_allot_over:
+    adrp x0, str_allot_over@page
+    add  x0, x0, str_allot_over@pageoff
+_allot_fail:
+    // print message via host emit, then abort to QUIT
+    bl   _print_string_svc
+    b    _error_abandon
 
 // , ( x -- ) compile cell at HERE
 XCOMMA:
@@ -1866,6 +1950,30 @@ XDIR:
     SAVE_VM
     adrp x2, dir_hook@page
     add  x2, x2, dir_hook@pageoff
+    ldr  x9, [x2]
+    cbz  x9, 1f
+    mov  x1, x25
+    cbz  x1, 2f
+    adrp x0, word_scratch@page
+    add  x0, x0, word_scratch@pageoff
+    b    3f
+2:
+    mov  x0, #0
+    mov  x1, #0
+3:
+    blr  x9
+1:
+    RESTORE_VM
+    NEXT
+
+// EDIT ( -- ) name|dialog  open in system text editor (TZForth-style)
+// Bare → open panel; named (or "quoted path") → resolve, open, chdir to folder.
+// FROMLIB EDIT resolves under Library without permanently changing session cwd.
+XEDIT:
+    bl   _next_filespec            // x25=len (0 = bare); word_scratch if named
+    SAVE_VM
+    adrp x2, edit_hook@page
+    add  x2, x2, edit_hook@pageoff
     ldr  x9, [x2]
     cbz  x9, 1f
     mov  x1, x25
@@ -3501,11 +3609,12 @@ _local_frame_try_exit:
 // - Only first search-order wordlist (CONTEXT / search_order[0]), not CURRENT
 //   e.g. ONLY FORTH ALSO BIG-INTEGER WORDS → BIG-INTEGER only
 // - Optional name filter: next parse-word, substring, case-insensitive
-// - Names sorted alphabetically (case-insensitive). TZForth splits kernel
-//   (alpha) vs user (reverse chrono); 64Forth has a single growable dict, so
-//   we sort the whole wordlist A–Z (same visual result for boot words).
+// - Kernel words (CFA < words_user_base, set after bootstrap): A–Z sorted
+//   under banner "64Forth System Words"
+// - User words (keyboard / FLOAD / INCLUDE / REQUIRE…): load order at end
+//   under banner "64Forth User Words" (only if any user words)
 // - Header: --- <wordlist> (n) ---
-// - Print 8 names per line
+// - Print 8 names per line within each section
 // ============================================================================
 .equ WORDS_MAX, 1024
 
@@ -3549,7 +3658,10 @@ XWORDS:
     adrp x19, latest_var@page
     add  x19, x19, latest_var@pageoff
 4:
-    // Collect CFAs into words_cfa[0..count)
+    // Fence: CFAs < words_user_base are kernel; >= are user (0 → treat all as kernel).
+    // Keep fence/nk in BSS temps — helpers clobber x25+.
+
+    // ---- Pass 1: collect kernel CFAs into words_cfa[0..nk) ----
     ldr  x20, [x19]                // latest CFA in this wordlist
     adrp x21, words_cfa@page
     add  x21, x21, words_cfa@pageoff
@@ -3558,13 +3670,20 @@ XWORDS:
     cbz  x20, 6f
     cmp  x22, #WORDS_MAX
     b.hs 6f
+    adrp x0, words_user_base@page
+    add  x0, x0, words_user_base@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 53f                   // no fence → all kernel
+    cmp  x20, x0
+    b.hs 52f                       // user word → skip this pass
+53:
     adrp x0, words_filter_len@page
     add  x0, x0, words_filter_len@pageoff
     ldr  x0, [x0]
-    cbz  x0, 51f                   // no filter → keep
+    cbz  x0, 51f
     mov  x0, x20
-    bl   _words_name_ptr           // x0=chars, x1=len
-    bl   _words_filter_match       // x0=1 if match
+    bl   _words_name_ptr
+    bl   _words_filter_match
     cbz  x0, 52f
 51:
     str  x20, [x21, x22, lsl #3]
@@ -3573,10 +3692,65 @@ XWORDS:
     ldr  x20, [x20, #-16]          // LFA @ CFA-16
     b    5b
 6:
-    // Insertion sort words_cfa[0..x22) by name (case-insensitive)
+    adrp x0, words_nk_tmp@page
+    add  x0, x0, words_nk_tmp@pageoff
+    str  x22, [x0]                 // nk
+
+    // ---- Pass 2: collect user CFAs (newest first) into words_cfa[nk..) ----
+    adrp x0, words_user_base@page
+    add  x0, x0, words_user_base@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 65f                   // no fence → no user section
+    ldr  x20, [x19]
+55:
+    cbz  x20, 65f
+    cmp  x22, #WORDS_MAX
+    b.hs 65f
+    adrp x0, words_user_base@page
+    add  x0, x0, words_user_base@pageoff
+    ldr  x0, [x0]
+    cmp  x20, x0
+    b.lo 57f                       // kernel → skip
+    adrp x0, words_filter_len@page
+    add  x0, x0, words_filter_len@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 56f
+    mov  x0, x20
+    bl   _words_name_ptr
+    bl   _words_filter_match
+    cbz  x0, 57f
+56:
+    str  x20, [x21, x22, lsl #3]
+    add  x22, x22, #1
+57:
+    ldr  x20, [x20, #-16]
+    b    55b
+65:
+    // Reverse user section [nk, n) → load order (oldest first). Walk was newest-first.
+    adrp x0, words_nk_tmp@page
+    add  x0, x0, words_nk_tmp@pageoff
+    ldr  x0, [x0]                  // lo = nk
+    cmp  x22, x0
+    b.ls 67f                       // no user words (n <= nk)
+    sub  x1, x22, #1               // hi = n-1
+66:
+    cmp  x0, x1
+    b.ge 67f
+    ldr  x2, [x21, x0, lsl #3]
+    ldr  x3, [x21, x1, lsl #3]
+    str  x3, [x21, x0, lsl #3]
+    str  x2, [x21, x1, lsl #3]
+    add  x0, x0, #1
+    sub  x1, x1, #1
+    b    66b
+67:
+    // Insertion sort only kernel range [0, nk) by name (case-insensitive)
     mov  x1, #1
 61:
-    cmp  x1, x22
+    adrp x0, words_nk_tmp@page
+    add  x0, x0, words_nk_tmp@pageoff
+    ldr  x0, [x0]                  // nk
+    cmp  x1, x0
     b.hs 7f
     ldr  x2, [x21, x1, lsl #3]     // key CFA
     mov  x3, x1
@@ -3614,7 +3788,7 @@ XWORDS:
     bl   _putchar
     mov  x0, #'('
     bl   _putchar
-    mov  x0, x22
+    mov  x0, x22                   // total n
     bl   _print_unsigned
     mov  x0, #')'
     bl   _putchar
@@ -3623,16 +3797,25 @@ XWORDS:
     bl   _print_string_svc
     mov  x0, #10
     bl   _putchar
-    // Print names, 8 per line
+    // ---- 64Forth System Words (kernel, A–Z) ----
+    adrp x0, words_nk_tmp@page
+    add  x0, x0, words_nk_tmp@pageoff
+    ldr  x0, [x0]                  // nk
+    cbz  x0, 76f                   // no system words (unusual)
+    adrp x0, str_words_sys@page
+    add  x0, x0, str_words_sys@pageoff
+    bl   _print_string_svc
     mov  x23, #0                   // i
     mov  x24, #0                   // col
 71:
-    cmp  x23, x22
-    b.hs 8f
+    adrp x0, words_nk_tmp@page
+    add  x0, x0, words_nk_tmp@pageoff
+    ldr  x0, [x0]
+    cmp  x23, x0
+    b.hs 75f
     ldr  x0, [x21, x23, lsl #3]
-    bl   _words_name_ptr           // x0=chars, x1=len
+    bl   _words_name_ptr
     cbz  x1, 72f
-    // TYPE via _write_stdout (x0=buf, x1=len)
     stp  x23, x24, [sp, #-16]!
     bl   _write_stdout
     ldp  x23, x24, [sp], #16
@@ -3648,13 +3831,66 @@ XWORDS:
 74:
     add  x23, x23, #1
     b    71b
-8:
-    cbz  x24, 82f                  // already on new line / empty
+75:
+    cbz  x24, 76f
+    mov  x0, #10
+    bl   _putchar
+76:
+    // ---- 64Forth User Words (load order), only if any ----
+    adrp x0, words_nk_tmp@page
+    add  x0, x0, words_nk_tmp@pageoff
+    ldr  x0, [x0]                  // nk
+    cmp  x22, x0
+    b.ls 82f                       // n <= nk → no user section
+    adrp x0, str_words_user@page
+    add  x0, x0, str_words_user@pageoff
+    bl   _print_string_svc
+    adrp x0, words_nk_tmp@page
+    add  x0, x0, words_nk_tmp@pageoff
+    ldr  x23, [x0]                 // i = nk
+    mov  x24, #0                   // col
+77:
+    cmp  x23, x22
+    b.hs 80f
+    ldr  x0, [x21, x23, lsl #3]
+    bl   _words_name_ptr
+    cbz  x1, 78f
+    stp  x23, x24, [sp, #-16]!
+    bl   _write_stdout
+    ldp  x23, x24, [sp], #16
+78:
+    mov  x0, #32
+    bl   _putchar
+    add  x24, x24, #1
+    cmp  x24, #8
+    b.lo 79f
+    mov  x0, #10
+    bl   _putchar
+    mov  x24, #0
+79:
+    add  x23, x23, #1
+    b    77b
+80:
+    cbz  x24, 82f
     mov  x0, #10
     bl   _putchar
 82:
     RESTORE_VM
     NEXT
+
+// Record HERE after first completed interpret (end of bootstrap) as the
+// kernel/user WORDS fence. CFA >= base → user (load order); below → kernel.
+_record_words_user_base_once:
+    adrp x0, words_user_base@page
+    add  x0, x0, words_user_base@pageoff
+    ldr  x1, [x0]
+    cbnz x1, 1f
+    adrp x1, here_ptr@page
+    add  x1, x1, here_ptr@pageoff
+    ldr  x1, [x1]
+    str  x1, [x0]
+1:
+    ret
 
 // _words_name_ptr: x0=CFA → x0=name chars, x1=len
 _words_name_ptr:
@@ -4030,15 +4266,20 @@ XMSFETCH:
     mov x20, x0
     NEXT
 
-// UNUSED ( -- u )  free bytes remaining in user_dict_area (128 KiB)
-.equ USER_DICT_SIZE, 262144  // 256 KiB (was 128 KiB; +room for names/comments)
+// UNUSED ( -- u )  free bytes remaining in user dictionary (logical size)
+// Default logical size 1 MiB; reserve USER_DICT_MAX BSS (demand-zero). GROWMEMORYMB
+// raises the logical limit once per session without relocating CFAs (max 64 MiB).
+.equ USER_DICT_DEFAULT, 1048576    // 1 MiB
+.equ USER_DICT_MAX, 67108864       // 64 MiB reserved / hard cap
 XUNUSED:
     adrp x0, here_ptr@page
     add x0, x0, here_ptr@pageoff
     ldr x1, [x0]                   // HERE
     adrp x0, user_dict_area@page
     add x0, x0, user_dict_area@pageoff
-    mov x2, #USER_DICT_SIZE
+    adrp x2, user_dict_size_cell@page
+    add x2, x2, user_dict_size_cell@pageoff
+    ldr x2, [x2]
     add x0, x0, x2                 // end of user dictionary
     subs x0, x0, x1                // free = end - HERE
     b.hs 1f
@@ -4073,6 +4314,54 @@ XUSER_DICT:
     add x0, x0, user_dict_area@pageoff
     mov x20, x0
     NEXT
+
+// GROWMEMORYMB ( n -- )  TZForth extension: set logical dictionary size to n MiB.
+// Once per session; cannot shrink; 1 ≤ n ≤ 64. Base address never moves (CFA-stable).
+XGROWMEMORYMB:
+    mov  x0, x20                   // n (MB)
+    ldr  x20, [x22], #8
+    // already used?
+    adrp x1, grow_memory_used@page
+    add  x1, x1, grow_memory_used@pageoff
+    ldr  x2, [x1]
+    cbnz x2, _gmm_already
+    // n >= 1?
+    cmp  x0, #1
+    b.lt _gmm_small
+    // n <= 64?
+    cmp  x0, #64
+    b.hi _gmm_big
+    // newsize = n * 1 MiB = n << 20
+    lsl  x3, x0, #20
+    // cannot shrink: newsize > current
+    adrp x4, user_dict_size_cell@page
+    add  x4, x4, user_dict_size_cell@pageoff
+    ldr  x5, [x4]
+    cmp  x3, x5
+    b.ls _gmm_shrink
+    // accept
+    str  x3, [x4]
+    mov  x2, #1
+    str  x2, [x1]                  // grow_memory_used = true
+    NEXT
+_gmm_already:
+    adrp x0, str_gmm_already@page
+    add  x0, x0, str_gmm_already@pageoff
+    b    _gmm_fail
+_gmm_small:
+    adrp x0, str_gmm_small@page
+    add  x0, x0, str_gmm_small@pageoff
+    b    _gmm_fail
+_gmm_big:
+    adrp x0, str_gmm_big@page
+    add  x0, x0, str_gmm_big@pageoff
+    b    _gmm_fail
+_gmm_shrink:
+    adrp x0, str_gmm_shrink@page
+    add  x0, x0, str_gmm_shrink@pageoff
+_gmm_fail:
+    bl   _print_string_svc
+    b    _error_abandon
 
 // ============================================================================
 // Stack pointer probes (for high-level DEPTH) + SPACES C, S>D 2* 2/ 2@ 2!
@@ -4129,9 +4418,23 @@ XCCOMMA:
     adrp x1, here_ptr@page
     add x1, x1, here_ptr@pageoff
     ldr x2, [x1]
-    strb w0, [x2], #1
-    str x2, [x1]
+    add x3, x2, #1
+    adrp x4, user_dict_area@page
+    add x4, x4, user_dict_area@pageoff
+    adrp x5, user_dict_size_cell@page
+    add x5, x5, user_dict_size_cell@pageoff
+    ldr x5, [x5]
+    add x5, x4, x5
+    cmp x3, x5
+    b.hi 1f
+    strb w0, [x2]
+    str x3, [x1]
     NEXT
+1:
+    adrp x0, str_dict_full@page
+    add  x0, x0, str_dict_full@pageoff
+    bl   _print_string_svc
+    b    _error_abandon
 
 // S>D ( n -- d )  sign-extend single to double; hi cell is TOS
 XSTOD:
@@ -4730,6 +5033,41 @@ _bs_loop:
 _bs_done:
     mov x0, x10
     bl _cursor_store
+    NEXT
+
+// \S ( -- ) IMMEDIATE  TZForth / F-PC model:
+//   Stop further interpretation of the *current* SOURCE (whole INCLUDE/FLOAD
+//   buffer, EVALUATE string, or single console kernel_eval line). Does NOT
+//   clear STATE. Nested INCLUDE: only the innermost file stops; outer SOURCE
+//   resumes (so `FLOAD f 123 .` still runs tokens after FLOAD).
+//   When SOURCE-ID == 0 (console), also set repl_batch_stop so the host can
+//   drop remaining lines of a multi-line paste (see ConsoleView).
+//   Case-insensitive FIND: `\s` (Hayes) matches this name.
+XBACKSLASH_S:
+    // Pin >IN and word_cursor at end of current SOURCE (ignore rest of line/file)
+    adrp x0, source_len@page
+    add  x0, x0, source_len@pageoff
+    ldr  x1, [x0]                   // u
+    adrp x0, to_in_var@page
+    add  x0, x0, to_in_var@pageoff
+    str  x1, [x0]
+    adrp x0, source_addr@page
+    add  x0, x0, source_addr@pageoff
+    ldr  x0, [x0]
+    add  x0, x0, x1
+    adrp x2, word_cursor@page
+    add  x2, x2, word_cursor@pageoff
+    str  x0, [x2]
+    // Console (SOURCE-ID 0): request host to stop multi-line paste batch
+    adrp x0, source_id_var@page
+    add  x0, x0, source_id_var@pageoff
+    ldr  x0, [x0]
+    cbnz x0, 1f                     // file or EVALUATE: only end this SOURCE
+    adrp x0, repl_batch_stop@page
+    add  x0, x0, repl_batch_stop@pageoff
+    mov  x1, #1
+    str  x1, [x0]
+1:
     NEXT
 
 // ( ( -- ) IMMEDIATE  paren comment; discard until ')'
@@ -5784,8 +6122,12 @@ _quit_loop:
     adrp x0, source_id_var@page
     add x0, x0, source_id_var@pageoff
     str xzr, [x0]
+    adrp x0, local_frame_depth@page
+    add x0, x0, local_frame_depth@pageoff
+    str xzr, [x0]
     adrp x24, latest_var@page
     add x24, x24, latest_var@pageoff
+    bl  _emit_memfault_msg
 2:
     // Print prompt via raw SVC
     mov x0, #1
@@ -6017,6 +6359,8 @@ _interpret_empty:
     bl _pop_source
     cbnz x0, _interpret_loop       // restored outer SOURCE — keep going
 _interpret_done:
+    // First completion is bootstrap (forth_init_str); fence user WORDS after that.
+    bl   _record_words_user_base_once
     // Print " ok\n" (host emit hook when set)
     adrp x0, str_ok@page
     add  x0, x0, str_ok@pageoff
@@ -6142,18 +6486,22 @@ _file_echo_upto_cursor:
     csel x0, x1, x0, lo
     cmp x0, x2
     csel x0, x2, x0, hi
-    // if pos > line_end, already echoed through this line
+    // if pos >= line_end, already echoed through this line
     cmp x0, x3
-    b.hi _fe_done
-    // write [pos, line_end): x0=pos, x3=line_end
-    mov x1, x0                     // buf = pos
-    subs x2, x3, x1                // len = line_end - pos
+    b.hs _fe_done
+    // write [pos, line_end) via emit_hook (not raw write(1) — embed UI never
+    // sees SVC stdout, which produced a screen full of blank newlines only).
+    // x0=pos, x3=line_end; _write_stdout clobbers caller-saved regs.
+    mov x1, x3
+    subs x1, x1, x0                // len = line_end - pos; x0 = buf
     b.eq 6f
-    mov x0, #1                     // stdout
-    mov x16, #4
-    svc #0x80
+    str x3, [sp, #-16]!            // keep line_end
+    bl  _write_stdout              // x0=buf, x1=len → host emit_hook
+    ldr x3, [sp], #16
 6:
-    // If line ends with \n, print it and advance past; else add \n for display
+    // Advance file_echo_pos *before* bl _putchar: the Swift emit_hook clobbers
+    // all caller-saved regs (x0–x18), so storing x3 after bl left garbage and
+    // the next word re-echoed the whole file from SOURCE start (massive dup).
     adrp x0, source_addr@page
     add x0, x0, source_addr@pageoff
     ldr x0, [x0]
@@ -6166,20 +6514,20 @@ _file_echo_upto_cursor:
     ldrb w1, [x3]
     cmp w1, #10
     b.ne 7f
-    mov x0, #10
-    bl _putchar
-    add x3, x3, #1
+    add x1, x3, #1                 // next pos = past \n
     adrp x4, file_echo_pos@page
     add x4, x4, file_echo_pos@pageoff
-    str x3, [x4]
+    str x1, [x4]
+    mov x0, #10
+    bl _putchar
     b _fe_done
 7:
     // No trailing newline in source (last line): print one for the console
-    mov x0, #10
-    bl _putchar
     adrp x4, file_echo_pos@page
     add x4, x4, file_echo_pos@pageoff
-    str x3, [x4]
+    str x3, [x4]                   // next pos = line_end (EOF)
+    mov x0, #10
+    bl _putchar
 _fe_done:
     ldp x29, x30, [sp], #16
     ret
@@ -6346,6 +6694,20 @@ _putchar_svc:
     mov x16, #4             // write
     svc #0x80               // Darwin: preserves x19-x28; result in x0
     add sp, sp, #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// _emit_memfault_msg: print "memory access error\n" via emit_hook (safe after longjmp)
+_emit_memfault_msg:
+    stp x29, x30, [sp, #-16]!
+    adrp x0, str_memfault@page
+    add  x0, x0, str_memfault@pageoff
+    mov  x1, #20
+    bl   _write_stdout
+    // clear sticky so host does not double-print if it also checks the flag
+    adrp x0, fault_pending@page
+    add  x0, x0, fault_pending@pageoff
+    str  xzr, [x0]
     ldp x29, x30, [sp], #16
     ret
 
@@ -7391,16 +7753,30 @@ _wr_done:
     ldp x29, x30, [sp], #16
     ret
 
-// _compile_cell: x0 = value, compile at HERE
+// _compile_cell: x0 = value, compile at HERE (bounds-checked)
+// On overflow: message + abandon (same as ALLOT over dict end).
 _compile_cell:
     adrp x1, here_ptr@page
-    add x1, x1, here_ptr@pageoff
-    ldr x1, [x1]
-    str x0, [x1], #8
-    adrp x2, here_ptr@page
-    add x2, x2, here_ptr@pageoff
-    str x1, [x2]
+    add  x1, x1, here_ptr@pageoff
+    ldr  x2, [x1]                  // HERE
+    add  x3, x2, #8                // candidate HERE
+    adrp x4, user_dict_area@page
+    add  x4, x4, user_dict_area@pageoff
+    adrp x5, user_dict_size_cell@page
+    add  x5, x5, user_dict_size_cell@pageoff
+    ldr  x5, [x5]
+    add  x5, x4, x5                // end
+    cmp  x3, x5
+    b.hi 1f
+    str  x0, [x2]
+    str  x3, [x1]
     ret
+1:
+    // clobber-safe: we will not return
+    adrp x0, str_dict_full@page
+    add  x0, x0, str_dict_full@pageoff
+    bl   _print_string_svc
+    b    _error_abandon
 
 // _print_signed: x0=value  (uses BASE; leading '-' if negative)
 _print_signed:
@@ -7641,6 +8017,7 @@ word_cursor:    .quad 0
 source_addr:    .quad 0
 source_len:     .quad 0
 to_in_var:      .quad 0
+repl_batch_stop: .quad 0           // set by \S on SOURCE-ID 0; host takes via kernel_take_repl_batch_stop
 pad_buffer:     .skip 256
 hold_ptr:       .quad 0
 // Nested SOURCE stack: 8 frames * 5 quads (addr, len, >IN, source-id, file_echo_pos)
@@ -7702,10 +8079,18 @@ str_protected:  .asciz "protected\n"
 str_underflow:  .asciz "stack underflow\n"
 str_overflow:   .asciz "stack overflow\n"
 str_memfault:   .asciz "memory access error\n"
+str_allot_over: .asciz "ALLOT: dictionary full (need more USER-DICT space)\n"
+str_allot_under:.asciz "ALLOT: below dictionary start\n"
+str_dict_full:  .asciz "dictionary full (code/data space exhausted)\n"
+str_gmm_already:.asciz "? GROWMEMORYMB already used (once per session)\n"
+str_gmm_small:  .asciz "? GROWMEMORYMB needs at least 1 MB\n"
+str_gmm_big:    .asciz "? GROWMEMORYMB exceeds maximum (64 MB)\n"
+str_gmm_shrink: .asciz "? GROWMEMORYMB cannot shrink memory\n"
 str_redef:  .asciz " is redefined\n"
 .align 8
 quit_jmpbuf:        .skip 256      // sigjmp_buf for fault recovery
 fault_handlers_on:  .quad 0
+fault_pending:      .quad 0        // set in signal handler; cleared after message
 str_x:      .asciz "X"
 
 // Embed API state (Phase 1–3)
@@ -7721,6 +8106,7 @@ last_load_key_hook: .quad 0        // absolute key of last successful load
 chdir_hook:     .quad 0            // void (*)(path, path_len); path_len 0 = bare picker
 pwd_hook:       .quad 0            // void (*)(void)
 dir_hook:       .quad 0            // void (*)(path, path_len); path_len 0 = list cwd
+edit_hook:      .quad 0            // void (*)(path, path_len); path_len 0 = bare EDIT dialog
 alloc_hook:     .quad 0            // int (*)(size_t n, void **out)
 free_hook:      .quad 0            // int (*)(void *p)
 bi_mul_hook:    .quad 0            // void (*)(int64 a, int64 b, int64 r)
@@ -7734,12 +8120,16 @@ str_forth_name:   .asciz "FORTH"
 str_wid:          .asciz "wid"
 str_words_hdr1:   .asciz "--- "
 str_words_hdr2:   .asciz " ---"
+str_words_sys:    .asciz "64Forth System Words\n"
+str_words_user:   .asciz "64Forth User Words\n"
 str_included_hdr: .asciz "Included:\n"
 str_included_none: .asciz "  (none)\n"
 .align 8
 words_filter_len: .quad 0
 words_filter:     .skip 64          // uppercased filter substring
-words_cfa:        .skip WORDS_MAX * 8  // sorted CFA list for WORDS
+words_cfa:        .skip WORDS_MAX * 8  // CFA list for WORDS (kernel then user)
+words_user_base:  .quad 0           // HERE after bootstrap; CFA >= this → user word
+words_nk_tmp:     .quad 0           // kernel count during WORDS
 // REQUIRE / INCLUDED-NAMES style registry (parse-name keys)
 .align 8
 included_count:       .quad 0
@@ -7899,19 +8289,22 @@ forth_init_str:
     .ascii ": <# PAD 256 + HLD ! ; "
     .ascii "DOC\" HOLD ( char -- ) insert char into pictured output\" "
     .ascii ": HOLD -1 HLD +! HLD @ C! ; "
-    .ascii "DOC\" #> ( ud -- c-addr u ) end pictured numeric, return string\" "
-    .ascii ": #> DROP HLD @ PAD 256 + OVER - ; "
-    .ascii "DOC\" # ( ud -- ud ) add one digit to pictured output\" "
-    .ascii ": # BASE @ /MOD SWAP DUP 9 > IF 7 + THEN 48 + HOLD ; "
-    .ascii "DOC\" #S ( ud -- ud ) add all remaining digits to pictured\" "
-    .ascii ": #S BEGIN # DUP 0= UNTIL ; "
+    // ANS pictured output is double-cell (ud = lo under, hi TOS).
+    // Single-cell form was wrong for `n 0 <# #S #>` (used by BI. / BI-U.9) and
+    // printed only the high cell — π and other BI output collapsed to 0.000…
+    .ascii "DOC\" #> ( xd -- c-addr u ) end pictured numeric, return string\" "
+    .ascii ": #> 2DROP HLD @ PAD 256 + OVER - ; "
+    .ascii "DOC\" # ( ud1 -- ud2 ) convert one digit of pictured numeric output\" "
+    .ascii ": # 0 BASE @ UM/MOD >R BASE @ UM/MOD R> ROT DUP 9 > IF 7 + THEN 48 + HOLD ; "
+    .ascii "DOC\" #S ( ud1 -- ud2 ) convert remaining digits of pictured numeric output\" "
+    .ascii ": #S BEGIN # 2DUP OR 0= UNTIL ; "
     .ascii "DOC\" SIGN ( n -- ) insert minus sign if n<0 into pictured\" "
     .ascii ": SIGN 0< IF 45 HOLD THEN ; "
     // Formatted print using pictured output (native . / U. remain)
     .ascii "DOC\" UD. ( ud -- ) print unsigned double\" "
     .ascii ": UD. <# #S #> TYPE SPACE ; "
-    .ascii "DOC\" D. ( d -- ) print signed double in current BASE\" "
-    .ascii ": D. DUP 0< IF NEGATE <# #S 45 HOLD #> ELSE <# #S #> THEN TYPE SPACE ; "
+    .ascii "DOC\" D. ( n -- ) print signed single in current BASE via pictured output\" "
+    .ascii ": D. DUP 0< IF NEGATE 0 <# #S 45 HOLD #> ELSE 0 <# #S #> THEN TYPE SPACE ; "
     // FILL ( c-addr u char -- ); stack top is u, so bump addr via SWAP 1+ SWAP
     .ascii "DOC\" FILL ( addr u b -- ) fill u bytes at addr with b\" "
     .ascii ": FILL >R BEGIN DUP WHILE OVER R@ SWAP C! SWAP 1+ SWAP 1- REPEAT R> DROP 2DROP ; "
@@ -7977,18 +8370,20 @@ forth_init_str:
     .ascii "DOC\" .3DIG ( n -- ) print n as 3 decimal digits\" "
     .ascii ": .3DIG 100 /MOD 48 + EMIT .2DIG ; "
     // .ELAPSED ( ms -- )  print milliseconds as HH:MM:SS.mmm (HH at least 2 digits)
+    // Hours use ANS double pictured (`n 0 <# #S #>`): #/#S/#> are double-cell.
     .ascii "DOC\" .ELAPSED ( ms -- ) print ms as HH:MM:SS.mmm\" "
-    .ascii ": .ELAPSED BASE @ >R DECIMAL 1000 /MOD SWAP >R 60 /MOD SWAP >R 60 /MOD SWAP >R DUP 10 < IF 48 EMIT THEN <# #S #> TYPE 58 EMIT R> .2DIG 58 EMIT R> .2DIG 46 EMIT R> .3DIG R> BASE ! ; "
+    .ascii ": .ELAPSED BASE @ >R DECIMAL 1000 /MOD SWAP >R 60 /MOD SWAP >R 60 /MOD SWAP >R DUP 10 < IF 48 EMIT THEN 0 <# #S #> TYPE 58 EMIT R> .2DIG 58 EMIT R> .2DIG 46 EMIT R> .3DIG R> BASE ! ; "
     // ELAPSED <name>  run name once; print wall time as HH:MM:SS.mmm
     // Start time on R so EXECUTE stack results do not interfere with MS@ / delta.
     .ascii "DOC\" ELAPSED ( 'name' -- ) run name once and print elapsed time\" "
     .ascii ": ELAPSED ' MS@ >R EXECUTE MS@ R> - .ELAPSED CR ; "
     // DUMP ( addr u -- )  classic hex+ASCII dump, 16 bytes/line
     // .H2 byte as 2 hex digits; .HA address as 16 hex digits (BASE=HEX)
+    // Single-cell values need hi=0 for double-cell # (same as BI. / D.).
     .ascii "DOC\" .H2 ( b -- ) print byte as 2 hex digits\" "
-    .ascii ": .H2 255 AND <# # # #> TYPE ; "
+    .ascii ": .H2 255 AND 0 <# # # #> TYPE ; "
     .ascii "DOC\" .HA ( addr -- ) print address as 16 hex digits\" "
-    .ascii ": .HA <# # # # # # # # # # # # # # # # # #> TYPE ; "
+    .ascii ": .HA 0 <# # # # # # # # # # # # # # # # # #> TYPE ; "
     .ascii "DOC\" DUMP-END ( -- addr ) variable end of DUMP range\" "
     .ascii "VARIABLE DUMP-END "
     .ascii "DOC\" DUMP-LINE ( addr -- addr' ) dump one line\" "
@@ -8007,14 +8402,17 @@ forth_init_str:
     // ABORT: SP0 SP! clears data stack (TOS-cache model), then QUIT.
     .ascii "DOC\" ABORT ( -- ) THROW -1 (catchable; prints Aborted! if uncaught)\" "
     .ascii ": ABORT SP0 SP! QUIT ; "
-    .ascii ": ABORT\" STATE @ IF POSTPONE S\" POSTPONE TYPE POSTPONE ABORT ELSE 34 PARSE TYPE ABORT THEN ; IMMEDIATE "
-    // FORGET <name>  remove name and all newer words; rewind HERE to name's header.
-    // FIND leaves (c-addr 0|xt flag); 0= IF consumes flag — do not DROP xt after THEN.
-    // Refuses names below USER-DICT (static kernel). HERE rewound via negative ALLOT.
-        // FORGET is CODE (XFORGET): multi-wordlist prune + USER-DICT fence.
-    // ANEW <name>  marker for reloadable modules (classic FPC/Win32Forth style).
-    .ascii "DOC\" ANEW ( 'name' -- ) if name exists FORGET it, then CREATE name\" "
-    .ascii ": ANEW >IN @ >R BL WORD FIND IF EXECUTE ELSE DROP THEN R> >IN ! CREATE LATEST @ , DOES> @ DUP >LINK @ LATEST ! DUP HERE - ALLOT DROP ; "
+    // ANS ABORT" ( x -- ): if x nonzero, type ccc and abort; else discard x.
+    // Old body compiled S" TYPE ABORT with no IF — always aborted (bubble-sort
+    // verify-list failed even when the list was correctly sorted).
+    // Note: do not put ABORT" inside DOC" — the embedded quote truncates DOC".
+    .ascii "DOC\" ABORT quote ( x -- ) if x nonzero type message and ABORT (immediate)\" "
+    .ascii ": ABORT\" STATE @ IF POSTPONE IF POSTPONE S\" POSTPONE TYPE POSTPONE CR POSTPONE ABORT POSTPONE THEN ELSE 34 PARSE ROT IF TYPE CR ABORT THEN 2DROP THEN ; IMMEDIATE "
+    // FORGET is CODE (XFORGET): multi-wordlist prune + USER-DICT fence.
+    // ANEW — classic reload marker (formerly AutoLoad/ANEW.fth; single definition).
+    // If name exists: FORGET it (and all newer words), then CREATE the marker again.
+    .ascii "DOC\" ANEW ( 'name' -- ) FORGET name if present, then CREATE reload marker\" "
+    .ascii ": ANEW >IN @ >R BL WORD FIND IF DROP R@ >IN ! S\" Reloading module: \" TYPE BL WORD COUNT TYPE CR R@ >IN ! FORGET ELSE DROP R@ >IN ! S\" Loading module: \" TYPE BL WORD COUNT TYPE CR THEN R> >IN ! CREATE ; "
     // ON / OFF — store 1 or 0 at addr (classic: FILE-ECHO ON  /  FILE-ECHO OFF)
     .ascii "DOC\" ON ( addr -- ) store 1 at addr (e.g. file-echo ON)\" "
     .ascii ": ON 1 SWAP ! ; "
@@ -8025,8 +8423,9 @@ forth_init_str:
     .ascii "DOC\" U> ( u1 u2 -- flag ) unsigned greater\" "
     .ascii ": U> SWAP U< ; "
     // U.R ( u n -- ) right-justify u in a field of n characters (no trailing space)
+    // `0 <# #S #>`: single-cell u as double with hi=0 (ANS pictured is ud).
     .ascii "DOC\" U.R ( u n -- ) print u right-justified in n field\" "
-    .ascii ": U.R >R <# #S #> R> OVER - 0 MAX SPACES TYPE ; "
+    .ascii ": U.R >R 0 <# #S #> R> OVER - 0 MAX SPACES TYPE ; "
     .ascii "DOC\" HOLDS ( c-addr u -- ) add string to pictured numeric output (prepend via HOLD)\" "
     .ascii ": HOLDS BEGIN DUP WHILE 1- 2DUP + C@ HOLD REPEAT 2DROP ; "
     .ascii "DOC\" COMPILE, ( xt -- ) compile the execution token xt\" "
@@ -8101,8 +8500,14 @@ str_store_name:     .asciz "!"
 
 // ============================================================================
 // User dictionary space (grows upward)
-// Size = USER_DICT_SIZE (128 KiB + 100 KiB)
+// Physical reserve: USER_DICT_MAX (64 MiB BSS, demand-zero — not all resident).
+// Logical size: user_dict_size_cell (default 1 MiB; GROWMEMORYMB raises it).
+// Base never moves so dictionary CFAs stay valid across grow.
 // ============================================================================
 .align 8
+user_dict_size_cell:
+    .quad USER_DICT_DEFAULT
+grow_memory_used:
+    .quad 0                        // GROWMEMORYMB once per process
 user_dict_area:
-    .skip USER_DICT_SIZE
+    .skip USER_DICT_MAX

@@ -54,6 +54,21 @@ void kernel_set_pwd(void (*fn)(void));
 /// DIR — path_len == 0 → list cwd (or Library if FROMLIB armed).
 void kernel_set_dir(void (*fn)(const char *path, size_t n));
 
+/// EDIT — path_len == 0 → open panel; else open named file in system editor + cwd.
+/// Honors FROMLIB (Library resolve; does not permanently chdir into Library).
+void kernel_set_edit(void (*fn)(const char *path, size_t n));
+
+/// \S / \s on the console SOURCE (SOURCE-ID 0): sticky flag for multi-line paste stop.
+/// Returns 1 if set since last call, else 0; always clears the flag (TZForth-style).
+int kernel_take_repl_batch_stop(void);
+
+/// Memory-fault recovery (SIGSEGV / SIGBUS). Kernel installs handlers at init;
+/// host may reinstall. longjmps to the active kernel_eval / QUIT setjmp.
+void kernel_on_memory_fault(int sig);
+
+/// 1 if a memory fault was recovered since last take (sticky; cleared on read).
+int kernel_take_fault_flag(void);
+
 void kernel_cold_start(void);
 
 #ifdef __cplusplus

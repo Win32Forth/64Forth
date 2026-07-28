@@ -629,6 +629,146 @@ final class FileHost {
         includeAllocs.removeAll()
     }
 
+    // MARK: - EDIT (TZForth-style: open in system editor, update cwd)
+
+    /// Kernel EDIT hook. path_len == 0 → open panel. Named: resolve (FROMLIB ok), open, chdir.
+    /// FROMLIB EDIT does not permanently leave session cwd at Library (same as TZForth).
+    func editForKernel(path: UnsafePointer<CChar>?, pathLen: Int) {
+        lastLoadError = nil
+        if path == nil || pathLen == 0 {
+            presentEditPicker()
+            return
+        }
+
+        var bytes = [UInt8](repeating: 0, count: pathLen)
+        for i in 0..<pathLen { bytes[i] = UInt8(bitPattern: path![i]) }
+        let raw = String(bytes: bytes, encoding: .utf8) ?? ""
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            presentEditPicker()
+            return
+        }
+
+        // FROMLIB named EDIT: open under Library but restore session cwd afterward.
+        let preserveCwd = fromLibraryArmed
+        let savedLogical = logicalCurrentDirectory
+        let savedProcess = FileManager.default.currentDirectoryPath
+
+        guard var url = resolveLoadPath(name) else {
+            let err = lastLoadError ?? "can't edit: \(name) (resolve failed)"
+            lastLoadError = err
+            msg(err + "\n")
+            if preserveCwd {
+                restoreSessionDirectory(logical: savedLogical, process: savedProcess)
+            }
+            return
+        }
+
+        // Auto .fth fallback (like FLOAD/EDIT in TZForth) when leaf has no extension.
+        let leaf = url.lastPathComponent
+        if !leaf.contains(".") {
+            let alt = url.deletingLastPathComponent().appendingPathComponent(leaf + ".fth")
+            if !FileManager.default.fileExists(atPath: url.path),
+               FileManager.default.fileExists(atPath: alt.path) {
+                url = alt
+            }
+        }
+
+        if !FileManager.default.fileExists(atPath: url.path) {
+            msg("can't edit: \(url.path) (not found)\n")
+            if preserveCwd {
+                restoreSessionDirectory(logical: savedLogical, process: savedProcess)
+                endAllFromLibraryLoads()
+            }
+            return
+        }
+
+        openInSystemEditor(url)
+
+        if preserveCwd || preserveSessionCwdAfterFileOp {
+            preserveSessionCwdAfterFileOp = false
+            restoreSessionDirectory(logical: savedLogical, process: savedProcess)
+            endAllFromLibraryLoads()
+        } else {
+            // Session cwd → file's folder (named EDIT without FROMLIB).
+            let parent = url.deletingLastPathComponent()
+            applyChdir(parent)
+        }
+    }
+
+    /// Bare EDIT: file open panel. FROMLIB arms start at Library without permanent CHDIR.
+    func presentEditPicker() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [
+            UTType(filenameExtension: "fth") ?? .plainText,
+            UTType(filenameExtension: "fs") ?? .plainText,
+            UTType(filenameExtension: "4th") ?? .plainText,
+            .plainText,
+            .text
+        ]
+        panel.prompt = "Edit"
+        panel.message = "EDIT — open file in system text editor"
+
+        let preserveCwd: Bool
+        let savedLogical = logicalCurrentDirectory
+        let savedProcess = FileManager.default.currentDirectoryPath
+
+        if fromLibraryArmed, let lib = libraryURL {
+            clearFromLibrary()
+            panel.directoryURL = lib
+            preserveCwd = true
+            preserveSessionCwdAfterFileOp = true
+        } else if let override = fileDialogStartDirectoryOverride {
+            panel.directoryURL = URL(fileURLWithPath: override, isDirectory: true)
+            fileDialogStartDirectoryOverride = nil
+            preserveCwd = preserveSessionCwdAfterFileOp
+        } else {
+            clearFromLibrary()
+            panel.directoryURL = URL(fileURLWithPath: logicalCurrentDirectory, isDirectory: true)
+            preserveCwd = false
+        }
+
+        panel.message = preserveCwd
+            ? "Select a library source file to open in the system default editor."
+            : "Select a file to open in the system default editor. The current directory will change to the file's folder."
+
+        guard panel.runModal() == .OK, let url = panel.url else {
+            msg("(EDIT cancelled)\n")
+            if preserveCwd {
+                restoreSessionDirectory(logical: savedLogical, process: savedProcess)
+            }
+            preserveSessionCwdAfterFileOp = false
+            return
+        }
+
+        rememberScopedURL(url)
+        openInSystemEditor(url)
+
+        if preserveCwd {
+            restoreSessionDirectory(logical: savedLogical, process: savedProcess)
+            preserveSessionCwdAfterFileOp = false
+        } else {
+            applyChdir(url.deletingLastPathComponent())
+        }
+    }
+
+    private func openInSystemEditor(_ url: URL) {
+        let ok = NSWorkspace.shared.open(url)
+        if ok {
+            msg("EDIT: \(url.path)\n")
+        } else {
+            msg("? EDIT could not open: \(url.path)\n")
+        }
+    }
+
+    private func restoreSessionDirectory(logical: String, process: String) {
+        logicalCurrentDirectory = logical
+        _ = FileManager.default.changeCurrentDirectoryPath(process)
+    }
+
     // MARK: - Finder
 
     func revealInFinder(_ url: URL?) {

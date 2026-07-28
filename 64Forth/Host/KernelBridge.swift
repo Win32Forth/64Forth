@@ -20,6 +20,15 @@ private func kernel_init() -> Int32
 @_silgen_name("kernel_eval")
 private func kernel_eval(_ line: UnsafePointer<CChar>?, _ n: Int) -> Int32
 
+@_silgen_name("kernel_take_repl_batch_stop")
+private func kernel_take_repl_batch_stop() -> Int32
+
+@_silgen_name("kernel_on_memory_fault")
+private func kernel_on_memory_fault(_ sig: Int32)
+
+@_silgen_name("kernel_take_fault_flag")
+private func kernel_take_fault_flag() -> Int32
+
 @_silgen_name("kernel_set_emit")
 private func kernel_set_emit(_ fn: (@convention(c) (Int32) -> Void)?)
 
@@ -72,6 +81,11 @@ private func kernel_set_pwd(_ fn: (@convention(c) () -> Void)?)
 
 @_silgen_name("kernel_set_dir")
 private func kernel_set_dir(
+    _ fn: (@convention(c) (UnsafePointer<CChar>?, Int) -> Void)?
+)
+
+@_silgen_name("kernel_set_edit")
+private func kernel_set_edit(
     _ fn: (@convention(c) (UnsafePointer<CChar>?, Int) -> Void)?
 )
 
@@ -184,6 +198,10 @@ private let kernelDirTrampoline: @convention(c) (UnsafePointer<CChar>?, Int) -> 
     }
 }
 
+private let kernelEditTrampoline: @convention(c) (UnsafePointer<CChar>?, Int) -> Void = { path, pathLen in
+    FileHost.shared.editForKernel(path: path, pathLen: pathLen)
+}
+
 private let kernelAllocTrampoline: @convention(c) (Int, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> Int32 = { n, out in
     guard n >= 0, let out else { return -1 }
     let p = UnsafeMutableRawPointer.allocate(byteCount: max(n, 1), alignment: 8)
@@ -221,6 +239,10 @@ final class KernelBridge {
     private(set) var isEvaluating = false
     private let evalLock = NSLock()
 
+    /// Set when `\S` / `\s` runs on the console SOURCE (SOURCE-ID 0). Host multi-line
+    /// paste should stop further lines (TZForth `replBatchStop`). Cleared on read.
+    private(set) var replBatchStopRequested = false
+
     var onEmit: ((String) -> Void)? {
         didSet {
             flushPendingEmit()
@@ -237,6 +259,10 @@ final class KernelBridge {
     private init() {
         kernelHookTarget = self
 
+        // Recover SIGSEGV/SIGBUS into the kernel setjmp (like TZForth soft faults).
+        // Must be before any kernel_eval; kernel_init also installs via sigaction.
+        Self.installMemoryFaultHandlers()
+
         kernel_set_emit(kernelEmitTrampoline)
         kernel_set_key(kernelKeyTrampoline)
         kernel_set_fromlib(kernelFromlibTrampoline)
@@ -247,6 +273,7 @@ final class KernelBridge {
         kernel_set_chdir(kernelChdirTrampoline)
         kernel_set_pwd(kernelPwdTrampoline)
         kernel_set_dir(kernelDirTrampoline)
+        kernel_set_edit(kernelEditTrampoline)
         kernel_set_allocate(kernelAllocTrampoline)
         kernel_set_free(kernelFreeTrampoline)
         kernel_set_bi_mul(kernelBiMulTrampoline)
@@ -259,6 +286,8 @@ final class KernelBridge {
 
         let rc = kernel_init()
         isKernelLive = (rc == 0)
+        // Re-install after init in case anything reset dispositions.
+        Self.installMemoryFaultHandlers()
         lock.lock()
         pendingEmit = ""
         lock.unlock()
@@ -266,6 +295,9 @@ final class KernelBridge {
         FileHost.shared.endAllFromLibraryLoads()
         if !isKernelLive {
             handleEmitString("[64Forth] kernel_init failed (rc=\(rc))\n")
+        }
+        if let err = BigIntHost.selfTest() {
+            handleEmitString("[64Forth] BigIntHost self-test FAILED: \(err)\n")
         }
     }
 
@@ -295,7 +327,17 @@ final class KernelBridge {
         lock.unlock()
     }
 
+    /// Clear the sticky multi-line paste stop (call before a paste batch if needed).
+    func clearReplBatchStop() {
+        replBatchStopRequested = false
+        if isKernelLive {
+            _ = kernel_take_repl_batch_stop()
+        }
+    }
+
     /// Interpret one console line. Not re-entrant (returns −3 if busy).
+    /// After eval, `replBatchStopRequested` is true if `\S` ran on the console line
+    /// (SOURCE-ID 0); multi-line paste should stop further lines.
     @discardableResult
     func evaluate(_ line: String) -> Int32 {
         let t = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -322,6 +364,20 @@ final class KernelBridge {
             status = kernel_eval(ptr, n)
         }
 
+        // \S on console SOURCE → host should stop remaining multi-line paste lines.
+        if kernel_take_repl_batch_stop() != 0 {
+            replBatchStopRequested = true
+        }
+
+        // Memory fault recovered via siglongjmp: kernel returns −1 and usually
+        // already emitted "memory access error". Ensure the console shows it.
+        if status == -1 {
+            if kernel_take_fault_flag() != 0 {
+                handleEmitString("memory access error\n")
+            }
+            // Leave REPL usable (stacks reset inside kernel recovery).
+        }
+
         FileHost.shared.releaseIncludeBuffers()
         FileHost.shared.endAllFromLibraryLoads()
         if FileHost.shared.fromLibraryArmed {
@@ -334,6 +390,26 @@ final class KernelBridge {
             }
         }
         return status
+    }
+
+    // MARK: - Memory fault recovery (SIGSEGV / SIGBUS → soft restart)
+
+    /// C handler trampoline: must not capture Swift context.
+    private static let memoryFaultTrampoline: @convention(c) (Int32) -> Void = { sig in
+        kernel_on_memory_fault(sig)
+    }
+
+    /// Install/replace Unix signal handlers so bad Forth pointers recover instead of
+    /// killing the app. Under Xcode, pair with `.lldbinit-64forth` so LLDB passes
+    /// the signal through (otherwise the debugger stops on EXC_BAD_ACCESS first).
+    private static func installMemoryFaultHandlers() {
+        var action = sigaction()
+        // Darwin: handler in the union at offset 0
+        action.__sigaction_u.__sa_handler = memoryFaultTrampoline
+        action.sa_flags = Int32(SA_NODEFER)
+        sigemptyset(&action.sa_mask)
+        sigaction(SIGSEGV, &action, nil)
+        sigaction(SIGBUS, &action, nil)
     }
 
     @discardableResult

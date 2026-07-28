@@ -1,7 +1,6 @@
 \ pi-test.fth — high-precision π demo (shipped in Resources/Library/PI)
 \
 \ Run:  FROMLIB FLOAD PI/pi-test.fth
-\   or: Tools → LIBRARY → VIEW Library Folder, then open/edit as needed.
 \
 DECIMAL
 
@@ -15,9 +14,6 @@ FROMLIB REQUIRE PI/pi-chudnovsky.fth
 .( === pi to 20 places ===) CR
 20 PI. CR
 
-.( === set STEP-LIMIT to zero to prevent infinite loop error === ) CR
-0 STEP-LIMIT !
-
 .( === pi to 50 places ===) CR
 50 PI. CR
 
@@ -28,18 +24,20 @@ FROMLIB REQUIRE PI/pi-chudnovsky.fth
 .( 3.14159265358979323846) CR
 .( === pi-test done ===) CR
 
-\s
-
+\S
+\
+\ Reference output (not interpreted — stopped by \S above):
+\
 Result from 20 PI.
 Calculated:  3.14159265358979323846
  Reference:  3.14159265358979323846
 Accelerated: 3.14159265358979323846
-
+ 
 Result from 50 PI.
 Calculated:  3.14159265358979323846264338327950288419716939937510
  Reference:  3.14159265358979323846264338327950288419716939937510
 Accelerated: 3.14159265358979323846264338327950288419716939937510
-
+ 
 Result from 100 PI.
 Calculated:  3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679
  Reference:  3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679

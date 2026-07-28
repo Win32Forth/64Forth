@@ -19,6 +19,7 @@ extension Notification.Name {
     static let showDocsFolder = Notification.Name("SixtyFourForthShowDocs")
     static let toolsFload = Notification.Name("SixtyFourForthToolsFload")
     static let toolsChdir = Notification.Name("SixtyFourForthToolsChdir")
+    static let toolsEdit = Notification.Name("SixtyFourForthToolsEdit")
 }
 
 private let banner =
@@ -127,6 +128,9 @@ struct ConsoleView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .toolsChdir)) { _ in
             presentChdirPanel()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toolsEdit)) { _ in
+            presentEditPanel()
         }
     }
 
@@ -249,11 +253,17 @@ struct ConsoleView: View {
         }
         historyIndex = -1
 
+        // TZForth: \S / \s on the console stops the remainder of a multi-line paste.
+        kernel.clearReplBatchStop()
         isProgrammaticConsoleAppend = true
         for line in candidateLines {
             _ = kernel.evaluate(line)
             markProtectedThroughEndOfText()
+            if kernel.replBatchStopRequested {
+                break
+            }
         }
+        kernel.clearReplBatchStop()
         if !consoleText.hasSuffix("\n") {
             consoleText += "\n"
             markProtectedThroughEndOfText()
@@ -368,6 +378,16 @@ struct ConsoleView: View {
         // Same as bare CHDIR word (FROMLIB-aware start directory).
         isProgrammaticConsoleAppend = true
         host.presentDirectoryPicker()
+        markProtectedThroughEndOfText()
+        appendPrompt()
+        isProgrammaticConsoleAppend = false
+        keepCursorVisible(followPrompt: true)
+    }
+
+    private func presentEditPanel() {
+        // Same as bare EDIT word (FROMLIB-aware start; chdir to file folder on pick).
+        isProgrammaticConsoleAppend = true
+        host.presentEditPicker()
         markProtectedThroughEndOfText()
         appendPrompt()
         isProgrammaticConsoleAppend = false

@@ -87,9 +87,9 @@
 
 ### Phase 4 — AutoLoad
 - [x] On launch: if `Resources/AutoLoad/autoload.fth` exists, load after console attaches (TZForth `runAutoLoadIfPresent`)
-- [x] During load: cwd = AutoLoad/ so nested `FLOAD ANEW.fth` works; restore cwd after
+- [x] During load: cwd = AutoLoad/ so nested relative FLOAD works; restore cwd after
 - [x] Run `MAIN` if defined (plain `MAIN` after load)
-- [x] 64Forth-friendly default `autoload.fth` (ANEW + MAIN; no SZ-EDITOR)
+- [x] Default `autoload.fth` (MAIN); `ANEW` is a single kernel definition
 
 ### Phase 5 — Hardening (+ DIR)
 - [x] **DIR** host word (TZForth-style: bare cwd, path, `*`/`?` filters, FROMLIB → Library)
