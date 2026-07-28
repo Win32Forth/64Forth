@@ -25,6 +25,9 @@ void kernel_set_key(int (*fn)(void));
 /// KEY? — non-blocking: return non-zero if a key is available (does not consume it).
 void kernel_set_key_q(int (*fn)(void));
 
+/// TIME&DATE — fill out[6] with sec, min, hour, day, month, year (local time).
+void kernel_set_time_date(void (*fn)(int64_t out[6]));
+
 /// FROMLIB / FROM-LIBRARY — host arms Library resolve for next load/CHDIR.
 void kernel_set_fromlib(void (*fn)(void));
 

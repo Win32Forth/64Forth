@@ -85,6 +85,7 @@ boot_word_table:
     BOOT_WORD "ALLOT", "ALLOT ( n -- ) allocate n bytes in dictionary", 0, XALLOT
     BOOT_WORD ",", ", ( n -- ) compile a cell", 0, XCOMMA
     BOOT_WORD "FIND", "FIND ( c-addr -- c-addr 0 | xt 1 | xt -1 ) find word from counted string (from WORD)", 0, XFIND
+    BOOT_WORD "SEARCH-WORDLIST", "SEARCH-WORDLIST ( c-addr u wid -- 0 | xt 1 | xt -1 ) find in one wordlist", 0, XSEARCH_WORDLIST
     BOOT_WORD "'", "' ( \"<spaces>name\" -- xt ) find name, return xt", 0, XTICK
     BOOT_WORD "EXECUTE", "EXECUTE ( xt -- ) execute the word with the given xt", 0, XEXECUTE
     BOOT_WORD "LITERAL", "LITERAL ( x -- ) compile literal x (immediate)", 1, XLITERAL
@@ -176,6 +177,7 @@ boot_word_table:
     BOOT_WORD "CONTAINS", "CONTAINS ( hay-a hay-u ned-a ned-u -- flag ) case-insensitive substring", 0, XCONTAINS
     BOOT_WORD "MS@", "MS@ ( -- u ) wall-clock milliseconds since epoch", 0, XMSFETCH
     BOOT_WORD "MS", "MS ( u -- ) wait at least u milliseconds (OS sleep; yields)", 0, XMS
+    BOOT_WORD "TIME&DATE", "TIME&DATE ( -- sec min hour day month year ) local wall time", 0, XTIME_DATE
     BOOT_WORD "UNUSED", "UNUSED ( -- u ) bytes remaining in dictionary (HERE to dictionary limit)", 0, XUNUSED
     BOOT_WORD "REDEF-WARNING", "REDEF-WARNING ( -- addr ) variable; nonzero warns on redefine", 0, XREDEF_WARNING
     BOOT_WORD "USER-DICT", "USER-DICT ( -- addr ) base of user dictionary", 0, XUSER_DICT

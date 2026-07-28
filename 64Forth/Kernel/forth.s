@@ -302,6 +302,14 @@ _kernel_set_key_q:
     str  x0, [x1]
     ret
 
+// void kernel_set_time_date(void (*fn)(int64_t out[6]))
+.globl _kernel_set_time_date
+_kernel_set_time_date:
+    adrp x1, time_date_hook@page
+    add  x1, x1, time_date_hook@pageoff
+    str  x0, [x1]
+    ret
+
 // void kernel_set_fromlib(void (*fn)(void))
 .globl _kernel_set_fromlib
 _kernel_set_fromlib:
@@ -1702,6 +1710,60 @@ XFIND:
 _xfind_not:
     str x20, [x22, #-8]!        // c-addr under 0
     mov x20, #0
+    NEXT
+
+// SEARCH-WORDLIST ( c-addr u wid -- 0 | xt 1 | xt -1 )
+// Find name in a single wordlist. c-addr is character address (not counted).
+// Stack in:  ... PREV  c-addr  u  wid(TOS)
+// miss out:  ... PREV  0
+// hit out:   ... PREV  xt  flag   (flag 1=immediate, -1=normal)
+XSEARCH_WORDLIST:
+    mov  x9, x20                   // wid
+    ldr  x8, [x22], #8             // u
+    ldr  x7, [x22], #8             // c-addr → [x22]=PREV under
+    cbz  x9, _swl_zero
+    cbz  x8, _swl_zero
+    ldr  x21, [x9]                 // latest CFA in this wordlist
+_swl_loop:
+    cbz  x21, _swl_zero
+    ldr  x2, [x21, #-8]            // FLAGS
+    and  x3, x2, #0xFFFFFFFF       // NFA_OFF
+    sub  x4, x21, x3               // NFA
+    ldrb w3, [x4], #1              // name length
+    cmp  x3, x8
+    b.ne _swl_next
+    mov  x5, #0
+_swl_cmp:
+    cmp  x5, x8
+    b.hs _swl_match
+    ldrb w6, [x4, x5]
+    ldrb w7, [x7, x5]
+    cmp  w7, #'a'
+    b.lo 1f
+    cmp  w7, #'z'
+    b.hi 1f
+    sub  w7, w7, #32
+1:
+    cmp  w6, w7
+    b.ne _swl_next
+    add  x5, x5, #1
+    b    _swl_cmp
+_swl_match:
+    mov  x2, #1
+    lsl  x2, x2, #63
+    ldr  x1, [x21, #-8]
+    tst  x1, x2
+    mov  x4, #1
+    mov  x5, #-1
+    csel x4, x4, x5, ne            // 1=imm, -1=normal
+    str  x21, [x22, #-8]!          // push xt (PREV stays under)
+    mov  x20, x4
+    NEXT
+_swl_next:
+    ldr  x21, [x21, #-16]          // LFA at CFA-16
+    b    _swl_loop
+_swl_zero:
+    mov  x20, #0
     NEXT
 
 // ' ( "name" -- xt )  xt = CFA
@@ -3541,7 +3603,24 @@ XTO_IMM:
     bl   _compile_cell
     b    9f
 2:
-    // interpret: ( x -- ) addr in x0, store
+    // interpret TO: VALUE ( x -- ) or 2VALUE ( x1 x2 -- )
+    // depth including TOS: cells under + 1. Stack grows down from SP0.
+    adrp x3, data_stack@page
+    add  x3, x3, data_stack@pageoff
+    add  x3, x3, #4096             // SP0 empty
+    sub  x3, x3, x22
+    lsr  x3, x3, #3                // #cells under TOS
+    add  x3, x3, #1                // + TOS
+    cmp  x3, #2
+    b.lo 3f
+    // 2VALUE: lo under, hi TOS → 2! at addr
+    str  x20, [x0, #8]             // hi
+    ldr  x1, [x22], #8             // lo
+    str  x1, [x0]
+    ldr  x20, [x22], #8
+    b    9f
+3:
+    // VALUE: single cell
     str  x20, [x0]
     ldr  x20, [x22], #8
 9:
@@ -4373,6 +4452,44 @@ XMSFETCH:
     add x0, x0, x1
     str x20, [x22, #-8]!
     mov x20, x0
+    NEXT
+
+// TIME&DATE ( -- sec min hour day month year )
+// Host hook if set: void hook(int64_t out[6]); else 0 0 0 1 1 1970.
+XTIME_DATE:
+    SAVE_VM
+    adrp x1, time_date_hook@page
+    add  x1, x1, time_date_hook@pageoff
+    ldr  x9, [x1]
+    sub  sp, sp, #48
+    cbz  x9, 1f
+    mov  x0, sp
+    blr  x9
+    b    2f
+1:
+    // stub defaults
+    str  xzr, [sp]                 // sec
+    str  xzr, [sp, #8]             // min
+    str  xzr, [sp, #16]            // hour
+    mov  x0, #1
+    str  x0, [sp, #24]             // day
+    str  x0, [sp, #32]             // month
+    mov  x0, #1970
+    str  x0, [sp, #40]             // year
+2:
+    ldp  x1, x2, [sp]              // sec min
+    ldp  x3, x4, [sp, #16]         // hour day
+    ldp  x5, x6, [sp, #32]         // month year
+    add  sp, sp, #48
+    RESTORE_VM
+    // push 6 cells: sec … month under, year TOS
+    str  x20, [x22, #-8]!
+    str  x1, [x22, #-8]!
+    str  x2, [x22, #-8]!
+    str  x3, [x22, #-8]!
+    str  x4, [x22, #-8]!
+    str  x5, [x22, #-8]!
+    mov  x20, x6
     NEXT
 
 // MS ( u -- )  Facility: wait at least u milliseconds (yields via nanosleep).
@@ -8638,6 +8755,7 @@ embed_mode:     .quad 0            // 0 = terminal cold start, 1 = host embed
 emit_hook:      .quad 0            // void (*)(int c)
 key_hook:       .quad 0            // int (*)(void) — KEY (blocking)
 key_q_hook:     .quad 0            // int (*)(void) — KEY? (non-zero if ready)
+time_date_hook: .quad 0            // void (*)(int64_t out[6]) — TIME&DATE
 fromlib_hook:   .quad 0            // void (*)(void) — FROMLIB arm
 fromlib_clear_hook: .quad 0        // void (*)(void) — FROMLIB disarm (REQUIRE skip)
 end_include_hook: .quad 0          // void (*)(void) — file INCLUDE SOURCE ended (restore load cwd)
@@ -8772,6 +8890,8 @@ forth_init_str:
     .ascii ": UNTIL 0BRANCH-ADDR , HERE - , ; IMMEDIATE "
     .ascii "DOC\" AGAIN ( -- ) unconditional branch back (immediate)\" "
     .ascii ": AGAIN BRANCH-ADDR , HERE - , ; IMMEDIATE "
+    .ascii "DOC\" AHEAD ( -- orig ) compile forward branch (immediate; resolve with THEN)\" "
+    .ascii ": AHEAD ?COMP BRANCH-ADDR , HERE 0 , ; IMMEDIATE "
     .ascii "DOC\" IF ( flag -- ) conditional (immediate)\" "
     .ascii ": IF 0BRANCH-ADDR , HERE 0 , ; IMMEDIATE "
     .ascii "DOC\" THEN ( -- ) end of IF/ELSE (immediate)\" "
@@ -8883,6 +9003,8 @@ forth_init_str:
     // ALIAS copies CODE field only — correct for CODE words (e.g. FLOAD/INCLUDE)
     .ascii "DOC\" ALIAS ( xt 'name' -- ) define name with same CODE field as xt\" "
     .ascii ": ALIAS CREATE LATEST @ SWAP @ SWAP ! ; "
+    .ascii "DOC\" SYNONYM ( 'newname' 'oldname' -- ) newname behaves as oldname\" "
+    .ascii ": SYNONYM >IN @ >R PARSE-NAME 2DROP ' R> >IN ! ALIAS ; "
     // SEE / HELP — one-line header, then body walk.
     // (SEE-BR?) ( xt -- flag ) true if BRANCH / 0BRANCH / (LOOP) / (+LOOP)
     .ascii "DOC\" (SEE-BR?) ( xt -- flag ) SEE helper: branch/loop xt?\" "
@@ -8993,6 +9115,8 @@ forth_init_str:
     .ascii ": 2CONSTANT CREATE SWAP , , DOES> 2@ ; "
     .ascii "DOC\" 2VARIABLE ( 'name' -- ) create double variable\" "
     .ascii ": 2VARIABLE CREATE 0 , 0 , ; "
+    .ascii "DOC\" 2VALUE ( x1 x2 'name' -- ) double value; change with TO\" "
+    .ascii ": 2VALUE CREATE SWAP , , DOES> 2@ ; "
     .ascii "DOC\" 2LITERAL ( x1 x2 -- ) compile double literal (immediate)\" "
     .ascii ": 2LITERAL ?COMP SWAP POSTPONE LITERAL POSTPONE LITERAL ; IMMEDIATE "
     .ascii "DOC\" D. ( d -- ) print signed double with space\" "
@@ -9026,8 +9150,6 @@ forth_init_str:
     .ascii "DOC\" AT-XY ( u1 u2 -- ) set cursor column u1 row u2 (ANSI 1-based)\" "
     .ascii ": AT-XY 1+ SWAP 1+ SWAP 27 EMIT 91 EMIT 0 U.R 59 EMIT 0 U.R 72 EMIT ; "
     // TIME&DATE needs host; stub returns 0s until host hook
-    .ascii "DOC\" TIME&DATE ( -- +n1 +n2 +n3 +n4 +n5 +n6 ) s m h d mo y (stub zeros)\" "
-    .ascii ": TIME&DATE 0 0 0 1 1 1970 ; "
     .ascii "DOC\" WARNING ( -- addr ) variable; used by some test suites\" "
     .ascii "VARIABLE WARNING "
 

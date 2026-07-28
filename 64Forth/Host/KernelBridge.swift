@@ -38,6 +38,11 @@ private func kernel_set_key(_ fn: (@convention(c) () -> Int32)?)
 @_silgen_name("kernel_set_key_q")
 private func kernel_set_key_q(_ fn: (@convention(c) () -> Int32)?)
 
+@_silgen_name("kernel_set_time_date")
+private func kernel_set_time_date(
+    _ fn: (@convention(c) (UnsafeMutablePointer<Int64>?) -> Void)?
+)
+
 @_silgen_name("kernel_set_fromlib")
 private func kernel_set_fromlib(_ fn: (@convention(c) () -> Void)?)
 
@@ -134,6 +139,20 @@ private let kernelKeyTrampoline: @convention(c) () -> Int32 = {
 
 private let kernelKeyQTrampoline: @convention(c) () -> Int32 = {
     kernelHookTarget?.handleKeyAvailableFromKernel() ?? 0
+}
+
+private let kernelTimeDateTrampoline: @convention(c) (UnsafeMutablePointer<Int64>?) -> Void = { out in
+    guard let out else { return }
+    var cal = Calendar.current
+    cal.timeZone = .current
+    let now = Date()
+    let c = cal.dateComponents([.second, .minute, .hour, .day, .month, .year], from: now)
+    out[0] = Int64(c.second ?? 0)
+    out[1] = Int64(c.minute ?? 0)
+    out[2] = Int64(c.hour ?? 0)
+    out[3] = Int64(c.day ?? 1)
+    out[4] = Int64(c.month ?? 1)
+    out[5] = Int64(c.year ?? 1970)
 }
 
 private let kernelFromlibTrampoline: @convention(c) () -> Void = {
@@ -297,6 +316,7 @@ final class KernelBridge {
         kernel_set_emit(kernelEmitTrampoline)
         kernel_set_key(kernelKeyTrampoline)
         kernel_set_key_q(kernelKeyQTrampoline)
+        kernel_set_time_date(kernelTimeDateTrampoline)
         kernel_set_fromlib(kernelFromlibTrampoline)
         kernel_set_fromlib_clear(kernelFromlibClearTrampoline)
         kernel_set_end_include(kernelEndIncludeTrampoline)

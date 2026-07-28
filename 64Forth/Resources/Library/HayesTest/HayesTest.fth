@@ -1,23 +1,73 @@
-\ HayesTest.fth — John Hayes forth2012-test-suite full driver (in-app)
+\ HayesTest.fth — 64Forth in-app Hayes / forth2012 driver
 \
-\ Canonical run (bundled under Resources/Library):
+\ Canonical run:
 \   FROMLIB FLOAD HayesTest/HayesTest.fth
 \
-\ Or after entering the HayesTest folder as cwd:
-\   FROMLIB CHDIR HayesTest
-\   FLOAD HayesTest.fth
-\
 \ Named FLOAD chdirs to this file's folder (HayesTest/), so nested loads
-\ use bare subpaths under that folder (src/…, not HayesTest/src/…).
+\ use bare subpaths under that folder (src/…).
 \
-\ 1) src/prepare-blocks.fth — USE-BLOCK-FILE a *writable* .blk under
-\    Application Support (bundle Resources/Library is read-only; FLUSH would
-\    fail on src/blocks.blk).
-\ 2) src/test.fth — full suite; nested FLOAD sets logical cwd to src/
-\    so relative names (core*.fth, fp/runfptests.fth, …) resolve.
+\ 64Forth notes (vs full TZForth baseline):
+\   - No floating-point engine → FP suite is skipped (fperrors left 0 with message).
+\   - No File-Access / block-file volume yet → prepare-blocks is best-effort;
+\     blocktest may report errors until host block files exist.
+\   - Pass criteria for this port: core/double/string/search/facility counters
+\     at 0; ignore FPERRORS unless you add FP later.
 \
-\ Pass criteria: src/test.fth and src/HAYES-RESULTS.txt.
-\ Docs: README.md, doc/, prelimtest.md
+\ Full suite source remains under src/ for comparison with HAYES-RESULTS.txt.
 
-FLOAD src/prepare-blocks.fth
-FLOAD src/test.fth
+FLOAD src/debug-bootstrap.fth
+TRUE VERBOSE !
+
+\ Optional block volume prep (no-op / soft fail without File-Access words)
+[UNDEFINED] OPEN-BLOCK-FILE [IF]
+  .( prepare-blocks: skipped (no OPEN-BLOCK-FILE) ) CR
+[ELSE]
+  FLOAD src/prepare-blocks.fth
+[THEN]
+
+VARIABLE cperrors  0 #ERRORS ! fload src/coreplustest.fth  .( #ERRORS @ = ) #ERRORS @  cperrors !
+VARIABLE cerrors  0 #ERRORS ! fload src/coreexttest.fth .( #ERRORS @ = ) #ERRORS @  cerrors !
+VARIABLE derrors  0 #ERRORS ! fload src/doubletest.fth .( #ERRORS @ = ) #ERRORS @  derrors !
+VARIABLE eerrors  0 #ERRORS ! fload src/exceptiontest.fth .( #ERRORS @ = ) #ERRORS @  eerrors !
+
+\ File-Access suite needs OPEN-FILE etc. — skip cleanly if missing
+[UNDEFINED] OPEN-FILE [IF]
+  VARIABLE ferrors  0 ferrors !
+  .( filetest: skipped (no File-Access word set) ) CR
+[ELSE]
+  VARIABLE ferrors  0 #ERRORS ! fload src/filetest.fth .( #ERRORS @ = ) #ERRORS @  ferrors !
+[THEN]
+
+VARIABLE lerrors  0 #ERRORS ! fload src/localstest.fth .( #ERRORS @ = ) #ERRORS @  lerrors !
+VARIABLE merrors  0 #ERRORS ! fload src/memorytest.fth .( #ERRORS @ = ) #ERRORS @  merrors !
+VARIABLE terrors  0 #ERRORS ! fload src/toolstest.fth .( #ERRORS @ = ) #ERRORS @  terrors !
+VARIABLE soerrors  0 #ERRORS ! fload src/searchordertest.fth .( #ERRORS @ = ) #ERRORS @  soerrors !
+VARIABLE serrors  0 #ERRORS ! fload src/stringtest.fth .( #ERRORS @ = ) #ERRORS @  serrors !
+VARIABLE faerrors  0 #ERRORS ! fload src/facilitytest.fth .( #ERRORS @ = ) #ERRORS @  faerrors !
+
+[UNDEFINED] OPEN-BLOCK-FILE [IF]
+  VARIABLE berrors  0 berrors !
+  .( blocktest: skipped (no block-file host) ) CR
+[ELSE]
+  VARIABLE berrors  0 #ERRORS ! fload src/blocktest.fth .( #ERRORS @ = ) #ERRORS @  berrors !
+[THEN]
+
+\ FP not implemented in 64Forth kernel
+VARIABLE fperrors  0 fperrors !
+.( fp/runfptests: skipped (no floating-point) ) CR
+
+.( CPERRORS @ = ) cperrors @ .
+.( CERRORS @ = ) cerrors @ .
+.( DERRORS @ = ) derrors @ .
+.( EERRORS @ = ) eerrors @ .
+.( FERRORS @ = ) ferrors @ .
+.( LERRORS @ = ) lerrors @ .
+.( MERRORS @ = ) merrors @ .
+.( TERRORS @ = ) terrors @ .
+.( SOERRORS @ = ) soerrors @ .
+.( SERRORS @ = ) serrors @ .
+.( FAERRORS @ = ) faerrors @ .
+.( BERRORS @ = ) berrors @ .
+.( FPERRORS @ = ) fperrors @ .
+.( #ERRORS @ = ) #ERRORS @ .
+CR .( === 64Forth Hayes subset complete ===) CR

@@ -127,9 +127,9 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 | 1 | Core Ext | `U>` `0<>` `0>` `WITHIN` are **CODE**; remaining Core Ext mostly in `forth_init_str` (VALUE, CASE, DEFER, MARKER, …) plus `.R` |
 | 2 | Double + String | Double ops **CODE** (`D+` `D-` `D0=` …); double literals (`1.`); `COMPARE`/`SEARCH` CODE; `BLANK` `-TRAILING` `SLITERAL` high-level |
 | 3 | Block | RAM-backed `BLOCK`/`BUFFER`/`LOAD`/`LIST`… (not yet file volume / OPEN-BLOCK-FILE) |
-| 4 | Facility | `MS` = CODE `nanosleep` (yields; not busy-wait); `PAGE`/`AT-XY` ANSI; `KEY?` stub false; `TIME&DATE` stub; `WARNING` variable |
+| 4 | Facility | `MS` = CODE `nanosleep`; `KEY`/`KEY?` host queue (eval off-main); `PAGE`/`AT-XY` ANSI; `TIME&DATE` host Calendar; `WARNING` variable |
 
-Hayes / forth2012: re-run after rebuild; expect better Core Ext / Double / String; Block file tests need host volume later.
+**Hayes driver:** `FROMLIB FLOAD HayesTest/HayesTest.fth` — 64Forth subset skips FP and File-Access/block-file suites when words are absent.
 
 ## 4. FROMLIB semantics
 
