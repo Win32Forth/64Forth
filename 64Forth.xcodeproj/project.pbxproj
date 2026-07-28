@@ -19,6 +19,7 @@
 		B100000A /* Docs in Resources */ = {isa = PBXBuildFile; fileRef = B100010A /* Docs */; };
 		B1000010 /* ConsoleTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000110 /* ConsoleTextView.swift */; };
 		B1000011 /* BigIntHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000111 /* BigIntHost.swift */; };
+		FA6AA0DF301916D30007C369 /* 64Forth.jpg in Resources */ = {isa = PBXBuildFile; fileRef = FA6AA0DE301916D30007C369 /* 64Forth.jpg */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,6 +41,7 @@
 		B100010F /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		B1000110 /* ConsoleTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleTextView.swift; sourceTree = "<group>"; };
 		B1000111 /* BigIntHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BigIntHost.swift; sourceTree = "<group>"; };
+		FA6AA0DE301916D30007C369 /* 64Forth.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = 64Forth.jpg; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -66,6 +68,7 @@
 		B1000301 /* 64Forth */ = {
 			isa = PBXGroup;
 			children = (
+				FA6AA0DE301916D30007C369 /* 64Forth.jpg */,
 				B1000302 /* App */,
 				B1000303 /* Host */,
 				B1000304 /* Kernel */,
@@ -179,6 +182,7 @@
 			files = (
 				B1000007 /* Assets.xcassets in Resources */,
 				B1000008 /* AutoLoad in Resources */,
+				FA6AA0DF301916D30007C369 /* 64Forth.jpg in Resources */,
 				B1000009 /* Library in Resources */,
 				B100000A /* Docs in Resources */,
 			);
