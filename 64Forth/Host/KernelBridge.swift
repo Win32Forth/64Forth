@@ -35,11 +35,17 @@ private func kernel_set_emit(_ fn: (@convention(c) (Int32) -> Void)?)
 @_silgen_name("kernel_set_key")
 private func kernel_set_key(_ fn: (@convention(c) () -> Int32)?)
 
+@_silgen_name("kernel_set_key_q")
+private func kernel_set_key_q(_ fn: (@convention(c) () -> Int32)?)
+
 @_silgen_name("kernel_set_fromlib")
 private func kernel_set_fromlib(_ fn: (@convention(c) () -> Void)?)
 
 @_silgen_name("kernel_set_fromlib_clear")
 private func kernel_set_fromlib_clear(_ fn: (@convention(c) () -> Void)?)
+
+@_silgen_name("kernel_set_end_include")
+private func kernel_set_end_include(_ fn: (@convention(c) () -> Void)?)
 
 @_silgen_name("kernel_set_load_file")
 private func kernel_set_load_file(
@@ -126,12 +132,20 @@ private let kernelKeyTrampoline: @convention(c) () -> Int32 = {
     kernelHookTarget?.handleKeyFromKernel() ?? -1
 }
 
+private let kernelKeyQTrampoline: @convention(c) () -> Int32 = {
+    kernelHookTarget?.handleKeyAvailableFromKernel() ?? 0
+}
+
 private let kernelFromlibTrampoline: @convention(c) () -> Void = {
     FileHost.shared.armFromLibrary()
 }
 
 private let kernelFromlibClearTrampoline: @convention(c) () -> Void = {
     FileHost.shared.clearFromLibrary()
+}
+
+private let kernelEndIncludeTrampoline: @convention(c) () -> Void = {
+    FileHost.shared.endLoadCwdIfNeeded()
 }
 
 private let kernelLoadFileTrampoline: @convention(c) (
@@ -235,8 +249,14 @@ final class KernelBridge {
 
     private(set) var isKernelLive = false
 
-    /// True while kernel_eval is on the stack (not re-entrant).
-    private(set) var isEvaluating = false
+    /// True while kernel_eval is active (Forth queue and/or main waiting on it).
+    /// Guarded by `lock` for safe reads from the keyDown monitor on main.
+    private var evaluatingFlag = false
+    var isEvaluating: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return evaluatingFlag
+    }
     private let evalLock = NSLock()
 
     /// Set when `\S` / `\s` runs on the console SOURCE (SOURCE-ID 0). Host multi-line
@@ -255,6 +275,15 @@ final class KernelBridge {
     private var pendingEmit = ""
     private var keyQueue: [Int32] = []
     private let lock = NSLock()
+    /// Wakes a background KEY wait when a key is enqueued (main-thread monitor).
+    private let keyAvailable = DispatchSemaphore(value: 0)
+
+    /// Serial queue for `kernel_eval` so the main thread stays free to run AppKit
+    /// (KEY/KEY? input). Main waits by pumping `NSApp.nextEvent`.
+    private let forthQueue = DispatchQueue(label: "64Forth.kernel")
+
+    /// Local keyDown monitor: delivers KEY/KEY? bytes while `isEvaluating`.
+    private var keyDownMonitor: Any?
 
     private init() {
         kernelHookTarget = self
@@ -263,10 +292,14 @@ final class KernelBridge {
         // Must be before any kernel_eval; kernel_init also installs via sigaction.
         Self.installMemoryFaultHandlers()
 
+        installKeyDownMonitor()
+
         kernel_set_emit(kernelEmitTrampoline)
         kernel_set_key(kernelKeyTrampoline)
+        kernel_set_key_q(kernelKeyQTrampoline)
         kernel_set_fromlib(kernelFromlibTrampoline)
         kernel_set_fromlib_clear(kernelFromlibClearTrampoline)
+        kernel_set_end_include(kernelEndIncludeTrampoline)
         kernel_set_load_file(kernelLoadFileTrampoline)
         kernel_set_resolve_key(kernelResolveKeyTrampoline)
         kernel_set_last_load_key(kernelLastLoadKeyTrampoline)
@@ -292,6 +325,7 @@ final class KernelBridge {
         pendingEmit = ""
         lock.unlock()
         FileHost.shared.releaseIncludeBuffers()
+        FileHost.shared.endAllLoadCwds()
         FileHost.shared.endAllFromLibraryLoads()
         if !isKernelLive {
             handleEmitString("[64Forth] kernel_init failed (rc=\(rc))\n")
@@ -321,10 +355,88 @@ final class KernelBridge {
         return "[64Forth] kernel embed API failed to start\n"
     }
 
+    /// Enqueue a raw key for KEY / KEY?. Only accepted while `kernel_eval` is
+    /// running — otherwise normal console typing would fill the queue and
+    /// WAIT-KEY / KEY? would return leftover command-line characters.
     func pushKey(_ c: Int32) {
         lock.lock()
+        guard evaluatingFlag else {
+            lock.unlock()
+            return
+        }
         keyQueue.append(c)
         lock.unlock()
+        keyAvailable.signal()
+    }
+
+    /// Drop any pending KEY bytes (call at start/end of evaluate).
+    func clearKeyQueue() {
+        lock.lock()
+        keyQueue.removeAll(keepingCapacity: true)
+        lock.unlock()
+        // Drain stale semaphore permits so KEY does not wake spuriously.
+        while keyAvailable.wait(timeout: .now()) == .success {}
+    }
+
+    /// Dequeue and dispatch AppKit events so the keyDown monitor can run.
+    /// Must run on the main thread (classic modal input loop pattern).
+    private func pumpUIForKeyInput(seconds: TimeInterval) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.sync {
+                self.pumpUIForKeyInput(seconds: seconds)
+            }
+            return
+        }
+        let until = Date(timeIntervalSinceNow: seconds)
+        while Date() < until {
+            // Prefer default mode; also try eventTracking for nested tracking.
+            let modes: [RunLoop.Mode] = [.default, .eventTracking, .modalPanel]
+            var got = false
+            for mode in modes {
+                if let event = NSApp.nextEvent(
+                    matching: .any,
+                    until: Date(timeIntervalSinceNow: 0.005),
+                    inMode: mode,
+                    dequeue: true
+                ) {
+                    NSApp.sendEvent(event)
+                    got = true
+                    break
+                }
+            }
+            lock.lock()
+            let hasKey = !keyQueue.isEmpty
+            lock.unlock()
+            if hasKey { return }
+            if !got && Date() >= until { return }
+        }
+    }
+
+    private func installKeyDownMonitor() {
+        keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            self.lock.lock()
+            let active = self.evaluatingFlag
+            self.lock.unlock()
+            guard active else { return event }
+            // Leave menu shortcuts alone.
+            if event.modifierFlags.contains(.command) { return event }
+
+            let chars = event.charactersIgnoringModifiers ?? event.characters
+            if let chars, !chars.isEmpty {
+                for scalar in chars.unicodeScalars {
+                    var v = Int32(bitPattern: UInt32(scalar.value))
+                    // Normalize Return/Enter to LF (10).
+                    if v == 13 { v = 10 }
+                    if v > 0 && v < 0x11_0000 {
+                        self.pushKey(v)
+                    }
+                }
+                return nil // consume — do not insert into the console or re-submit
+            }
+            // Consume other keys while evaluating so they do not edit the console.
+            return nil
+        }
     }
 
     /// Clear the sticky multi-line paste stop (call before a paste batch if needed).
@@ -338,6 +450,9 @@ final class KernelBridge {
     /// Interpret one console line. Not re-entrant (returns −3 if busy).
     /// After eval, `replBatchStopRequested` is true if `\S` ran on the console line
     /// (SOURCE-ID 0); multi-line paste should stop further lines.
+    ///
+    /// On the main thread, the kernel runs on `forthQueue` while main pumps AppKit
+    /// events so KEY/KEY? can receive keystrokes (blocking eval on main freezes input).
     @discardableResult
     func evaluate(_ line: String) -> Int32 {
         let t = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -352,10 +467,41 @@ final class KernelBridge {
             handleEmitString("(busy — finish current command first)\n")
             return -3
         }
-        isEvaluating = true
-        defer {
-            isEvaluating = false
+
+        // Main thread: run kernel off-main so AppKit can deliver keyDown.
+        if Thread.isMainThread {
+            var status: Int32 = 0
+            let done = DispatchSemaphore(value: 0)
+            forthQueue.async {
+                status = self.runKernelEval(t)
+                done.signal()
+            }
+            // Pump UI until the kernel finishes (KEY waits use keyAvailable + queue).
+            // Also service the main GCD queue so off-main FLOAD/CHDIR panels can run.
+            while done.wait(timeout: .now() + 0.02) == .timedOut {
+                _ = CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0.01, true)
+                self.pumpUIForKeyInput(seconds: 0.02)
+            }
             evalLock.unlock()
+            return status
+        }
+
+        let status = runKernelEval(t)
+        evalLock.unlock()
+        return status
+    }
+
+    /// Body of evaluate on the Forth serial queue (or any non-reentrant caller).
+    private func runKernelEval(_ t: String) -> Int32 {
+        lock.lock()
+        evaluatingFlag = true
+        lock.unlock()
+        clearKeyQueue()
+        defer {
+            clearKeyQueue()
+            lock.lock()
+            evaluatingFlag = false
+            lock.unlock()
         }
 
         var status: Int32 = 0
@@ -369,16 +515,14 @@ final class KernelBridge {
             replBatchStopRequested = true
         }
 
-        // Memory fault recovered via siglongjmp: kernel returns −1 and usually
-        // already emitted "memory access error". Ensure the console shows it.
         if status == -1 {
             if kernel_take_fault_flag() != 0 {
                 handleEmitString("memory access error\n")
             }
-            // Leave REPL usable (stacks reset inside kernel recovery).
         }
 
         FileHost.shared.releaseIncludeBuffers()
+        FileHost.shared.endAllLoadCwds()
         FileHost.shared.endAllFromLibraryLoads()
         if FileHost.shared.fromLibraryArmed {
             FileHost.shared.clearFromLibrary()
@@ -440,6 +584,7 @@ final class KernelBridge {
 
         host.logicalCurrentDirectory = savedLogical
         _ = FileManager.default.changeCurrentDirectoryPath(savedProcess)
+        host.endAllLoadCwds()
         host.endAllFromLibraryLoads()
         host.clearFromLibrary()
 
@@ -461,9 +606,9 @@ final class KernelBridge {
     }
 
     fileprivate func handleKeyFromKernel() -> Int32 {
-        // Wait briefly for console input (KEY during kernel_eval). Spin the
-        // main run loop so typed keys can reach pushKey without freezing forever.
-        let deadline = Date().addingTimeInterval(30)
+        // Called from the Forth queue during kernel_eval. Main is pumping events;
+        // wait on keyAvailable (signaled by pushKey from the keyDown monitor).
+        let deadline = Date().addingTimeInterval(120)
         while true {
             lock.lock()
             if !keyQueue.isEmpty {
@@ -473,12 +618,24 @@ final class KernelBridge {
             }
             lock.unlock()
             if Date() > deadline { return -1 }
-            if Thread.isMainThread {
-                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
-            } else {
-                Thread.sleep(forTimeInterval: 0.05)
-            }
+            // Short wait; main thread's evaluate loop keeps AppKit alive.
+            _ = keyAvailable.wait(timeout: .now() + 0.05)
         }
+    }
+
+    /// KEY?: non-blocking peek. Main evaluate loop pumps AppKit; we sleep briefly
+    /// when empty so BEGIN KEY? UNTIL does not burn a core and starves nothing.
+    fileprivate func handleKeyAvailableFromKernel() -> Int32 {
+        if Thread.isMainThread {
+            pumpUIForKeyInput(seconds: 0.01)
+        }
+        lock.lock()
+        let ready = !keyQueue.isEmpty
+        lock.unlock()
+        if !ready {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return ready ? 1 : 0
     }
 
     private func handleEmitString(_ s: String) {

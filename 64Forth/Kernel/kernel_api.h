@@ -22,11 +22,18 @@ int kernel_eval(const char *line, size_t n);
 void kernel_set_emit(void (*fn)(int c));
 void kernel_set_key(int (*fn)(void));
 
+/// KEY? — non-blocking: return non-zero if a key is available (does not consume it).
+void kernel_set_key_q(int (*fn)(void));
+
 /// FROMLIB / FROM-LIBRARY — host arms Library resolve for next load/CHDIR.
 void kernel_set_fromlib(void (*fn)(void));
 
 /// Disarm FROMLIB (e.g. REQUIRE skipped because file already loaded).
 void kernel_set_fromlib_clear(void (*fn)(void));
+
+/// Called when a file INCLUDE/FLOAD SOURCE ends (SOURCE-ID was > 0) so the host
+/// can restore the previous load cwd (nested relative path resolution).
+void kernel_set_end_include(void (*fn)(void));
 
 /// INCLUDE / FLOAD / REQUIRE.
 /// path_len == 0 → bare (host open panel). On success set *out_ptr / *out_len

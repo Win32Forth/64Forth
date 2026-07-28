@@ -1,0 +1,503 @@
+=== ANS-VALIDATE: 2012 ANS Forth validation (Core, Core Ext, File-Access, String, Facility, Exception, Memory, Double, Locals, Programming-Tools, Extended-Character, Float Tier A/B, Block subsystem; from TestTZForth FTEST) ===
+
+TEST1 block: load1=true noskip1=false after1=true load2=true
+TEST1 exec load1: saw11=true out=11 OK
+TEST1 exec after1: saw33=true out=33 OK
+TEST2 stop: pre=true pre2=true ign=false post2=true post=false
+TEST2b echo+slash: echopre=true echopost=false
+TEST2b echo output: saw pre-src=true saw post-src=false
+TEST2b post-slash repl: postslashok=true
+TEST2b post-slash exec: saw123=true out=123 OK
+TEST2b-include: echopre=true echopost=false sawEcho=true
+TEST2b-repl: prebatch=true postbatch=false (expect true false)
+TEST2b-err: shouldnot=false line1=true (expect false true) out=true verbose !
+? ansval_errstop_A0A1516B.fth line 1: ? verbose
+    true verbose !
+? FLOAD of ansval_errstop_A0A1516B.fth aborted at line 1
+TEST2b-err-catch: caught=true out=OK
+-13  ? THROW 27 OK
+TEST2b-nested: before=true inner=true neverinner=false after=true neverouter=false (expect true true false true false)
+TEST2b-nested-outer: inner=false neverouter2=false (expect false false)
+TEST2b-faultline: child=true context=true notParent=true (expect true true true) out=1 2 + .  fload ansval_fault_child_A0A1516B.fth
+3 notaword
+? ansval_fault_child_A0A1516B.fth line 1: ? notaword
+    notaword
+    (while interpreting ansval_fault_parent_A0A1516B.fth line 1)
+? FLOAD of ansval_fault_child_A0A1516B.fth aborted at line 1
+TEST2b-nestedline: line2=true notline9=true missing=true (expect true true true) out=fload ansval_nested_child_A0A1516B.fth
+\ line 1
+\ line 2
+\ line 3
+\ line 4
+\ line 5
+\ line 6
+\ line 7
+\ line 8
+fload ansval_nested_missing_A0A1516B.fth
+  (If the file is in your current directory, type bare `fload` and pick any file in that folder once to authorize it. Then named FLOAD and CHDIR will stick across launches.)
+? FLOAD could not read 'ansval_nested_missing_A0A1516B.fth' (not found or unreadable)
+    in ansval_nested_parent_A0A1516B.fth line 2:
+    fload ansval_nested_missing_A0A1516B.fth
+TEST2c debug: dbg1=true dbg2=true dbg3=true
+TEST2c debug output: saw any [DEBUG]=true
+TEST2c post-debug repl: sawDbgInRepl=false out=3 OK
+TEST2d dotq: hello=true afterbad=false
+TEST2d dotq output: saw hello text=true
+TEST2d post-err repl: saw42=true stillCompiling=false out=42 OK
+TEST2e WORD: sawTest=true out=TESTOK
+TEST2f after open : line (no ;): sawCompilingDuringDef=true
+TEST2f after ; : sawInterpretingAfterClose=true
+TEST2f after exec: sawInterpretingExec=true out=123 OK
+[DEBUG] state=interpreting  stack=<0>
+TEST2f after ; for [ test: sawFinalInterp=true sawStuckCompile=false
+TEST3 console-block: noskipc=true noskipc2=true afterc=false afterc2=false
+TEST3 exec afterc: saw456=false
+TEST4 console-s: stillc=false stillc2=false
+TEST5 nested: square9=true cube64=true no-overflow=true
+TEST5 post: squar9=true
+TEST state-word: STATE 16 = => true
+TEST STATE @: STATE @ . => true out=0 OK
+[DEBUG] state=interpreting  stack=<1> 16
+=== Starting expanded ANS 2012 Core word tests ===
+TEST6 +: pass
+TEST6 -: pass
+TEST6 *: pass
+TEST6 /MOD: pass
+TEST6 /: pass
+TEST6 */MOD: pass
+TEST6 */: pass
+TEST6 */: pass
+TEST6 2*: pass
+TEST6 2*: pass
+TEST6 2/: pass
+TEST6 2/: pass
+TEST6 M*: pass
+TEST6 FM/MOD: pass
+TEST6 SM/REM: pass
+TEST6 U<: pass
+TEST6 U>: pass
+TEST6 UM*: pass
+TEST6 UM/MOD: pass
+TEST6 MOD: pass
+TEST6 1+: pass
+TEST6 1-: pass
+TEST6 ABS: pass
+TEST6 NEGATE: pass
+TEST6 MIN: pass
+TEST6 MAX: pass
+TEST6 AND: pass
+TEST6 OR: pass
+TEST6 XOR: pass
+TEST6 INVERT: pass
+TEST6 LSHIFT: pass
+TEST6 RSHIFT: pass
+TEST6 =: pass
+TEST6 =: pass
+TEST6 <: pass
+TEST6 >: pass
+TEST6 <>: pass
+TEST6 0=: pass
+TEST6 0=: pass
+TEST6 0<: pass
+TEST6 0>: pass
+TEST6 WITHIN: pass
+TEST6 WITHIN: pass
+TEST6 DUP: pass
+TEST6 DROP: pass
+TEST6 SWAP: pass
+TEST6 OVER: pass
+TEST6 ?DUP: pass
+TEST6 ?DUP: pass
+TEST6 ROT: pass
+TEST6 NIP: pass
+TEST6 TUCK: pass
+TEST6 PICK: pass
+TEST6 ROLL: pass
+TEST6 >R R>: pass
+TEST6 R@: pass
+TEST6 2>R 2R>: pass
+TEST6 2DROP: pass
+TEST6 2DUP: pass
+TEST6 2OVER: pass
+TEST6 2SWAP: pass
+TEST6 ! @: pass
+TEST6 C! C@: pass
+TEST6 +!: pass
+TEST6 FILL: pass
+TEST6 DUMP: pass
+TEST6 MOVE: pass
+TEST6 ,: pass
+TEST6 TRUE: pass
+TEST6 FALSE: pass
+TEST6 BL: pass
+TEST6 HEX DECIMAL: pass
+TEST6 BASE: pass
+TEST6 U.: pass
+TEST6 H.: pass
+TEST6 H. ignores BASE: pass
+TEST6 SPACES: pass
+TEST6 <# #S #>: pass
+TEST6 SIGN: pass
+TEST6 S": pass
+TEST6 IF ELSE THEN: pass
+TEST6 BEGIN UNTIL: pass
+TEST6 DO LOOP I: pass
+TEST6 ?DO +LOOP UNLOOP LEAVE: pass
+TEST6 GD8 USTEP orbit: pass
+TEST6 GD8 -USTEP orbit: pass
+TEST6 GD8 STEP orbit: pass
+TEST6 GD8 -STEP orbit: pass
+TEST6 J: pass
+TEST6 RECURSE: pass
+TEST6 EXECUTE: pass
+TEST6 >HEADER >NFA ID.: pass
+TEST6 ID.: pass
+TEST6 ' CFA >HEADER: pass
+TEST6 >XID DUP: pass
+TEST6 ['] CFA: pass
+TEST6 HERE (value) DP: pass
+TEST6 LATEST: pass
+TEST6 DEPTH: pass
+TEST6 [']: pass
+TEST6 ?: pass
+TEST6 NAME>STRING: pass
+TEST6 NAME>INTERPRET: pass
+TEST6 TRAVERSE-WORDLIST: pass
+TEST6 SYNONYM: pass
+TEST6 LOCATE: pass
+TEST6 [DEFINED]: pass
+TEST6 [UNDEFINED]: pass
+TEST6 N>R NR>: pass
+TEST6 AHEAD: pass
+TEST6 NAME>COMPILE xt: pass
+TEST6 COUNT TYPE via WORD: pass
+TEST6 WORD ) Hayes MSG: pass
+TEST6 >IN: pass
+TEST6 >NUMBER: pass
+TEST6 EVALUATE: pass
+TEST6 FIND: pass
+TEST6 FIND not: pass
+TEST6 ACCEPT basic: pass
+TEST6 ABORT" no: pass
+TEST6 ARSHIFT: pass
+TEST6 CLS (no crash): pass
+TEST6 SPACES (no crash): pass
+TEST6 SOURCE: pass
+TEST6 >IN +! skip: pass
+TEST6 PAD: pass
+TEST6 PAD size: pass
+TEST6 multi S" interpret: pass
+TEST6 S" PAD isolate: pass
+TEST6 PARSE: pass
+TEST6 QUIT (no crash): pass
+TEST6 SP! RSP!: pass
+TEST6 ENVIRONMENT?: pass
+TEST6 [COMPILE]: pass
+TEST6 POSTPONE: pass
+TEST6 0<>: pass
+TEST6 ERASE: pass
+TEST6 COMPILE,: pass
+TEST6 VALUE IS: pass
+TEST6 TO: pass
+TEST6 .R: pass
+TEST6 PARSE-NAME: pass
+TEST6 HOLDS: pass
+TEST6 BUFFER:: pass
+TEST6 UNUSED: pass
+TEST6 .FREE: pass
+TEST6 C": pass
+TEST6 C" compile: pass
+TEST6 C" EVALUATE: pass
+TEST6 DEFER IS DEFER@ DEFER!: pass
+TEST6 CASE OF ENDOF ENDCASE: pass
+TEST6 VOCAB isolate FORTH: pass
+TEST6 VOCAB define FORTH: pass
+TEST6 VOCAB lookup FOO: pass
+TEST6 ORDER compilation: pass
+TEST6 WORDS filter: pass
+TEST6 ALSO ONLY ORDER: pass
+TEST6 ALSO search: pass
+TEST6 GET-ORDER SET-ORDER: pass
+TEST6 SEARCH-WORDLIST: pass
+TEST6 SEARCH-WORDLIST immediate: pass
+TEST6 SEARCH-WORDLIST miss: pass
+TEST6 ENVIRONMENT? WORDLISTS: pass
+TEST6 ENVIRONMENT? SEARCH-ORDER: pass
+TEST6 .ENVIRONMENT: pass
+TEST6 COMPARE equal: pass
+TEST6 COMPARE less: pass
+TEST6 COMPARE greater: pass
+TEST6 /STRING: pass
+TEST6 -TRAILING: pass
+TEST6 BLANK: pass
+TEST6 SEARCH found: pass
+TEST6 SEARCH miss: pass
+TEST6 SEARCH empty: pass
+TEST6 SLITERAL: pass
+TEST6 ENVIRONMENT? STRING: pass
+TEST6 empty structure: pass
+TEST6 structure size: pass
+TEST6 structure field C!: pass
+TEST6 FIELD: offset: pass
+TEST6 nested structure size: pass
+TEST6 ENVIRONMENT? FACILITY: pass
+TEST6 PAGE (no crash): pass
+TEST6 PAGE 80x25: pass
+TEST6 AT-XY EMIT: pass
+TEST6 EMIT?: pass
+TEST6 K-LEFT: pass
+TEST6 TIME&DATE year: pass
+TEST6 EKEY>CHAR a: pass
+TEST6 EKEY>FKEY left: pass
+TEST6 EKEY? empty: pass
+TEST6 EKEY? queued: pass
+TEST6 EKEY char: pass
+TEST6 MS brief: pass
+TEST6 GROWMEMORYMB grow: pass
+TEST6 ALLOCATE: pass
+TEST6 ALLOCATE ior: pass
+TEST6 FREE: pass
+TEST6 RESIZE grow: pass
+TEST6 GROWMEMORYMB already used: pass
+TEST6 ENVIRONMENT? MEMORY-ALLOCATION: pass
+TEST6 GROWMEMORYMB after ALLOCATE: pass
+TEST6 GROWMEMORYMB shrink: pass
+TEST6 double literal: pass
+TEST6 double literal hi: pass
+TEST6 S>D D.: pass
+TEST6 D+: pass
+TEST6 D-: pass
+TEST6 DNEGATE: pass
+TEST6 DABS: pass
+TEST6 D=: pass
+TEST6 D0=: pass
+TEST6 M+: pass
+TEST6 M*/: pass
+TEST6 2! 2@: pass
+TEST6 S\" escapes: pass
+TEST6 D>S: pass
+TEST6 2CONSTANT: pass
+TEST6 2VALUE TO: pass
+TEST6 DU<: pass
+TEST6 2ROT: pass
+TEST6 ENVIRONMENT? DOUBLE: pass
+TEST6 LOCALS|: pass
+TEST6 LOCALS| TO: pass
+TEST6 {: order: pass
+TEST6 LOCALS in DO: pass
+TEST6 ENVIRONMENT? LOCALS: pass
+TEST6 ENVIRONMENT? #LOCALS: pass
+TEST6 :NONAME: pass
+TEST6 ACTION-OF: pass
+TEST6 MARKER: pass
+TEST6 SOURCE-ID terminal: pass
+TEST6 REFILL: pass
+TEST6 SAVE-INPUT RESTORE-INPUT: pass
+TEST6 RESTORE-INPUT fail: pass
+TEST6 SAVE-INPUT nested: pass
+TEST6 FILE-ECHO default: pass
+TEST6 WARNING default: pass
+TEST6 \ interpret comment: pass
+TEST6 \ compile comment: pass
+TEST6 WARNING redef: pass
+TEST6 WARNING off: pass
+TEST6 FILE-ECHO INCLUDE: pass
+TEST6 S\": pass
+TEST6 S\" escapes: pass
+TEST6 R/O OPEN-FILE: pass
+TEST6 FILE-SIZE: pass
+TEST6 FILE-POSITION: pass
+TEST6 READ-LINE: pass
+TEST6 FILE-STATUS: pass
+TEST6 INCLUDED: pass
+TEST6 REQUIRED once: pass
+TEST6 INCLUDED reload: pass
+TEST6 REQUIRED FLOAD register: pass
+TEST6 INCLUDED-NAMES: pass
+TEST6 .INCLUDED list: pass
+TEST6 ENVIRONMENT? FILE: pass
+TEST6 CREATE-FILE: pass
+TEST6 REPOSITION-FILE: pass
+TEST6 WRITE-LINE: pass
+TEST6 WRITE-LINE size: pass
+TEST6 READ written file: pass
+TEST6 RESIZE-FILE: pass
+TEST6 FLUSH-FILE: pass
+TEST6 RENAME-FILE: pass
+TEST6 READ renamed file: pass
+TEST6 CATCH normal: pass
+TEST6 THROW 0: pass
+TEST6 THROW catch: pass
+TEST6 ABORT CATCH: pass
+TEST6 ABORT" CATCH: pass
+TEST6 ABORT unhandled message: pass
+TEST6 ABORT recover REPL: pass
+TEST6 ABORT" unhandled: pass
+TEST6 ENVIRONMENT? EXCEPTION: pass
+TEST6 CATCH depth restore: pass
+TEST6 CATCH div-by-zero: pass
+TEST6 CATCH undefined word: pass
+TEST6 CATCH EVALUATE tick: pass
+TEST6 CATCH-EVALUATE: pass
+TEST6 CATCH stack underflow: pass
+TEST6 CATCH compile-only: pass
+TEST6 CATCH invalid address: pass
+TEST6 .ERROR div-by-zero: pass
+TEST6 .ERROR success silent: pass
+TEST6 .ERROR abort code: pass
+TEST6 .ERROR inline spaced: pass
+TEST6 CATCH FORGET no name: pass
+TEST6 CATCH CREATE no name: pass
+TEST6 CATCH SEE undefined: pass
+TEST6 CATCH SYNONYM undefined: pass
+TEST6 CATCH compile STATE preserve: pass
+TEST6 CATCH FLOAD missing: pass
+TEST6 CATCH INCLUDE-FILE invalid: pass
+TEST6 CATCH INCLUDED missing: pass
+TEST6 THROW user -40: pass
+TEST6 CATCH THROW -70: pass
+TEST6 CATCH FLOAD mid-file: pass
+TEST6 CATCH INCLUDE-FILE closed: pass
+TEST6 CATCH nested propagate: pass
+TEST6 CATCH inner absorbs: pass
+TEST6 CATCH INCLUDE-FILE mid-file: pass
+TEST6 .ERROR closed file: pass
+TEST6 .ERROR file I/O: pass
+TEST6 .ERROR not found: pass
+=== TZForth Extended-Character (ANS 18.6 UTF-8 memory + string words) ===
+TEST6 XC-SIZE 0: pass
+TEST6 XC-SIZE 7F: pass
+TEST6 XC-SIZE 80: pass
+TEST6 XC-SIZE 7FF: pass
+TEST6 XC-SIZE 800: pass
+TEST6 XC-SIZE FFFF: pass
+TEST6 XC-SIZE 10000: pass
+TEST6 XC!+ XC@+: pass
+TEST6 XC, encode size: pass
+TEST6 XC!+?: pass
+TEST6 XCHAR+/-: pass
+TEST6 +X/STRING: pass
+TEST6 X\STRING-: pass
+TEST6 -TRAILING-GARBAGE ok: pass
+TEST6 -TRAILING-GARBAGE trim: pass
+=== TZForth Extended-Character (ANS 18.6.2 parsing — shadow CHAR, [CHAR], PARSE) ===
+TEST6 CHAR ascii: pass
+TEST6 CHAR utf8: pass
+TEST6 [CHAR] utf8: pass
+TEST6 PARSE utf8 delim: pass
+=== TZForth Extended-Character (ANS 18.6.1 I/O — XEMIT, XKEY, XKEY?, EKEY>XCHAR) ===
+TEST6 XEMIT ascii: pass
+TEST6 XEMIT utf8: pass
+TEST6 EKEY>XCHAR a: pass
+TEST6 EKEY>XCHAR euro: pass
+TEST6 EKEY>XCHAR fkey: pass
+TEST6 XKEY? idle: pass
+TEST6 XKEY ascii: pass
+TEST6 XKEY utf8: pass
+TEST6 XKEY? ready: pass
+=== TZForth Extended-Character (ANS 18.6.2 pictured — XHOLD) ===
+TEST6 XHOLD ascii: pass
+TEST6 XHOLD utf8: pass
+=== TZForth Extended-Character (ANS 18.6.2 display width — XC-WIDTH, X-WIDTH) ===
+TEST6 XC-WIDTH ascii: pass
+TEST6 XC-WIDTH CJK: pass
+TEST6 XC-WIDTH zero: pass
+TEST6 X-WIDTH mixed: pass
+=== TZForth Extended-Character (ANS 18.3.2 ENVIRONMENT?) ===
+TEST6 ENVIRONMENT? EXTENDED-CHARACTER: pass
+TEST6 ENVIRONMENT? XCHAR-ENCODING len: pass
+TEST6 ENVIRONMENT? XCHAR-ENCODING text: pass
+TEST6 ENVIRONMENT? MAX-XCHAR: pass
+TEST6 ENVIRONMENT? XCHAR-MAXMEM: pass
+=== TZForth Float Tier A (ANS 12 — minimal IEEE 64-bit, separate F stack) ===
+TEST6 float literal: pass
+TEST6 S>F: pass
+TEST6 F+: pass
+TEST6 F-: pass
+TEST6 F*: pass
+TEST6 F/: pass
+TEST6 FNEGATE: pass
+TEST6 FDUP: pass
+TEST6 FSWAP: pass
+TEST6 FDEPTH: pass
+TEST6 FLOATS: pass
+TEST6 0 FLOATS: pass
+TEST6 F@ F!: pass
+TEST6 FALIGNED: pass
+TEST6 D>F: pass
+TEST6 >FLOAT: pass
+TEST6 >FLOAT blank: pass
+TEST6 >FLOAT 1+1: pass
+TEST6 >FLOAT lead space: pass
+TEST6 FCONSTANT: pass
+TEST6 FLITERAL colon: pass
+TEST6 scientific literal: pass
+TEST6 .FS: pass
+=== TZForth Float Tier A (ANS 12.3.2 ENVIRONMENT?) ===
+TEST6 ENVIRONMENT? FLOATING: pass
+TEST6 ENVIRONMENT? FLOATING-STACK: pass
+=== TZForth Float Tier B (ANS 12.6.2 Float Ext) ===
+TEST6 0e literal: pass
+TEST6 F>D: pass
+TEST6 FVARIABLE: pass
+TEST6 FVALUE TO: pass
+TEST6 F~ exact: pass
+TEST6 F~ +0 -0: pass
+TEST6 F~ abs tol: pass
+TEST6 F>: pass
+TEST6 F> signed zero: pass
+TEST6 F= signed zero: pass
+TEST6 F<> signed zero: pass
+TEST6 F<> paranoia Z: pass
+TEST6 BEGIN WHILE dot IF: pass
+TEST6 FABS: pass
+TEST6 FROT: pass
+TEST6 FSIN zero: pass
+TEST6 FATAN2: pass
+TEST6 FATAN2 y0 xneg: pass
+TEST6 FATAN2 signed zero: pass
+TEST6 ttester BASE restore: pass
+TEST6 SF@ SF!: pass
+TEST6 FSQRT: pass
+TEST6 ENVIRONMENT? FLOAT-EXT: pass
+=== TZForth Float Tier C (REPRESENT / FS. / FE. / F.) ===
+TEST6 REPRESENT 1E k: pass
+TEST6 REPRESENT 1E flag: pass
+TEST6 REPRESENT -1E flag: pass
+TEST6 REPRESENT 100/3 k: pass
+TEST6 REPRESENT 0.02/3 k: pass
+TEST6 FS. 20E: pass
+TEST6 FS. 0.02E: pass
+TEST6 FE. 20E: pass
+TEST6 FE. 4000E: pass
+TEST6 F. 1E3: pass
+TEST6 F. 1/3: pass
+TEST6 F. 200/3: pass
+TEST6 F. 0.000234E: pass
+TEST6 F. 0.000236E: pass
+=== TZForth Programming-Tools assembler (CODE ;CODE RET noop) ===
+TEST6 CODE noop: pass
+TEST6 CODE RET: pass
+TEST6 SEE CODE: pass
+=== TZForth Block subsystem (ANS Block + TZ ext .blk words; TZ ext = non-ANS) ===
+TEST6 TZ ext CREATE-BLOCK-FILE: pass
+TEST6 TZ ext OPEN-BLOCK-FILE: pass
+TEST6 TZ ext USE-BLOCK-FILE: pass
+TEST6 TZ ext GROW-BLOCK-FILE: pass
+TEST6 TZ ext .BLOCK-FILES: pass
+TEST6 TZ ext CLOSE-BLOCK-FILE: pass
+TEST6 TZ ext BLOCK-FILE: pass
+TEST6 TZ ext .SETTINGS: pass
+TEST6 TZ ext SAVE-SETTINGS: pass
+TEST6 Block BUFFER: pass
+TEST6 Block UPDATE: pass
+TEST6 Block SAVE-BUFFERS: pass
+TEST6 Block FLUSH: pass
+TEST6 Block EMPTY-BUFFERS: pass
+TEST6 Block LIST/SCR: pass
+TEST6 Block LOAD: pass
+TEST6 Block THRU: pass
+TEST6 Block BLK: pass
+TEST6 ANS core summary: 427/427 passed
+
+=== ANS-VALIDATE complete ===

@@ -30,6 +30,11 @@ final class FileHost {
     /// Saved cwd frames while a FROMLIB *named* load is in progress (nested-safe).
     private var fromLibraryDirStack: [(logical: String, process: String)] = []
 
+    /// Saved cwd frames while a file INCLUDE/FLOAD is active (nested-safe).
+    /// Each successful load chdirs to the file's directory so nested relative
+    /// FLOAD/INCLUDE resolve next to that file (TZForth performScopedNamedLoad).
+    private var loadCwdStack: [(logical: String, process: String)] = []
+
     /// Pinned INCLUDE buffers for the current kernel_eval (nested INCLUDE).
     private var includeAllocs: [UnsafeMutablePointer<CChar>] = []
 
@@ -54,6 +59,25 @@ final class FileHost {
 
     private func msg(_ s: String) {
         onMessage?(s)
+    }
+
+    /// Open panels must run on the main thread (kernel_eval may be off-main for KEY).
+    /// Uses async + wait so we never `main.sync` against a main thread that is
+    /// pumping events for KEY (that would deadlock).
+    private func runModalOnMain(_ panel: NSOpenPanel) -> NSApplication.ModalResponse {
+        if Thread.isMainThread {
+            return panel.runModal()
+        }
+        var result = NSApplication.ModalResponse.cancel
+        let done = DispatchSemaphore(value: 0)
+        DispatchQueue.main.async {
+            result = panel.runModal()
+            done.signal()
+        }
+        while done.wait(timeout: .now() + 0.05) == .timedOut {
+            // Main evaluate loop processes this async block while pumping UI.
+        }
+        return result
     }
 
     // MARK: - Bundle roots (Contents/Resources/…)
@@ -164,7 +188,8 @@ final class FileHost {
     }
 
     /// Resolve a load name for FLOAD/INCLUDE/REQUIRE.
-    /// - Relative + FROMLIB armed → Resources/Library (flag cleared; cwd switch for nested relatives)
+    /// - Relative + FROMLIB armed → under Resources/Library (flag cleared; path base only —
+    ///   nested relatives use the loaded file's directory via loadCwdStack in pinFileContents)
     /// - Relative → logicalCurrentDirectory
     /// - Absolute / ~ → as-is
     func resolveLoadPath(_ name: String, switchCwdForFromLib: Bool = true) -> URL? {
@@ -186,8 +211,10 @@ final class FileHost {
         if armed, let lib = libraryURL {
             clearFromLibrary()
             base = lib
+            // Remember session cwd so evaluate() can restore after a FROMLIB-named load.
+            // Nested relative FLOAD uses the *file's* folder (see beginLoadCwd), not Library root.
             if switchCwdForFromLib {
-                pushFromLibraryCwd(library: lib)
+                pushFromLibrarySessionFrame()
             }
         } else {
             if armed {
@@ -204,22 +231,22 @@ final class FileHost {
     }
 
     /// Resolve a load name to an absolute registry key (consumes FROMLIB like a real load).
-    /// Does not require the file to exist on disk.
+    /// Does not require the file to exist on disk. Does not switch session cwd.
     func resolveRegistryKey(path: UnsafePointer<CChar>?, pathLen: Int) -> String? {
         guard let path, pathLen > 0 else { return nil }
         var bytes = [UInt8](repeating: 0, count: pathLen)
         for i in 0..<pathLen { bytes[i] = UInt8(bitPattern: path[i]) }
         let raw = String(bytes: bytes, encoding: .utf8) ?? ""
         let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, let url = resolveLoadPath(name) else { return nil }
+        // switchCwdForFromLib: false — REQUIRED path-key resolve must not leave cwd at Library.
+        guard !name.isEmpty, let url = resolveLoadPath(name, switchCwdForFromLib: false) else { return nil }
         return url.standardizedFileURL.path
     }
 
-    private func pushFromLibraryCwd(library: URL) {
+    /// Snapshot session cwd for FROMLIB restore (does not change cwd).
+    private func pushFromLibrarySessionFrame() {
         let frame = (logical: logicalCurrentDirectory, process: FileManager.default.currentDirectoryPath)
         fromLibraryDirStack.append(frame)
-        logicalCurrentDirectory = library.path
-        _ = FileManager.default.changeCurrentDirectoryPath(library.path)
     }
 
     func endFromLibraryLoadIfNeeded() {
@@ -234,6 +261,33 @@ final class FileHost {
     func endAllFromLibraryLoads() {
         while !fromLibraryDirStack.isEmpty {
             endFromLibraryLoadIfNeeded()
+        }
+    }
+
+    // MARK: - Per-file load cwd (nested relative FLOAD)
+
+    /// Enter the loaded file's directory for the duration of its INCLUDE SOURCE.
+    private func beginLoadCwd(forFileURL url: URL) {
+        let parent = url.deletingLastPathComponent().path
+        let frame = (logical: logicalCurrentDirectory, process: FileManager.default.currentDirectoryPath)
+        loadCwdStack.append(frame)
+        logicalCurrentDirectory = parent
+        _ = FileManager.default.changeCurrentDirectoryPath(parent)
+    }
+
+    /// Restore cwd when a file INCLUDE/FLOAD SOURCE ends (kernel SOURCE-ID was > 0).
+    func endLoadCwdIfNeeded() {
+        guard let frame = loadCwdStack.popLast() else { return }
+        logicalCurrentDirectory = frame.logical
+        let proc = frame.process.isEmpty ? frame.logical : frame.process
+        if !proc.isEmpty {
+            _ = FileManager.default.changeCurrentDirectoryPath(proc)
+        }
+    }
+
+    func endAllLoadCwds() {
+        while !loadCwdStack.isEmpty {
+            endLoadCwdIfNeeded()
         }
     }
 
@@ -293,7 +347,7 @@ final class FileHost {
             panel.directoryURL = URL(fileURLWithPath: logicalCurrentDirectory, isDirectory: true)
         }
 
-        guard panel.runModal() == .OK, let url = panel.url else {
+        guard runModalOnMain(panel) == .OK, let url = panel.url else {
             msg("(CHDIR cancelled)\n")
             return
         }
@@ -301,6 +355,7 @@ final class FileHost {
     }
 
     private func applyChdir(_ url: URL) {
+        endAllLoadCwds()
         endAllFromLibraryLoads()
         clearFromLibrary()
         logicalCurrentDirectory = url.path
@@ -564,14 +619,15 @@ final class FileHost {
             panel.directoryURL = URL(fileURLWithPath: logicalCurrentDirectory, isDirectory: true)
         }
 
-        guard panel.runModal() == .OK, let url = panel.url else {
+        guard runModalOnMain(panel) == .OK, let url = panel.url else {
             msg("(FLOAD cancelled)\n")
             preserveSessionCwdAfterFileOp = false
             return -1
         }
 
-        // TZForth: named FLOAD temporarily uses file's directory for nested relatives;
-        // bare pick typically chdirs to parent unless FROMLIB preserve flag.
+        // TZForth bare pick: permanently chdir to parent unless FROMLIB preserve flag.
+        // Nested relatives still use beginLoadCwd inside pinFileContents either way
+        // (FROMLIB bare: temp cwd for the load only; restore when SOURCE ends).
         if !preserveSessionCwdAfterFileOp {
             let parent = url.deletingLastPathComponent()
             logicalCurrentDirectory = parent.path
@@ -581,6 +637,8 @@ final class FileHost {
             UserDefaults.standard.set(parent.path, forKey: lastCwdDefaultsKey)
             msg("Current directory: \(logicalCurrentDirectory)\n")
         } else {
+            // FROMLIB bare FLOAD: do not permanently change session CHDIR, but nested
+            // FLOAD must still resolve next to the picked file (pinFileContents chdirs).
             rememberScopedURL(url)
         }
         preserveSessionCwdAfterFileOp = false
@@ -615,6 +673,10 @@ final class FileHost {
         }
         p[n] = 0
         includeAllocs.append(p)
+
+        // Nested FLOAD/INCLUDE resolve relative to this file's folder for the duration
+        // of its SOURCE (restored when the kernel finishes the include — endLoadCwdIfNeeded).
+        beginLoadCwd(forFileURL: url)
 
         lastLoadRegistryKey = url.standardizedFileURL.path
         outPtr?.pointee = UnsafePointer(p)
@@ -735,7 +797,7 @@ final class FileHost {
             ? "Select a library source file to open in the system default editor."
             : "Select a file to open in the system default editor. The current directory will change to the file's folder."
 
-        guard panel.runModal() == .OK, let url = panel.url else {
+        guard runModalOnMain(panel) == .OK, let url = panel.url else {
             msg("(EDIT cancelled)\n")
             if preserveCwd {
                 restoreSessionDirectory(logical: savedLogical, process: savedProcess)

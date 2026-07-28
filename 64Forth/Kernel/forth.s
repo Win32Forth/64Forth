@@ -37,7 +37,7 @@
 // CORE (6.1) — word names: complete (all required Core names are present).
 // This is NOT a claim of formal ANS System compliance: semantics, environmental
 // restrictions, and the Hayes / forth2012-test-suite have not been certified.
-// ENVIRONMENT? answers CORE true, CORE-EXT false, FLOORED false.
+// ENVIRONMENT? answers CORE true, CORE-EXT true, FLOORED false.
 //
 // Core coverage (by area; stack comments intended to match ANS):
 //   Stack:    DUP DROP SWAP OVER ROT PICK ?DUP 2DUP 2DROP 2SWAP 2OVER DEPTH
@@ -294,6 +294,14 @@ _kernel_set_key:
     str  x0, [x1]
     ret
 
+// void kernel_set_key_q(int (*fn)(void)) — KEY? non-blocking availability
+.globl _kernel_set_key_q
+_kernel_set_key_q:
+    adrp x1, key_q_hook@page
+    add  x1, x1, key_q_hook@pageoff
+    str  x0, [x1]
+    ret
+
 // void kernel_set_fromlib(void (*fn)(void))
 .globl _kernel_set_fromlib
 _kernel_set_fromlib:
@@ -307,6 +315,14 @@ _kernel_set_fromlib:
 _kernel_set_fromlib_clear:
     adrp x1, fromlib_clear_hook@page
     add  x1, x1, fromlib_clear_hook@pageoff
+    str  x0, [x1]
+    ret
+
+// void kernel_set_end_include(void (*fn)(void)) — file INCLUDE SOURCE finished
+.globl _kernel_set_end_include
+_kernel_set_end_include:
+    adrp x1, end_include_hook@page
+    add  x1, x1, end_include_hook@pageoff
     str  x0, [x1]
     ret
 
@@ -1394,6 +1410,13 @@ XULESS:
     csetm x20, lo
     NEXT
 
+// U> ( u1 u2 -- flag )  unsigned greater
+XUGREATER:
+    ldr x0, [x22], #8              // u1
+    cmp x0, x20
+    csetm x20, hi
+    NEXT
+
 XZEQUAL:
     cmp x20, #0
     csetm x20, eq
@@ -1402,6 +1425,30 @@ XZEQUAL:
 XZLESS:
     cmp x20, #0
     csetm x20, lt
+    NEXT
+
+// 0<> ( x -- flag )
+XZNOTEQUAL:
+    cmp x20, #0
+    csetm x20, ne
+    NEXT
+
+// 0> ( n -- flag )
+XZGREATER:
+    cmp x20, #0
+    csetm x20, gt
+    NEXT
+
+// WITHIN ( n1|u1 n2|u2 n3|u3 -- flag )
+// ANS: n2 <= n1 < n3, using unsigned wrap: (n1-n2) U< (n3-n2)
+XWITHIN:
+    ldr x2, [x22], #8              // n2
+    ldr x1, [x22], #8              // n1
+    // x20 = n3
+    sub x1, x1, x2                 // n1 - n2
+    sub x20, x20, x2               // n3 - n2
+    cmp x1, x20
+    csetm x20, lo
     NEXT
 
 // TRUE is all-bits-set (-1) per standard Forth
@@ -1481,6 +1528,24 @@ XKEY:
     // char in x0; restore VM then push
     RESTORE_VM
     DPUSH               // also does mov x20, x0
+    NEXT
+
+// KEY? ( -- flag )  true if a character is available (does not read it)
+XKEYQ:
+    SAVE_VM
+    adrp x1, key_q_hook@page
+    add  x1, x1, key_q_hook@pageoff
+    ldr  x1, [x1]
+    cbz  x1, 1f
+    blr  x1                        // int (*)(void) → non-zero if ready
+    b    2f
+1:
+    mov  x0, #0
+2:
+    RESTORE_VM
+    str  x20, [x22, #-8]!
+    cmp  x0, #0
+    csetm x20, ne                  // Forth true = -1
     NEXT
 
 XCR:
@@ -4310,6 +4375,55 @@ XMSFETCH:
     mov x20, x0
     NEXT
 
+// MS ( u -- )  Facility: wait at least u milliseconds (yields via nanosleep).
+// Busy-wait on MS@ freezes the SwiftUI main thread; always sleep in the OS.
+XMS:
+    mov x0, x20                    // ms
+    ldr x20, [x22], #8
+    cbz x0, _ms_done
+    SAVE_VM
+    // Split large delays into ≤1s nanosleep chunks so EINTR can resume.
+_ms_loop:
+    // x19 holds remaining ms across nanosleep (SAVE_VM already saved VM x19)
+    // Use stack-only: remaining in x19 after SAVE is free for us if we save it.
+    // After SAVE_VM, x19-x24 are free for C calls; we keep remaining in [sp].
+    // Build timespec: sec = min(remaining/1000, …), nsec = (remaining%1000)*1e6
+    // Work with remaining ms in x19 (callee-saved is OK inside SAVE/RESTORE block
+    // only if we don't call something that expects them — libc may clobber
+    // caller-saved only; x19 is callee-saved so we can keep remaining there.
+    mov x19, x0                    // remaining ms
+_ms_chunk:
+    cbz x19, _ms_restore
+    // chunk = min(remaining, 1000)
+    mov x1, #1000
+    cmp x19, x1
+    csel x2, x19, x1, lo           // x2 = ms this chunk
+    // sec = chunk / 1000  (0 or 1)
+    udiv x3, x2, x1                // 0 or 1
+    msub x4, x3, x1, x2            // rem_ms = chunk % 1000
+    // nsec = rem_ms * 1_000_000
+    mov x5, #1000
+    mul x4, x4, x5
+    mul x4, x4, x5                 // * 1_000_000
+    // struct timespec on stack
+    sub sp, sp, #16
+    str x3, [sp]                   // tv_sec
+    str x4, [sp, #8]               // tv_nsec
+    mov x0, sp                     // req
+    mov x1, sp                     // rem (overwrite req on EINTR for simplicity)
+    bl _nanosleep
+    add sp, sp, #16
+    // subtract chunk from remaining
+    mov x1, #1000
+    cmp x19, x1
+    csel x2, x19, x1, lo
+    sub x19, x19, x2
+    cbnz x19, _ms_chunk
+_ms_restore:
+    RESTORE_VM
+_ms_done:
+    NEXT
+
 // UNUSED ( -- u )  free bytes remaining in user dictionary (logical size)
 // Default logical size 1 MiB; reserve USER_DICT_MAX BSS (demand-zero). GROWMEMORYMB
 // raises the logical limit once per session without relocating CFAs (max 64 MiB).
@@ -4535,6 +4649,285 @@ XMSTAR:
     mul x2, x0, x1
     smulh x20, x0, x1
     str x2, [x22, #-8]!
+    NEXT
+
+// ============================================================================
+// Double-Number word set (8.6) — stack doubles: lo under, hi in TOS
+// ============================================================================
+
+// D+ ( d1 d2 -- d3 )
+XDPLUS:
+    // TOS=hi2; under: lo2, hi1, lo1
+    ldr x3, [x22], #8              // lo2
+    ldr x2, [x22], #8              // hi1
+    ldr x1, [x22], #8              // lo1
+    // x20 = hi2
+    adds x1, x1, x3                // lo sum
+    adc  x20, x2, x20              // hi sum + carry
+    str  x1, [x22, #-8]!
+    NEXT
+
+// D- ( d1 d2 -- d3 )
+XDMINUS:
+    ldr x3, [x22], #8              // lo2
+    ldr x2, [x22], #8              // hi1
+    ldr x1, [x22], #8              // lo1
+    // x20 = hi2
+    subs x1, x1, x3
+    sbc  x20, x2, x20
+    str  x1, [x22, #-8]!
+    NEXT
+
+// DNEGATE ( d1 -- d2 )
+XDNEGATE:
+    ldr x1, [x22]                  // lo
+    mov x0, xzr
+    subs x1, x0, x1
+    sbc  x20, x0, x20
+    str  x1, [x22]
+    NEXT
+
+// DABS ( d -- ud )
+XDABS:
+    tbnz x20, #63, 1f
+    NEXT
+1:
+    // fall through to DNEGATE logic
+    ldr x1, [x22]
+    mov x0, xzr
+    subs x1, x0, x1
+    sbc  x20, x0, x20
+    str  x1, [x22]
+    NEXT
+
+// D2* ( xd1 -- xd2 )
+XD2STAR:
+    ldr x1, [x22]
+    lsl x20, x20, #1
+    orr x20, x20, x1, lsr #63
+    lsl x1, x1, #1
+    str x1, [x22]
+    NEXT
+
+// D2/ ( xd1 -- xd2 )  arithmetic shift right
+XD2SLASH:
+    ldr x1, [x22]
+    extr x1, x20, x1, #1           // lo = (hi:lo) >> 1
+    asr  x20, x20, #1
+    str  x1, [x22]
+    NEXT
+
+// D0= ( xd -- flag )
+XD0EQUAL:
+    ldr x1, [x22], #8
+    orr x1, x1, x20
+    cmp x1, #0
+    csetm x20, eq
+    NEXT
+
+// D0< ( d -- flag )
+XD0LESS:
+    cmp x20, #0
+    csetm x20, lt
+    add x22, x22, #8               // drop lo
+    NEXT
+
+// D= ( xd1 xd2 -- flag )
+XDEQUAL:
+    ldr x3, [x22], #8              // lo2
+    ldr x2, [x22], #8              // hi1
+    ldr x1, [x22], #8              // lo1
+    cmp x1, x3
+    ccmp x2, x20, #0, eq
+    csetm x20, eq
+    NEXT
+
+// D< ( d1 d2 -- flag ) signed
+XDLESS:
+    ldr x3, [x22], #8              // lo2
+    ldr x2, [x22], #8              // hi1
+    ldr x1, [x22], #8              // lo1
+    cmp x2, x20
+    b.lt 1f
+    b.gt 2f
+    cmp x1, x3
+    csetm x20, lo
+    NEXT
+1:  mov x20, #-1
+    NEXT
+2:  mov x20, #0
+    NEXT
+
+// DU< ( ud1 ud2 -- flag ) unsigned
+XDULESS:
+    ldr x3, [x22], #8              // lo2
+    ldr x2, [x22], #8              // hi1
+    ldr x1, [x22], #8              // lo1
+    cmp x2, x20
+    b.lo 1f
+    b.hi 2f
+    cmp x1, x3
+    csetm x20, lo
+    NEXT
+1:  mov x20, #-1
+    NEXT
+2:  mov x20, #0
+    NEXT
+
+// DMIN ( d1 d2 -- d3 ) — if d1 < d2 keep d1 else d2
+XDMIN:
+    // stack under TOS: lo2, hi1, lo1
+    ldr x3, [x22]                  // lo2
+    ldr x2, [x22, #8]              // hi1
+    ldr x1, [x22, #16]             // lo1
+    cmp x2, x20
+    b.lt _dmin_d1
+    b.gt _dmin_d2
+    cmp x1, x3
+    b.ls _dmin_d1
+_dmin_d2:
+    // keep d2: [lo2] TOS=hi2
+    str x3, [x22, #16]
+    add x22, x22, #16
+    NEXT
+_dmin_d1:
+    // keep d1: [lo1] TOS=hi1
+    mov x20, x2
+    add x22, x22, #16
+    NEXT
+
+// DMAX ( d1 d2 -- d3 )
+XDMAX:
+    ldr x3, [x22]
+    ldr x2, [x22, #8]
+    ldr x1, [x22, #16]
+    cmp x2, x20
+    b.gt _dmax_d1
+    b.lt _dmax_d2
+    cmp x1, x3
+    b.hs _dmax_d1
+_dmax_d2:
+    str x3, [x22, #16]
+    add x22, x22, #16
+    NEXT
+_dmax_d1:
+    mov x20, x2
+    add x22, x22, #16
+    NEXT
+
+// D>S ( d -- n )  convert double to single (discard high; lo is result)
+XDTOS:
+    ldr x20, [x22], #8             // lo → TOS, drop hi
+    NEXT
+
+// M+ ( d1 n -- d2 )  d2 = d1 + S>D n
+XMPLUS:
+    // TOS=n; under: hi, lo
+    ldr x2, [x22], #8              // hi
+    ldr x1, [x22], #8              // lo
+    // sign-extend n to hi_n
+    asr x3, x20, #63
+    adds x1, x1, x20
+    adc  x20, x2, x3
+    str  x1, [x22, #-8]!
+    NEXT
+
+// 2ROT ( x1 x2 x3 x4 x5 x6 -- x3 x4 x5 x6 x1 x2 )
+// rotate three cell-pairs left
+XTWOROT:
+    // TOS=x6; stack: x5,x4,x3,x2,x1
+    ldr x5, [x22], #8
+    ldr x4, [x22], #8
+    ldr x3, [x22], #8
+    ldr x2, [x22], #8
+    ldr x1, [x22], #8
+    // want: x3 x4 x5 x6 x1 x2(TOS)
+    str x3, [x22, #-8]!
+    str x4, [x22, #-8]!
+    str x5, [x22, #-8]!
+    str x20, [x22, #-8]!           // x6
+    str x1, [x22, #-8]!
+    mov x20, x2
+    NEXT
+
+// COMPARE ( c-addr1 u1 c-addr2 u2 -- n )  n = -1/0/1
+XCOMPARE:
+    // TOS=u2; under: ca2, u1, ca1
+    mov x3, x20                    // u2
+    ldr x2, [x22], #8              // ca2
+    ldr x1, [x22], #8              // u1
+    ldr x0, [x22], #8              // ca1
+    cmp x1, x3
+    csel x4, x1, x3, lo            // min len
+    mov x5, #0
+1:
+    cmp x5, x4
+    b.hs 2f
+    ldrb w6, [x0, x5]
+    ldrb w7, [x2, x5]
+    cmp w6, w7
+    b.ne 3f
+    add x5, x5, #1
+    b 1b
+3:
+    cmp w6, w7
+    mov x20, #1
+    b.hi 4f
+    mov x20, #-1
+4:  NEXT
+2:
+    cmp x1, x3
+    b.eq 5f
+    mov x20, #1
+    b.hi 4b
+    mov x20, #-1
+    NEXT
+5:  mov x20, #0
+    NEXT
+
+// SEARCH ( c-addr1 u1 c-addr2 u2 -- c-addr3 u3 flag )
+// flag true: c-addr3/u3 is remainder of haystack at match; false: original ca1 u1
+XSEARCH:
+    mov x3, x20                    // u2 needle len
+    ldr x2, [x22], #8              // ca2 needle
+    ldr x1, [x22], #8              // u1 hay len
+    ldr x0, [x22], #8              // ca1 hay
+    // save originals for not-found path
+    mov x9, x0
+    mov x10, x1
+    mov x4, #0                     // offset
+    // empty needle matches at start
+    cbz x3, 8f
+1:
+    subs x5, x1, x4                // remaining
+    b.lo 9f
+    cmp x5, x3
+    b.lo 9f
+    mov x6, #0
+2:
+    cmp x6, x3
+    b.hs 8f
+    add x7, x0, x4
+    ldrb w8, [x7, x6]
+    ldrb w11, [x2, x6]
+    cmp w8, w11
+    b.ne 3f
+    add x6, x6, #1
+    b 2b
+3:
+    add x4, x4, #1
+    b 1b
+8:
+    add x0, x0, x4
+    sub x1, x1, x4
+    str x0, [x22, #-8]!
+    str x1, [x22, #-8]!
+    mov x20, #-1
+    NEXT
+9:
+    str x9, [x22, #-8]!
+    str x10, [x22, #-8]!
+    mov x20, #0
     NEXT
 
 // _udivmod128: unsigned (x1:x0) / x2 → quot x3, rem x4
@@ -6222,14 +6615,17 @@ _interpret_loop:
     str x0, [x23, #-8]!    // push word addr
     str x1, [x23, #-8]!    // push word len
 
-    // Try number
+    // Try number (x0=1 single in x1; x0=2 double lo=x1 hi=x2; x0=0 fail)
     bl _parse_number
     cbz x0, _try_find
 
-    // Pop saved values from return stack (not needed, just clean up)
+    // Pop saved word addr/len from return stack
     add x23, x23, #16
 
-    // x1 = value. Compile mode?
+    cmp x0, #2
+    b.eq _number_double
+
+    // --- single-cell number in x1 ---
     adrp x2, state_var@page
     add x2, x2, state_var@pageoff
     ldr x2, [x2]
@@ -6240,17 +6636,43 @@ _interpret_loop:
     b _interpret_loop
 
 _compile_lit:
-    // x1 = literal value, compile LIT entry address then value
-    // Save value on return stack (bl will clobber x0-x3)
     str x1, [x23, #-8]!
-    // Compile LIT entry address
     adrp x0, cfa_lit@page
     add x0, x0, cfa_lit@pageoff
     ldr x0, [x0]
     bl _compile_cell
-    // Compile the literal value
     ldr x0, [x23], #8
     bl _compile_cell
+    b _interpret_loop
+
+// Double literal: lo in x1, hi in x2
+_number_double:
+    adrp x3, state_var@page
+    add x3, x3, state_var@pageoff
+    ldr x3, [x3]
+    cbnz x3, _compile_dlit
+    // interpret: push lo under, hi in TOS
+    str x20, [x22, #-8]!           // flush prior TOS
+    str x1, [x22, #-8]!            // lo
+    mov x20, x2                    // hi
+    b _interpret_loop
+
+_compile_dlit:
+    // compile LIT lo  LIT hi
+    stp x1, x2, [sp, #-16]!
+    adrp x0, cfa_lit@page
+    add x0, x0, cfa_lit@pageoff
+    ldr x0, [x0]
+    bl _compile_cell
+    ldr x0, [sp]
+    bl _compile_cell
+    adrp x0, cfa_lit@page
+    add x0, x0, cfa_lit@pageoff
+    ldr x0, [x0]
+    bl _compile_cell
+    ldr x0, [sp, #8]
+    bl _compile_cell
+    add sp, sp, #16
     b _interpret_loop
 
 _try_find:
@@ -6400,6 +6822,19 @@ _error_abandon:
 
 // End of current SOURCE: pop nested source (INCLUDE/EVALUATE) or finish line
 _interpret_empty:
+    // If ending a file INCLUDE/FLOAD (SOURCE-ID > 0), restore host load cwd
+    // so nested relative FLOAD paths resolve against the outer file's folder.
+    adrp x0, source_id_var@page
+    add  x0, x0, source_id_var@pageoff
+    ldr  x0, [x0]
+    cmp  x0, #0
+    b.le 1f
+    adrp x0, end_include_hook@page
+    add  x0, x0, end_include_hook@pageoff
+    ldr  x9, [x0]
+    cbz  x9, 1f
+    blr  x9
+1:
     bl _pop_source
     cbnz x0, _interpret_loop       // restored outer SOURCE — keep going
 _interpret_done:
@@ -7611,19 +8046,26 @@ _nw_eof:
     ldp x29, x30, [sp], #16
     ret
 
-// _parse_number: x0=addr, x1=len -> x0=1 (val in x1) or 0
-// Honors BASE (2..36). Digits: 0-9, A-Z / a-z.
+// _parse_number: x0=addr, x1=len
+//   -> x0=1 single (value in x1)
+//   -> x0=2 double (lo in x1, hi in x2)  when token ends with '.'
+//   -> x0=0 fail
+// Honors BASE (2..36). Optional leading # $ % base prefixes (decimal/hex/binary).
+// Digits: 0-9, A-Z / a-z. Optional leading '-'. Trailing '.' → double (hi=sign).
 _parse_number:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
+    stp x23, x24, [sp, #-16]!
     mov x19, x0                 // addr
     mov x20, x1                 // len
-    mov x2, #0                  // accumulator
+    mov x23, #0                 // double flag
+    mov x24, #0                 // lo accumulator (we only fill 64-bit for now)
+    mov x2, #0                  // accumulator (grows; for large values only low 64)
     mov x3, #0                  // digit count
     mov x4, #0                  // negative flag
-    // base
+    // base from BASE
     adrp x21, base_var@page
     add x21, x21, base_var@pageoff
     ldr x21, [x21]
@@ -7635,52 +8077,105 @@ _pn_base10:
     mov x21, #10
 _pn_base_ok:
     cbz x20, _pn_fail
+    // trailing '.' → double number
+    add x0, x19, x20
+    ldrb w5, [x0, #-1]
+    cmp w5, #46                 // '.'
+    b.ne _pn_prefix
+    mov x23, #1
+    sub x20, x20, #1
+    cbz x20, _pn_fail
+_pn_prefix:
     ldrb w5, [x19]
     cmp w5, #45                 // '-'
-    b.ne _pn_loop
+    b.ne _pn_base_prefix
     mov x4, #1
+    add x19, x19, #1
+    sub x20, x20, #1
+    cbz x20, _pn_fail
+    ldrb w5, [x19]
+_pn_base_prefix:
+    // # decimal  $ hex  % binary
+    cmp w5, #35                 // '#'
+    b.ne 1f
+    mov x21, #10
+    add x19, x19, #1
+    sub x20, x20, #1
+    b _pn_loop
+1:  cmp w5, #36                 // '$'
+    b.ne 2f
+    mov x21, #16
+    add x19, x19, #1
+    sub x20, x20, #1
+    b _pn_loop
+2:  cmp w5, #37                 // '%'
+    b.ne _pn_loop
+    mov x21, #2
     add x19, x19, #1
     sub x20, x20, #1
 _pn_loop:
     cbz x20, _pn_done
     ldrb w5, [x19], #1
-    // digit value in w22
-    sub w22, w5, #48            // '0'
+    sub w22, w5, #48
     cmp w22, #9
     b.ls _pn_have_digit
-    // A-Z / a-z -> 10..35
     mov w22, w5
-    cmp w22, #97                // 'a'
+    cmp w22, #97
     b.lo _pn_upper
-    cmp w22, #122               // 'z'
+    cmp w22, #122
     b.hi _pn_fail
-    sub w22, w22, #32           // tolower -> toupper
+    sub w22, w22, #32
 _pn_upper:
-    sub w22, w22, #65           // 'A'
+    sub w22, w22, #65
     cmp w22, #25
     b.hi _pn_fail
     add w22, w22, #10
 _pn_have_digit:
-    cmp x22, x21                // digit must be < base
+    cmp x22, x21
     b.hs _pn_fail
-    mul x2, x2, x21
+    // 128-bit-ish: x24:x2 = x24:x2 * base + digit (x2=lo, x24=hi)
+    // lo * base
+    mul x0, x2, x21
+    umulh x1, x2, x21
+    // hi * base + lo_hi
+    mul x5, x24, x21
+    add x1, x1, x5
+    mov x2, x0
+    mov x24, x1
     add x2, x2, x22
+    // carry into hi if lo overflowed (add digit rarely overflows after mul)
+    cmp x2, x22
+    b.hs 3f
+    add x24, x24, #1
+3:
     add x3, x3, #1
     sub x20, x20, #1
     b _pn_loop
 _pn_done:
     cbz x3, _pn_fail
     cbz x4, _pn_pos
-    neg x2, x2
+    // negate 128-bit x24:x2
+    mov x0, xzr
+    subs x2, x0, x2
+    sbc  x24, x0, x24
 _pn_pos:
+    cbnz x23, _pn_dbl
     mov x0, #1
     mov x1, x2
+    b _pn_ret
+_pn_dbl:
+    mov x0, #2
+    mov x1, x2                     // lo
+    mov x2, x24                    // hi
+_pn_ret:
+    ldp x23, x24, [sp], #16
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
 _pn_fail:
     mov x0, #0
+    ldp x23, x24, [sp], #16
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
@@ -8141,9 +8636,11 @@ str_x:      .asciz "X"
 .align 8
 embed_mode:     .quad 0            // 0 = terminal cold start, 1 = host embed
 emit_hook:      .quad 0            // void (*)(int c)
-key_hook:       .quad 0            // int (*)(void)
+key_hook:       .quad 0            // int (*)(void) — KEY (blocking)
+key_q_hook:     .quad 0            // int (*)(void) — KEY? (non-zero if ready)
 fromlib_hook:   .quad 0            // void (*)(void) — FROMLIB arm
 fromlib_clear_hook: .quad 0        // void (*)(void) — FROMLIB disarm (REQUIRE skip)
+end_include_hook: .quad 0          // void (*)(void) — file INCLUDE SOURCE ended (restore load cwd)
 load_file_hook: .quad 0            // int (*)(path, path_len, out_ptr*, out_len*); path_len 0 = bare
 resolve_key_hook: .quad 0          // resolve path → absolute key
 last_load_key_hook: .quad 0        // absolute key of last successful load
@@ -8236,16 +8733,11 @@ forth_init_str:
     .ascii ": DECIMAL 10 BASE ! ; "
     .ascii "DOC\" HEX ( -- ) set BASE to 16\" "
     .ascii ": HEX 16 BASE ! ; "
-    .ascii "DOC\" 0<> ( x -- flag ) true if not zero\" "
-    .ascii ": 0<> 0= 0= ; "
-    .ascii "DOC\" 0> ( n -- flag ) positive?\" "
-    .ascii ": 0> 0 > ; "
+    // 0<> 0> WITHIN U> are CODE primitives (boot table)
     .ascii "DOC\" >= ( n1 n2 -- flag ) greater or equal\" "
     .ascii ": >= < 0= ; "
     .ascii "DOC\" <= ( n1 n2 -- flag ) less or equal\" "
     .ascii ": <= > 0= ; "
-    .ascii "DOC\" WITHIN ( n lo hi -- f ) within range\" "
-    .ascii ": WITHIN OVER - >R - R> U< ; "
 
     // --- 2. Dictionary field accessors (xt = CFA) ---
     .ascii "DOC\" >LINK ( xt -- a-addr ) link field address\" "
@@ -8464,13 +8956,12 @@ forth_init_str:
     .ascii "DOC\" OFF ( addr -- ) store 0 at addr (e.g. file-echo OFF)\" "
     .ascii ": OFF 0 SWAP ! ; "
 
-    // --- 6. Core Ext (mostly high-level; 2>R/2R>/2R@ are CODE — colon would clobber IP) ---
-    .ascii "DOC\" U> ( u1 u2 -- flag ) unsigned greater\" "
-    .ascii ": U> SWAP U< ; "
+    // --- 6. Core Ext (high-level; U> 0<> 0> WITHIN / 2>R family are CODE) ---
     // U.R ( u n -- ) right-justify u in a field of n characters (no trailing space)
-    // `0 <# #S #>`: single-cell u as double with hi=0 (ANS pictured is ud).
     .ascii "DOC\" U.R ( u n -- ) print u right-justified in n field\" "
     .ascii ": U.R >R 0 <# #S #> R> OVER - 0 MAX SPACES TYPE ; "
+    .ascii "DOC\" .R ( n n -- ) print n right-justified in field (no trailing space)\" "
+    .ascii ": .R >R DUP ABS 0 <# #S ROT SIGN #> R> OVER - 0 MAX SPACES TYPE ; "
     .ascii "DOC\" HOLDS ( c-addr u -- ) add string to pictured numeric output (prepend via HOLD)\" "
     .ascii ": HOLDS BEGIN DUP WHILE 1- 2DUP + C@ HOLD REPEAT 2DROP ; "
     .ascii "DOC\" COMPILE, ( xt -- ) compile the execution token xt\" "
@@ -8481,24 +8972,93 @@ forth_init_str:
     .ascii ": .( 41 PARSE TYPE ; IMMEDIATE "
     .ascii "DOC\" BUFFER: ( u 'name' -- ) create a buffer of u bytes\" "
     .ascii ": BUFFER: CREATE ALLOT ; "
-    // VALUE / TO — DOES> body: does_ip at >BODY, value at >BODY CELL+
     .ascii "DOC\" VALUE ( x 'name' -- ) create a value; change with TO\" "
     .ascii ": VALUE CREATE , DOES> @ ; "
-    // TO is CODE (XTO_IMM): locals + VALUE (CFA+16)
-    // DEFER family — default action ABORT until IS
     .ascii "DOC\" DEFER ( 'name' -- ) create a deferred word (set with IS)\" "
     .ascii ": DEFER CREATE ['] ABORT , DOES> @ EXECUTE ; "
     .ascii "DOC\" DEFER@ ( xt1 -- xt2 ) get the xt that defer xt1 currently executes\" "
     .ascii ": DEFER@ >BODY CELL+ @ ; "
     .ascii "DOC\" DEFER! ( xt1 xt2 -- ) set defer xt2 to execute xt1\" "
     .ascii ": DEFER! >BODY CELL+ ! ; "
-    .ascii "DOC\" IS ( xt 'name' -- ) set DEFER or VALUE named (immediate)\" "
+    .ascii "DOC\" IS ( xt 'name' -- ) set DEFER named (immediate)\" "
     .ascii ": IS STATE @ IF POSTPONE ['] POSTPONE DEFER! ELSE ' DEFER! THEN ; IMMEDIATE "
     .ascii "DOC\" ACTION-OF ( 'name' -- xt ) xt currently in deferred name (immediate)\" "
     .ascii ": ACTION-OF STATE @ IF POSTPONE ['] POSTPONE DEFER@ ELSE ' DEFER@ THEN ; IMMEDIATE "
-    // MARKER — executing name restores dictionary to just before MARKER was defined
+    // MARKER — body: HERE-at-define, LATEST-before-define
     .ascii "DOC\" MARKER ( 'name' -- ) create a dictionary restore point\" "
-    .ascii ": MARKER CREATE LATEST @ , DOES> @ DUP >LINK @ LATEST ! DUP HERE - ALLOT DROP ; "
+    .ascii ": MARKER LATEST @ HERE CREATE , , DOES> DUP @ DP ! CELL+ @ LATEST ! ; "
+
+    // --- 7. Double-Number high-level ---
+    .ascii "DOC\" 2CONSTANT ( x1 x2 'name' -- ) create double constant\" "
+    .ascii ": 2CONSTANT CREATE SWAP , , DOES> 2@ ; "
+    .ascii "DOC\" 2VARIABLE ( 'name' -- ) create double variable\" "
+    .ascii ": 2VARIABLE CREATE 0 , 0 , ; "
+    .ascii "DOC\" 2LITERAL ( x1 x2 -- ) compile double literal (immediate)\" "
+    .ascii ": 2LITERAL ?COMP SWAP POSTPONE LITERAL POSTPONE LITERAL ; IMMEDIATE "
+    .ascii "DOC\" D. ( d -- ) print signed double with space\" "
+    .ascii ": D. 2DUP D0< IF DNEGATE -1 ELSE 0 THEN >R <# #S R> SIGN #> TYPE SPACE ; "
+    .ascii "DOC\" D.R ( d n -- ) print signed double right-justified\" "
+    .ascii ": D.R >R 2DUP D0< IF DNEGATE -1 ELSE 0 THEN >R <# #S R> SIGN #> R> OVER - 0 MAX SPACES TYPE ; "
+    // M*/ — full multiprecision later; D>S path covers Hayes cases where d1 fits single
+    .ascii "DOC\" M*/ ( d1 n1 +n2 -- d2 ) multiply double by n1 then divide by n2\" "
+    .ascii ": M*/ >R >R D>S R> R> */ S>D ; "
+
+    // --- 8. String word set ---
+    .ascii "DOC\" BLANK ( c-addr u -- ) fill with spaces\" "
+    .ascii ": BLANK BL FILL ; "
+    .ascii "DOC\" -TRAILING ( c-addr u1 -- c-addr u2 ) remove trailing spaces\" "
+    .ascii ": -TRAILING BEGIN DUP WHILE 1- 2DUP + C@ BL <> IF 1+ EXIT THEN REPEAT ; "
+    // COMPARE / SEARCH are CODE primitives
+    .ascii "DOC\" SLITERAL ( c-addr u -- ) compile string literal (immediate)\" "
+    .ascii ": SLITERAL ?COMP POSTPONE (S\") DUP C, BEGIN DUP WHILE OVER C@ C, 1 /STRING REPEAT 2DROP ALIGN ; IMMEDIATE "
+
+    // --- 9. Facility (MS/KEY? are CODE; EKEY family thin wrappers) ---
+    .ascii "DOC\" EKEY? ( -- flag ) same as KEY? when no extended keys\" "
+    .ascii ": EKEY? KEY? ; "
+    .ascii "DOC\" EKEY ( -- u ) wait for key; same as KEY for ASCII\" "
+    .ascii ": EKEY KEY ; "
+    .ascii "DOC\" EKEY>CHAR ( u -- u false | char true )\" "
+    .ascii ": EKEY>CHAR DUP 0 256 WITHIN IF TRUE ELSE FALSE THEN ; "
+    .ascii "DOC\" EMIT? ( -- flag ) always true (console always ready)\" "
+    .ascii ": EMIT? TRUE ; "
+    .ascii "DOC\" PAGE ( -- ) clear screen (emit form-feed / ANSI home+clear)\" "
+    .ascii ": PAGE 12 EMIT 27 EMIT 91 EMIT 72 EMIT 27 EMIT 91 EMIT 50 EMIT 74 EMIT ; "
+    .ascii "DOC\" AT-XY ( u1 u2 -- ) set cursor column u1 row u2 (ANSI 1-based)\" "
+    .ascii ": AT-XY 1+ SWAP 1+ SWAP 27 EMIT 91 EMIT 0 U.R 59 EMIT 0 U.R 72 EMIT ; "
+    // TIME&DATE needs host; stub returns 0s until host hook
+    .ascii "DOC\" TIME&DATE ( -- +n1 +n2 +n3 +n4 +n5 +n6 ) s m h d mo y (stub zeros)\" "
+    .ascii ": TIME&DATE 0 0 0 1 1 1970 ; "
+    .ascii "DOC\" WARNING ( -- addr ) variable; used by some test suites\" "
+    .ascii "VARIABLE WARNING "
+
+    // --- 10. Block word set (memory-backed; FLUSH is no-op until host volume) ---
+    .ascii "DOC\" BLK ( -- addr ) block number variable (0 = not from block)\" "
+    .ascii "VARIABLE BLK "
+    .ascii "DOC\" SCR ( -- addr ) last listed block number\" "
+    .ascii "VARIABLE SCR "
+    .ascii "CREATE (BLOCK-BUF) 1024 ALLOT "
+    .ascii "VARIABLE (BLOCK-NR)  0 (BLOCK-NR) ! "
+    .ascii "VARIABLE (BLOCK-UPD) 0 (BLOCK-UPD) ! "
+    .ascii "DOC\" BLOCK ( u -- a-addr ) address of block u (1K RAM buffer)\" "
+    .ascii ": BLOCK DUP (BLOCK-NR) @ = IF DROP (BLOCK-BUF) EXIT THEN "
+    .ascii "  (BLOCK-UPD) @ IF 0 (BLOCK-UPD) ! THEN "
+    .ascii "  DUP (BLOCK-NR) ! (BLOCK-BUF) 1024 ERASE (BLOCK-BUF) ; "
+    .ascii "DOC\" BUFFER ( u -- a-addr ) like BLOCK but contents unspecified\" "
+    .ascii ": BUFFER BLOCK ; "
+    .ascii "DOC\" UPDATE ( -- ) mark current block buffer as dirty\" "
+    .ascii ": UPDATE -1 (BLOCK-UPD) ! ; "
+    .ascii "DOC\" FLUSH ( -- ) write dirty buffers (RAM blocks: clear dirty)\" "
+    .ascii ": FLUSH 0 (BLOCK-UPD) ! ; "
+    .ascii "DOC\" SAVE-BUFFERS ( -- ) same as FLUSH for RAM blocks\" "
+    .ascii ": SAVE-BUFFERS FLUSH ; "
+    .ascii "DOC\" EMPTY-BUFFERS ( -- ) invalidate buffers\" "
+    .ascii ": EMPTY-BUFFERS 0 (BLOCK-NR) ! 0 (BLOCK-UPD) ! ; "
+    .ascii "DOC\" LOAD ( i*x u -- j*x ) interpret block u\" "
+    .ascii ": LOAD DUP BLK ! BLOCK 1024 EVALUATE 0 BLK ! ; "
+    .ascii "DOC\" THRU ( i*x u1 u2 -- j*x ) LOAD u1..u2 inclusive\" "
+    .ascii ": THRU 1+ SWAP ?DO I LOAD LOOP ; "
+    .ascii "DOC\" LIST ( u -- ) display block u\" "
+    .ascii ": LIST DUP SCR ! BLOCK 16 0 DO CR I 3 .R SPACE DUP 64 TYPE 64 + LOOP DROP CR ; "
 
     .byte 0  // null terminator
 

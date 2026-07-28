@@ -120,6 +120,17 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 
 ---
 
+## 3b. Word-set coverage (in progress)
+
+| Phase | Word set | Notes |
+|-------|----------|--------|
+| 1 | Core Ext | `U>` `0<>` `0>` `WITHIN` are **CODE**; remaining Core Ext mostly in `forth_init_str` (VALUE, CASE, DEFER, MARKER, …) plus `.R` |
+| 2 | Double + String | Double ops **CODE** (`D+` `D-` `D0=` …); double literals (`1.`); `COMPARE`/`SEARCH` CODE; `BLANK` `-TRAILING` `SLITERAL` high-level |
+| 3 | Block | RAM-backed `BLOCK`/`BUFFER`/`LOAD`/`LIST`… (not yet file volume / OPEN-BLOCK-FILE) |
+| 4 | Facility | `MS` = CODE `nanosleep` (yields; not busy-wait); `PAGE`/`AT-XY` ANSI; `KEY?` stub false; `TIME&DATE` stub; `WARNING` variable |
+
+Hayes / forth2012: re-run after rebuild; expect better Core Ext / Double / String; Block file tests need host volume later.
+
 ## 4. FROMLIB semantics
 
 - `FROMLIB` / `FROM-LIBRARY` arms the next path resolve root to  
@@ -127,6 +138,12 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 - Applies to next `FLOAD` / `INCLUDE` / `REQUIRE` / `EDIT` / `CHDIR` / `DIR` as implemented.
 - Relative names: `FROMLIB FLOAD BigInteger/big-int.fth`
 - Session cwd for user files remains separate (Documents / last CHDIR / bookmarks).
+- **Nested relatives:** each successful FLOAD/INCLUDE temporarily sets logical cwd to that
+  file's directory (stack + `end_include` hook when SOURCE ends), so
+  `FROMLIB FLOAD HayesTest/HayesTest.fth` can `FLOAD src/test.fth` and then sibling
+  loads under `src/`. Session cwd is restored when the outer load finishes.
+- Bare `FROMLIB FLOAD` (dialog): panel starts at Library; session CHDIR is not changed
+  permanently, but nested relatives still resolve next to the picked file.
 - Implemented in **Swift FileHost**, not by re-creating the TZForth engine.
 
 ---

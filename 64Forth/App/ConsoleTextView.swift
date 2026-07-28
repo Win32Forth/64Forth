@@ -246,17 +246,23 @@ struct ConsoleTextView: NSViewRepresentable {
             if affectedCharRange.location < minLoc {
                 return false
             }
-            // Feed KEY queue while kernel_eval may be blocked in KEY.
-            if let s = replacementString {
-                for b in s.utf8 {
-                    parent.onKeyCharacter(Int32(b))
-                }
+            // While the kernel is evaluating, KEY/KEY? input is captured by the
+            // NSEvent keyDown monitor in KernelBridge (not here). Reject edits so
+            // typed keys do not appear on the console input line.
+            if KernelBridge.shared.isEvaluating {
+                return false
             }
             return true
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                // During KEY wait, Return is a character (LF), not "submit line".
+                // (Also handled by the keyDown monitor; keep this as a fallback.)
+                if KernelBridge.shared.isEvaluating {
+                    parent.onKeyCharacter(10)
+                    return true
+                }
                 return parent.onReturnPressed()
             }
 

@@ -47,12 +47,16 @@ boot_word_table:
     BOOT_WORD "<", "< ( n1 n2 -- flag ) less than", 0, XLESS
     BOOT_WORD ">", "> ( n1 n2 -- flag ) greater than", 0, XGREATER
     BOOT_WORD "U<", "U< ( u1 u2 -- flag ) unsigned less", 0, XULESS
+    BOOT_WORD "U>", "U> ( u1 u2 -- flag ) unsigned greater", 0, XUGREATER
     BOOT_WORD "AND", "AND ( n1 n2 -- n ) bitwise and", 0, XAND
     BOOT_WORD "OR", "OR ( n1 n2 -- n ) bitwise or", 0, XORR
     BOOT_WORD "XOR", "XOR ( n1 n2 -- n ) bitwise xor", 0, XXOR
     BOOT_WORD "INVERT", "INVERT ( n -- ~n ) bitwise invert", 0, XINVERT
     BOOT_WORD "0=", "0= ( n -- flag ) zero?", 0, XZEQUAL
     BOOT_WORD "0<", "0< ( n -- flag ) negative?", 0, XZLESS
+    BOOT_WORD "0<>", "0<> ( x -- flag ) not zero?", 0, XZNOTEQUAL
+    BOOT_WORD "0>", "0> ( n -- flag ) positive?", 0, XZGREATER
+    BOOT_WORD "WITHIN", "WITHIN ( n1|u1 n2|u2 n3|u3 -- flag ) n2<=n1<n3 (unsigned wrap)", 0, XWITHIN
     BOOT_WORD "TRUE", "TRUE ( -- -1 ) true flag", 0, XTRUE
     BOOT_WORD "FALSE", "FALSE ( -- 0 ) false flag", 0, XFALSE
     BOOT_WORD "1+", "1+ ( n -- n+1 ) increment", 0, XONEPLUS
@@ -66,6 +70,7 @@ boot_word_table:
     BOOT_WORD "+!", "+! ( n addr -- ) add to memory", 0, XPLUSSTORE
     BOOT_WORD "EMIT", "EMIT ( c -- ) emit character", 0, XEMIT
     BOOT_WORD "KEY", "KEY ( -- c ) wait for and return next key code", 0, XKEY
+    BOOT_WORD "KEY?", "KEY? ( -- flag ) true if a key is available (does not consume)", 0, XKEYQ
     BOOT_WORD "CR", "CR ( -- ) carriage return / newline", 0, XCR
     BOOT_WORD ".", ". ( n -- ) print number (with space)", 0, XDOT
     BOOT_WORD "U.", "U. ( u -- ) print unsigned", 0, XUDOT
@@ -170,6 +175,7 @@ boot_word_table:
     BOOT_WORD "(CATCH-OK)", "(CATCH-OK) ( -- 0 ) CATCH success path", 0, XCATCH_OK
     BOOT_WORD "CONTAINS", "CONTAINS ( hay-a hay-u ned-a ned-u -- flag ) case-insensitive substring", 0, XCONTAINS
     BOOT_WORD "MS@", "MS@ ( -- u ) wall-clock milliseconds since epoch", 0, XMSFETCH
+    BOOT_WORD "MS", "MS ( u -- ) wait at least u milliseconds (OS sleep; yields)", 0, XMS
     BOOT_WORD "UNUSED", "UNUSED ( -- u ) bytes remaining in dictionary (HERE to dictionary limit)", 0, XUNUSED
     BOOT_WORD "REDEF-WARNING", "REDEF-WARNING ( -- addr ) variable; nonzero warns on redefine", 0, XREDEF_WARNING
     BOOT_WORD "USER-DICT", "USER-DICT ( -- addr ) base of user dictionary", 0, XUSER_DICT
@@ -188,6 +194,24 @@ boot_word_table:
     BOOT_WORD "UM/MOD", "UM/MOD ( ud u -- rem quot ) unsigned divmod", 0, XUMMOD
     BOOT_WORD "SM/REM", "SM/REM ( d n -- rem quot ) symmetric divmod", 0, XSMREM
     BOOT_WORD "FM/MOD", "FM/MOD ( d n -- rem quot ) floored divmod", 0, XFMMOD
+    BOOT_WORD "D+", "D+ ( d1 d2 -- d3 ) double add", 0, XDPLUS
+    BOOT_WORD "D-", "D- ( d1 d2 -- d3 ) double subtract", 0, XDMINUS
+    BOOT_WORD "DNEGATE", "DNEGATE ( d1 -- d2 ) negate double", 0, XDNEGATE
+    BOOT_WORD "DABS", "DABS ( d -- ud ) absolute value of double", 0, XDABS
+    BOOT_WORD "D2*", "D2* ( xd1 -- xd2 ) shift double left 1", 0, XD2STAR
+    BOOT_WORD "D2/", "D2/ ( xd1 -- xd2 ) arithmetic shift double right 1", 0, XD2SLASH
+    BOOT_WORD "D0=", "D0= ( xd -- flag ) double equal zero?", 0, XD0EQUAL
+    BOOT_WORD "D0<", "D0< ( d -- flag ) double negative?", 0, XD0LESS
+    BOOT_WORD "D=", "D= ( xd1 xd2 -- flag ) double equal?", 0, XDEQUAL
+    BOOT_WORD "D<", "D< ( d1 d2 -- flag ) signed double less", 0, XDLESS
+    BOOT_WORD "DU<", "DU< ( ud1 ud2 -- flag ) unsigned double less", 0, XDULESS
+    BOOT_WORD "DMIN", "DMIN ( d1 d2 -- d3 ) minimum of two doubles", 0, XDMIN
+    BOOT_WORD "DMAX", "DMAX ( d1 d2 -- d3 ) maximum of two doubles", 0, XDMAX
+    BOOT_WORD "D>S", "D>S ( d -- n ) double to single", 0, XDTOS
+    BOOT_WORD "M+", "M+ ( d1|ud1 n -- d2|ud2 ) add single to double", 0, XMPLUS
+    BOOT_WORD "2ROT", "2ROT ( x1 x2 x3 x4 x5 x6 -- x3 x4 x5 x6 x1 x2 ) rotate three pairs", 0, XTWOROT
+    BOOT_WORD "COMPARE", "COMPARE ( c-addr1 u1 c-addr2 u2 -- n ) string compare -1/0/1", 0, XCOMPARE
+    BOOT_WORD "SEARCH", "SEARCH ( c-addr1 u1 c-addr2 u2 -- c-addr3 u3 flag ) find substring", 0, XSEARCH
     BOOT_WORD "QUIT", "QUIT ( -- ) empty return stack, set interpret state, return to outer interpreter", 0, XQUIT
     BOOT_WORD "SOURCE-ID", "SOURCE-ID ( -- id ) input source id (-1 terminal, 0 evaluate, 1 file)", 0, XSOURCE_ID
     BOOT_WORD "REFILL", "REFILL ( -- flag ) attempt to refill the input buffer; flag true if successful", 0, XREFILL
@@ -209,7 +233,7 @@ boot_word_table:
     BOOT_WORD "SETDOC", "SETDOC ( c-addr u -- ) pending help for next defining word", 0, XSETDOC
     .quad 0, 0, 0, 0
 
-.equ BOOT_WORD_COUNT, 178
+.equ BOOT_WORD_COUNT, 200
 
 // Empty help used by : / CREATE / :NONAME
 .align 8
