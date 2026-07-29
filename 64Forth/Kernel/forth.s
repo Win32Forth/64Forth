@@ -9227,6 +9227,11 @@ forth_init_str:
     .ascii ": SPACE BL EMIT ; "
 
     // --- 3. Control flow (immediate) ---
+    // ?COMP MUST come before AHEAD/DO/?DO/LOOP which compile a call to it.
+    // Defining AHEAD before ?COMP used to abort the rest of forth_init
+    // (undefined: ?COMP), so IF/THEN/ELSE/SEE and everything after never loaded.
+    .ascii "DOC\" ?COMP ( -- ) error if not compiling\" "
+    .ascii ": ?COMP STATE @ 0= IF S\" compile only\" TYPE CR -14 THROW THEN ; "
     .ascii "DOC\" BEGIN ( -- ) start indefinite loop (immediate)\" "
     .ascii ": BEGIN HERE ; IMMEDIATE "
     .ascii "DOC\" UNTIL ( flag -- ) loop until true (immediate)\" "
@@ -9245,9 +9250,6 @@ forth_init_str:
     .ascii ": WHILE 0BRANCH-ADDR , HERE 0 , ; IMMEDIATE "
     .ascii "DOC\" REPEAT ( -- ) branch back from WHILE (immediate)\" "
     .ascii ": REPEAT BRANCH-ADDR , SWAP HERE - , HERE OVER - SWAP ! ; IMMEDIATE "
-    // ?COMP ( -- )  error if not compiling (ANS throw -14)
-    .ascii "DOC\" ?COMP ( -- ) error if not compiling\" "
-    .ascii ": ?COMP STATE @ 0= IF S\" compile only\" TYPE CR -14 THROW THEN ; "
 
     // DO/LOOP: ( limit start -- ) ... LOOP    classic Forth order: limit first
     // DO leaves ( 0 dest ); ?DO leaves ( orig dest ) so LOOP/+LOOP can resolve
