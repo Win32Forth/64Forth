@@ -9216,6 +9216,9 @@ forth_init_str:
     .ascii ": NAME>STRING NFA COUNT ; "
     .ascii "DOC\" NAME>HELP ( xt -- c-addr u ) help string\" "
     .ascii ": NAME>HELP HFA COUNT ; "
+    // Early DOCOL? so tools work even if later forth_init aborts
+    .ascii "DOC\" DOCOL? ( xt -- flag ) true if colon definition\" "
+    .ascii ": DOCOL? @ DOCOL-ADDR = ; "
     // DOC" text" — pending help for next defining word (help should start with name)
     // Documented high-level words (DOC" then : … ;)
     .ascii "DOC\" BL ( -- c ) ASCII blank (space)\" "
@@ -9334,8 +9337,7 @@ forth_init_str:
     .ascii ": ENDCASE ?COMP POSTPONE DROP BEGIN DUP WHILE 1- >R POSTPONE THEN R> REPEAT DROP ; IMMEDIATE "
 
     // --- 5. Tools / extensions ---
-    // WORDS is CODE (XWORDS): first search-order wordlist only, alpha-sorted (TZForth).
-    // Colon CFAs hold DOCOL; EXIT's code field is DOEXIT — never equal. Use DOCOL-ADDR.
+    // WORDS is CODE (XWORDS). DOCOL? defined early after NAME>HELP (may redefine here).
     .ascii "DOC\" DOCOL? ( xt -- flag ) true if colon definition\" "
     .ascii ": DOCOL? @ DOCOL-ADDR = ; "
     // SEE: walk colon body; skip inline data after LIT, (S"), BRANCH, 0BRANCH,

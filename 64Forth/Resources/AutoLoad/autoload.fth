@@ -4,6 +4,9 @@
 \
 \ ANEW is a kernel word (classic FORGET-then-CREATE reload marker).
 
+\ Tools that must work even if late forth_init aborted:
+FLOAD see.fth
+
 \ Optional: pull Library modules here, e.g.
 \   FROMLIB FLOAD smoke-load.fth
 \

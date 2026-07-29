@@ -719,6 +719,15 @@ final class KernelBridge {
         host.logicalCurrentDirectory = autoDir.path
         _ = FileManager.default.changeCurrentDirectoryPath(autoDir.path)
 
+        // Load SEE/HELP first (absolute path) so tools work even if FLOAD see.fth
+        // is missing from an old bundle or relative resolve fails.
+        let seeURL = autoDir.appendingPathComponent("see.fth")
+        if FileManager.default.fileExists(atPath: seeURL.path) {
+            _ = evaluate("INCLUDE \(seeURL.path)")
+        } else {
+            handleEmitString("[64Forth] AutoLoad/see.fth missing — SEE/HELP not loaded\n")
+        }
+
         _ = evaluate("INCLUDE \(autoURL.path)")
         _ = evaluate("MAIN")
 
