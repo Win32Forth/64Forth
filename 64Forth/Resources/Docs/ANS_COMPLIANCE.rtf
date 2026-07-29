@@ -1,0 +1,488 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2904
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica-Light;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 # ANS Forth 2012 Compliance Status for 64Forth\
+\
+This document tracks implementation status of the 2012 ANS Forth Standard word sets in **64Forth** (hybrid ARM64 ITC kernel in `64Forth/Kernel/forth.s` + Swift host). It is **not** a formal ANS System certificate; use the bundled Hayes forth2012-test-suite for semantic validation.\
+\
+**Last update (Core / Core Ext only):** 2026-07-29. Sections for Search-Order and later word sets still contain older notes and will be revised when those sets are brought to full 64Forth compliance documentation.\
+\
+## Summary\
+\
+| Word set | Status |\
+|----------|--------|\
+| **Core (6.1)** | **Complete** \'97 all required Core names present; key 3.4.1 number syntax (`#` `$` `%`, `'c'`); `ENVIRONMENT? CORE` true |\
+| **Core Ext (6.2)** | **Complete** \'97 all required Core Ext names present; `ENVIRONMENT? CORE-EXT` true |\
+| **Search-Order (16)** | Complete \'97 16.6.1 + 16.6.2; `SEARCH-WORDLIST`, `ENVIRONMENT?` `WORDLISTS` (8) |\
+| **Programming-Tools** | Complete \'97 15.6.1/15.6.2; minimal threaded `CODE`/`;CODE` with `RET` (ASSEMBLER vocab) |\
+| **File-Access (11)** | Complete \'97 11.6.1 + 11.6.2; Hayes filetest 0 errors |\
+| **Exception (9)** | Complete \'97 `CATCH`, `THROW`, `.ERROR`; kernel faults CATCH-able; `ABORT`/`ABORT"` \uc0\u8594  `-1`/`-2` |\
+| **String (17)** | Complete \'97 17.6.1 + 17.6.2 (`REPLACES`, `SUBSTITUTE`, `UNESCAPE`); Hayes stringtest 0 errors |\
+| **Memory-Allocation (14)** | Complete \'97 14.6.1 (`ALLOCATE`, `FREE`, `RESIZE`); extension `GROWMEMORYMB` |\
+| **Double-Number (8)** | Complete \'97 8.6.1 + 8.6.2 (`2ROT`, `2VALUE`, `DU<`); trailing `.` literals |\
+| **Locals (13)** | Complete \'97 `(LOCAL)`, `LOCALS|`, `\{:`; `TO` for locals; max 32 (`#LOCALS`) |\
+| **Facility (10)** | Complete (TZForth host) \'97 structures, `PAGE`/`AT-XY`, `MS`, `TIME&DATE`, `EKEY*`, `EMIT?`, `K-*`; Hayes `facilitytest.fth` 0 errors |\
+| **Block (10)** | Complete \'97 file-backed `.blk`, LRU buffer cache; Hayes `blocktest.fth` 0 errors; FTEST Block + TZ extension spot-checks |\
+| **Extended-Character (18)** | Complete \'97 UTF-8 codec; shadow `CHAR`/`[CHAR]`/`PARSE`; `XEMIT`/`XKEY`/`XKEY?`/`EKEY>XCHAR`; `XHOLD`; `XC-WIDTH`/`X-WIDTH`; ENVIRONMENT? queries |\
+| **Float (12)** | Tier A + **Tier B (Float Ext)** + **Tier C** (`REPRESENT`, `FS.`/`FE.`/`F.`) \'97 IEEE 64-bit, separate 16-deep F stack; literals incl. `0e`/`1E`; trig/exp/log; `F~`, `FVARIABLE`/`FVALUE`/`TO`, `F>D`/`F>S`, `SF@`/`DF@` |\
+\
+**Validation (64Forth):** Bundled suite under `Resources/Library/HayesTest/` \'97 e.g. `FROMLIB FLOAD HayesTest/HayesTest.fth` (or individual `core.fr` / `coreexttest.fth` / `coreplustest.fth`). Core and Core Ext names and the text-interpreter number forms below are implemented in the kernel; re-run Hayes after engine changes for a green certificate.\
+\
+## Core (6.1) \'97 Complete (64Forth)\
+\
+All Core words required for name-level conformance are implemented in the ARM64 kernel and/or high-level bootstrap (`forth_init_str` in `forth.s`). Cell size is **64 bits** (8 address units). Flags are true = `-1`, false = `0`.\
+\
+### Coverage by area\
+\
+| Area | Words |\
+|------|-------|\
+| Stack | `DUP` `DROP` `SWAP` `OVER` `ROT` `PICK` `?DUP` `2DUP` `2DROP` `2SWAP` `2OVER` `DEPTH` |\
+| Return | `>R` `R>` `R@` |\
+| Arithmetic | `+` `-` `*` `/` `MOD` `/MOD` `1+` `1-` `NEGATE` `ABS` `MIN` `MAX` `LSHIFT` `RSHIFT` `*/` `*/MOD` |\
+| Double / mixed | `S>D` `2*` `2/` `2@` `2!` `UM*` `M*` `UM/MOD` `SM/REM` `FM/MOD` |\
+| Logic / compare | `AND` `OR` `XOR` `INVERT` `=` `<>` `<` `>` `U<` `0=` `0<` `0<>` `0>` |\
+| Memory | `@` `!` `C@` `C!` `C,` `+!` `FILL` `ERASE` `MOVE` `CELL+` `CELLS` `CHAR+` `CHARS` `ALIGN` `ALIGNED` |\
+| Parse / comments | `WORD` `PARSE` `CHAR` `[CHAR]` `BL` `>NUMBER` `\\` `(` |\
+| I/O / strings | `EMIT` `KEY` `CR` `TYPE` `SPACE` `SPACES` `.` `U.` `ACCEPT` `S"` `."` `COUNT` |\
+| Numeric | `BASE` `DECIMAL` `HEX` pictured `<#` `#` `#S` `#>` `HOLD` `SIGN` |\
+| Compile | `:` `;` `CREATE` `VARIABLE` `CONSTANT` `,` `ALLOT` `HERE` `LITERAL` `'` `[']` `EXECUTE` `RECURSE` `IMMEDIATE` `[` `]` `POSTPONE` |\
+| Control | `IF` `ELSE` `THEN` `BEGIN` `UNTIL` `AGAIN` `WHILE` `REPEAT` `EXIT` `DO` `LOOP` `+LOOP` `I` `J` `LEAVE` `UNLOOP` `DOES>` |\
+| Source / outer | `SOURCE` `>IN` `EVALUATE` `REFILL` `FIND` `ENVIRONMENT?` `QUIT` `ABORT` `ABORT"` |\
+\
+(`CATCH` / `THROW` are Exception word set; used by the abort path.)\
+\
+### Text interpreter number syntax (3.4.1 / Hayes coreplustest)\
+\
+- **Base prefixes:** leading `#` (decimal), `$` (hex), `%` (binary), independent of `BASE`. Optional **sign after the prefix** is accepted (e.g. `#-1289`, `$-12eF`, `%-10010110`). A leading `-` before the prefix is also accepted.\
+- **Character literals (Hayes, not a dictionary word):** token form `'c'` \'97 apostrophe, one character, apostrophe \'97 yields the character code (e.g. `'z'` \uc0\u8594  `122`, `'''` \u8594  `39`). Not tick: `' T10` is still tick + name. In compile state, compiles as `LIT` + value.\
+- **Trailing `.`:** number token ending in `.` is a double-cell literal (Double word set integration with Core interpreter).\
+\
+### Implementation notes (ANS-legal choices)\
+\
+- **`xt` from `'` / `FIND` / `[']`** = code-field address (CFA). ANS `xt` is opaque.\
+- **`/` `MOD` `/MOD`** = symmetric (toward zero), ARM `sdiv`. **`ENVIRONMENT? FLOORED`** returns false.\
+- **`FIND`** is case-insensitive on names.\
+- **`DEPTH`** is CODE: with TOS cached in a register, depth is `(SP0 - DSP) / CELL` measured *before* pushing the result. High-level `SP@ SP0 SWAP - CELL /` would count measurement temporaries incorrectly on this model.\
+- **`POSTPONE`** / compile path use dictionary CFAs; immediate words compile their run-time behaviour as required.\
+- **`INCLUDE` / `FLOAD`** (File-Access / host) load a whole file into one `SOURCE` buffer; `REFILL` is false for file/`EVALUATE` sources and true only for the terminal line path where applicable.\
+\
+### ENVIRONMENT? (Core-related queries implemented)\
+\
+| Query | Result |\
+|-------|--------|\
+| `CORE` | true (flag only) |\
+| `CORE-EXT` | true (flag only) |\
+| `FLOORED` | false |\
+| `/COUNTED-STRING` | 255 |\
+| `ADDRESS-UNIT-BITS` | 8 |\
+| `MAX-CHAR` | 255 |\
+| `MAX-N` | `$7FFFFFFFFFFFFFFF` |\
+| `MAX-U` | `$FFFFFFFFFFFFFFFF` |\
+| `STACK-CELLS` | 512 (data stack 4096 bytes) |\
+| `RETURN-STACK-CELLS` | 256 (return stack 2048 bytes) |\
+\
+(Additional queries for Float and other word sets are listed in those sections when documented for 64Forth.)\
+\
+### Memory and buffers (implementation-defined)\
+\
+| Resource | Size / notes |\
+|----------|--------------|\
+| Data stack | 4096 bytes (512 cells); grows down; TOS in register `x20` |\
+| Return stack | 2048 bytes (256 cells) |\
+| Console / embed `SOURCE` line | `input_buffer` 1024 bytes |\
+| `PAD` | 1024 bytes; user scratch only (parsers do not use `PAD`) |\
+| Transient parse / names | kernel `word_scratch` and related buffers (not `PAD`) |\
+| User dictionary | default **1 MiB**, physical reserve up to **64 MiB** via **`GROWMEMORYMB`** (host extension); base does not move |\
+| `/COUNTED-STRING` | 255 |\
+\
+Compiled `S"` / `C"` / `."` strings are inlined in the definition body. **`UNUSED`** reports free dictionary bytes (HERE to dictionary limit).\
+\
+## Core Extensions (6.2) \'97 Complete (64Forth)\
+\
+All required Core Ext names are present (CODE primitives and/or high-level definitions in the bootstrap string).\
+\
+### Word list (6.2)\
+\
+| Group | Words |\
+|-------|-------|\
+| Control / compile | `.(` `:NONAME` `?DO` `AGAIN` `COMPILE,` `[COMPILE]` `CASE` `OF` `ENDOF` `ENDCASE` |\
+| Return / stack | `2>R` `2R>` `2R@` `NIP` `TUCK` `PICK` `ROLL` |\
+| Compare / flags | `<>` `0<>` `0>` `U>` `FALSE` `TRUE` `WITHIN` |\
+| Memory / pad | `ERASE` `PAD` `UNUSED` `BUFFER:` |\
+| Parse / source | `PARSE` `PARSE-NAME` `REFILL` `SOURCE-ID` `SAVE-INPUT` `RESTORE-INPUT` `\\` |\
+| Strings / numeric | `C"` `S\\"` `HOLDS` `.R` `U.R` `HEX` |\
+| Deferred / value | `VALUE` `TO` `DEFER` `DEFER!` `DEFER@` `IS` `ACTION-OF` |\
+| Other | `MARKER` |\
+\
+### Notes on selected words\
+\
+| Word | Stack / behaviour |\
+|------|-------------------|\
+| `:NONAME` | `( C: -- colon-sys ) ( -- xt )` \'97 anonymous colon; `;` leaves xt |\
+| `ACTION-OF` | Immediate; xt currently in a deferred word |\
+| `MARKER` | Saves dictionary restore point; execution restores and forgets newer words |\
+| `SAVE-INPUT` / `RESTORE-INPUT` | Input-source snapshot; restore flag true if failed |\
+| `SOURCE-ID` | `-1` terminal, `0` evaluate / non-file, positive for file include path where used |\
+| `S\\"` | Escaped string compile/interpret (`\\n`, `\\xHH`, etc.) |\
+| `REFILL` | Refill terminal `SOURCE`; false at end / non-refillable sources |\
+| `COMPILE,` | High-level as `,` (compile xt into dictionary) |\
+| `VALUE` / `TO` | Single-cell value; `TO` also serves locals and `2VALUE` / `FVALUE` where present |\
+| `DEFER` / `IS` / `DEFER@` / `DEFER!` | Deferred execution tokens |\
+\
+### Character literal token (Hayes; not Core Ext, but Core interpreter)\
+\
+See Core section: `'c'` character tokens for the text interpreter (Hayes coreplustest). Not an ANS dictionary word.\
+\
+### Related words (not Core Ext, present in 64Forth)\
+\
+These are documented here only as cross-reference; compliance text for their word sets will be updated later:\
+\
+- File / load: `INCLUDE`, `INCLUDED`, `REQUIRED`, `REQUIRE`, `FLOAD` (alias of `INCLUDE`)\
+- String helpers often used with Core tests: `CMOVE`, `CMOVE>`\
+- Stop-load: `\\S` / `\\s` (immediate; remainder of INCLUDE/FLOAD or multi-line paste)\
+- Search-order vocab stack (word set 16): `VOCABULARY`, `FORTH`, `DEFINITIONS`, `ALSO`, `ONLY`, `ORDER`, `WORDS`\
+\
+## Search-Order (16) \'97 Complete\
+\
+ANS word set 16.6.1 and extensions 16.6.2.\
+\
+| Word | Stack / notes |\
+|------|----------------|\
+| `WORDLIST` | `( -- wid )` \'97 create empty word list |\
+| `FORTH-WORDLIST` | `( -- wid )` \'97 the `FORTH` list (`LATEST` head cell) |\
+| `GET-ORDER` | `( -- wid1 ... widn n )` |\
+| `SET-ORDER` | `( wid1 ... widn n -- )` \'97 max **8** lists (`WORDLISTS`) |\
+| `GET-CURRENT` / `SET-CURRENT` | compilation word list |\
+| `SEARCH-WORDLIST` | `( c-addr u wid -- 0 \\| xt 1 \\| xt -1 )` \'97 search one list |\
+| `FIND` | `( c-addr -- c-addr 0 \\| xt 1 \\| xt -1 )` \'97 search order; **xt is the cfa** (code-field address) |\
+| `DEFINITIONS` | set `CURRENT` to first list in order |\
+| `ALSO` / `ONLY` / `PREVIOUS` / `FORTH` / `ORDER` | classic vocab stack (16.6.2) |\
+| `VOCABULARY` | compatibility: `CREATE WORDLIST` + `PUSH-ORDER` |\
+\
+`ENVIRONMENT?` answers `SEARCH-ORDER` and `WORDLISTS` (8). FTEST covers `SEARCH-WORDLIST`, order round-trip, and vocab isolation.\
+\
+## String (17) \'97 Complete\
+\
+ANS word set 17.6.1 (character-string operations). Core `MOVE`/`FILL` remain; `CMOVE`/`BLANK` follow ANS stack effects.\
+\
+| Word | Stack / notes |\
+|------|----------------|\
+| `BLANK` | `( c-addr u -- )` \'97 fill with `BL` (32) |\
+| `CMOVE` | `( c-addr1 c-addr2 u -- )` \'97 copy with overlap-safe direction |\
+| `CMOVE>` | `( c-addr1 c-addr2 u -- )` \'97 copy high-to-low |\
+| `COMPARE` | `( c-addr1 u1 c-addr2 u2 -- n )` \'97 byte-wise `-1` / `0` / `1` |\
+| `/STRING` | `( c-addr u n -- c-addr' u' )` \'97 skip or include `n` characters |\
+| `-TRAILING` | `( c-addr u -- c-addr' u' )` \'97 drop trailing spaces |\
+| `SEARCH` | `( c-addr1 u1 c-addr2 u2 -- c-addr3 u3 flag )` \'97 first match; empty needle matches |\
+| `SLITERAL` | `( c-addr u -- )` immediate \'97 compile `(S")` + inline literal |\
+\
+`ENVIRONMENT?` answers `STRING`. FTEST / `ANS-VALIDATE` cover compare, search, trailing, blank, `/STRING`, and `SLITERAL` via `[ ]`.\
+\
+### String extensions (17.6.2)\
+\
+| Word | Stack / notes |\
+|------|----------------|\
+| `REPLACES` | `( c-addr1 u1 c-addr2 u2 -- )` \'97 define `%name%` \uc0\u8594  replacement text (interpret only) |\
+| `SUBSTITUTE` | `( c-addr1 u1 c-addr2 u2 -- c-addr2 u3 n )` \'97 left-to-right `%name%` expansion; `n` = replacements or negative on overlap error |\
+| `UNESCAPE` | `( c-addr1 u1 c-addr2 -- c-addr2 u2 )` \'97 copy to dest, doubling each `%` |\
+\
+Hayes **stringtest.fth** exercises all three (including overlapping-buffer `SUBSTITUTE` cases). Substitution table is a linked list on the heap; `MARKER` / `FORGET` do not prune entries (same limitation as `INCLUDED-NAMES`).\
+\
+## File-Access (11) \'97 Complete\
+\
+ANS optional word set 11.6.1 (file operations) and key 11.6.2 extensions are implemented on top of the host filesystem. Files are held in memory while open; `CLOSE-FILE` and `FLUSH-FILE` write dirty buffers back to disk.\
+\
+### Access methods and I/O results\
+\
+| Constant | Value | Meaning |\
+|----------|-------|---------|\
+| `R/O` | 1 | read-only |\
+| `W/O` | 2 | write-only |\
+| `R/W` | 3 | read/write |\
+| `BIN` | 8 | OR with base fam (binary; line translation suppressed for `READ-LINE`/`WRITE-LINE`) |\
+| I/O success | 0 | `ior` on success |\
+| I/O error | 1 | `ior` on failure |\
+\
+### Implemented words\
+\
+`OPEN-FILE`, `CLOSE-FILE`, `CREATE-FILE`, `DELETE-FILE`, `RENAME-FILE`, `READ-FILE`, `WRITE-FILE`, `READ-LINE`, `WRITE-LINE`, `FILE-POSITION`, `FILE-SIZE`, `REPOSITION-FILE`, `RESIZE-FILE`, `FILE-STATUS`, `FLUSH-FILE`, `INCLUDE-FILE`, `INCLUDED`, `INCLUDE` (immediate), `REQUIRE`, `REQUIRED`, `INCLUDED-NAMES` (variable).\
+\
+### Integration with input and loading\
+\
+- **`REFILL`** \'97 when interpreting from an open file (`interpreterInputFileId` \uc0\u8805  2), refills `SOURCE` from that file; returns false at EOF.\
+- **`(`** \'97 multi-line parenthesized comments span file lines (refills when `)` not found on current line).\
+- **Shared load loop** \'97 `INCLUDE-FILE`, `INCLUDED`, `INCLUDE`, and host **`FLOAD`** all use the same line-at-a-time interpret path (`includeFileInterpret`): `FILE-ECHO`, `\\S`, mid-file abort, no per-line `OK`, `DEBUG-ON`/`OFF` per line, and `SOURCE-ID` = the open **fileid** (\uc0\u8805  10 for newly opened files).\
+- **`FLOAD`** \'97 resolves path (`.fth` auto-append, cwd, host sandbox via `onPerformNamedLoad`), opens text with UTF-8/Latin-1 tolerance, then runs the shared include loop; registers spec in `INCLUDED-NAMES` on success.\
+- **Nested relative path resolution (TZForth, not ANS-mandated)** \'97 ANS File-Access does not require changing directory on include; how relative names resolve is implementation-defined. TZForth\'92s host load path temporarily sets the logical cwd to the **loaded file\'92s folder** for the duration of that load (then restores the prior cwd) so nested `INCLUDED` / `FLOAD` of sibling bare names work as expected (e.g. Hayes `test.fth` \uc0\u8594  `fp/runfptests.fth`, or Library modules via **`FROMLIB FLOAD`**). Nested specs should be relative to the **including file\'92s directory**, not necessarily the user\'92s original project root.\
+- **Read-only app bundle \uc0\u8594  Application Support (TZForth host, not ANS)** \'97 Paths for **`OPEN-FILE` / `CREATE-FILE` / `DELETE-FILE` / `RENAME-FILE` / `FILE-STATUS`** that would resolve **inside the running `.app`** (e.g. under `Contents/Resources/Library/` after **`FROMLIB`**) are remapped by the host to **`Application Support/TZForth/<leaf name>`**. This is **not** a dictionary word; stack effects of the ANS words are unchanged. **`INCLUDED` / `REQUIRED` / `FLOAD`** do **not** use this remap (they still load sources from the bundle). See README: *Bundle is read-only; Application Support for data*.\
+- **`RESTORE-INPUT` during load** \'97 nested `SAVE-INPUT` / `RESTORE-INPUT` inside a colon on an `FLOAD` line can repoint `SOURCE` mid-line; the interpreter continues through the remainder of that line and subsequent file lines (Hayes filetest `SI2`).\
+- **`ENVIRONMENT?`** \'97 returns true for `FILE`, `FILE-ACCESS`, `FILE-EXT`.\
+\
+### REQUIRE / REQUIRED / INCLUDED-NAMES\
+\
+- **`INCLUDED-NAMES`** \'97 kernel `VARIABLE` holding the head of a linked list of loaded spec strings (`next | str-addr | str-u` nodes on the heap). Inspectable via `@`.\
+- **`REQUIRED`** \'97 if spec `( c-addr u )` is absent from the list, `nameJoin` + load (same as sample `included`); if present, discard spec without loading.\
+- **`REQUIRE`** \'97 `PARSE-NAME` then `REQUIRED`.\
+- **`INCLUDE` / `INCLUDED`** \'97 always load; register spec via `nameJoin` before interpret (extended, not shadowed).\
+- **Host `FLOAD`** \'97 same registry and interpret loop as `INCLUDED`; differs only in name resolution and host dialog/sandbox hooks.\
+\
+Registry key is the **exact spec bytes** passed in, not a canonical path. **`MARKER` / `FORGET`** do not prune `INCLUDED-NAMES` (matches ANS reference sample limitation on systems with `MARKER`).\
+\
+Host extension **`FILE-ECHO`** applies to all loaded sources (`FLOAD`, `INCLUDE`, `INCLUDE-FILE`, \'85).\
+\
+## Exception (9) \'97 Complete\
+\
+ANS word set 9.6.1 and extensions 9.6.2 (`ABORT`/`ABORT"` as `THROW` aliases).\
+\
+| Word | Stack / notes |\
+|------|----------------|\
+| `CATCH` | `( xt -- n | i*x n )` \'97 saves data/return stack depths, `STATE`, loop-control stack, and input-source nesting; executes `xt`; pushes `0` on normal completion or the throw code |\
+| `THROW` | `( n -- )` \'97 `0` is a no-op; non-zero unwinds to the nearest `CATCH`, restoring saved depths and input nesting per 9.3.5 |\
+| `ABORT` | `( -- )` \'97 `THROW -1` (catchable; uncaught \uc0\u8594  print `Aborted!`, reset, REPL continues) |\
+| `ABORT"` | `( flag "ccc" -- )` \'97 if flag, `THROW -2` (catchable; uncaught \uc0\u8594  type `ccc` then reset) |\
+| `.ERROR` | `( n -- )` \'97 TZForth: type spaced standard message for CATCH/THROW code `n` (`0` = silent) |\
+| `CATCH-EVALUATE` | `( c-addr u -- n )` \'97 TZForth: `EVALUATE` under `CATCH` (interpret-friendly) |\
+\
+Unhandled `THROW` with no active `CATCH`: `-1` \uc0\u8594  print `Aborted!`, reset stacks/input, REPL ready for next line; `-2` \u8594  type stored `ABORT"` text then reset; other codes \u8594  `? \'85` from `lastKernelThrowMessage` then reset. Caught throws push **only the numeric code** (no message on stack).\
+\
+FTEST / `ANS-VALIDATE` cover `ABORT`/`ABORT"` with and without `CATCH`, standard kernel codes, compile `STATE` preservation, file faults, nested `CATCH`, `['] fload catch` (safe-fload), mid-file `INCLUDE-FILE`, user **-40**, and `.ERROR` for file codes. Colon definitions that compile `CATCH` then `>R` (Hayes `exceptiontest` `C6`) resume correctly after `EXIT` and nested `deliverThrow`.\
+\
+John Hayes **forth2012-test-suite** (Block + Float `fp/` included): **0 errors** on all executed word sets (Block SAVE-INPUT/RESTORE/REFILL, EMPTY-BUFFERS, pictured-string `TCSIRIR2`/`TCSIRIR4`, REFILL spill, FP paranoia **END OF TEST** all pass). **Canonical run:** TZForth app \uc0\u8594  **`FROMLIB FLOAD HayesTest/HayesTest.fth`** (bundled `Resources/Library/HayesTest/HayesTest.fth` \u8594  `HayesTest/src/test.fth`). CLI `HAYES=1 swift /tmp/combined.swift` runs a smaller non-FP subset only. Results: **`TZForth/Library/HayesTest/src/HAYES-RESULTS.txt`**.\
+\
+## Block (10) \'97 Implemented (file-backed `.blk`)\
+\
+Pre-allocated growable **`.blk`** files, per-file block numbering, LRU buffer cache in high memory below PNO, auto-default `blocks.blk` in logical cwd. If that path would fall **inside the app bundle** (read-only), the host opens/creates the volume under **`Application Support/TZForth/`** instead (same policy as File-Access scratch files). Application settings: **`TZForthSettings`** (`~/Library/Application Support/TZForth/settings.json`); kernel variables `BLOCK-SIZE`, `DEFAULT-BLOCK-COUNT`, `BLOCK-BUFFER-COUNT`; words `.SETTINGS`, `SAVE-SETTINGS`.\
+\
+| Category | Words |\
+|----------|-------|\
+| ANS Block | `BLOCK`, `BUFFER`, `UPDATE`, `FLUSH`, `EMPTY-BUFFERS`, `SAVE-BUFFERS`, `BLK`, `LOAD`, `LIST`, `SCR`, `THRU`, `\\` (line comment) |\
+| TZForth extensions | `CREATE-BLOCK-FILE`, `OPEN-BLOCK-FILE`, `CLOSE-BLOCK-FILE`, `GROW-BLOCK-FILE`, `USE-BLOCK-FILE`, `BLOCK-FILE`, `.BLOCK-FILES` |\
+| ENVIRONMENT? | `BLOCK`, `/BLOCK`, `BLOCK-EXT` |\
+\
+Default: `BLOCK-SIZE` = 1024, `BLOCK-BUFFER-COUNT` = 4, buffers at `blockPoolBase` (below PNO). `BYE`/app quit calls `shutdownBlockSubsystem()` (flush all dirty buffers, close open block files). FTEST / `ANS-VALIDATE` cover ANS Block words plus TZ extensions (`CREATE/OPEN/USE/CLOSE/GROW-BLOCK-FILE`, `.BLOCK-FILES`, `.SETTINGS`). `ANS-VALIDATE` calls `resetBlockSubsystemSession()` and restores the pre-validation dictionary so Hayes `fload test` can run immediately afterward.\
+\
+**Standard THROW codes (Phases 1\'965, complete):** Runtime (-3\'85-9), memory (-7), compile-only (-14), control (-15/-16), limits (-17), search order (-20), names (-10), undefined (-13), dictionary misuse (-20), file-access (-67 closed file, -68 invalid file-id, -70 I/O abort, -74 not found). User range from **-40**. **`OPEN-FILE`** and related words still return **`ior`** on the stack (ANS file-access). Named **`FLOAD`** loads synchronously (`onPerformNamedLoad` in the app) so parsing words can be wrapped with `['] fload catch`. Mid-file line errors propagate the **specific** fault code to the enclosing `CATCH`. Full map: **`THROW_CODES.md`**.\
+\
+Catchable named load example:\
+\
+```forth\
+: safe-fload  ( -- )\
+  ['] fload catch ?dup if  ." load failed:" .error  else  drop  then ;\
+```\
+\
+## Memory-Allocation (14) \'97 Complete\
+\
+ANS word set 14.6.1 (heap allocate / free / resize). Heap grows **downward** from the PNO buffer (top-anchored); dictionary grows upward from `HERE`. `UNUSED` reflects the gap between `HERE` and the heap/PNO anchor.\
+\
+| Word | Stack / notes |\
+|------|----------------|\
+| `ALLOCATE` | `( u -- a-addr ior )` \'97 allocate `u` bytes; `ior` 0 = success, 1 = failure |\
+| `FREE` | `( a-addr -- ior )` \'97 return block to free list |\
+| `RESIZE` | `( a-addr u -- a-addr' ior )` \'97 resize block; may move; shrink leaves tail on free list |\
+\
+`ENVIRONMENT?` answers `MEMORY-ALLOCATION`. FTEST covers allocate/free/resize, grow, and rule violations.\
+\
+### TZForth extension: `GROWMEMORYMB`\
+\
+`( n -- )` \'97 grow the linear memory array to **n megabytes** (minimum 1, maximum 64). Rules:\
+\
+- **Once per session** \'97 second call aborts with `? GROWMEMORYMB already used (once per session)`\
+- **No shrink** \'97 `n` must exceed current size\
+- **Before `ALLOCATE`** \'97 not permitted after any `ALLOCATE` use in the session\
+- **Early use** \'97 intended shortly after startup (including during `FLOAD`); sets `errorFlag` and prints message on violation\
+\
+Default memory at startup: **1 MB**.\
+\
+## Double-Number (8) \'97 Complete\
+\
+ANS word set 8.6.1 and extensions 8.6.2. Double-cell layout matches existing Core words (`M*`, `UM/MOD`, pictured numeric): lower cell on stack first, upper cell on top; 64-bit value in two cells (low 32 / high 32).\
+\
+| Word | Stack / notes |\
+|------|----------------|\
+| `D+` `D-` `DNEGATE` `DABS` `D2*` `D2/` | arithmetic |\
+| `D.` `D.R` | display signed double in `BASE` |\
+| `D<` `D=` `D0<` `D0=` `DU<` | comparisons |\
+| `D>S` | drop high cell |\
+| `DMIN` `DMAX` | extrema |\
+| `M+` `M*/` | mixed single/double arithmetic |\
+| `2CONSTANT` `2VARIABLE` `2LITERAL` `2VALUE` | defining / compile |\
+| `2ROT` | rotate third pair to top |\
+| `S>D` | sign-extend single to double (Core Ext) |\
+\
+**Text interpreter (8.3.1):** a number token ending in `.` (and not a definition name) is compiled or pushed as a double-cell literal (e.g. `1234.` \uc0\u8594  `1234` `0`).\
+\
+`TO` accepts a double on the stack for words created by `2VALUE`. `ENVIRONMENT?` answers `DOUBLE`.\
+\
+## Locals (13) \'97 Complete\
+\
+ANS word set 13.6.1 and extension 13.6.2. Locals are searched before the dictionary while compiling. Run-time storage uses a re-entrant frame stack in Swift (not the data stack); `EXIT` / `;` release the innermost frame. `ABORT` / `CATCH` release frames per 13.3.3.1.\
+\
+| Word | Notes |\
+|------|-------|\
+| `(LOCAL)` | Compile-only message interface (`c-addr u`; `u=0` ends sequence) |\
+| `LOCALS|` | Immediate; `name1 ... namen \\|` \'97 args initialized from stack (first name \uc0\u8592  TOS) |\
+| `\{:` | Immediate; `\{: arg ... \\| val ... -- out ... :\}` \'97 rightmost arg \uc0\u8592  TOS; vals default to 0 |\
+\
+`TO name` works for locals during compilation. Minimum **32** locals per definition (`ENVIRONMENT?` `#LOCALS`). FTEST covers `LOCALS|`, `\{:`, `TO`, and `DO`/`LOOP`.\
+\
+## Programming-Tools (15) \'97 Complete\
+\
+Hayes **toolstest.fth** subset (implemented words only): **0 errors**. TZForth implements a **minimal threaded assembler** (not machine code): `CODE`/`;CODE` build definitions whose CFA holds a `codeEntry` marker and threaded body; `RET` in the **ASSEMBLER** vocabulary compiles `EXIT`; `;CODE` appends `EXIT` when the body is empty (noop). FTEST covers noop and explicit `RET`.\
+\
+ANS words implemented from 15.6.1 / extensions:\
+\
+| Word | Notes |\
+|------|-------|\
+| `.S` | Data stack dump |\
+| `?` | `( addr -- )` \'97 display `@ addr` |\
+| `DUMP` | `( addr u -- )` \'97 hex dump of **u address units (bytes)**; 16 per line, uppercase hex, ASCII gutter |\
+| `SEE` | Decompile / list word |\
+| `WORDS` | List dictionary (optional vocab filter) |\
+| `FORGET` | Parse name; truncate dictionary from that word forward |\
+| `NAME>STRING` | `( nt -- c-addr u )` \'97 **nt** = header address (link field); transient buffer |\
+| `NAME>INTERPRET` | `( nt -- xt )` \'97 xt is cfa |\
+| `NAME>COMPILE` | `( nt -- xt )` \'97 immediate \uc0\u8594  cfa; non-immediate \u8594  hidden compile stub |\
+| `TRAVERSE-WORDLIST` | `( xt wid -- )` \'97 skips hidden / empty-name entries |\
+| `SYNONYM` | `( "new" "old" -- )` \'97 execution + compilation delegate to oldname |\
+| `[DEFINED]` / `[UNDEFINED]` | Compile-time existence tests (immediate) |\
+| `N>R` / `NR>` | Block transfer between data and return stacks |\
+| `CS-PICK` / `CS-ROLL` | Control-flow stack = data stack during compilation |\
+| `AHEAD` | Unconditional forward branch placeholder (with `THEN`) |\
+| `EDITOR` / `ASSEMBLER` | Vocabs for search order; **ASSEMBLER** holds `RET` |\
+| `CODE` / `;CODE` | Threaded CODE definitions (TZForth model; see above) |\
+| `RET` | Assembler vocab \'97 compile `EXIT` into open CODE body |\
+\
+`[IF]` / `[ELSE]` / `[THEN]` also satisfy Core Ext conditional compilation.\
+\
+## Dictionary introspection (fig-style extensions)\
+\
+TZForth exposes the linked-list header layout for debugging (not ANS-standard; parallel to `NAME>STRING` / name tokens in ANS 2012).\
+\
+| Word | Stack | Notes |\
+|------|-------|-------|\
+| `'` | `( -- cfa ) name` | Tick \'97 **returns cfa**, not the kernel dispatch ID |\
+| `FIND` | `( c-addr -- \'85 xt \'85 )` | xt is **cfa** (same convention as `'`) |\
+| `>HEADER` / `>LFA` | `( cfa -- header )` | Link field / start of dictionary entry |\
+| `>NFA` | `( cfa -- nfa )` | Name field (`>HEADER 8 +`) |\
+| `ID.` | `( cfa -- )` | Print name (masks immediate/hidden flags in count byte) |\
+| `>XID` | `( cfa -- xid \\| 0 )` | Kernel primitive dispatch ID from first cfa cell; **0** for colon/CREATE words |\
+\
+Compiled colon bodies still store **compact primitive IDs** for kernel words; use `>XID` to map cfa \uc0\u8594  dispatch ID. `COMPILE,` and `[']` accept cfa from `'`.\
+\
+Example: `' DUP >HEADER 32 DUMP` \'b7 `' DUP H.` \'b7 `' DUP >XID .` \uc0\u8594  primitive dispatch ID (implementation-defined).\
+\
+## TZForth-specific extensions (non-ANS)\
+\
+`FLOAD` (synchronous named load, catchable `-74`), `EDIT`, `CHDIR`, `DIR`, `FILE-ECHO`, `DEBUG-ON`/`DEBUG-OFF`, `RESET`, `CLS`, `BYE`, `ANS-VALIDATE`, `.ENVIRONMENT`, `.ERROR` (spaced throw message), `.INCLUDED` (list `INCLUDED-NAMES` registry), `CATCH-EVALUATE`, `FORGET-WORD`, `>LFA`, `>HEADER`, `>NFA`, `>XID`, `ID.`, `H.` (unsigned hex print, ignores `BASE`), `\\\\` (block comment to `\{`), `\\\\S`, `DP`, high-level `HERE` (`DP @`), `ERASE` (`0 FILL`), `GROWMEMORYMB`, `STEP-LIMIT`, etc.\
+\
+### BIG-INTEGER multiprecision (not ANS)\
+\
+Optional teaching word set for multiprecision integers (base **10\uc0\u8313 ** limbs, 64-bit cells). **Not** an ANS word set and **not** part of Hayes forth2012.\
+\
+| Component | Notes |\
+|-----------|--------|\
+| Vocabulary **`BIG-INTEGER`** | Kernel; host **`BI-MUL`**, **`BI-DIVMOD`**, **`BI-ISQRT`** |\
+| **`TZForth/Library/big-int.fth`** (\uc0\u8594  Resources/Library) | Alloc, add/sub, `BI*` \u8594  `BI-MUL`, print, \'85 |\
+| **`Library/pi-chudnovsky.fth`**, **`pi-test.fth`** | Chudnovsky \uc0\u960 ; load with `FROMLIB FLOAD pi-test.fth` |\
+| **`FROMLIB` / `FROM-LIBRARY`** | Next file op rooted at Resources/Library (`FLOAD`/`EDIT`/`DIR`/`CHDIR`, \'85) |\
+| **`STEP-LIMIT`** | Interpreter step budget; `0` disables (needed for large \uc0\u960  runs) |\
+\
+Load pattern: `ONLY FORTH ALSO BIG-INTEGER DEFINITIONS` \'85 library \'85 `ONLY FORTH ALSO DEFINITIONS`. Use `ALSO BIG-INTEGER` (or execute the vocab) before using BI words. `WORDS` lists the **first** search-order wordlist only (`ONLY FORTH ALSO BIG-INTEGER WORDS` \uc0\u8594  BI set).\
+\
+## Facility (10) \'97 Complete (TZForth host)\
+\
+ANS 10.6.2 structure words (Hayes `facilitytest.fth`):\
+\
+| Word | Notes |\
+|------|-------|\
+| `BEGIN-STRUCTURE` | Immediate; parse structure name; reset offset; push `struct-sys` |\
+| `END-STRUCTURE` | Immediate; pop `struct-sys`; `CREATE` size constant from pending name |\
+| `+FIELD` | Immediate; `( u "name" -- )` \'97 field offset word with `DOES> @ +` |\
+| `FIELD:` | Immediate; cell-aligned field (`1 CELLS +FIELD`) |\
+| `CFIELD:` | Immediate; char field (`1 CHARS +FIELD`) |\
+\
+During an active structure, **`ALIGNED`** aligns the structure offset (for `ALIGNED STRCT3 +FIELD` nested layouts). `ENVIRONMENT?` answers `FACILITY`.\
+\
+### Facility terminal (10.6.1)\
+\
+| Word | Notes |\
+|------|-------|\
+| `KEY?` | Done \'97 non-blocking `inputQueue` test |\
+| `PAGE` | Clears **80\'d725** facility buffer, homes cursor; `onTerminalRefresh` updates host console |\
+| `AT-XY` | `( u1 u2 -- )` \'97 column `u1`, row `u2` (0-based); subsequent `EMIT`/`TYPE`/`CR` write into buffer |\
+\
+`CLS` deactivates the facility buffer and clears scrollback (TZForth host). `EMIT`/`TYPE`/`CR`/`SPACES` route to the buffer while terminal mode is active (after `PAGE` or `AT-XY`).\
+\
+### Facility extensions (10.6.2) \'97 done\
+\
+| Word | Notes |\
+|------|-------|\
+| `MS` | Async delay via `onMsDelayRequested` (ConsoleView); CLI/FTEST falls back to `Thread.sleep` |\
+| `TIME&DATE` | Local wall clock \'97 `( -- sec min hr day mon yr )`, year on top |\
+| `EKEY` / `EKEY?` | Extended key queue; blocking `provideExtendedKey` from ConsoleView |\
+| `EKEY>CHAR` / `EKEY>FKEY` | Decode TZForth event encoding (char tag `0x01xxxxxx`, fkey tag `0x02xxxxxx`) |\
+| `EMIT?` | Always true (`-1`) in console host |\
+| `K-*` | `K-LEFT`\'85`K-F12`, `K-PRIOR`/`K-NEXT`, `K-INSERT`/`K-DELETE`, shift/ctrl/alt masks |\
+\
+## Extended-Character (18) \'97 Complete\
+\
+ANS word set 18.6.1 and 18.6.2 with UTF-8 as the xchar encoding (`TZForthXChar.swift`). Malformed UTF-8 or invalid code points throw **-77**.\
+\
+### Memory and string (18.6.1)\
+\
+| Word | Stack / notes |\
+|------|----------------|\
+| `XC-SIZE` | `( xchar -- u )` \'97 encoded byte count |\
+| `X-SIZE` | `( xc-addr u -- u' )` \'97 size from leading byte |\
+| `XC@+` / `XC!+` / `XC!+?` / `XC,` | fetch/store/append encoded xchars |\
+| `XCHAR+` / `XCHAR-` | advance/retreat within UTF-8 buffer |\
+| `+X/STRING` / `X\\STRING-` | skip/include xchars in bounded string |\
+| `-TRAILING-GARBAGE` | trim incomplete trailing UTF-8 sequence |\
+\
+### Parsing and I/O (18.6.2)\
+\
+Shadow Core **`CHAR`**, **`[CHAR]`**, **`PARSE`** \'97 first xchar / delimiter parsing in UTF-8. **`XEMIT`**, **`XKEY`**, **`XKEY?`**, **`EKEY>XCHAR`** \'97 terminal I/O. **`XHOLD`** \'97 pictured numeric (UTF-8 bytes via `picturedHoldsBytes`). **`XC-WIDTH`** / **`X-WIDTH`** \'97 display columns (ANS wc-table).\
+\
+### Environmental queries (18.3.2)\
+\
+| Query | Returns |\
+|-------|---------|\
+| `EXTENDED-CHARACTER` | `-1` (word set present) |\
+| `XCHAR-ENCODING` | `c-addr u` \uc0\u8594  `"UTF-8"` |\
+| `MAX-XCHAR` | `u` \uc0\u8594  `$10FFFF` |\
+| `XCHAR-MAXMEM` | `u` \uc0\u8594  `4` |\
+\
+FTEST / `ANS-VALIDATE` cover codec, memory/string words, shadow parsing, I/O, pictured `XHOLD`, display width, and all four ENVIRONMENT? queries.\
+\
+## Float (12) \'97 Tier A + Tier B (Float Ext)\
+\
+Implemented in **`TZForthFloat.swift`**. IEEE **64-bit double** on a **separate 16-deep floating-point stack** fixed in low memory (after return stack, before dictionary `DP`). Decimal/scientific literals when `BASE` is 10 (ANS 12.3.7), including bare `0e` / `1E` / `10E`; tokens ending in `.` alone (e.g. `42.`) remain double-cell literals. `>FLOAT` accepts optional `D` suffix (`1D`, `2.0D0`).\
+\
+| Category | Words |\
+|----------|-------|\
+| Stack | `FDEPTH`, `FDROP`, `FDUP`, `FOVER`, `FSWAP`, `FROT`, `F-ROT` |\
+| Memory | `F@`, `F!`, `SF@`, `SF!`, `DF@`, `DF!`, `FLOATS`/`SFLOATS`/`DFLOATS`, `FLOAT+`/`SFLOAT+`/`DFLOAT+`, `FALIGN`/`SFALIGN`/`DFALIGN`, `FALIGNED`/`SFALIGNED`/`DFALIGNED` |\
+| Math | `F+`, `F-`, `F*`, `F/`, `FNEGATE`, `FABS`, `FMAX`, `FMIN`, `FMOD`, `FLOOR`, `FROUND`, `FSQRT`, `F**` |\
+| Trig / hyperbolic | `FSIN`, `FCOS`, `FTAN`, `FASIN`, `FACOS`, `FATAN`, `FATAN2`, `FSINCOS`, `FSINH`, `FCOSH`, `FTANH`, `FASINH`, `FACOSH`, `FATANH` |\
+| Exp / log | `FEXP`, `FEXPM1`, `FLN`, `FLNP1`, `FLOG`, `FALOG` |\
+| Compare | `F0=`, `F0<`, `F<`, `F~` |\
+| Convert | `S>F`, `D>F`, `F>D`, `F>S`, `>FLOAT` |\
+| I/O | `F.`, `FS.`, `FE.`, `.FS`, `REPRESENT`, `PRECISION`, `SET-PRECISION` |\
+| Defining | `FCONSTANT`, `FVARIABLE`, `FVALUE` (+ `TO`), `FLITERAL` (+ threaded `FLIT`) |\
+| ENVIRONMENT? | `FLOATING`, `FLOAT-EXT`, `FLOATING-STACK` (16), `MAX-FLOAT` |\
+\
+FTEST / `ANS-VALIDATE` cover Tier A words plus Tier B spot-checks (`0e`, `FVARIABLE`, `FVALUE`/`TO`, `F~`, `F>D`, `FABS`, `FROT`, `FSIN`, `FATAN2`, `SF@`/`SF!`, `FSQRT`, `ENVIRONMENT? FLOAT-EXT`). Hayes `fp/` suite (`ttester.fs`, `paranoia.4th`, `ak-fp-test.fth`, etc.) passes via `test.fth` / `fp/runfptests.fth` \'97 see **`HAYES-RESULTS.txt`**.\
+\
+## Missing optional / future word sets\
+\
+Not implemented (no current plan unless requested):\
+\
+## Recommendations\
+\
+- TZForth is ready for distribution packaging: classic Forth sources, REPL, sandboxed `FLOAD`/`EDIT`/`CHDIR`, Hayes forth2012 validation (**0 errors**, Block + Float `fp/` via `test.fth`), FTEST **430/430**, in-app `ANS-VALIDATE` **427/427**, file-backed Block (`.blk`), UTF-8 Extended-Character, minimal threaded `CODE`, Float Tier A/B/C, and ANS File-Access file I/O / `INCLUDED`.\
+- Hayes reproduction: **`FROMLIB FLOAD HayesTest/HayesTest.fth`**; transcript baseline **`TZForth/Library/HayesTest/src/HAYES-RESULTS.txt`**.\
+\
+For full standard details, see the official 2012 ANS Forth document (sections 6.1, 6.2, and optional word sets in chapters 7\'9618).}

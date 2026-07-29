@@ -19,15 +19,31 @@ In addition:
 
 9. ttester.fs an extended version of the Hayes tester written
    (see the file for authors)
-10. runfptests.fth to load and run all the above tests
+
+Loader (vendor harness — not a test case)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The stock suite ships a small loader to include the programs above.
+In this 64Forth tree that driver lives *outside* this folder so it
+does not mix with the test sources:
+
+      ../Harness/runfptests.fth
+
+It INCLUDES the files listed above from this fp/ directory
+(paths are relative to Harness/).
 
 Running the tests
 ~~~~~~~~~~~~~~~~~
 
-Unzip into a convenient directory, make that the working
-directory and type
-      s" runfptests.fth" included
-or similar.
+From the 64Forth app (preferred):
+
+      FROMLIB FLOAD HayesTest/HayesTest.fth
+
+Or, with cwd = HayesTest/src/:
+
+      s" Harness/runfptests.fth" included
+
+(Requires FP words in the search order, e.g. ALSO FP.)
 
 Notes
 ~~~~~

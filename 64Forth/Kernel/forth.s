@@ -35,9 +35,11 @@
 // Cell size: 64-bit (8 bytes). Flags: true = -1, false = 0.
 //
 // CORE (6.1) — word names: complete (all required Core names are present).
-// This is NOT a claim of formal ANS System compliance: semantics, environmental
-// restrictions, and the Hayes / forth2012-test-suite have not been certified.
 // ENVIRONMENT? answers CORE true, CORE-EXT true, FLOORED false.
+// Input number syntax (3.4.1 / Hayes coreplustest): base prefixes # $ % with
+// optional sign after the prefix (#-1289, $-12eF, %-10010110); 'c' character
+// literals ('z', '''). This is not a formal ANS certificate — run Hayes for
+// semantic validation.
 //
 // Core coverage (by area; stack comments intended to match ANS):
 //   Stack:    DUP DROP SWAP OVER ROT PICK ?DUP 2DUP 2DROP 2SWAP 2OVER DEPTH
@@ -89,7 +91,7 @@
 //   HOLDS  MARKER
 //   NIP  TUCK  PICK  PAD  PARSE  PARSE-NAME
 //   REFILL  SOURCE-ID  UNUSED  WITHIN
-//   ROLL  U>  U.R
+//   ROLL  U>  U.R  .R
 //   S\"   SAVE-INPUT  RESTORE-INPUT
 //   VALUE  TO
 //   \          (line comment; also used as Core Ext)
@@ -99,13 +101,20 @@
 //   \S / \s     stop remainder of current INCLUDE/FLOAD SOURCE, or remainder
 //               of a multi-line console paste (TZForth / F-PC model; immediate)
 //
+// Programming-Tools Ext (15.6.2) — also present (Hayes toolstest):
+//   CS-PICK  CS-ROLL  N>R  NR>
+//   TRAVERSE-WORDLIST  NAME>INTERPRET  NAME>COMPILE  NAME>STRING
+//   [DEFINED]  [UNDEFINED]  SYNONYM  AHEAD
+//   Control-flow stack = data stack (1 cell/item); CS-PICK/ROLL ≡ PICK/ROLL.
+//   Name token nt = CFA (same as xt); NAME>STRING via NFA = CFA - NFA_OFF.
+//
 // ENVIRONMENT? returns CORE-EXT true (names present; not a formal ANS certificate).
 //
 // ----------------------------------------------------------------------------
 // PickleForth extensions (not ANS Core / Core Ext)
 // ----------------------------------------------------------------------------
 //   >CODE >NAME >FLAGS >LINK NAME>STRING DOCOL? DOCON-ADDR CELL
-//   SP0 SP@ SP!           stack probes (DEPTH and ABORT use these)
+//   SP0 SP@ SP! DEPTH     stack probes / depth (ABORT uses SP0 SP!)
 //   LATEST                DP is ANS-style; LATEST is system
 //   LIT BRANCH 0BRANCH and *-ADDR plumbing
 //   ALIAS SEE WORDS .S DUMP FORGET ANEW USER-DICT REDEF-WARNING
@@ -204,7 +213,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #19                    // "PickleForth v0.5.0\n"
+    mov x2, #19                    // "PickleForth v0.6.0\n"
     mov x16, #4
     svc #0x80
 
@@ -1039,6 +1048,18 @@ _bk_done:
     add x1, x1, restart_cfa@pageoff
     str x1, [x0]
 
+    // TRAVERSE-WORDLIST continuation trampoline (IP → cell → cfa → XTW_CONTINUE)
+    adrp x0, XTW_CONTINUE@page
+    add  x0, x0, XTW_CONTINUE@pageoff
+    adrp x1, tw_continue_cfa@page
+    add  x1, x1, tw_continue_cfa@pageoff
+    str  x0, [x1]
+    adrp x0, tw_continue_cell@page
+    add  x0, x0, tw_continue_cell@pageoff
+    adrp x1, tw_continue_cfa@page
+    add  x1, x1, tw_continue_cfa@pageoff
+    str  x1, [x0]
+
     ldp x23, x24, [sp], #16
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
@@ -1164,9 +1185,27 @@ _boot_cache_cfa:
     adrp x1, boot_cmp_flit@page
     add x1, x1, boot_cmp_flit@pageoff
     bl _zcmp
-    cbnz x0, 9f
+    cbnz x0, 85f
     adrp x2, cfa_flit@page
     add x2, x2, cfa_flit@pageoff
+    str x20, [x2]
+    b 9f
+85: mov x0, x19
+    adrp x1, boot_cmp_execute@page
+    add x1, x1, boot_cmp_execute@pageoff
+    bl _zcmp
+    cbnz x0, 86f
+    adrp x2, cfa_execute@page
+    add x2, x2, cfa_execute@pageoff
+    str x20, [x2]
+    b 9f
+86: mov x0, x19
+    adrp x1, boot_cmp_comma@page
+    add x1, x1, boot_cmp_comma@pageoff
+    bl _zcmp
+    cbnz x0, 9f
+    adrp x2, cfa_comma@page
+    add x2, x2, cfa_comma@pageoff
     str x20, [x2]
 9:
     ldp x19, x20, [sp], #16
@@ -1821,11 +1860,21 @@ _tick_fail:
     b    _do_quit
 
 // EXECUTE ( xt -- )  xt = CFA
+// TOS-cache: when only xt is on the stack (DSP at SP0), do not pop under —
+// leave TOS as 0. Required for NAME>COMPILE EXECUTE on immediate words when
+// the rest of the stack is empty (Hayes toolstest).
 XEXECUTE:
     mov x21, x20                   // W = CFA
-    ldr x20, [x22], #8
-    ldr x1, [x21]                  // code at CFA
-    br x1
+    adrp x0, data_stack@page
+    add  x0, x0, data_stack@pageoff
+    add  x0, x0, #4096             // SP0
+    cmp  x22, x0
+    b.hs 1f                        // empty under → no pop
+    ldr  x20, [x22], #8
+    b    2f
+1:  mov  x20, #0
+2:  ldr  x1, [x21]                 // code at CFA
+    br   x1
 
 // LITERAL ( x -- ) immediate: compile LIT + value
 // Use C stack for temp — never the Forth return stack (x23), which may hold
@@ -2393,7 +2442,8 @@ _include_syscall:
     mov  x0, x25
     adrp x1, file_buffer@page
     add  x1, x1, file_buffer@pageoff
-    mov  x2, #65536
+    mov  x2, #4                    // 256 KiB = 4 << 16
+    lsl  x2, x2, #16
     mov  x16, #3
     svc  #0x80
     mov  x26, x0
@@ -3341,6 +3391,123 @@ XRESIZE:
     mov  x20, x0
     str  x20, [x22, #-8]!
     mov  x20, #0
+    NEXT
+
+// N>R ( xn ... x1 n -- ) ( R: -- xn ... x1 n )
+// Move n data cells + count onto the return stack (order restored by NR>).
+XNTOR:
+    mov  x5, x20                   // n
+    mov  x1, x5
+1:
+    cbz  x1, 2f
+    ldr  x2, [x22], #8             // pop top under n first
+    str  x2, [x23, #-8]!           // push R
+    sub  x1, x1, #1
+    b    1b
+2:
+    str  x5, [x23, #-8]!           // n on R top
+    ldr  x20, [x22], #8
+    NEXT
+
+// NR> ( -- xn ... x1 n ) ( R: xn ... x1 n -- )
+XNRFROM:
+    ldr  x5, [x23], #8             // n
+    str  x20, [x22, #-8]!          // flush TOS
+    mov  x1, x5
+1:
+    cbz  x1, 2f
+    ldr  x2, [x23], #8
+    str  x2, [x22, #-8]!
+    sub  x1, x1, #1
+    b    1b
+2:
+    mov  x20, x5
+    NEXT
+
+// CS-PICK ( i*x u -- i*x x_u )  control-flow stack pick; 0 = top
+// When CS is the data stack and each CS item is one cell, same as PICK.
+XCSPICK:
+    b    XPICK
+
+// CS-ROLL ( i*x u -- j*x )  control-flow stack roll; same as ROLL for 1-cell items
+XCSROLL:
+    b    XROLL
+
+// TRAVERSE-WORDLIST ( i*x xt wid -- j*x )
+// For each name token nt in wordlist wid (newest first), EXECUTE xt with
+// ( i*x nt -- j*x flag ). Stop when flag is false or list ends.
+// nt = CFA (xt); matches NAME>STRING / NFA layout.
+// Continuation uses tw_continue_cell (like restart_cell) so CODE and colon
+// visitors both return via NEXT/EXIT to XTW_CONTINUE.
+XTRAVERSE_WORDLIST:
+    mov  x5, x20                   // wid
+    ldr  x6, [x22], #8             // xt (visitor)
+    ldr  x20, [x22], #8            // restore TOS of i*x
+    str  x19, [x23, #-8]!          // R: saved IP (restore when finished)
+    ldr  x7, [x5]                  // first CFA (or 0)
+_tw_loop:
+    cbz  x7, _tw_done
+    ldr  x8, [x7, #-16]            // link = previous CFA (next to visit)
+    str  x6, [x23, #-8]!           // R: xt  (under next, over saved IP)
+    str  x8, [x23, #-8]!           // R: next
+    // Push nt, EXECUTE visitor
+    str  x20, [x22, #-8]!
+    mov  x20, x7                   // nt
+    mov  x21, x6
+    ldr  x1, [x21]
+    adrp x19, tw_continue_cell@page
+    add  x19, x19, tw_continue_cell@pageoff
+    br   x1
+
+// Continuation after visitor (entered via NEXT). TOS = flag.
+.align 4
+XTW_CONTINUE:
+    // R: next, xt, saved_IP
+    ldr  x8, [x23], #8             // next
+    ldr  x6, [x23], #8             // xt
+    cbz  x20, _tw_stop             // flag false → stop
+    ldr  x20, [x22], #8            // drop true flag
+    mov  x7, x8
+    b    _tw_loop
+_tw_stop:
+    ldr  x20, [x22], #8            // drop false flag
+_tw_done:
+    ldr  x19, [x23], #8            // restore IP
+    NEXT
+
+// NAME>INTERPRET ( nt -- xt | 0 )
+// nt is CFA; return same xt (all words have interpretation semantics here).
+XNAME_INTERPRET:
+    // x20 = nt already
+    NEXT
+
+// NAME>COMPILE ( nt -- x xt )
+// x xt EXECUTE performs compilation semantics of nt.
+// Non-immediate: x = nt, xt = COMPILE, (or , which is equivalent).
+// Immediate:     x = nt, xt = EXECUTE.
+XNAME_COMPILE:
+    mov  x5, x20                   // nt
+    ldr  x0, [x5, #-8]             // FLAGS
+    tst  x0, #(1 << 63)            // IMM bit 63
+    b.eq 1f
+    // immediate: under = nt, TOS = EXECUTE
+    adrp x1, cfa_execute@page
+    add  x1, x1, cfa_execute@pageoff
+    ldr  x1, [x1]
+    str  x5, [x22, #-8]!           // under: nt
+    mov  x20, x1                   // TOS: EXECUTE
+    NEXT
+1:  // non-immediate: under = nt, TOS = COMPILE, (or ,)
+    adrp x1, cfa_compile_comma@page
+    add  x1, x1, cfa_compile_comma@pageoff
+    ldr  x1, [x1]
+    cbnz x1, 2f
+    adrp x1, cfa_comma@page
+    add  x1, x1, cfa_comma@pageoff
+    ldr  x1, [x1]
+2:
+    str  x5, [x22, #-8]!           // under: nt
+    mov  x20, x1                   // TOS: COMPILE, or ,
     NEXT
 
 // BI-MUL ( a b r -- )
@@ -5337,10 +5504,55 @@ _gmm_fail:
     b    _error_abandon
 
 // ============================================================================
-// Stack pointer probes (for high-level DEPTH) + SPACES C, S>D 2* 2/ 2@ 2!
+// Stack pointer probes + DEPTH + SPACES C, S>D 2* 2/ 2@ 2!
 // ============================================================================
 // Data stack grows down. Empty DSP = data_stack + 4096 (SP0).
-// TOS is kept in x20; SP@ is DSP (x22). Depth cells = (SP0 - SP@) / 8.
+// TOS is kept in x20; SP@ is DSP (x22).
+// Depth model (matches .S): empty DSP==SP0 → 0; each DPUSH leaves a bottom
+// sentinel so depth = (SP0 - DSP) / 8.
+
+// DEPTH ( -- +n )  number of cells on the data stack
+//
+// Why CODE, not high-level Forth?
+//
+//   A natural definition would be:
+//
+//     : DEPTH  ( -- +n )  SP@ SP0 SWAP - CELL / ;
+//
+//   or the more elaborate form that tries to keep temps off the measured
+//   stack:
+//
+//     : DEPTH
+//         SP@ SP0 2DUP - CELL / 2DROP
+//         SWAP - CELL / ;
+//
+//   Both are wrong (or at best fragile) on this engine.  The data stack is
+//   TOS-cached: the top cell lives in register x20, and DSP (x22) only
+//   points at the cells *under* TOS.  Empty stack is DSP == SP0 with x20
+//   unused (0).  Each DPUSH stores the previous x20 under DSP and loads
+//   the new value into x20, leaving a bottom sentinel so that
+//
+//     depth  =  (SP0 - DSP) / CELL
+//
+//   matches what .S reports.
+//
+//   High-level DEPTH must call SP@ / SP0, which themselves *push* onto the
+//   data stack (they flush x20 under DSP).  That changes DSP before the
+//   subtraction, so the measured depth includes the temporary cells from
+//   the measurement — or requires contortions (2DUP … 2DROP) that still
+//   race the TOS cache.  In assembly we read SP0 and x22 *before* pushing
+//   the result, then push the count with a single store of old TOS.
+//
+//   Algorithm: n = (SP0 - DSP) >> 3;  push old TOS;  TOS = n.
+XDEPTH:
+    adrp x0, data_stack@page
+    add  x0, x0, data_stack@pageoff
+    add  x0, x0, #4096             // SP0
+    sub  x0, x0, x22               // bytes under TOS (before push)
+    lsr  x0, x0, #3                // cells = depth
+    str  x20, [x22, #-8]!          // flush prior TOS under DSP
+    mov  x20, x0                   // result becomes new TOS
+    NEXT
 
 // SP0 ( -- addr )  DSP value when the data stack is empty
 XSP0:
@@ -7543,25 +7755,10 @@ _interpret_loop:
     str x0, [x23, #-8]!    // push word addr
     str x1, [x23, #-8]!    // push word len
 
-    // Try number (x0=1 single in x1; x0=2 double lo=x1 hi=x2; x0=0 fail)
-    bl _parse_number
-    cbz x0, _try_float
-
-    // Pop saved word addr/len from return stack
-    add x23, x23, #16
-
-    cmp x0, #2
-    b.eq _number_double
-
-    // --- single-cell number in x1 ---
-    adrp x2, state_var@page
-    add x2, x2, state_var@pageoff
-    ldr x2, [x2]
-    cbnz x2, _compile_lit
-
-    DPUSH
-    mov x20, x1
-    b _interpret_loop
+    // Dictionary before number/float so defined words such as fconstant -0 / +0
+    // are not stolen by integer parse of -0 → 0 (Hayes ieee-arith / signed zero).
+    // Order: FIND (and compile-time locals) → charlit → number → float → undefined.
+    b    _try_find
 
 _compile_lit:
     str x1, [x23, #-8]!
@@ -7603,7 +7800,40 @@ _compile_dlit:
     add sp, sp, #16
     b _interpret_loop
 
-// Float literal (host parse; IEEE bits). Tries before FIND so 1.5e0 works.
+// Character literal 'c' (Forth-2012 / Hayes coreplustest; not a dictionary word).
+// Token length 3, first and last are apostrophe: 'z' → 122, ''' → 39.
+_try_charlit:
+    ldr x1, [x23]                  // len
+    ldr x0, [x23, #8]              // addr
+    cmp x1, #3
+    b.ne _try_float
+    ldrb w2, [x0]
+    cmp w2, #39                    // '
+    b.ne _try_float
+    ldrb w2, [x0, #2]
+    cmp w2, #39
+    b.ne _try_float
+    ldrb w1, [x0, #1]              // character value
+    add x23, x23, #16              // drop saved name
+    adrp x2, state_var@page
+    add  x2, x2, state_var@pageoff
+    ldr  x2, [x2]
+    cbnz x2, _compile_charlit
+    DPUSH
+    mov  x20, x1
+    b    _interpret_loop
+_compile_charlit:
+    str  x1, [x23, #-8]!
+    adrp x0, cfa_lit@page
+    add  x0, x0, cfa_lit@pageoff
+    ldr  x0, [x0]
+    bl   _compile_cell
+    ldr  x0, [x23], #8
+    bl   _compile_cell
+    b    _interpret_loop
+
+// Float literal (host parse; IEEE bits). After FIND so named words win;
+// used for 1.5e0 / -2e etc. when not defined as words.
 _try_float:
     ldr x1, [x23]                  // len (keep on rstack for now)
     ldr x0, [x23, #8]              // addr
@@ -7647,22 +7877,26 @@ _compile_flit:
     bl   _compile_cell
     b    _interpret_loop
 _try_float_fail:
-    // fall through to find with name still on rstack
+    // Name still on rstack; not a number/charlit/float/dict word
+    add  x23, x23, #16             // drop saved name
+    bl   _report_undefined
+    b    _error_abandon
+
+// Dictionary / locals first (name still on rstack: [len, addr]).
 _try_find:
-    // Restore word addr and len from return stack
-    ldr x1, [x23], #8      // pop len
-    ldr x0, [x23], #8      // pop addr
+    ldr  x1, [x23]                 // len (peek)
+    ldr  x0, [x23, #8]             // addr (peek)
     // Compile-time locals: name → LIT idx (LOCAL@)
     adrp x2, state_var@page
     add  x2, x2, state_var@pageoff
     ldr  x2, [x2]
     cbz  x2, 1f
-    // Save name for find if not local
     stp  x0, x1, [sp, #-16]!
     bl   _local_lookup             // x0=index or -1
     cmp  x0, #-1
     b.eq 2f
-    // Compile LIT index (LOCAL@)
+    // Local: drop saved name, compile LIT index (LOCAL@)
+    add  x23, x23, #16
     mov  x1, x0
     str  x1, [sp, #-16]!
     adrp x0, cfa_lit@page
@@ -7675,51 +7909,72 @@ _try_find:
     add  x0, x0, cfa_local_at@pageoff
     ldr  x0, [x0]
     bl   _compile_cell
-    add  sp, sp, #16               // drop saved name
+    add  sp, sp, #16               // drop saved name copy
     b    _interpret_loop
 2:
     ldp  x0, x1, [sp], #16
 1:
-    bl _find_word
-    cbz x0, _word_not_found
+    bl   _find_word
+    cbz  x0, _try_number_after_find
 
-    mov x2, x0                     // CFA
-    mov x3, x1                     // FLAGS
-    ldr x5, [x2]                   // code ptr at CFA
+    // Found: drop saved name
+    add  x23, x23, #16
+    mov  x2, x0                     // CFA
+    mov  x3, x1                     // FLAGS
+    ldr  x5, [x2]                   // code ptr at CFA
 
     // Immediate? FLAG_IMM bit 63
-    mov x4, #1
-    lsl x4, x4, #63
-    tst x3, x4
+    mov  x4, #1
+    lsl  x4, x4, #63
+    tst  x3, x4
     b.ne _exec_found
 
     // Compile mode?
     adrp x6, state_var@page
-    add x6, x6, state_var@pageoff
-    ldr x6, [x6]
+    add  x6, x6, state_var@pageoff
+    ldr  x6, [x6]
     cbnz x6, _compile_entry
 
 _exec_found:
     // Trampoline: IP -> restart_cell -> restart_cfa (code = XRESTART)
     adrp x19, restart_cell@page
     add  x19, x19, restart_cell@pageoff
-    mov x21, x2
+    mov  x21, x2
     adrp x1, next_diag@page
     add  x1, x1, next_diag@pageoff
     str  x5, [x1]
     str  x19, [x1, #8]
     str  x22, [x1, #16]
     str  x20, [x1, #24]
-    br x5
+    br   x5
 
 _compile_entry:
-    mov x0, x2
-    bl _compile_cell
-    b _interpret_loop
+    mov  x0, x2
+    bl   _compile_cell
+    b    _interpret_loop
 
-_word_not_found:
-    bl   _report_undefined
-    b    _error_abandon
+// Not in dictionary: try number → charlit → float → undefined
+_try_number_after_find:
+    ldr  x1, [x23]                 // len
+    ldr  x0, [x23, #8]             // addr
+    bl   _parse_number
+    cbz  x0, _try_charlit
+
+    // Pop saved word addr/len
+    add  x23, x23, #16
+
+    cmp  x0, #2
+    b.eq _number_double
+
+    // --- single-cell number in x1 ---
+    adrp x2, state_var@page
+    add  x2, x2, state_var@pageoff
+    ldr  x2, [x2]
+    cbnz x2, _compile_lit
+
+    DPUSH
+    mov  x20, x1
+    b    _interpret_loop
 
 // _report_undefined: print "undefined: <word_scratch>\n" via host emit_hook
 // (raw svc write never appears in the SwiftUI console). word_scratch must be
@@ -9079,6 +9334,9 @@ _pn_base_ok:
     sub x20, x20, #1
     cbz x20, _pn_fail
 _pn_prefix:
+    // Optional base prefix first (# $ %), then optional '-'.
+    // Hayes coreplustest: #-1289  $-12eF  %-10010110  (prefix then sign).
+    // Also accept leading '-' before prefix: -#1289.
     ldrb w5, [x19]
     cmp w5, #45                 // '-'
     b.ne _pn_base_prefix
@@ -9094,16 +9352,27 @@ _pn_base_prefix:
     mov x21, #10
     add x19, x19, #1
     sub x20, x20, #1
-    b _pn_loop
+    b _pn_sign_after_prefix
 1:  cmp w5, #36                 // '$'
     b.ne 2f
     mov x21, #16
     add x19, x19, #1
     sub x20, x20, #1
-    b _pn_loop
+    b _pn_sign_after_prefix
 2:  cmp w5, #37                 // '%'
     b.ne _pn_loop
     mov x21, #2
+    add x19, x19, #1
+    sub x20, x20, #1
+_pn_sign_after_prefix:
+    // After #/$/%, allow '-' if not already taken (e.g. #-1289)
+    cbz x20, _pn_fail
+    cbz x4, 3f
+    b _pn_loop                  // already have sign
+3:  ldrb w5, [x19]
+    cmp w5, #45                 // '-'
+    b.ne _pn_loop
+    mov x4, #1
     add x19, x19, #1
     sub x20, x20, #1
 _pn_loop:
@@ -9517,7 +9786,9 @@ XRESTART:
 data_stack:     .skip 4096
 return_stack:   .skip 2048
 input_buffer:   .skip 1024
-file_buffer:    .skip 65536
+// INCLUDE/FLOAD whole-file buffer. Must hold largest library test (paranoia.4th ~70K).
+.equ FILE_BUFFER_MAX, 262144       // 256 KiB
+file_buffer:    .skip FILE_BUFFER_MAX
 word_scratch:   .skip 512          // paths for INCLUDE / FLOAD (was 64)
 tty_termios_save: .skip 80
 tty_termios_raw:  .skip 80
@@ -9618,7 +9889,7 @@ env_n_float_ext: .asciz "FLOAT-EXT"
 env_n_floating_stack: .asciz "FLOATING-STACK"
 env_n_max_float: .asciz "MAX-FLOAT"
 
-str_hello:  .asciz "PickleForth v0.5.0\n"
+str_hello:  .asciz "PickleForth v0.6.0\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
 str_bye:    .asciz "Bye!\n"
@@ -9961,6 +10232,9 @@ forth_init_str:
     // Start time on R so EXECUTE stack results do not interfere with MS@ / delta.
     .ascii "DOC\" ELAPSED ( 'name' -- ) run name once and print elapsed time\" "
     .ascii ": ELAPSED ' MS@ >R EXECUTE MS@ R> - .ELAPSED CR ; "
+    // Programming-Tools: ? ( a-addr -- ) — used by paranoia.4th and classic dumps
+    .ascii "DOC\" ? ( a-addr -- ) display the cell at a-addr (@ .)\" "
+    .ascii ": ? @ . ; "
     // DUMP ( addr u -- )  classic hex+ASCII dump, 16 bytes/line
     // .H2 byte as 2 hex digits; .HA address as 16 hex digits (BASE=HEX)
     // Single-cell values need hi=0 for double-cell # (same as BI. / D.).
@@ -9974,9 +10248,7 @@ forth_init_str:
     .ascii ": DUMP-LINE DUP .HA SPACE SPACE DUP 16 0 DO DUP I + DUMP-END @ U< IF DUP I + C@ .H2 SPACE ELSE SPACE SPACE SPACE THEN LOOP SPACE SPACE 16 0 DO DUP I + DUMP-END @ U< IF DUP I + C@ DUP BL 127 WITHIN 0= IF DROP BL THEN EMIT ELSE BL EMIT THEN LOOP DROP 16 + ; "
     .ascii "DOC\" DUMP ( addr u -- ) hex dump u bytes from addr (16 per line, ASCII gutter)\" "
     .ascii ": DUMP BASE @ >R HEX OVER + DUMP-END ! BEGIN DUP DUMP-END @ U< WHILE CR DUMP-LINE REPEAT DROP CR R> BASE ! ; "
-    // DEPTH — high-level so SEE shows TOS-cached layout (stack grows down)
-    .ascii "DOC\" DEPTH ( -- n ) data stack depth in cells\" "
-    .ascii ": DEPTH SP@ SP0 SWAP - CELL / ; "
+    // DEPTH is CODE (XDEPTH) — (SP0 - DSP) / CELL
     // */MOD */  — double intermediate via M* then symmetric divide (matches ARM /)
     .ascii "DOC\" */MOD ( n1 n2 n3 -- rem quot ) multiply then divmod\" "
     .ascii ": */MOD >R M* R> SM/REM ; "
@@ -10100,7 +10372,8 @@ forth_init_str:
     .ascii "DOC\" OPEN-BLOCK-FILE ( c-addr u -- fileid ior ) open existing .blk volume R/W\" "
     .ascii ": OPEN-BLOCK-FILE R/W BIN OPEN-FILE ; "
     .ascii "DOC\" CREATE-BLOCK-FILE ( c-addr u n -- fileid ior ) create .blk with n blank blocks\" "
-    .ascii ": CREATE-BLOCK-FILE >R R/W BIN CREATE-FILE DUP IF R> DROP EXIT THEN DROP R> 0 ?DO >R (BLOCK-BUF) 1024 BL FILL (BLOCK-BUF) 1024 R@ WRITE-FILE DROP R> LOOP >R 0 0 R@ REPOSITION-FILE DROP R> 0 ; "
+    // Keep fileid on the data stack (DUP) — do not >R it across DO/LOOP (R holds index/limit).
+    .ascii ": CREATE-BLOCK-FILE >R R/W BIN CREATE-FILE DUP IF R> DROP EXIT THEN DROP R> 0 ?DO DUP (BLOCK-BUF) 1024 BL FILL (BLOCK-BUF) 1024 ROT WRITE-FILE DROP LOOP DUP >R 0 0 R@ REPOSITION-FILE DROP R> 0 ; "
     .ascii "DOC\" USE-BLOCK-FILE ( fileid -- ) select volume as current; flush previous\" "
     .ascii ": USE-BLOCK-FILE FLUSH BLOCK-FILE ! ; "
     .ascii "DOC\" CLOSE-BLOCK-FILE ( fileid -- ior ) flush if current, then CLOSE-FILE\" "
@@ -10207,6 +10480,9 @@ forth_init_str:
 .align 8
 restart_cfa:    .quad 0            // filled at boot: address of XRESTART code
 restart_cell:   .quad 0            // filled at boot: -> restart_cfa
+// TRAVERSE-WORDLIST visitor return: IP → tw_continue_cell → tw_continue_cfa → XTW_CONTINUE
+tw_continue_cfa:  .quad 0          // filled at boot: address of XTW_CONTINUE code
+tw_continue_cell: .quad 0          // filled at boot: -> tw_continue_cfa
 next_diag:      .skip 32
 catch_ok_cell:  .quad 0
 
@@ -10225,6 +10501,9 @@ cfa_local_init: .quad 0
 cfa_local_at:   .quad 0
 cfa_local_store: .quad 0
 cfa_flit:       .quad 0
+cfa_execute:    .quad 0            // EXECUTE (NAME>COMPILE immediate)
+cfa_comma:      .quad 0            // ,  (NAME>COMPILE non-immediate / COMPILE,)
+cfa_compile_comma: .quad 0         // COMPILE, if defined as CODE; else 0 → use ,
 
 // Pending help for next : / CREATE / :NONAME (SETDOC / DOC")
 pending_help_addr: .quad 0

@@ -678,7 +678,8 @@ final class FileHost {
             return -1
         }
 
-        let maxBytes = 65536
+        // Must fit largest Hayes FP test (paranoia.4th ~70 KiB) and room to grow.
+        let maxBytes = 262_144
         let n = min(data.count, maxBytes)
         if data.count > maxBytes {
             msg("(warning: \(displayName) truncated to \(maxBytes) bytes)\n")

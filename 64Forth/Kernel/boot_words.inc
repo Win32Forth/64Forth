@@ -205,6 +205,7 @@ boot_word_table:
     BOOT_WORD "SP0", "SP0 ( -- addr ) empty data-stack DSP", 0, XSP0
     BOOT_WORD "SP@", "SP@ ( -- addr ) current DSP under TOS", 0, XSPFETCH
     BOOT_WORD "SP!", "SP! ( n -- ) set data stack pointer (updates both cell and internal)", 0, XSPSTORE
+    BOOT_WORD "DEPTH", "DEPTH ( -- +n ) data stack depth in cells", 0, XDEPTH
     BOOT_WORD "SPACES", "SPACES ( n -- ) emit n spaces", 0, XSPACES
     BOOT_WORD "C,", "C, ( b -- ) compile a byte", 0, XCCOMMA
     BOOT_WORD "S>D", "S>D ( n -- d ) sign extend single to double", 0, XSTOD
@@ -264,9 +265,16 @@ boot_word_table:
     BOOT_WORD "FLIT", "FLIT ( -- ) ( F: -- r ) runtime: push inline IEEE bits as float", 0, XFLIT
     BOOT_WORD "(F-OP)", "(F-OP) ( i*x op -- j*x ) float host multiplex (internal)", 0, XFLOAT_OP
     BOOT_WORD "FLIT-ADDR", "FLIT-ADDR ( -- xt ) xt of FLIT (for FLITERAL)", 0, XFLIT_ADDR
+    BOOT_WORD "N>R", "N>R ( xn ... x1 n -- ) ( R: -- xn ... x1 n ) move n items + count to return stack", 0, XNTOR
+    BOOT_WORD "NR>", "NR> ( -- xn ... x1 n ) ( R: xn ... x1 n -- ) restore n items + count from return stack", 0, XNRFROM
+    BOOT_WORD "CS-PICK", "CS-PICK ( i*x u -- i*x x_u ) copy uth control-flow stack item (0=top)", 0, XCSPICK
+    BOOT_WORD "CS-ROLL", "CS-ROLL ( xu ... x0 u -- xu-1 ... x0 xu ) rotate uth CS item to top", 0, XCSROLL
+    BOOT_WORD "TRAVERSE-WORDLIST", "TRAVERSE-WORDLIST ( i*x xt wid -- j*x ) visit each name in wid", 0, XTRAVERSE_WORDLIST
+    BOOT_WORD "NAME>INTERPRET", "NAME>INTERPRET ( nt -- xt | 0 ) interpretation xt for name token", 0, XNAME_INTERPRET
+    BOOT_WORD "NAME>COMPILE", "NAME>COMPILE ( nt -- x xt ) compilation semantics pair for name token", 0, XNAME_COMPILE
     .quad 0, 0, 0, 0
 
-.equ BOOT_WORD_COUNT, 209
+.equ BOOT_WORD_COUNT, 217
 
 // Empty help used by : / CREATE / :NONAME
 .align 8
@@ -288,3 +296,5 @@ boot_cmp_local_init: .asciz "(LOCAL-INIT)"
 boot_cmp_local_at: .asciz "(LOCAL@)"
 boot_cmp_local_store: .asciz "(LOCAL!)"
 boot_cmp_flit: .asciz "FLIT"
+boot_cmp_execute: .asciz "EXECUTE"
+boot_cmp_comma: .asciz ","

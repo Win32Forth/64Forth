@@ -7,9 +7,14 @@ This suite ships inside the TZForth app as:
 
 ```text
 YourApp.app/Contents/Resources/Library/HayesTest/   (this tree)
-  HayesTest.fth   suite driver
-  src/            suite sources
-  doc/            docs
+  HayesTest.fth     top-level suite driver (64Forth)
+  src/
+    *.fth           stock ANS/Forth2012 test sources
+    fp/             stock floating-point test sources only
+    Harness/           vendor runners (not test cases)
+      prepare-blocks.fth   writable block volume for blocktest
+      runfptests.fth       loads ../fp/* for 64Forth
+  doc/              docs
 ```
 
 **In-app run (preferred):**
@@ -20,10 +25,10 @@ FROMLIB FLOAD HayesTest/HayesTest.fth
 
 That:
 
-1. Runs `src/prepare-blocks.fth` — selects a **writable** block volume at  
-   `~/Library/Application Support/TZForth/hayes-blocks.blk`  
+1. Runs `src/Harness/prepare-blocks.fth` — selects a **writable** block volume at  
+   `~/Library/Application Support/64Forth/hayes-blocks.blk`  
    (app bundle `Resources/Library/…` is **read-only**; Hayes `UPDATE`/`FLUSH` need write access).
-2. FLOADs `src/test.fth` with nested relative loads under `src/` (Block + Float `fp/`).
+2. FLOADs suite sources under `src/`; FP tests via `src/Harness/runfptests.fth` → `src/fp/`.
 
 **Writable scratch files:** File-Access tests create `fatest*.txt` relative to the load
 cwd. When that cwd is inside the app bundle, TZForth automatically maps those names to

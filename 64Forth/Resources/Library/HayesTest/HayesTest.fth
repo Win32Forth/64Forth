@@ -10,9 +10,14 @@
 \   - Floating-point words live in vocabulary FP — driver does ONLY FORTH ALSO FP
 \     before the FP suite (searchordertest can leave a weird search order).
 \   - Look for: "Running FP Tests" … "FP tests finished" and FPERRORS @ = 0
-\   - If you see "fp/runfptests: skipped" the FP vocabulary/words were not found.
+\   - If you see "Harness/runfptests: skipped" the FP vocabulary/words were not found.
+\   - FP *tests* live in src/fp/; the FP *driver* is src/Harness/runfptests.fth
 \
 \ Full suite source remains under src/ for comparison with HAYES-RESULTS.txt.
+
+\ Cleaner transcripts: FILE-ECHO ON dumps every source line (and ERROR + SOURCE
+\ TYPE would re-dump whole INCLUDE buffers). Leave OFF unless debugging.
+FILE-ECHO OFF
 
 FLOAD src/debug-bootstrap.fth
 TRUE VERBOSE !
@@ -22,7 +27,7 @@ TRUE VERBOSE !
 [UNDEFINED] OPEN-BLOCK-FILE [IF]
   .( prepare-blocks: skipped - no OPEN-BLOCK-FILE ) CR
 [ELSE]
-  FLOAD src/prepare-blocks.fth
+  FLOAD src/Harness/prepare-blocks.fth
 [THEN]
 
 VARIABLE cperrors  0 #ERRORS ! fload src/coreplustest.fth  .( #ERRORS @ = ) #ERRORS @  cperrors !
@@ -52,16 +57,16 @@ VARIABLE faerrors  0 #ERRORS ! fload src/facilitytest.fth .( #ERRORS @ = ) #ERRO
 VARIABLE fperrors  0 fperrors !
 ONLY FORTH
 [UNDEFINED] FP [IF]
-  .( fp/runfptests: skipped - VOCABULARY FP not defined - rebuild with FP ) CR
+  .( Harness/runfptests: skipped - VOCABULARY FP not defined - rebuild with FP ) CR
 [ELSE]
   ALSO FP
   [UNDEFINED] F+ [IF]
-    .( fp/runfptests: skipped - F+ missing in FP vocabulary ) CR
+    .( Harness/runfptests: skipped - F+ missing in FP vocabulary ) CR
   [ELSE]
     .( --- starting FP suite --- ) CR
     .( Expect: Running FP Tests, per-file FP: lines, then FP tests finished ) CR
     0 #ERRORS !
-    FLOAD src/fp/runfptests.fth
+    FLOAD src/Harness/runfptests.fth
     #ERRORS @ fperrors !
     .( --- FP suite returned; FPERRORS will be #ERRORS after suite --- ) CR
   [THEN]

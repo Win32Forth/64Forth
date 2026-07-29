@@ -1,0 +1,320 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2904
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica-Light;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 # ANS Standard THROW Codes \'97 Migration Plan for TZForth\
+\
+This document maps TZForth\'92s internal `errorFlag` error path to ANS Forth 2012 standard `THROW` codes (Exception word set \'a79.3.1). It is the implementation guide for replacing `tell("? \'85")` + `errorFlag = true` with catchable `kernelThrow(code, message:)`.\
+\
+**Status:** **Migration complete** (Phases 1\'965). Kernel faults use `kernelThrow`; only `handleUnhandledThrow` and `recoverFromError` set `errorFlag` (uncaught throws + FLOAD load-abort). TZForth extensions: **`.ERROR`** (spaced message for a CATCH code), **`CATCH-EVALUATE`**, synchronous named **`FLOAD`** via host `onPerformNamedLoad`. Mid-file load/include errors are **CATCH-able** (specific codes -3\'85-74; closed file -67).\
+\
+**Reference:** [ANS THROW](https://forth-standard.org/standard/exception/THROW), \'a79.3.1 throw codes, \'a79.3.5 exception handling.\
+\
+---\
+\
+## Two error mechanisms today\
+\
+| Mechanism | Type | CATCH-able? | Typical recovery |\
+|-----------|------|-------------|------------------|\
+| **`errorFlag`** | Swift `Bool` on `TZForth` | **No** | `feedLine` \uc0\u8594  `recoverFromError()` |\
+| **`THROW` / `CATCH`** | Forth words | **Yes** | `deliverThrow` \uc0\u8594  restore `CATCH` frame |\
+\
+`CATCH`, `THROW`, `ABORT`, and `ABORT"` are implemented and tested. **Kernel faults** (stack, memory, compile, dictionary, file-access, etc.) raise **`kernelThrow`** and are **CATCH-able** when a frame is active.\
+\
+### What `errorFlag` does (remaining uses only)\
+\
+1. **`handleUnhandledThrow`** \'97 after an uncaught `THROW`, sets `errorFlag` so `feedLine` / FLOAD can observe failure.\
+2. **`recoverFromError`** \'97 during loaded-source interpret (`wasLoading` / `loadNesting > 0`), leaves `errorFlag` set to stop interpreting further lines in the file.\
+3. Host may read `errorFlag` after `loadFile` (e.g. skip bookmark persist on failure).\
+\
+`errorFlag` is **not** a Forth word and is **not** set on **caught** throws.\
+\
+### Target behavior after migration\
+\
+1. Kernel calls `kernelThrow(code, message:)`.\
+2. If a `CATCH` frame is active \uc0\u8594  unwind, push `code`, **no message**, stacks restored.\
+3. If uncaught \uc0\u8594  `handleUnhandledThrow` prints `message` (or standard text), resets like today, sets `errorFlag` for host/FLOAD bookkeeping.\
+\
+**UX rule:** Uncaught errors keep today\'92s `? \'85` lines where tests and REPL habit expect them. Caught errors push only the numeric code (ANS \'a79.6.1.2275).\
+\
+---\
+\
+## Standard throw codes (ANS \'a79.3.1)\
+\
+| Code | Condition |\
+|------|-----------|\
+| -1 | `ABORT` |\
+| -2 | `ABORT"` |\
+| -3 | Stack underflow |\
+| -4 | Stack overflow |\
+| -5 | Return stack underflow |\
+| -6 | Return stack overflow |\
+| -7 | Invalid memory address |\
+| -8 | Double-cell number expected |\
+| -9 | Division by zero |\
+| -10 | Attempt to use zero-length string as name |\
+| -11 | Attempt to use zero-length buffer as name |\
+| -12 | Address not aligned |\
+| -13 | Undefined word |\
+| -14 | Interpreting a compile-only word |\
+| -15 | Uncompleted IF / DO / CASE |\
+| -16 | Attempt to use non-existent execution token |\
+| -17 | Nesting limit exceeded |\
+| -18\'96-39 | *(reserved by standard)* |\
+| -40 | User-defined *(first of user range)* |\
+| -59 | *(reserved)* |\
+| -60\'96-65 | Floating-point *(Float word set)* |\
+| -66\'96-75 | File-access / block *(optional sets)* |\
+\
+TZForth assigns **-40 and below** only where no standard code fits; prefer -3\'85-17 for kernel faults.\
+\
+---\
+\
+## `kernelThrow` API (Phase 1)\
+\
+```swift\
+/// Raise a standard or implementation throw. Caught \uc0\u8594  CATCH gets code only.\
+/// Uncaught \uc0\u8594  handleUnhandledThrow prints message, resets, sets errorFlag.\
+private func kernelThrow(_ code: Cell, message: String? = nil)\
+```\
+\
+- **`StdThrow`** enum in `TZForth.swift` \'97 named constants for -3\'85-17, -20, -67, -68, -70, -74 (and delivery for -1/-2).\
+- **`lastKernelThrowMessage`** \'97 full REPL line for uncaught display (e.g. `"? Division by zero"`).\
+- **`innerThread`** \'97 `if throwActive \{ break \}` after each primitive (required for CATCH inside colon words).\
+\
+### What stays on `errorFlag` (intentionally)\
+\
+| Case | Reason |\
+|------|--------|\
+| Uncaught `kernelThrow` / `THROW` | `handleUnhandledThrow` sets `errorFlag` for `feedLine` / FLOAD abort |\
+| `recoverFromError` during load | `wasLoading` leaves `errorFlag` set to stop include |\
+| Soft notes (`DIR` failure) | Not execution faults; no `errorFlag` |\
+\
+Named **`FLOAD`** file-not-found now **`kernelThrow(-74)`** (CATCH-able). Uncaught load still sets `errorFlag` via `handleUnhandledThrow`. Sandbox hint prints only on uncaught `-74`.\
+\
+### `.ERROR` and catchable parsing words\
+\
+**`.ERROR`** `( n -- )` \'97 types a **spaced** standard message for throw code `n` (`0` = silent). Use after `CATCH`:\
+\
+```forth\
+: safe-fload  ( -- )\
+  ['] fload catch ?dup if  ." load failed:" .error  else  drop  then ;\
+```\
+\
+Usage: `safe-fload myfile.fth` \'97 missing file \uc0\u8594  `load failed: ? File not found` (inline; no extra CR).\
+\
+Same pattern for other **parsing** words: `['] included catch`, `['] include-file catch`, etc. For interpret strings without compiling: **`CATCH-EVALUATE`** (`S" \'85" CATCH-EVALUATE`).\
+\
+### Codes not mapped (exempt)\
+\
+| Code | Reason |\
+|------|--------|\
+| -8, -11, -12 | No double-literal / alignment faults on those paths yet |\
+| -60\'85-65 | ANS Float-specific codes not mapped; Tier A F stack uses **-3** / **-4** (underflow / overflow) |\
+| -66, -69\'85-73, -75 | File-access via `ior`; kernel paths use -67/-68/-70/-74 |\
+| -40\'85-59 | User `THROW` range (first code -40) |\
+\
+---\
+\
+## Phase 1 \'97 Done \uc0\u9989 \
+\
+| Site | Code | Message (uncaught) |\
+|------|------|-------------------|\
+| `pop()` underflow | -3 | `? Stack underflow` / `? Stack underflow while compiling` |\
+| `push()` overflow | -4 | `? Stack overflow` |\
+| `rpop()` underflow | -5 | `? Return stack underflow` (+ compiling variant) |\
+| `rpush()` overflow | -6 | `? Return stack overflow` |\
+| `/` `/MOD` `*/MOD` `M/` `M*/` `UM/MOD` etc. | -9 | `? Division by zero` |\
+| Outer interpreter unknown word | -13 | `? name` / `? name ? (while compiling)` |\
+| `'` / `[']` / `[COMPILE]` / `POSTPONE` not found | -13 | `? word ?` |\
+| Compile-only in interpret (`LITERAL`, `IF`, \'85) | -14 | `? word only while compiling` |\
+| Locals in interpret | -14 | `? (LOCAL) undefined in interpret state` etc. |\
+\
+**FTEST additions:** CATCH on `/` div-by-zero, CATCH on undefined word, CATCH on stack underflow.\
+\
+---\
+\
+## Phase 2 \'97 Done \uc0\u9989 \
+\
+| TZForth message / site | Code | Notes |\
+|------------------------|------|-------|\
+| `readCell` / `writeCell` out of range | -7 | `? Memory read/write out of range`; `DUMP` out of range |\
+| `? Invalid executable token` | -16 | Bad threaded branch / literal as code |\
+| `? Bad threaded call target` / colon / execution target | -16 | Corrupt CFA / IP |\
+| `? Bad branch target (ip=\'85)` | -16 | `0BRANCH` / `BRANCH` / `?DO` / `LOOP` / `+LOOP` |\
+| `? [IF] unresolved conditional compilation` | -15 | |\
+| `? IF/DO/CASE/\'85 only while compiling` (STATE=0) | -14 | All immediate control + `[DEFINED]` etc. |\
+| `? STEP-LIMIT exceeded` | -17 | `innerThread` step budget (`STEP-LIMIT @`; `0` = unlimited) |\
+| `? SYNONYM chain too deep` | -17 | |\
+| `? Invalid search order count` / full / empty | -20 | |\
+\
+**FTEST:** `S" IF" CATCH-EVALUATE .` \uc0\u8594  -14; `-1 ' @ CATCH .` \u8594  -7.\
+\
+### Compile errors and CATCH (policy)\
+\
+When a **caught** throw occurs during compilation (`STATE=1`), `CATCH` restores the exception frame including **`STATE`** \'97 the open colon definition stays open. The catching word is responsible for cleanup. Do **not** force `STATE=0` or unhide the definition on caught throws.\
+\
+When an throw is **uncaught**, `handleUnhandledThrow` \uc0\u8594  `resetRuntimeState()` still abandons compile mode (same as today).\
+\
+**FTEST:** immediate `t9pei` wraps `EVALUATE CATCH` during an open `: t9pdef`; immediate `t9ppi` prints `t9pst @` (= `1`) still during compile; `789 ;` completes the definition and `t9pdef .` runs.\
+\
+---\
+\
+## Phase 3 \'97 Defining words, dictionary, search order \uc0\u9989 \
+\
+| Message | Code |\
+|---------|------|\
+| `? : needs a name` / empty tick name | -10 |\
+| `? FORGET needs a name` | -10 |\
+| `? Cannot FORGET kernel word` | -20 |\
+| `? word ?` (SEE/FORGET/HELP) | -13 |\
+| `? SYNONYM ? oldname` | -13 |\
+| `? duplicate local` / `? too many locals` | -20 |\
+| `? RECURSE with no current definition` | -20 |\
+| `? DOES> without a preceding CREATE` | -20 |\
+| `? MARKER needs a name` | -10 |\
+| `ALLOCATE` / `FREE` / `RESIZE` failures | keep `ior` on stack (not THROW) |\
+\
+**FTEST:** `S" FORGET" CATCH-EVALUATE .` \uc0\u8594  -10; `S" SEE nosuch\'85" CATCH-EVALUATE .` \u8594  -13.\
+\
+---\
+\
+## Phase 4 \'97 File I/O, host integration, edge cases \uc0\u9989 \
+\
+| Message | Code | Notes |\
+|---------|------|-------|\
+| `? INCLUDE-FILE: invalid fileid` | -68 | ANS invalid file-id |\
+| `? INCLUDED could not open` | -74 | ANS file not found |\
+| `? FLOAD could not read` | -74 | Named `FLOAD` loads synchronously; host via `onPerformNamedLoad` |\
+| `? GROWMEMORYMB \'85` | -20 | |\
+| `? N>R` / `NR>` faults | -5 / -20 | |\
+| `? CODE` / `;CODE` | -20 | |\
+| `[IF]` / `[ELSE]` / `SLITERAL` / `S\\"` in interpret | -14 | |\
+| `OPEN-FILE` etc. | `ior` on stack | Unchanged (ANS file-access) |\
+\
+**FTEST:** `S" fload missing.fth" CATCH-EVALUATE .` \uc0\u8594  -74; `999 ['] INCLUDE-FILE CATCH` \u8594  -68.\
+\
+---\
+\
+## Phase 5 \'97 User throws, closed file, catchable load abort \uc0\u9989 \
+\
+| Code | Use | Notes |\
+|------|-----|-------|\
+| -40 | User `THROW` | Any negative user code works; `.ERROR` falls back to `? THROW n` unless registered |\
+| -67 | Closed `fileid` on `INCLUDE-FILE` | `CLOSE-FILE` keeps a closed stub so closed \uc0\u8800  invalid (-68) |\
+| -70 | Mid-file load/include abort | Line faults stay **specific** (-13, -9, \'85) when `CATCH` is active; -70 is the load-level I/O abort code |\
+\
+### Catchable mid-file errors\
+\
+`feedLine` calls `recoverFromError` only when `errorFlag` is set (uncaught faults). A caught `kernelThrow` during `FLOAD` / `INCLUDE-FILE` leaves `throwActive` set and the throw code on the stack \'97 e.g.:\
+\
+```forth\
+: safe-fload  ['] fload catch ?dup if  ." load failed:" .error  else  drop  then ;\
+S" fload myfile.fth" CATCH-EVALUATE .    \\ -13 if myfile has an undefined word\
+```\
+\
+`loadFileContents` returns `false` on mid-file abort (no longer treats partial load as success). `performNamedFload` does not mis-report `-74` when the file was found but a line failed.\
+\
+**FTEST:** `-40` user throw; `-70` catch; `CATCH-EVALUATE` on `fload` bad file \uc0\u8594  -13; closed `INCLUDE-FILE` \u8594  -67.\
+\
+### ANS-VALIDATE exception suite (Phase 5b)\
+\
+Beyond per-code spot checks, FTEST / `ANS-VALIDATE` also cover:\
+\
+| Test | What it verifies |\
+|------|------------------|\
+| Nested CATCH propagate | Inner `THROW` unwinds to outer `CATCH`; stack depths restored |\
+| Nested CATCH inner absorbs | Inner `CATCH` gets code; outer sees `0` |\
+| `CATCH-EVALUATE` / `S" fload \'85" evaluate catch` | Mid-file fault returns specific code (-13); same as README `safe-fload` via evaluate |\
+| `INCLUDE-FILE` mid-file | Open file with bad line; `CATCH` on include returns -13 |\
+| `.ERROR` -67 / -70 / -74 | Spaced messages for file-access throw codes |\
+\
+---\
+\
+## Implementation checklist (per site)\
+\
+When converting `errorFlag = true` \uc0\u8594  `kernelThrow`:\
+\
+1. **Remove dummy stack pushes** on fault paths (`/` pushing `0` after div-by-zero).\
+2. **Do not `tell` before `kernelThrow`** \'97 message goes through `lastKernelThrowMessage`.\
+3. **Check `throwActive`** after primitive returns in `innerThread` and `execute`.\
+4. **Outer interpreter** \'97 `while` already tests `!throwActive`; verify no `errorFlag` needed when throw caught.\
+5. **Compile-time errors** \'97 use `kernelThrow` (-14/-15); caught throws preserve `STATE` (see policy above).\
+6. **FTEST** \'97 add CATCH test for each new code; keep uncaught tests expecting same `?` text.\
+\
+### Compile-error special case\
+\
+`recoverFromError()` keeps colon definitions open on interactive `errorFlag` errors. **Caught `kernelThrow` during compile** does not call `recoverFromError` (`errorFlag` stays false); `CATCH` restores `STATE` and stacks from the exception frame \'97 open definition preserved by design.\
+\
+---\
+\
+## Testing strategy\
+\
+### Existing (unchanged expectations)\
+\
+- `ABORT` / `ABORT"` / `CATCH` / `THROW` tests in `TestTZForth.swift` / `TZForthTests.swift`\
+- `? baz` from vocab isolation test (uncaught -13)\
+- `MARKER` test `? t7w1` (uncaught -13)\
+\
+### New (Phase 1)\
+\
+```forth\
+: t-div  ['] / catch ;\
+1 0 t-div .          \uc0\u8594  -9\
+\
+: t-undef  S" no-such-word" ['] EVALUATE CATCH ;\
+t-undef .            \uc0\u8594  -13\
+```\
+\
+**REPL (interpret state) \'97 do not use `[']` (compile-only):**\
+\
+```forth\
+S" no-such-word" ' EVALUATE CATCH .     \uc0\u8594  -13\
+S" no-such-word" CATCH-EVALUATE .        \uc0\u8594  -13   (TZForth helper)\
+```\
+\
+Typing `no-such-word` alone at the REPL is **uncaught** \'97 you will still see `? no-such-word` (then reset). That is expected; wrap evaluation in `CATCH` as above.\
+\
+`['] name` only works **while compiling** a `:` definition. `: foo ['] bar CATCH ;` fails at compile time if `bar` is missing.\
+\
+```forth\
+: t-under  ['] drop CATCH ;\
+t-under .            \uc0\u8594  -3\
+```\
+\
+### Full migration exit criteria\
+\
+- [x] All \'a79.3.1 codes -3\'85-17 mapped or explicitly exempted (see **Codes not mapped**); file-access -68/-74 for kernel paths\
+- [x] `grep errorFlag = true` only `handleUnhandledThrow` + `recoverFromError` (2 sites in `TZForth.swift`)\
+- [x] FTEST **430/430** / in-app `ANS-VALIDATE` **427/427** (incl. Extended-Character + Float Tier A/B/C + Block subsystem + TZ `.blk` extensions); unified FLOAD/INCLUDE load loop; colon `CATCH`+`>R`; Hayes forth2012 suite **0 errors** on all word sets (Block + Float `fp/` via `test.fth`)\
+- [x] `ANS-VALIDATE` exception suite (mirrors FTEST CATCH/THROW; nested CATCH, safe-fload, mid-include, `.ERROR` file codes)\
+\
+---\
+\
+## File touch list\
+\
+| File | Changes |\
+|------|---------|\
+| `TZForth/TZForth.swift` | `StdThrow`, `kernelThrow`, `pop`/`push`/\'85, `innerThread`, fault sites |\
+| `TZForth/TestTZForth.swift` | New CATCH tests |\
+| `TZForth/TZForthTests.swift` | Mirror tests |\
+| `TZForth/TZForthFloat.swift` | Float Tier A; FP stack faults use -3/-4 |\
+| `ANS_COMPLIANCE.md` | Phase status, CATCH on standard codes |\
+| `THROW_CODES.md` | This plan (living doc) |\
+\
+---\
+\
+## Migration log\
+\
+| Phase | Status | FTEST highlights |\
+|-------|--------|------------------|\
+| 1 | Done | CATCH div-by-zero, undefined, stack underflow; `CATCH-EVALUATE` |\
+| 2 | Done | CATCH compile-only (-14), invalid address (-7) |\
+| 3 | Done | CATCH FORGET/CREATE/SEE/SYNONYM; compile `STATE` preserve |\
+| 4 | Done | CATCH FLOAD (-74), INCLUDE-FILE (-68), INCLUDED (-74); `.ERROR` |\
+| 5 | Done | User -40; closed file -67; catchable mid-FLOAD (-13); -70 |\
+| 5b | Done | Nested CATCH; safe-fload; mid-INCLUDE-FILE; `.ERROR` file codes |\
+\
+**FTEST:** `FTEST=1 swift /tmp/combined.swift` (concatenate `TZForth.swift`, `TZForthSettings.swift`, `TZForthBlock.swift`, `TZForthXChar.swift`, `TZForthAssembler.swift`, `TZForthFloat.swift`, `TZForthTests.swift`, `TestTZForth.swift`; see `TestTZForth.swift` header).}

@@ -90,6 +90,21 @@ final class FileAccess {
         return dir
     }
 
+    /// Ensure parent directory exists so createFile/write can succeed.
+    private func ensureParentDirectory(of url: URL) -> Bool {
+        let parent = url.deletingLastPathComponent()
+        if parent.path.isEmpty || parent.path == "/" { return true }
+        do {
+            try FileManager.default.createDirectory(
+                at: parent,
+                withIntermediateDirectories: true
+            )
+            return true
+        } catch {
+            return false
+        }
+    }
+
     // MARK: - Open / close
 
     func openFile(path: String, fam: Int64, create: Bool) -> (fileid: Int64, ior: Int64) {
@@ -104,15 +119,23 @@ final class FileAccess {
 
         var data = Data()
         if create {
-            // Truncate / create empty
+            // Truncate / create empty — parent dir must exist (e.g. Application Support/64Forth).
+            guard ensureParentDirectory(of: url) else { return (0, Self.iorErr) }
             data = Data()
-            FileManager.default.createFile(atPath: url.path, contents: data, attributes: nil)
+            let ok = FileManager.default.createFile(atPath: url.path, contents: data, attributes: nil)
+            if !ok && !FileManager.default.fileExists(atPath: url.path) {
+                return (0, Self.iorErr)
+            }
         } else {
             if let existing = try? Data(contentsOf: url) {
                 data = existing
             } else if write {
+                guard ensureParentDirectory(of: url) else { return (0, Self.iorErr) }
                 data = Data()
-                FileManager.default.createFile(atPath: url.path, contents: data, attributes: nil)
+                let ok = FileManager.default.createFile(atPath: url.path, contents: data, attributes: nil)
+                if !ok && !FileManager.default.fileExists(atPath: url.path) {
+                    return (0, Self.iorErr)
+                }
             } else {
                 return (0, Self.iorErr)
             }

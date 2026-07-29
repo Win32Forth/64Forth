@@ -32,7 +32,7 @@ VARIABLE soerrors  0 #ERRORS ! fload searchordertest.fth .( #ERRORS @ = ) #ERROR
 VARIABLE serrors  0 #ERRORS ! fload stringtest.fth .( #ERRORS @ = ) #ERRORS @  serrors !
 VARIABLE faerrors  0 #ERRORS ! fload facilitytest.fth .( #ERRORS @ = ) #ERRORS @  faerrors !
 VARIABLE berrors  0 #ERRORS ! fload blocktest.fth .( #ERRORS @ = ) #ERRORS @  berrors !
-VARIABLE fperrors  0 #ERRORS ! fload fp/runfptests.fth .( #ERRORS @ = ) #ERRORS @  fperrors !
+VARIABLE fperrors  0 #ERRORS ! fload Harness/runfptests.fth .( #ERRORS @ = ) #ERRORS @  fperrors !
 
 .( CPERRORS @ = ) cperrors @ .
 .( CERRORS @ = ) cerrors @ .

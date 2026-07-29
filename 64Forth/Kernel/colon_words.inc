@@ -3,8 +3,7 @@
 // ============================================================================
 // Usage (in assembly, before / among forth_init .ascii chunks):
 //
-//   COLON_WORD "DEPTH ( -- n ) data stack depth"
-//   .ascii ": DEPTH SP@ SP0 SWAP - CELL / ; "
+//   DEPTH is CODE (XDEPTH) in forth.s / boot_words.inc
 //
 // Or one-shot when body fits in one string (no nested double-quotes in help):
 //

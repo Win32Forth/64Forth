@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-07-29 — **v0.5.0** (File-Access, file-backed Block, Floating-point in `VOCABULARY FP`, Hayes subset green including FP).
+**Updated:** 2026-07-29 — **v0.6.0** (Core/Core Ext polish, FIND-before-number, Tools `?`, Hayes harness under `src/Harness/`, full Hayes subset green including paranoia Excellent).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
@@ -126,7 +126,7 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 
 ---
 
-## 3b. Word-set coverage — **v0.5.0 (Hayes subset green)**
+## 3b. Word-set coverage — **v0.6.0 (Hayes subset green)**
 
 | Word set | Status | Notes |
 |----------|--------|--------|

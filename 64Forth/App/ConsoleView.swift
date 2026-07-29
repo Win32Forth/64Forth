@@ -22,7 +22,7 @@ extension Notification.Name {
     static let toolsEdit = Notification.Name("SixtyFourForthToolsEdit")
 }
 
-private let banner = "=== 64Forth 0.5.0 ===\n"
+private let banner = "=== 64Forth 0.6.0 ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner
