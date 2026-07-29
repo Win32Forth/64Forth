@@ -254,9 +254,15 @@ boot_word_table:
     BOOT_WORD "SAVE-INPUT", "SAVE-INPUT ( -- x1 ... xn n ) save current input source state for RESTORE-INPUT", 0, XSAVE_INPUT
     BOOT_WORD "RESTORE-INPUT", "RESTORE-INPUT ( x1 ... xn n -- flag ) restore input source; flag true if failed", 0, XRESTORE_INPUT
     BOOT_WORD "SETDOC", "SETDOC ( c-addr u -- ) pending help for next defining word", 0, XSETDOC
+    BOOT_WORD "BLK", "BLK ( -- addr ) block number variable (0 = not from block)", 0, XBLK
+    BOOT_WORD "SCR", "SCR ( -- addr ) last listed block number variable", 0, XSCR
+    BOOT_WORD "BLOCK-FILE", "BLOCK-FILE ( -- addr ) current block volume fileid variable (0 = none)", 0, XBLOCK_FILE
+    BOOT_WORD "(BLOCK-BUF)", "(BLOCK-BUF) ( -- addr ) address of the 1K system block buffer", 0, XBLOCK_BUF
+    BOOT_WORD "(BLOCK-NR)", "(BLOCK-NR) ( -- addr ) block number currently cached in buffer", 0, XBLOCK_NR
+    BOOT_WORD "(BLOCK-UPD)", "(BLOCK-UPD) ( -- addr ) nonzero if block buffer is dirty", 0, XBLOCK_UPD
     .quad 0, 0, 0, 0
 
-.equ BOOT_WORD_COUNT, 200
+.equ BOOT_WORD_COUNT, 206
 
 // Empty help used by : / CREATE / :NONAME
 .align 8

@@ -18,9 +18,10 @@
 FLOAD src/debug-bootstrap.fth
 TRUE VERBOSE !
 
-\ Optional block volume prep (no-op / soft fail without File-Access words)
+\ Optional block volume prep (no-op / soft fail without OPEN-BLOCK-FILE)
+\ Note: .( parses to the first ')' only — do not nest parentheses in the text.
 [UNDEFINED] OPEN-BLOCK-FILE [IF]
-  .( prepare-blocks: skipped (no OPEN-BLOCK-FILE) ) CR
+  .( prepare-blocks: skipped - no OPEN-BLOCK-FILE ) CR
 [ELSE]
   FLOAD src/prepare-blocks.fth
 [THEN]
@@ -41,14 +42,14 @@ VARIABLE faerrors  0 #ERRORS ! fload src/facilitytest.fth .( #ERRORS @ = ) #ERRO
 
 [UNDEFINED] OPEN-BLOCK-FILE [IF]
   VARIABLE berrors  0 berrors !
-  .( blocktest: skipped (no block-file host) ) CR
+  .( blocktest: skipped - no block-file host ) CR
 [ELSE]
   VARIABLE berrors  0 #ERRORS ! fload src/blocktest.fth .( #ERRORS @ = ) #ERRORS @  berrors !
 [THEN]
 
 \ FP not implemented in 64Forth kernel
 VARIABLE fperrors  0 fperrors !
-.( fp/runfptests: skipped (no floating-point) ) CR
+.( fp/runfptests: skipped - no floating-point ) CR
 
 .( CPERRORS @ = ) cperrors @ .
 .( CERRORS @ = ) cerrors @ .

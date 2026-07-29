@@ -22,7 +22,7 @@ extension Notification.Name {
     static let toolsEdit = Notification.Name("SixtyFourForthToolsEdit")
 }
 
-private let banner = "=== 64Forth 0.2.0 ===\n"
+private let banner = "=== 64Forth 0.4.0 ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner
@@ -91,7 +91,10 @@ struct ConsoleView: View {
                 return
             }
             if isProgrammaticConsoleAppend {
-                keepCursorVisible()
+                // During long INCLUDE/Hayes output, follow the end only if the
+                // user is already near the bottom — so they can scroll up and
+                // read earlier lines without fighting auto-scroll.
+                maybeFollowOutputIfNearBottom()
                 return
             }
             if newValue.count < protectedLength
@@ -157,6 +160,24 @@ struct ConsoleView: View {
             pinCaretRequest += 1
         }
         if let textView = consoleTextView {
+            ConsoleTextView.scheduleScrollToInsertionPoint(in: textView)
+        }
+    }
+
+    /// Throttled auto-scroll for streaming engine output: only if near bottom.
+    private var lastFollowOutputTime = Date.distantPast
+    private func maybeFollowOutputIfNearBottom() {
+        let now = Date()
+        // ~20 Hz max scroll work during huge TYPE dumps
+        guard now.timeIntervalSince(lastFollowOutputTime) >= 0.05 else { return }
+        lastFollowOutputTime = now
+        guard let textView = consoleTextView,
+              let scrollView = textView.enclosingScrollView else { return }
+        let visible = scrollView.contentView.bounds
+        let docH = scrollView.documentView?.bounds.height ?? 0
+        // Within ~2 lines of the end → keep following; else leave scroll alone.
+        let nearBottom = visible.maxY >= docH - 48
+        if nearBottom {
             ConsoleTextView.scheduleScrollToInsertionPoint(in: textView)
         }
     }

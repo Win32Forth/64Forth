@@ -410,7 +410,12 @@ final class KernelBridge {
         }
     }
 
+    /// Coalesced emit buffer. Kernel TYPE/EMIT fires per character; without
+    /// batching, each char schedules a main-queue NSTextView update and the UI
+    /// freezes (spinning beach ball) during Hayes / long INCLUDE.
     private var pendingEmit = ""
+    /// True while a main-queue flush of `pendingEmit` is scheduled or running.
+    private var emitFlushScheduled = false
     private var keyQueue: [Int32] = []
     private let lock = NSLock()
     /// Wakes a background KEY wait when a key is enqueued (main-thread monitor).
@@ -475,16 +480,73 @@ final class KernelBridge {
         }
     }
 
+    /// Drain `pendingEmit` to `onEmit` (main thread). Used at startup and when
+    /// installing the sink; long-running eval uses `scheduleEmitFlush`.
     private func flushPendingEmit() {
         lock.lock()
         let pending = pendingEmit
         pendingEmit = ""
+        emitFlushScheduled = false
+        let sink = onEmit
         lock.unlock()
-        guard !pending.isEmpty, let sink = onEmit else { return }
+        guard !pending.isEmpty, let sink else { return }
         if Thread.isMainThread {
             sink(pending)
         } else {
             DispatchQueue.main.async { sink(pending) }
+        }
+    }
+
+    /// Schedule at most one main-queue drain of the emit buffer. Further chars
+    /// only append until that drain runs, so TYPE of a long file is O(chunks)
+    /// of UI updates instead of O(characters).
+    private func scheduleEmitFlush() {
+        lock.lock()
+        if emitFlushScheduled {
+            lock.unlock()
+            return
+        }
+        emitFlushScheduled = true
+        lock.unlock()
+
+        let work = { [weak self] in
+            guard let self else { return }
+            // Small yield so more TYPE chars can accumulate this timeslice.
+            // 0 delay still coalesces a full main-queue turn of emits.
+            self.drainEmitBufferToSink()
+        }
+        if Thread.isMainThread {
+            // Defer to next run-loop turn so a burst of main-thread emits still batches.
+            DispatchQueue.main.async(execute: work)
+        } else {
+            DispatchQueue.main.async(execute: work)
+        }
+    }
+
+    /// Take all pending text and deliver once; re-schedule if more arrived.
+    private func drainEmitBufferToSink() {
+        lock.lock()
+        let chunk = pendingEmit
+        pendingEmit = ""
+        let sink = onEmit
+        // Clear schedule flag before calling sink so concurrent emit can re-schedule.
+        emitFlushScheduled = false
+        lock.unlock()
+
+        if !chunk.isEmpty, let sink {
+            sink(chunk)
+        }
+
+        // If more was buffered while we delivered, schedule another drain.
+        lock.lock()
+        let stillPending = !pendingEmit.isEmpty
+        let needAgain = stillPending && !emitFlushScheduled
+        if needAgain { emitFlushScheduled = true }
+        lock.unlock()
+        if needAgain {
+            DispatchQueue.main.async { [weak self] in
+                self?.drainEmitBufferToSink()
+            }
         }
     }
 
@@ -617,11 +679,19 @@ final class KernelBridge {
                 done.signal()
             }
             // Pump UI until the kernel finishes (KEY waits use keyAvailable + queue).
-            // Also service the main GCD queue so off-main FLOAD/CHDIR panels can run.
-            while done.wait(timeout: .now() + 0.02) == .timedOut {
-                _ = CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0.01, true)
-                self.pumpUIForKeyInput(seconds: 0.02)
+            // Service the main GCD queue so batched emit flushes, scroll events,
+            // and off-main FLOAD/CHDIR panels can run — keeps the console live.
+            while done.wait(timeout: .now() + 0.016) == .timedOut {
+                // Drain all ready main sources (emit batches, SwiftUI layout).
+                var more = true
+                while more {
+                    let r = CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0, true)
+                    more = (r == .handledSource)
+                }
+                self.pumpUIForKeyInput(seconds: 0.012)
             }
+            // Final emit drain (anything still buffered after last TYPE).
+            self.drainEmitBufferToSink()
             evalLock.unlock()
             return status
         }
@@ -667,6 +737,10 @@ final class KernelBridge {
         if FileHost.shared.fromLibraryArmed {
             FileHost.shared.clearFromLibrary()
         }
+
+        // Ensure last output reaches the console before evaluate returns.
+        // Off-main: schedule drain; main wait loop also drains after join.
+        scheduleEmitFlush()
 
         if status == 1 {
             DispatchQueue.main.async {
@@ -719,15 +793,7 @@ final class KernelBridge {
         host.logicalCurrentDirectory = autoDir.path
         _ = FileManager.default.changeCurrentDirectoryPath(autoDir.path)
 
-        // Load SEE/HELP first (absolute path) so tools work even if FLOAD see.fth
-        // is missing from an old bundle or relative resolve fails.
-        let seeURL = autoDir.appendingPathComponent("see.fth")
-        if FileManager.default.fileExists(atPath: seeURL.path) {
-            _ = evaluate("INCLUDE \(seeURL.path)")
-        } else {
-            handleEmitString("[64Forth] AutoLoad/see.fth missing — SEE/HELP not loaded\n")
-        }
-
+        // SEE/HELP are defined in the kernel bootstrap (forth_init_str).
         _ = evaluate("INCLUDE \(autoURL.path)")
         _ = evaluate("MAIN")
 
@@ -788,18 +854,14 @@ final class KernelBridge {
     }
 
     private func handleEmitString(_ s: String) {
+        guard !s.isEmpty else { return }
         lock.lock()
-        let sink = onEmit
-        if sink == nil {
-            pendingEmit.append(s)
-            lock.unlock()
-            return
-        }
+        pendingEmit.append(s)
+        let hasSink = (onEmit != nil)
         lock.unlock()
-        if Thread.isMainThread {
-            sink?(s)
-        } else {
-            DispatchQueue.main.async { sink?(s) }
+        // No sink yet (early boot): leave in pendingEmit until onEmit is set.
+        if hasSink {
+            scheduleEmitFlush()
         }
     }
 }

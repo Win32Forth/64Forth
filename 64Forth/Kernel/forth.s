@@ -204,7 +204,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #19                    // "PickleForth v0.3.0\n"
+    mov x2, #19                    // "PickleForth v0.4.0\n"
     mov x16, #4
     svc #0x80
 
@@ -2025,6 +2025,49 @@ XBASE:
     DPUSH
     adrp x0, base_var@page
     add x0, x0, base_var@pageoff
+    mov x20, x0
+    NEXT
+
+// BLK / SCR / BLOCK-FILE — system variables for the Block word set
+XBLK:
+    DPUSH
+    adrp x0, blk_var@page
+    add x0, x0, blk_var@pageoff
+    mov x20, x0
+    NEXT
+
+XSCR:
+    DPUSH
+    adrp x0, scr_var@page
+    add x0, x0, scr_var@pageoff
+    mov x20, x0
+    NEXT
+
+XBLOCK_FILE:
+    DPUSH
+    adrp x0, block_file_var@page
+    add x0, x0, block_file_var@pageoff
+    mov x20, x0
+    NEXT
+
+XBLOCK_BUF:
+    DPUSH
+    adrp x0, block_buf@page
+    add x0, x0, block_buf@pageoff
+    mov x20, x0
+    NEXT
+
+XBLOCK_NR:
+    DPUSH
+    adrp x0, block_nr@page
+    add x0, x0, block_nr@pageoff
+    mov x20, x0
+    NEXT
+
+XBLOCK_UPD:
+    DPUSH
+    adrp x0, block_upd@page
+    add x0, x0, block_upd@pageoff
     mov x20, x0
     NEXT
 
@@ -4831,6 +4874,84 @@ XFLUSH_FILE:
     mov  x20, x0
     NEXT
 
+// _block_erase_buf: fill block_buf with blanks (space). Clobbers x0-x2.
+_block_erase_buf:
+    adrp x0, block_buf@page
+    add  x0, x0, block_buf@pageoff
+    mov  x1, #1024
+    mov  w2, #32
+1:
+    cbz  x1, 2f
+    strb w2, [x0], #1
+    sub  x1, x1, #1
+    b    1b
+2:
+    ret
+
+// _block_load_nr: x0 = block number. Load that block from BLOCK-FILE into
+// block_buf (or blank if no file). Updates block_nr. Preserves VM via SAVE_VM
+// only around file_op; caller may hold VM regs. Clobbers x0-x8,x9.
+// Does not touch dirty flag (callers manage UPDATE).
+_block_load_nr:
+    stp  x29, x30, [sp, #-32]!
+    mov  x29, sp
+    str  x19, [sp, #16]
+    mov  x19, x0                   // block#
+    adrp x0, block_nr@page
+    add  x0, x0, block_nr@pageoff
+    str  x19, [x0]
+    adrp x0, block_file_var@page
+    add  x0, x0, block_file_var@pageoff
+    ldr  x1, [x0]                  // fileid
+    cbz  x1, _bln_blank
+    // REPOSITION: offset = block# * 1024 as ud (lo=offset, hi=0)
+    lsl  x2, x19, #10              // *1024
+    mov  x0, #FOP_REPOS
+    mov  x3, #0                    // hi
+    mov  x4, #0
+    mov  x5, #0
+    // x1 already fileid
+    SAVE_VM
+    bl   _file_op_call
+    RESTORE_VM
+    cbnz x0, _bln_blank            // seek fail → blank
+    // READ 1024 into block_buf
+    adrp x5, block_buf@page
+    add  x5, x5, block_buf@pageoff
+    adrp x0, block_file_var@page
+    add  x0, x0, block_file_var@pageoff
+    ldr  x1, [x0]
+    mov  x2, #1024
+    mov  x0, #FOP_READ
+    mov  x3, #0
+    mov  x4, #0
+    SAVE_VM
+    bl   _file_op_call
+    RESTORE_VM
+    // if short read, pad rest with blanks
+    cmp  x6, #1024
+    b.hs _bln_done
+    adrp x0, block_buf@page
+    add  x0, x0, block_buf@pageoff
+    add  x0, x0, x6
+    mov  x1, #1024
+    sub  x1, x1, x6
+    mov  w2, #32
+3:
+    cbz  x1, _bln_done
+    strb w2, [x0], #1
+    sub  x1, x1, #1
+    b    3b
+_bln_blank:
+    bl   _block_erase_buf
+_bln_done:
+    adrp x0, block_upd@page
+    add  x0, x0, block_upd@pageoff
+    str  xzr, [x0]                 // clean after load
+    ldr  x19, [sp, #16]
+    ldp  x29, x30, [sp], #32
+    ret
+
 // MS ( u -- )  Facility: wait at least u milliseconds (yields via nanosleep).
 // Busy-wait on MS@ freezes the SwiftUI main thread; always sleep in the OS.
 XMS:
@@ -5637,9 +5758,9 @@ XCATCH:
     adrp x1, catch_ok_cell@page
     add x1, x1, catch_ok_cell@pageoff
     str x0, [x1]
-    mov x19, x1
-    mov x21, x5
-    ldr x1, [x5, #16]
+    mov x19, x1                    // IP → catch_ok_cell → XCATCH_OK after xt
+    mov x21, x5                    // W = xt (CFA)
+    ldr x1, [x21]                  // code field (same as EXECUTE)
     br x1
 
 // Normal completion of CATCH'd xt
@@ -5679,12 +5800,34 @@ _throw_zero:
     ldr x20, [x22], #8
     NEXT
 _throw_abort:
-    // Uncaught THROW: empty data stack, then QUIT (no message here).
+    // Uncaught THROW (e.g. typing ?COMP at the console): print code, soft-abort
+    // the current line. Do NOT go through full _do_quit — under the embed host
+    // that can leave the evaluate path in a bad state. Clear stacks, abandon
+    // the rest of SOURCE, and return via the normal interpret-done path.
+    stp  x5, xzr, [sp, #-16]!      // save throw code
+    adrp x0, str_uncaught_throw@page
+    add  x0, x0, str_uncaught_throw@pageoff
+    bl   _print_string_svc
+    ldr  x0, [sp], #16
+    // print absolute value if negative (common ANS codes are negative)
+    cmp  x0, #0
+    cneg x0, x0, lt
+    bl   _print_unsigned
+    mov  x0, #10
+    bl   _putchar
+    // clear data stack
     adrp x22, data_stack@page
-    add x22, x22, data_stack@pageoff
-    add x22, x22, #4096
-    mov x20, #0
-    b _do_quit
+    add  x22, x22, data_stack@pageoff
+    add  x22, x22, #4096
+    mov  x20, #0
+    // clear return stack + CATCH nesting (leave no DOCOL frames)
+    adrp x23, return_stack@page
+    add  x23, x23, return_stack@pageoff
+    add  x23, x23, #2048
+    adrp x0, throw_handler@page
+    add  x0, x0, throw_handler@pageoff
+    str  xzr, [x0]
+    b    _error_abandon
 
 // QUIT ( -- )  ANS outer interpreter entry (CODE — not a colon trampoline).
 // Empty return stack, interpret state, existing prompt/line/interpret loop.
@@ -5908,8 +6051,14 @@ _word_empty:
     NEXT
 
 // \ ( -- ) IMMEDIATE  discard rest of parse area (to end of line)
+// When BLK is nonzero (block source): skip to next 64-char line boundary
+// (classic screen width), not a newline (blocks are space-filled, no \n).
 // Note: _source_end clobbers x0/x1 — keep cursor in x10.
 XBACKSLASH:
+    adrp x0, blk_var@page
+    add  x0, x0, blk_var@pageoff
+    ldr  x0, [x0]
+    cbnz x0, _bs_block
     bl _cursor_load
     mov x10, x0                     // cursor
     bl _source_end
@@ -5926,6 +6075,30 @@ _bs_loop:
 _bs_done:
     mov x0, x10
     bl _cursor_store
+    NEXT
+_bs_block:
+    // >IN := min( source_len, ((>IN / 64) + 1) * 64 )
+    adrp x0, to_in_var@page
+    add  x0, x0, to_in_var@pageoff
+    ldr  x1, [x0]                   // >IN
+    adrp x2, source_len@page
+    add  x2, x2, source_len@pageoff
+    ldr  x2, [x2]                   // len
+    // line end offset
+    mov  x3, #64
+    udiv x4, x1, x3
+    add  x4, x4, #1
+    mul  x4, x4, x3                 // next line start
+    cmp  x4, x2
+    csel x4, x2, x4, hi
+    str  x4, [x0]
+    adrp x0, source_addr@page
+    add  x0, x0, source_addr@pageoff
+    ldr  x0, [x0]
+    add  x0, x0, x4
+    adrp x1, word_cursor@page
+    add  x1, x1, word_cursor@pageoff
+    str  x0, [x1]
     NEXT
 
 // \S ( -- ) IMMEDIATE  TZForth / F-PC model:
@@ -6007,10 +6180,14 @@ XSOURCE_ID:
     NEXT
 
 // REFILL ( -- flag )  ANS
-// Terminal: read a line into input_buffer, make it SOURCE, true (false on EOF).
-// EVALUATE (SOURCE-ID = -1): always false.
-// INCLUDE buffer (SOURCE-ID > 0): false (whole file already in SOURCE).
+// Terminal (SOURCE-ID 0): read a line into input_buffer, true (false on EOF).
+// Block source (BLK nonzero): advance to next block, true (Hayes blocktest).
+// EVALUATE string / INCLUDE file without BLK: false.
 XREFILL:
+    adrp x0, blk_var@page
+    add  x0, x0, blk_var@pageoff
+    ldr  x0, [x0]
+    cbnz x0, _refill_block
     adrp x0, source_id_var@page
     add x0, x0, source_id_var@pageoff
     ldr x0, [x0]
@@ -6038,6 +6215,23 @@ XREFILL:
     str xzr, [x0]
     str x20, [x22, #-8]!
     mov x20, #-1
+    NEXT
+_refill_block:
+    // BLK++ ; (BLOCK-LOAD) that block into block_buf; SOURCE = block_buf 1024; >IN=0
+    adrp x0, blk_var@page
+    add  x0, x0, blk_var@pageoff
+    ldr  x1, [x0]
+    add  x1, x1, #1
+    str  x1, [x0]
+    mov  x0, x1
+    bl   _block_load_nr            // x0=block# → load into block_buf (ignore errors)
+    adrp x0, block_buf@page
+    add  x0, x0, block_buf@pageoff
+    mov  x1, #1024
+    bl   _set_source
+    // keep SOURCE-ID as-is (usually -1 from EVALUATE during LOAD)
+    str  x20, [x22, #-8]!
+    mov  x20, #-1                  // true
     NEXT
 _refill_eof:
 _refill_false:
@@ -6663,7 +6857,8 @@ _se_comp:
     NEXT
 
 // SAVE-INPUT ( -- xn ... x1 n )
-// Saves SOURCE addr, len, >IN, SOURCE-ID; n=4.
+// Saves SOURCE addr, len, >IN, SOURCE-ID, BLK; n=5.
+// BLK is required so RESTORE can re-fetch a block after REFILL overwrote the buffer.
 XSAVE_INPUT:
     str x20, [x22, #-8]!
     adrp x0, source_addr@page
@@ -6682,21 +6877,62 @@ XSAVE_INPUT:
     add x0, x0, source_id_var@pageoff
     ldr x20, [x0]
     str x20, [x22, #-8]!
-    mov x20, #4
+    adrp x0, blk_var@page
+    add x0, x0, blk_var@pageoff
+    ldr x20, [x0]
+    str x20, [x22, #-8]!
+    mov x20, #5
     NEXT
 
 // RESTORE-INPUT ( xn ... x1 n -- flag )
 // flag true (-1) = cannot restore; false (0) = ok.
-// Expects n=4 and (addr len >in id 4).
+// Accepts n=5 (addr len >in id blk) or legacy n=4 (addr len >in id).
 XRESTORE_INPUT:
-    // TOS = n
+    cmp x20, #5
+    b.eq _ri_n5
     cmp x20, #4
     b.ne _ri_fail
+    // n=4: addr len >in id
+    mov x5, #0                     // blk = 0
+    b _ri_common
+_ri_n5:
+    ldr x5, [x22], #8              // BLK
+_ri_common:
     ldr x0, [x22], #8              // source_id
     ldr x1, [x22], #8              // >IN
     ldr x2, [x22], #8              // len
     ldr x3, [x22], #8              // addr
     ldr x20, [x22], #8             // prior under
+    // stash on data stack temporarily (VM regs free enough)
+    str x20, [x22, #-8]!           // prior
+    str x0, [x22, #-8]!            // id
+    str x1, [x22, #-8]!            // >IN
+    str x2, [x22, #-8]!            // len
+    str x3, [x22, #-8]!            // addr
+    str x5, [x22, #-8]!            // blk
+    // Restore BLK
+    adrp x4, blk_var@page
+    add  x4, x4, blk_var@pageoff
+    str  x5, [x4]
+    cbz  x5, _ri_apply
+    mov  x0, x5
+    bl   _block_load_nr
+    // force SOURCE to block_buf / 1024 when restoring a block
+    adrp x3, block_buf@page
+    add  x3, x3, block_buf@pageoff
+    str  x3, [x22, #8]             // overwrite saved addr on stack (addr is at +8 from top? )
+    // stack top-first: blk, addr, len, >in, id, prior
+    // After pushes: [sp-ish via x22] layout: top=blk, then addr,len,>in,id,prior
+    // Overwrite addr (second cell): x22 points at blk; addr at [x22,#8]
+    mov  x2, #1024
+    str  x2, [x22, #16]            // overwrite len
+_ri_apply:
+    ldr x5, [x22], #8              // blk (discard)
+    ldr x3, [x22], #8              // addr
+    ldr x2, [x22], #8              // len
+    ldr x1, [x22], #8              // >IN
+    ldr x0, [x22], #8              // id
+    ldr x20, [x22], #8             // prior
     adrp x4, source_addr@page
     add x4, x4, source_addr@pageoff
     str x3, [x4]
@@ -6709,18 +6945,15 @@ XRESTORE_INPUT:
     adrp x4, source_id_var@page
     add x4, x4, source_id_var@pageoff
     str x0, [x4]
-    // word_cursor = source + >IN
     add x3, x3, x1
     adrp x4, word_cursor@page
     add x4, x4, word_cursor@pageoff
     str x3, [x4]
-    // success flag 0
     str x20, [x22, #-8]!
     mov x20, #0
     NEXT
 _ri_fail:
-    // drop n cells under n? We only know n from TOS; drop n items + replace with true
-    mov x1, x20                    // n
+    mov x1, x20
     ldr x20, [x22], #8
 1:
     cbz x1, 2f
@@ -8465,6 +8698,26 @@ _nw_got:
     sub x1, x19, x20
     cbz x1, _nw_eof
 
+    // Consume trailing delimiter (space/tab/CR/LF), matching WORD and
+    // PARSE-NAME. Hayes prelimtest relies on this: after `+!` in
+    // `1 >IN +! xSOURCE`, >IN must point at `x` so `1 >IN +!` skips it.
+    // Leaving >IN *on* the blank made `1 >IN +!` land on `x` → xSOURCE.
+    cmp x19, x21
+    b.hs _nw_copy_prep
+    ldrb w0, [x19]
+    cbz w0, _nw_copy_prep
+    cmp w0, #32
+    b.eq _nw_cons
+    cmp w0, #9
+    b.eq _nw_cons
+    cmp w0, #10
+    b.eq _nw_cons
+    cmp w0, #13
+    b.ne _nw_copy_prep
+_nw_cons:
+    add x19, x19, #1
+_nw_copy_prep:
+
     // Copy to word_scratch (cap WORD_SCRATCH_MAX-1; leave room for NUL)
     adrp x2, word_scratch@page
     add x2, x2, word_scratch@pageoff
@@ -9001,6 +9254,13 @@ hist_draft_len:   .quad 0
 
 state_var:      .quad 0
 base_var:       .quad 10
+blk_var:        .quad 0            // BLK body (0 = not interpreting a block)
+scr_var:        .quad 0            // SCR body
+block_file_var: .quad 0            // current volume fileid (0 = none)
+block_nr:       .quad -1           // block number currently in block_buf (-1 empty)
+block_upd:      .quad 0            // nonzero = block_buf dirty
+.align 8
+block_buf:      .skip 1024         // single 1K block buffer
 here_ptr:       .quad 0
 latest_var:     .quad 0
 current_var:    .quad 0            // wid (addr of wordlist head cell)
@@ -9060,11 +9320,12 @@ env_n_maxu:     .asciz "MAX-U"
 env_n_rstack:   .asciz "RETURN-STACK-CELLS"
 env_n_stack:    .asciz "STACK-CELLS"
 
-str_hello:  .asciz "PickleForth v0.3.0\n"
+str_hello:  .asciz "PickleForth v0.4.0\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
 str_bye:    .asciz "Bye!\n"
 str_quest:  .asciz "? "
+str_uncaught_throw: .asciz "uncaught THROW "
 str_cant_open:  .ascii "can't open: "
                 .byte 0
 str_undefined:  .ascii "undefined: "
@@ -9227,19 +9488,19 @@ forth_init_str:
     .ascii ": SPACE BL EMIT ; "
 
     // --- 3. Control flow (immediate) ---
-    // ?COMP MUST come before AHEAD/DO/?DO/LOOP which compile a call to it.
-    // Defining AHEAD before ?COMP used to abort the rest of forth_init
-    // (undefined: ?COMP), so IF/THEN/ELSE/SEE and everything after never loaded.
-    .ascii "DOC\" ?COMP ( -- ) error if not compiling\" "
-    .ascii ": ?COMP STATE @ 0= IF S\" compile only\" TYPE CR -14 THROW THEN ; "
+    // Bootstrap order is strict:
+    //   1) BEGIN/UNTIL/AGAIN, IF/THEN/ELSE/WHILE/REPEAT  (no ?COMP needed)
+    //   2) ?COMP  (body uses IF/THEN — must not be defined before them)
+    //   3) AHEAD / DO / LOOP…  (compile a call to ?COMP)
+    // Putting ?COMP before IF left a half-built colon word (no EXIT); typing
+    // ?COMP then crashed in NEXT after 0=. Putting AHEAD before ?COMP aborted
+    // the rest of forth_init (undefined: ?COMP).
     .ascii "DOC\" BEGIN ( -- ) start indefinite loop (immediate)\" "
     .ascii ": BEGIN HERE ; IMMEDIATE "
     .ascii "DOC\" UNTIL ( flag -- ) loop until true (immediate)\" "
     .ascii ": UNTIL 0BRANCH-ADDR , HERE - , ; IMMEDIATE "
     .ascii "DOC\" AGAIN ( -- ) unconditional branch back (immediate)\" "
     .ascii ": AGAIN BRANCH-ADDR , HERE - , ; IMMEDIATE "
-    .ascii "DOC\" AHEAD ( -- orig ) compile forward branch (immediate; resolve with THEN)\" "
-    .ascii ": AHEAD ?COMP BRANCH-ADDR , HERE 0 , ; IMMEDIATE "
     .ascii "DOC\" IF ( flag -- ) conditional (immediate)\" "
     .ascii ": IF 0BRANCH-ADDR , HERE 0 , ; IMMEDIATE "
     .ascii "DOC\" THEN ( -- ) end of IF/ELSE (immediate)\" "
@@ -9250,6 +9511,10 @@ forth_init_str:
     .ascii ": WHILE 0BRANCH-ADDR , HERE 0 , ; IMMEDIATE "
     .ascii "DOC\" REPEAT ( -- ) branch back from WHILE (immediate)\" "
     .ascii ": REPEAT BRANCH-ADDR , SWAP HERE - , HERE OVER - SWAP ! ; IMMEDIATE "
+    .ascii "DOC\" ?COMP ( -- ) error if not compiling\" "
+    .ascii ": ?COMP STATE @ 0= IF S\" compile only\" TYPE CR -14 THROW THEN ; "
+    .ascii "DOC\" AHEAD ( -- orig ) compile forward branch (immediate; resolve with THEN)\" "
+    .ascii ": AHEAD ?COMP BRANCH-ADDR , HERE 0 , ; IMMEDIATE "
 
     // DO/LOOP: ( limit start -- ) ... LOOP    classic Forth order: limit first
     // DO leaves ( 0 dest ); ?DO leaves ( orig dest ) so LOOP/+LOOP can resolve
@@ -9335,6 +9600,18 @@ forth_init_str:
     .ascii ": OF ?COMP 1+ >R POSTPONE OVER POSTPONE = POSTPONE IF POSTPONE DROP R> ; IMMEDIATE "
     .ascii "DOC\" ENDOF ( -- ) end of OF, branch to ENDCASE (immediate)\" "
     .ascii ": ENDOF ?COMP >R POSTPONE ELSE R> ; IMMEDIATE "
+
+    // Programming-Tools: interpret-time conditionals (Hayes / bi-test / HayesTest.fth)
+    .ascii "DOC\" [DEFINED] ( 'name' -- flag ) true if name is found (immediate)\" "
+    .ascii ": [DEFINED] BL WORD FIND NIP 0<> ; IMMEDIATE "
+    .ascii "DOC\" [UNDEFINED] ( 'name' -- flag ) true if name is not found (immediate)\" "
+    .ascii ": [UNDEFINED] BL WORD FIND NIP 0= ; IMMEDIATE "
+    .ascii "DOC\" [THEN] ( -- ) end of [IF] (immediate no-op)\" "
+    .ascii ": [THEN] ; IMMEDIATE "
+    .ascii "DOC\" [ELSE] ( -- ) skip to matching [THEN] (immediate)\" "
+    .ascii ": [ELSE] 1 BEGIN BEGIN BL WORD COUNT DUP WHILE 2DUP S\" [IF]\" COMPARE 0= IF 2DROP 1+ ELSE 2DUP S\" [ELSE]\" COMPARE 0= IF 2DROP 1- DUP IF 1+ THEN ELSE 2DUP S\" [THEN]\" COMPARE 0= IF 2DROP 1- ELSE 2DROP THEN THEN THEN DUP 0= IF DROP EXIT THEN REPEAT 2DROP REFILL 0= UNTIL DROP ; IMMEDIATE "
+    .ascii "DOC\" [IF] ( flag -- ) interpret if true else skip to [ELSE]/[THEN] (immediate)\" "
+    .ascii ": [IF] 0= IF POSTPONE [ELSE] THEN ; IMMEDIATE "
     .ascii "DOC\" ENDCASE ( -- ) end CASE, resolve branches (immediate)\" "
     .ascii ": ENDCASE ?COMP POSTPONE DROP BEGIN DUP WHILE 1- >R POSTPONE THEN R> REPEAT DROP ; IMMEDIATE "
 
@@ -9500,33 +9777,39 @@ forth_init_str:
     .ascii "DOC\" WARNING ( -- addr ) variable; used by some test suites\" "
     .ascii "VARIABLE WARNING "
 
-    // --- 10. Block word set (memory-backed; FLUSH is no-op until host volume) ---
-    .ascii "DOC\" BLK ( -- addr ) block number variable (0 = not from block)\" "
-    .ascii "VARIABLE BLK "
-    .ascii "DOC\" SCR ( -- addr ) last listed block number\" "
-    .ascii "VARIABLE SCR "
-    .ascii "CREATE (BLOCK-BUF) 1024 ALLOT "
-    .ascii "VARIABLE (BLOCK-NR)  0 (BLOCK-NR) ! "
-    .ascii "VARIABLE (BLOCK-UPD) 0 (BLOCK-UPD) ! "
-    .ascii "DOC\" BLOCK ( u -- a-addr ) address of block u (1K RAM buffer)\" "
-    .ascii ": BLOCK DUP (BLOCK-NR) @ = IF DROP (BLOCK-BUF) EXIT THEN "
-    .ascii "  (BLOCK-UPD) @ IF 0 (BLOCK-UPD) ! THEN "
-    .ascii "  DUP (BLOCK-NR) ! (BLOCK-BUF) 1024 ERASE (BLOCK-BUF) ; "
-    .ascii "DOC\" BUFFER ( u -- a-addr ) like BLOCK but contents unspecified\" "
-    .ascii ": BUFFER BLOCK ; "
-    .ascii "DOC\" UPDATE ( -- ) mark current block buffer as dirty\" "
+    // --- 10. Block word set (file-backed via BLOCK-FILE + File-Access) ---
+    // BLK SCR BLOCK-FILE (BLOCK-BUF) (BLOCK-NR) (BLOCK-UPD) are CODE (BSS).
+    .ascii "DOC\" (BLOCK-SEEK) ( u -- ior ) seek BLOCK-FILE to start of block u\" "
+    .ascii ": (BLOCK-SEEK) 1024 UM* BLOCK-FILE @ REPOSITION-FILE ; "
+    .ascii "DOC\" (BLOCK-WRITE) ( u -- ior ) write block buffer to mass storage block u\" "
+    .ascii ": (BLOCK-WRITE) BLOCK-FILE @ 0= IF DROP 0 EXIT THEN DUP (BLOCK-SEEK) ?DUP IF NIP EXIT THEN DROP (BLOCK-BUF) 1024 BLOCK-FILE @ WRITE-FILE ; "
+    .ascii "DOC\" (BLOCK-READ) ( u -- ior ) read mass storage block u into block buffer\" "
+    .ascii ": (BLOCK-READ) BLOCK-FILE @ 0= IF DROP (BLOCK-BUF) 1024 BL FILL 0 EXIT THEN DUP (BLOCK-SEEK) ?DUP IF NIP EXIT THEN DROP (BLOCK-BUF) 1024 BLOCK-FILE @ READ-FILE NIP ; "
+    .ascii "DOC\" UPDATE ( -- ) mark current block buffer dirty\" "
     .ascii ": UPDATE -1 (BLOCK-UPD) ! ; "
-    .ascii "DOC\" FLUSH ( -- ) write dirty buffers (RAM blocks: clear dirty)\" "
-    .ascii ": FLUSH 0 (BLOCK-UPD) ! ; "
-    .ascii "DOC\" SAVE-BUFFERS ( -- ) same as FLUSH for RAM blocks\" "
-    .ascii ": SAVE-BUFFERS FLUSH ; "
-    .ascii "DOC\" EMPTY-BUFFERS ( -- ) invalidate buffers\" "
-    .ascii ": EMPTY-BUFFERS 0 (BLOCK-NR) ! 0 (BLOCK-UPD) ! ; "
+    .ascii "DOC\" SAVE-BUFFERS ( -- ) write dirty buffers; keep assignment\" "
+    .ascii ": SAVE-BUFFERS (BLOCK-UPD) @ IF (BLOCK-NR) @ DUP 0< 0= IF (BLOCK-WRITE) DROP THEN 0 (BLOCK-UPD) ! THEN BLOCK-FILE @ IF BLOCK-FILE @ FLUSH-FILE DROP THEN ; "
+    .ascii "DOC\" EMPTY-BUFFERS ( -- ) unassign buffers; discard dirty without writing\" "
+    .ascii ": EMPTY-BUFFERS 0 (BLOCK-UPD) ! -1 (BLOCK-NR) ! ; "
+    .ascii "DOC\" FLUSH ( -- ) SAVE-BUFFERS then EMPTY-BUFFERS\" "
+    .ascii ": FLUSH SAVE-BUFFERS EMPTY-BUFFERS ; "
+    .ascii "DOC\" BLOCK ( u -- a-addr ) a-addr is the address of the block buffer for block u\" "
+    .ascii ": BLOCK DUP (BLOCK-NR) @ = IF DROP (BLOCK-BUF) EXIT THEN (BLOCK-UPD) @ IF (BLOCK-NR) @ DUP 0< 0= IF (BLOCK-WRITE) DROP THEN 0 (BLOCK-UPD) ! THEN DUP (BLOCK-NR) ! DUP (BLOCK-READ) DROP DROP (BLOCK-BUF) ; "
+    .ascii "DOC\" BUFFER ( u -- a-addr ) like BLOCK; contents may be unspecified\" "
+    .ascii ": BUFFER BLOCK ; "
+    .ascii "DOC\" OPEN-BLOCK-FILE ( c-addr u -- fileid ior ) open existing .blk volume R/W\" "
+    .ascii ": OPEN-BLOCK-FILE R/W BIN OPEN-FILE ; "
+    .ascii "DOC\" CREATE-BLOCK-FILE ( c-addr u n -- fileid ior ) create .blk with n blank blocks\" "
+    .ascii ": CREATE-BLOCK-FILE >R R/W BIN CREATE-FILE DUP IF R> DROP EXIT THEN DROP R> 0 ?DO >R (BLOCK-BUF) 1024 BL FILL (BLOCK-BUF) 1024 R@ WRITE-FILE DROP R> LOOP >R 0 0 R@ REPOSITION-FILE DROP R> 0 ; "
+    .ascii "DOC\" USE-BLOCK-FILE ( fileid -- ) select volume as current; flush previous\" "
+    .ascii ": USE-BLOCK-FILE FLUSH BLOCK-FILE ! ; "
+    .ascii "DOC\" CLOSE-BLOCK-FILE ( fileid -- ior ) flush if current, then CLOSE-FILE\" "
+    .ascii ": CLOSE-BLOCK-FILE DUP BLOCK-FILE @ = IF FLUSH 0 BLOCK-FILE ! THEN CLOSE-FILE ; "
     .ascii "DOC\" LOAD ( i*x u -- j*x ) interpret block u\" "
-    .ascii ": LOAD DUP BLK ! BLOCK 1024 EVALUATE 0 BLK ! ; "
+    .ascii ": LOAD BLK @ >R DUP BLK ! BLOCK 1024 EVALUATE R> BLK ! ; "
     .ascii "DOC\" THRU ( i*x u1 u2 -- j*x ) LOAD u1..u2 inclusive\" "
     .ascii ": THRU 1+ SWAP ?DO I LOAD LOOP ; "
-    .ascii "DOC\" LIST ( u -- ) display block u\" "
+    .ascii "DOC\" LIST ( u -- ) display block u as 16 lines of 64 chars\" "
     .ascii ": LIST DUP SCR ! BLOCK 16 0 DO CR I 3 .R SPACE DUP 64 TYPE 64 + LOOP DROP CR ; "
 
     // Default MAIN if AutoLoad does not define one (kernel_eval \"MAIN\" at startup)

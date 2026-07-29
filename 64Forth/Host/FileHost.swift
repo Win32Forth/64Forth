@@ -61,23 +61,36 @@ final class FileHost {
         onMessage?(s)
     }
 
-    /// Open panels must run on the main thread (kernel_eval may be off-main for KEY).
-    /// Uses async + wait so we never `main.sync` against a main thread that is
-    /// pumping events for KEY (that would deadlock).
-    private func runModalOnMain(_ panel: NSOpenPanel) -> NSApplication.ModalResponse {
+    /// Create, configure, and run an `NSOpenPanel` entirely on the main thread.
+    ///
+    /// `kernel_eval` often runs on `forthQueue` (so KEY can pump AppKit). AppKit
+    /// requires *all* `NSOpenPanel` / `NSSavePanel` use on the main thread —
+    /// including `init`, not only `runModal`. Uses async + wait so we never
+    /// `main.sync` against a main thread that is already pumping for KEY
+    /// (that would deadlock).
+    private func pickWithOpenPanelOnMain(
+        configure: @escaping (NSOpenPanel) -> Void
+    ) -> URL? {
         if Thread.isMainThread {
-            return panel.runModal()
+            let panel = NSOpenPanel()
+            configure(panel)
+            guard panel.runModal() == .OK else { return nil }
+            return panel.url
         }
-        var result = NSApplication.ModalResponse.cancel
+        var picked: URL?
         let done = DispatchSemaphore(value: 0)
         DispatchQueue.main.async {
-            result = panel.runModal()
+            let panel = NSOpenPanel()
+            configure(panel)
+            if panel.runModal() == .OK {
+                picked = panel.url
+            }
             done.signal()
         }
         while done.wait(timeout: .now() + 0.05) == .timedOut {
             // Main evaluate loop processes this async block while pumping UI.
         }
-        return result
+        return picked
     }
 
     // MARK: - Bundle roots (Contents/Resources/…)
@@ -326,28 +339,29 @@ final class FileHost {
 
     /// Bare CHDIR: folder picker. FROMLIB arms start at Library.
     func presentDirectoryPicker() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose"
-        panel.message = "CHDIR — set working directory"
-
+        let startDir: URL
         if fromLibraryArmed {
             clearFromLibrary()
             if let lib = libraryURL {
-                panel.directoryURL = lib
+                startDir = lib
             } else {
-                panel.directoryURL = URL(fileURLWithPath: logicalCurrentDirectory, isDirectory: true)
+                startDir = URL(fileURLWithPath: logicalCurrentDirectory, isDirectory: true)
             }
         } else if let override = fileDialogStartDirectoryOverride {
-            panel.directoryURL = URL(fileURLWithPath: override, isDirectory: true)
+            startDir = URL(fileURLWithPath: override, isDirectory: true)
             fileDialogStartDirectoryOverride = nil
         } else {
-            panel.directoryURL = URL(fileURLWithPath: logicalCurrentDirectory, isDirectory: true)
+            startDir = URL(fileURLWithPath: logicalCurrentDirectory, isDirectory: true)
         }
 
-        guard runModalOnMain(panel) == .OK, let url = panel.url else {
+        guard let url = pickWithOpenPanelOnMain(configure: { panel in
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.prompt = "Choose"
+            panel.message = "CHDIR — set working directory"
+            panel.directoryURL = startDir
+        }) else {
             msg("(CHDIR cancelled)\n")
             return
         }
@@ -593,33 +607,35 @@ final class FileHost {
         outPtr: UnsafeMutablePointer<UnsafePointer<CChar>?>?,
         outLen: UnsafeMutablePointer<Int>?
     ) -> Int32 {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [
-            UTType(filenameExtension: "fth") ?? .plainText,
-            UTType(filenameExtension: "fs") ?? .plainText,
-            UTType(filenameExtension: "4th") ?? .plainText,
-            .plainText
-        ]
-        panel.prompt = "Load"
-        panel.message = "FLOAD / INCLUDE — choose a Forth source file"
-
-        // FROMLIB bare: start at Library, do not permanently CHDIR there
+        // Capture start dir / preserve flag on the kernel thread; create the
+        // panel only on main (AppKit main-thread rule).
+        let startDir: URL
         if fromLibraryArmed, let lib = libraryURL {
             clearFromLibrary()
-            panel.directoryURL = lib
+            startDir = lib
             preserveSessionCwdAfterFileOp = true
         } else if let override = fileDialogStartDirectoryOverride {
-            panel.directoryURL = URL(fileURLWithPath: override, isDirectory: true)
+            startDir = URL(fileURLWithPath: override, isDirectory: true)
             fileDialogStartDirectoryOverride = nil
         } else {
             clearFromLibrary()
-            panel.directoryURL = URL(fileURLWithPath: logicalCurrentDirectory, isDirectory: true)
+            startDir = URL(fileURLWithPath: logicalCurrentDirectory, isDirectory: true)
         }
 
-        guard runModalOnMain(panel) == .OK, let url = panel.url else {
+        guard let url = pickWithOpenPanelOnMain(configure: { panel in
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            panel.allowedContentTypes = [
+                UTType(filenameExtension: "fth") ?? .plainText,
+                UTType(filenameExtension: "fs") ?? .plainText,
+                UTType(filenameExtension: "4th") ?? .plainText,
+                .plainText
+            ]
+            panel.prompt = "Load"
+            panel.message = "FLOAD / INCLUDE — choose a Forth source file"
+            panel.directoryURL = startDir
+        }) else {
             msg("(FLOAD cancelled)\n")
             preserveSessionCwdAfterFileOp = false
             return -1
@@ -760,44 +776,47 @@ final class FileHost {
 
     /// Bare EDIT: file open panel. FROMLIB arms start at Library without permanent CHDIR.
     func presentEditPicker() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [
-            UTType(filenameExtension: "fth") ?? .plainText,
-            UTType(filenameExtension: "fs") ?? .plainText,
-            UTType(filenameExtension: "4th") ?? .plainText,
-            .plainText,
-            .text
-        ]
-        panel.prompt = "Edit"
-        panel.message = "EDIT — open file in system text editor"
-
         let preserveCwd: Bool
         let savedLogical = logicalCurrentDirectory
         let savedProcess = FileManager.default.currentDirectoryPath
+        let startDir: URL
+        let panelMessage: String
 
         if fromLibraryArmed, let lib = libraryURL {
             clearFromLibrary()
-            panel.directoryURL = lib
+            startDir = lib
             preserveCwd = true
             preserveSessionCwdAfterFileOp = true
+            panelMessage = "Select a library source file to open in the system default editor."
         } else if let override = fileDialogStartDirectoryOverride {
-            panel.directoryURL = URL(fileURLWithPath: override, isDirectory: true)
+            startDir = URL(fileURLWithPath: override, isDirectory: true)
             fileDialogStartDirectoryOverride = nil
             preserveCwd = preserveSessionCwdAfterFileOp
+            panelMessage = preserveCwd
+                ? "Select a library source file to open in the system default editor."
+                : "Select a file to open in the system default editor. The current directory will change to the file's folder."
         } else {
             clearFromLibrary()
-            panel.directoryURL = URL(fileURLWithPath: logicalCurrentDirectory, isDirectory: true)
+            startDir = URL(fileURLWithPath: logicalCurrentDirectory, isDirectory: true)
             preserveCwd = false
+            panelMessage = "Select a file to open in the system default editor. The current directory will change to the file's folder."
         }
 
-        panel.message = preserveCwd
-            ? "Select a library source file to open in the system default editor."
-            : "Select a file to open in the system default editor. The current directory will change to the file's folder."
-
-        guard runModalOnMain(panel) == .OK, let url = panel.url else {
+        guard let url = pickWithOpenPanelOnMain(configure: { panel in
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            panel.allowedContentTypes = [
+                UTType(filenameExtension: "fth") ?? .plainText,
+                UTType(filenameExtension: "fs") ?? .plainText,
+                UTType(filenameExtension: "4th") ?? .plainText,
+                .plainText,
+                .text
+            ]
+            panel.prompt = "Edit"
+            panel.message = panelMessage
+            panel.directoryURL = startDir
+        }) else {
             msg("(EDIT cancelled)\n")
             if preserveCwd {
                 restoreSessionDirectory(logical: savedLogical, process: savedProcess)

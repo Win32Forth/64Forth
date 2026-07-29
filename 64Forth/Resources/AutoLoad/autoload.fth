@@ -3,9 +3,7 @@
 \ During load, session cwd is this AutoLoad folder (nested FLOAD sees siblings).
 \
 \ ANEW is a kernel word (classic FORGET-then-CREATE reload marker).
-
-\ Tools that must work even if late forth_init aborted:
-FLOAD see.fth
+\ SEE / HELP live in the kernel (forth_init_str) — no AutoLoad override needed.
 
 \ Optional: pull Library modules here, e.g.
 \   FROMLIB FLOAD smoke-load.fth
