@@ -38,6 +38,8 @@ struct ConsoleView: View {
     @State private var isHandlingReturn = false
     @State private var pinCaretRequest = 0
     @State private var consoleTextView: NSTextView?
+    /// Throttle auto-scroll while engine output streams.
+    @State private var lastFollowOutputTime = Date.distantPast
 
     @FocusState private var isFocused: Bool
 
@@ -165,7 +167,6 @@ struct ConsoleView: View {
     }
 
     /// Throttled auto-scroll for streaming engine output: only if near bottom.
-    private var lastFollowOutputTime = Date.distantPast
     private func maybeFollowOutputIfNearBottom() {
         let now = Date()
         // ~20 Hz max scroll work during huge TYPE dumps

@@ -259,13 +259,11 @@ final class FileAccess {
             n += 1
         }
         files[id] = e
-        // flag true if line terminator found OR some chars before EOF (ANS)
-        let flag: Int64 = (sawNL || n > 0) ? -1 : 0
         // At EOF with zero chars: flag false
         if !sawNL && e.position >= e.data.count && n == 0 {
             return (0, 0, Self.iorOK)
         }
-        // ANS: flag is true if a line was read (including last line without NL)
+        // ANS: flag true if a line was read (including last line without NL)
         let lineFlag: Int64 = (n > 0 || sawNL) ? -1 : 0
         return (Int64(n), lineFlag, Self.iorOK)
     }
