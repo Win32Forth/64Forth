@@ -214,7 +214,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #19                    // "PickleForth v0.6.0\n"
+    mov x2, #19                    // "PickleForth v0.7.0\n"
     mov x16, #4
     svc #0x80
 
@@ -10332,7 +10332,7 @@ env_n_file:     .asciz "FILE"
 env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
-str_hello:  .asciz "PickleForth v0.6.0\n"
+str_hello:  .asciz "PickleForth v0.7.0\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
 str_bye:    .asciz "Bye!\n"

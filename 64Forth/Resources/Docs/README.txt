@@ -1,7 +1,7 @@
 64Forth — Swift host + PickleForth ARM64 kernel
 ================================================
 
-Version 0.6.0 (2026-07-29)
+Version 0.7.0 (2026-07-29)
 
 Hybrid macOS app: ARM64 ITC kernel (assembly) + SwiftUI console/host
 (TZForth-style FileHost, AutoLoad, Library, FROMLIB).
@@ -17,7 +17,7 @@ Quick start (in the console)
 
   FROMLIB FLOAD ANSValidate/ANS-VALIDATE.fth
 
-ANS word sets (v0.6)
+ANS word sets (v0.7)
 --------------------
   Core / Core Ext, Double, String (+ String Ext), Exception, File-Access,
   Locals (+ (LOCAL) / LOCALS|), Memory-Allocation, Programming-Tools,

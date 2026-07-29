@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-07-29 — **v0.6.0+** (Hayes subset green; modular Library **ANSValidate** ~351/0 through Float; Facility Ext `EKEY>FKEY`/`K-*` + `FACILITY-EXT`; `LOAD` restores `BLK` via source stack; UTF-8 XChar; String/Locals Ext).
+**Updated:** 2026-07-29 — **v0.7.0** (Hayes subset green; modular Library **ANSValidate** ~351/0 through Float; Facility Ext `EKEY>FKEY`/`K-*` + `FACILITY-EXT`; `LOAD` restores `BLK` via source stack; UTF-8 XChar; String/Locals Ext).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
@@ -133,7 +133,7 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 
 ---
 
-## 3b. Word-set coverage — **v0.6.0 (Hayes subset green)**
+## 3b. Word-set coverage — **v0.7.0 (Hayes subset green)**
 
 | Word set | Status | Notes |
 |----------|--------|--------|
@@ -161,7 +161,7 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 - **Literals:** `1.5e0` / `3.14` recognized by the outer interpreter (trailing-only `123.` remains double).
 - **ENVIRONMENT?:** boolean/word-set queries return **value then true** (ttester double-`[IF]` idiom). Float: `FLOATING`, `FLOAT-EXT`, `FLOATING-STACK` (16), `MAX-FLOAT`.
 
-### Extended Character design (v0.6)
+### Extended Character design (v0.7)
 
 - **Encoding:** UTF-8; `MAX-XCHAR` = `$10FFFF`; `XCHAR-MAXMEM` = 4; `XCHAR-ENCODING` → `"UTF-8"`.
 - **CODE:** `XC!+`, `XC@+`, `XEMIT` (multi-byte via host `emit_buf` when set).
@@ -311,7 +311,7 @@ Kernel improvements can be cherry-picked PickleForth ↔ `64Forth/Kernel` until 
 - Line-at-a-time INCLUDE driven by real ANS fileids (whole-file SOURCE model today)  
 - Optional polish: multi-buffer block cache, compiled `TO` for FVALUE, App Sandbox for store  
 
-### Present and validated (v0.6+)
+### Present and validated (v0.7.0)
 
 - Hayes subset: core through File/Block/FP (`FROMLIB FLOAD HayesTest/HayesTest.fth`)  
 - Modular ANSValidate: Core … Float, Facility Ext fkeys, XChar (~351/0)  

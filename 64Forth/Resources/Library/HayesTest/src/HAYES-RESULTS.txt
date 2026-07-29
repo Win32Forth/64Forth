@@ -1,4 +1,4 @@
-=== 64Forth 0.6.0 ===
+=== 64Forth 0.7.0 ===
 cwd: /Users/thomaszimmer/Documents
  ok
 64Forth AutoLoad complete.
