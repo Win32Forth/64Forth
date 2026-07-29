@@ -310,6 +310,14 @@ _kernel_set_time_date:
     str  x0, [x1]
     ret
 
+// void kernel_set_file_op(file_op_fn)
+.globl _kernel_set_file_op
+_kernel_set_file_op:
+    adrp x1, file_op_hook@page
+    add  x1, x1, file_op_hook@pageoff
+    str  x0, [x1]
+    ret
+
 // void kernel_set_fromlib(void (*fn)(void))
 .globl _kernel_set_fromlib
 _kernel_set_fromlib:
@@ -4490,6 +4498,314 @@ XTIME_DATE:
     str  x4, [x22, #-8]!
     str  x5, [x22, #-8]!
     mov  x20, x6
+    NEXT
+
+// ============================================================================
+// File-Access (ANS 11) — thin CODE wrappers around host file_op_hook
+// op: 1 open 2 create 3 close 4 read 5 write 6 rline 7 wline
+//     8 pos 9 size 10 repos 11 resize 12 delete 13 rename 14 status 15 flush
+// ============================================================================
+.equ FOP_OPEN, 1
+.equ FOP_CREATE, 2
+.equ FOP_CLOSE, 3
+.equ FOP_READ, 4
+.equ FOP_WRITE, 5
+.equ FOP_RLINE, 6
+.equ FOP_WLINE, 7
+.equ FOP_POS, 8
+.equ FOP_SIZE, 9
+.equ FOP_REPOS, 10
+.equ FOP_RESIZE, 11
+.equ FOP_DELETE, 12
+.equ FOP_RENAME, 13
+.equ FOP_STATUS, 14
+.equ FOP_FLUSH, 15
+
+// R/O W/O R/W BIN — fam constants
+XR_O:
+    DPUSH
+    mov x20, #1
+    NEXT
+XW_O:
+    DPUSH
+    mov x20, #2
+    NEXT
+XR_W:
+    DPUSH
+    mov x20, #4
+    NEXT
+XBIN:
+    orr x20, x20, #8
+    NEXT
+
+// Helper: call file_op_hook.
+// In:  x0=op x1=a x2=b x3=c x4=d x5=ptr
+// Out: x0=ior x6=o1 x7=o2 x8=o3
+// Call with SAVE_VM around; does not touch callee-saved x19-x24 if hook is careful.
+_file_op_call:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    adrp x9, file_op_hook@page
+    add  x9, x9, file_op_hook@pageoff
+    ldr  x9, [x9]
+    cbz  x9, 1f
+    // Frame (16-byte aligned):
+    //   [sp+0]  = 9th arg (o3*)
+    //   [sp+16] = o1 value
+    //   [sp+24] = o2 value
+    //   [sp+32] = o3 value
+    sub  sp, sp, #64
+    add  x6, sp, #16               // o1*
+    add  x7, sp, #24               // o2*
+    add  x8, sp, #32               // o3*
+    str  xzr, [x6]
+    str  xzr, [x7]
+    str  xzr, [x8]
+    str  x8, [sp]                  // 9th parameter
+    // x0..x7 already: op,a,b,c,d,ptr,o1*,o2*
+    blr  x9
+    ldr  x6, [sp, #16]
+    ldr  x7, [sp, #24]
+    ldr  x8, [sp, #32]
+    add  sp, sp, #64
+    ldp  x29, x30, [sp], #16
+    ret
+1:
+    mov  x0, #-1
+    mov  x6, #0
+    mov  x7, #0
+    mov  x8, #0
+    ldp  x29, x30, [sp], #16
+    ret
+
+// OPEN-FILE ( c-addr u fam -- fileid ior )
+XOPEN_FILE:
+    mov  x3, x20                   // fam -> c
+    ldr  x2, [x22], #8             // u -> b
+    ldr  x5, [x22], #8             // c-addr -> ptr
+    mov  x1, #0                    // a unused
+    mov  x4, #0
+    mov  x0, #FOP_OPEN
+    SAVE_VM
+    // remap: op=x0 a=0 b=u c=fam d=0 ptr=caddr
+    // Currently x0=op x1=a x2=u x3=fam x4=0 x5=ptr — good
+    bl   _file_op_call
+    RESTORE_VM
+    // ior in x0, fileid in x6
+    str  x20, [x22, #-8]!
+    str  x6, [x22, #-8]!           // fileid under
+    mov  x20, x0                   // ior TOS
+    NEXT
+
+// CREATE-FILE ( c-addr u fam -- fileid ior )
+XCREATE_FILE:
+    mov  x3, x20
+    ldr  x2, [x22], #8
+    ldr  x5, [x22], #8
+    mov  x1, #0
+    mov  x4, #0
+    mov  x0, #FOP_CREATE
+    SAVE_VM
+    bl   _file_op_call
+    RESTORE_VM
+    str  x20, [x22, #-8]!
+    str  x6, [x22, #-8]!
+    mov  x20, x0
+    NEXT
+
+// CLOSE-FILE ( fileid -- ior )
+XCLOSE_FILE:
+    mov  x1, x20
+    mov  x0, #FOP_CLOSE
+    mov  x2, #0
+    mov  x3, #0
+    mov  x4, #0
+    mov  x5, #0
+    SAVE_VM
+    bl   _file_op_call
+    RESTORE_VM
+    mov  x20, x0
+    NEXT
+
+// READ-FILE ( c-addr u1 fileid -- u2 ior )
+XREAD_FILE:
+    mov  x1, x20                   // fileid
+    ldr  x2, [x22], #8             // u1
+    ldr  x5, [x22], #8             // c-addr
+    mov  x0, #FOP_READ
+    mov  x3, #0
+    mov  x4, #0
+    SAVE_VM
+    bl   _file_op_call
+    RESTORE_VM
+    str  x20, [x22, #-8]!
+    str  x6, [x22, #-8]!           // u2
+    mov  x20, x0                   // ior
+    NEXT
+
+// WRITE-FILE ( c-addr u fileid -- ior )
+XWRITE_FILE:
+    mov  x1, x20
+    ldr  x2, [x22], #8
+    ldr  x5, [x22], #8
+    mov  x0, #FOP_WRITE
+    mov  x3, #0
+    mov  x4, #0
+    SAVE_VM
+    bl   _file_op_call
+    RESTORE_VM
+    mov  x20, x0
+    NEXT
+
+// READ-LINE ( c-addr u1 fileid -- u2 flag ior )
+XREAD_LINE:
+    mov  x1, x20
+    ldr  x2, [x22], #8
+    ldr  x5, [x22], #8
+    mov  x0, #FOP_RLINE
+    mov  x3, #0
+    mov  x4, #0
+    SAVE_VM
+    bl   _file_op_call
+    RESTORE_VM
+    str  x20, [x22, #-8]!
+    str  x6, [x22, #-8]!           // u2
+    str  x7, [x22, #-8]!           // flag
+    mov  x20, x0                   // ior
+    NEXT
+
+// WRITE-LINE ( c-addr u fileid -- ior )
+XWRITE_LINE:
+    mov  x1, x20
+    ldr  x2, [x22], #8
+    ldr  x5, [x22], #8
+    mov  x0, #FOP_WLINE
+    mov  x3, #0
+    mov  x4, #0
+    SAVE_VM
+    bl   _file_op_call
+    RESTORE_VM
+    mov  x20, x0
+    NEXT
+
+// FILE-POSITION ( fileid -- ud ior )
+XFILE_POSITION:
+    mov  x1, x20
+    mov  x0, #FOP_POS
+    mov  x2, #0
+    mov  x3, #0
+    mov  x4, #0
+    mov  x5, #0
+    SAVE_VM
+    bl   _file_op_call
+    RESTORE_VM
+    str  x20, [x22, #-8]!
+    str  x6, [x22, #-8]!           // lo
+    str  x7, [x22, #-8]!           // hi
+    mov  x20, x0
+    NEXT
+
+// FILE-SIZE ( fileid -- ud ior )
+XFILE_SIZE:
+    mov  x1, x20
+    mov  x0, #FOP_SIZE
+    mov  x2, #0
+    mov  x3, #0
+    mov  x4, #0
+    mov  x5, #0
+    SAVE_VM
+    bl   _file_op_call
+    RESTORE_VM
+    str  x20, [x22, #-8]!
+    str  x6, [x22, #-8]!
+    str  x7, [x22, #-8]!
+    mov  x20, x0
+    NEXT
+
+// REPOSITION-FILE ( ud fileid -- ior )
+XREPOSITION_FILE:
+    mov  x1, x20                   // fileid
+    ldr  x3, [x22], #8             // hi
+    ldr  x2, [x22], #8             // lo
+    mov  x0, #FOP_REPOS
+    mov  x4, #0
+    mov  x5, #0
+    SAVE_VM
+    bl   _file_op_call
+    RESTORE_VM
+    mov  x20, x0
+    NEXT
+
+// RESIZE-FILE ( ud fileid -- ior )
+XRESIZE_FILE:
+    mov  x1, x20
+    ldr  x3, [x22], #8
+    ldr  x2, [x22], #8
+    mov  x0, #FOP_RESIZE
+    mov  x4, #0
+    mov  x5, #0
+    SAVE_VM
+    bl   _file_op_call
+    RESTORE_VM
+    mov  x20, x0
+    NEXT
+
+// DELETE-FILE ( c-addr u -- ior )
+XDELETE_FILE:
+    mov  x2, x20                   // u
+    ldr  x5, [x22], #8             // c-addr
+    mov  x0, #FOP_DELETE
+    mov  x1, #0
+    mov  x3, #0
+    mov  x4, #0
+    SAVE_VM
+    bl   _file_op_call
+    RESTORE_VM
+    mov  x20, x0
+    NEXT
+
+// RENAME-FILE ( c-addr1 u1 c-addr2 u2 -- ior )
+XRENAME_FILE:
+    mov  x4, x20                   // u2 = d
+    ldr  x3, [x22], #8             // c-addr2 as integer ptr = c
+    ldr  x2, [x22], #8             // u1 = b
+    ldr  x5, [x22], #8             // c-addr1 = ptr
+    mov  x0, #FOP_RENAME
+    mov  x1, #0
+    SAVE_VM
+    bl   _file_op_call
+    RESTORE_VM
+    mov  x20, x0
+    NEXT
+
+// FILE-STATUS ( c-addr u -- x ior )
+XFILE_STATUS:
+    mov  x2, x20
+    ldr  x5, [x22], #8
+    mov  x0, #FOP_STATUS
+    mov  x1, #0
+    mov  x3, #0
+    mov  x4, #0
+    SAVE_VM
+    bl   _file_op_call
+    RESTORE_VM
+    str  x20, [x22, #-8]!
+    str  x6, [x22, #-8]!           // x
+    mov  x20, x0
+    NEXT
+
+// FLUSH-FILE ( fileid -- ior )
+XFLUSH_FILE:
+    mov  x1, x20
+    mov  x0, #FOP_FLUSH
+    mov  x2, #0
+    mov  x3, #0
+    mov  x4, #0
+    mov  x5, #0
+    SAVE_VM
+    bl   _file_op_call
+    RESTORE_VM
+    mov  x20, x0
     NEXT
 
 // MS ( u -- )  Facility: wait at least u milliseconds (yields via nanosleep).
@@ -8756,6 +9072,7 @@ emit_hook:      .quad 0            // void (*)(int c)
 key_hook:       .quad 0            // int (*)(void) — KEY (blocking)
 key_q_hook:     .quad 0            // int (*)(void) — KEY? (non-zero if ready)
 time_date_hook: .quad 0            // void (*)(int64_t out[6]) — TIME&DATE
+file_op_hook:   .quad 0            // file_op multiplex
 fromlib_hook:   .quad 0            // void (*)(void) — FROMLIB arm
 fromlib_clear_hook: .quad 0        // void (*)(void) — FROMLIB disarm (REQUIRE skip)
 end_include_hook: .quad 0          // void (*)(void) — file INCLUDE SOURCE ended (restore load cwd)

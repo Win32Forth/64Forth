@@ -28,6 +28,12 @@ void kernel_set_key_q(int (*fn)(void));
 /// TIME&DATE — fill out[6] with sec, min, hour, day, month, year (local time).
 void kernel_set_time_date(void (*fn)(int64_t out[6]));
 
+/// File-Access multiplexor. op codes in forth.s; returns ior (0 = ok).
+/// ptr is optional c-addr / buffer; o1/o2/o3 optional results.
+typedef long long (*kernel_file_op_fn)(long long op, long long a, long long b, long long c, long long d,
+                                       void *ptr, long long *o1, long long *o2, long long *o3);
+void kernel_set_file_op(kernel_file_op_fn fn);
+
 /// FROMLIB / FROM-LIBRARY — host arms Library resolve for next load/CHDIR.
 void kernel_set_fromlib(void (*fn)(void));
 

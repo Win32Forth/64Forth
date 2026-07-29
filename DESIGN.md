@@ -129,7 +129,9 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 | 3 | Block | RAM-backed `BLOCK`/`BUFFER`/`LOAD`/`LIST`… (not yet file volume / OPEN-BLOCK-FILE) |
 | 4 | Facility | `MS` = CODE `nanosleep`; `KEY`/`KEY?` host queue (eval off-main); `PAGE`/`AT-XY` ANSI; `TIME&DATE` host Calendar; `WARNING` variable |
 
-**Hayes driver:** `FROMLIB FLOAD HayesTest/HayesTest.fth` — 64Forth subset skips FP and File-Access/block-file suites when words are absent.
+**Hayes driver:** `FROMLIB FLOAD HayesTest/HayesTest.fth` — runs core/double/string/file/facility/search; skips FP and block-file when missing.
+
+**File-Access:** host `FileAccess` buffered table + kernel CODE words (`OPEN-FILE` … `FLUSH-FILE`). Relative paths use logical cwd; writes under the app bundle remap to `Application Support/64Forth/`.
 
 ## 4. FROMLIB semantics
 

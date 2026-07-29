@@ -43,6 +43,19 @@ private func kernel_set_time_date(
     _ fn: (@convention(c) (UnsafeMutablePointer<Int64>?) -> Void)?
 )
 
+/// File-Access multiplex: op + up to 4 int args + optional path/buffer pointer.
+/// Results in o1/o2/o3 (meaning depends on op). Returns ior (0 = ok).
+@_silgen_name("kernel_set_file_op")
+private func kernel_set_file_op(
+    _ fn: (@convention(c) (
+        Int64, Int64, Int64, Int64, Int64,
+        UnsafeMutableRawPointer?,
+        UnsafeMutablePointer<Int64>?,
+        UnsafeMutablePointer<Int64>?,
+        UnsafeMutablePointer<Int64>?
+    ) -> Int64)?
+)
+
 @_silgen_name("kernel_set_fromlib")
 private func kernel_set_fromlib(_ fn: (@convention(c) () -> Void)?)
 
@@ -153,6 +166,112 @@ private let kernelTimeDateTrampoline: @convention(c) (UnsafeMutablePointer<Int64
     out[3] = Int64(c.day ?? 1)
     out[4] = Int64(c.month ?? 1)
     out[5] = Int64(c.year ?? 1970)
+}
+
+/// File-Access op codes (must match forth.s XFILE_* helpers).
+private enum FileOp: Int64 {
+    case open = 1
+    case create = 2
+    case close = 3
+    case read = 4
+    case write = 5
+    case readLine = 6
+    case writeLine = 7
+    case position = 8
+    case size = 9
+    case repos = 10
+    case resize = 11
+    case delete = 12
+    case rename = 13
+    case status = 14
+    case flush = 15
+}
+
+private func forthString(ptr: UnsafeMutableRawPointer?, len: Int64) -> String {
+    guard let ptr, len > 0, len < 1_000_000 else { return "" }
+    let p = ptr.assumingMemoryBound(to: UInt8.self)
+    return String(bytes: UnsafeBufferPointer(start: p, count: Int(len)), encoding: .utf8)
+        ?? String(bytes: UnsafeBufferPointer(start: p, count: Int(len)), encoding: .isoLatin1)
+        ?? ""
+}
+
+private let kernelFileOpTrampoline: @convention(c) (
+    Int64, Int64, Int64, Int64, Int64,
+    UnsafeMutableRawPointer?,
+    UnsafeMutablePointer<Int64>?,
+    UnsafeMutablePointer<Int64>?,
+    UnsafeMutablePointer<Int64>?
+) -> Int64 = { op, a, b, c, d, ptr, o1, o2, o3 in
+    let fa = FileAccess.shared
+    switch FileOp(rawValue: op) {
+    case .open, .create:
+        // a=pathLen unused if ptr+b is used: ptr=c-addr, b=u, c=fam
+        let path = forthString(ptr: ptr, len: b)
+        let fam = c
+        let create = (op == FileOp.create.rawValue)
+        let (fid, ior) = fa.openFile(path: path, fam: fam, create: create)
+        o1?.pointee = fid
+        return ior
+    case .close:
+        return fa.closeFile(a)
+    case .read:
+        // a=fileid, b=u, ptr=c-addr → o1=u2
+        let n = Int(b)
+        let buf = ptr?.assumingMemoryBound(to: UInt8.self)
+        let (got, ior) = fa.readFile(fileid: a, buffer: buf, length: n)
+        o1?.pointee = got
+        return ior
+    case .write:
+        let n = Int(b)
+        let buf = ptr.map { UnsafePointer($0.assumingMemoryBound(to: UInt8.self)) }
+        return fa.writeFile(fileid: a, buffer: buf, length: n)
+    case .readLine:
+        let n = Int(b)
+        let buf = ptr?.assumingMemoryBound(to: UInt8.self)
+        let (u2, flag, ior) = fa.readLine(fileid: a, buffer: buf, maxLen: n)
+        o1?.pointee = u2
+        o2?.pointee = flag
+        return ior
+    case .writeLine:
+        let n = Int(b)
+        let buf = ptr.map { UnsafePointer($0.assumingMemoryBound(to: UInt8.self)) }
+        return fa.writeLine(fileid: a, buffer: buf, length: n)
+    case .position:
+        let (lo, hi, ior) = fa.filePosition(a)
+        o1?.pointee = lo
+        o2?.pointee = hi
+        return ior
+    case .size:
+        let (lo, hi, ior) = fa.fileSize(a)
+        o1?.pointee = lo
+        o2?.pointee = hi
+        return ior
+    case .repos:
+        // a=fileid, b=lo, c=hi
+        return fa.repositionFile(fileid: a, lo: b, hi: c)
+    case .resize:
+        return fa.resizeFile(fileid: a, lo: b, hi: c)
+    case .delete:
+        let path = forthString(ptr: ptr, len: b)
+        return fa.deleteFile(path: path)
+    case .rename:
+        // ptr = c-addr1, b=u1, a unused; need second path — use o3 as temp?
+        // Convention: ptr=path1, b=u1, and path2 at a as pointer? 
+        // Use: ptr=path1, b=u1, c=path2addr, d=u2
+        let p1 = forthString(ptr: ptr, len: b)
+        let p2addr = UInt(bitPattern: Int(c))
+        let p2 = forthString(ptr: UnsafeMutableRawPointer(bitPattern: p2addr), len: d)
+        return fa.renameFile(from: p1, to: p2)
+    case .status:
+        let path = forthString(ptr: ptr, len: b)
+        let (x, ior) = fa.fileStatus(path: path)
+        o1?.pointee = x
+        return ior
+    case .flush:
+        return fa.flushFile(a)
+    case .none:
+        return FileAccess.iorErr
+    }
 }
 
 private let kernelFromlibTrampoline: @convention(c) () -> Void = {
@@ -317,6 +436,7 @@ final class KernelBridge {
         kernel_set_key(kernelKeyTrampoline)
         kernel_set_key_q(kernelKeyQTrampoline)
         kernel_set_time_date(kernelTimeDateTrampoline)
+        kernel_set_file_op(kernelFileOpTrampoline)
         kernel_set_fromlib(kernelFromlibTrampoline)
         kernel_set_fromlib_clear(kernelFromlibClearTrampoline)
         kernel_set_end_include(kernelEndIncludeTrampoline)

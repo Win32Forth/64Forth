@@ -12,6 +12,7 @@
 		B1000003 /* ConsoleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000103 /* ConsoleView.swift */; };
 		B1000004 /* KernelBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000104 /* KernelBridge.swift */; };
 		B1000005 /* FileHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000105 /* FileHost.swift */; };
+		B1000012 /* FileAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000112 /* FileAccess.swift */; };
 		B1000006 /* forth.s in Sources */ = {isa = PBXBuildFile; fileRef = B1000106 /* forth.s */; };
 		B1000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000107 /* Assets.xcassets */; };
 		B1000008 /* AutoLoad in Resources */ = {isa = PBXBuildFile; fileRef = B1000108 /* AutoLoad */; };
@@ -29,6 +30,7 @@
 		B1000103 /* ConsoleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleView.swift; sourceTree = "<group>"; };
 		B1000104 /* KernelBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KernelBridge.swift; sourceTree = "<group>"; };
 		B1000105 /* FileHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileHost.swift; sourceTree = "<group>"; };
+		B1000112 /* FileAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileAccess.swift; sourceTree = "<group>"; };
 		B1000106 /* forth.s */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.asm; path = forth.s; sourceTree = "<group>"; };
 		B1000107 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B1000108 /* AutoLoad */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AutoLoad; sourceTree = "<group>"; };
@@ -95,6 +97,7 @@
 			children = (
 				B1000104 /* KernelBridge.swift */,
 				B1000105 /* FileHost.swift */,
+				B1000112 /* FileAccess.swift */,
 				B1000111 /* BigIntHost.swift */,
 			);
 			path = Host;
@@ -201,6 +204,7 @@
 				B1000010 /* ConsoleTextView.swift in Sources */,
 				B1000004 /* KernelBridge.swift in Sources */,
 				B1000005 /* FileHost.swift in Sources */,
+				B1000012 /* FileAccess.swift in Sources */,
 				B1000011 /* BigIntHost.swift in Sources */,
 				B1000006 /* forth.s in Sources */,
 			);

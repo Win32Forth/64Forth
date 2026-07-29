@@ -178,6 +178,25 @@ boot_word_table:
     BOOT_WORD "MS@", "MS@ ( -- u ) wall-clock milliseconds since epoch", 0, XMSFETCH
     BOOT_WORD "MS", "MS ( u -- ) wait at least u milliseconds (OS sleep; yields)", 0, XMS
     BOOT_WORD "TIME&DATE", "TIME&DATE ( -- sec min hour day month year ) local wall time", 0, XTIME_DATE
+    BOOT_WORD "R/O", "R/O ( -- fam ) read-only file access method", 0, XR_O
+    BOOT_WORD "W/O", "W/O ( -- fam ) write-only file access method", 0, XW_O
+    BOOT_WORD "R/W", "R/W ( -- fam ) read/write file access method", 0, XR_W
+    BOOT_WORD "BIN", "BIN ( fam1 -- fam2 ) add binary to file access method", 0, XBIN
+    BOOT_WORD "OPEN-FILE", "OPEN-FILE ( c-addr u fam -- fileid ior )", 0, XOPEN_FILE
+    BOOT_WORD "CREATE-FILE", "CREATE-FILE ( c-addr u fam -- fileid ior )", 0, XCREATE_FILE
+    BOOT_WORD "CLOSE-FILE", "CLOSE-FILE ( fileid -- ior )", 0, XCLOSE_FILE
+    BOOT_WORD "READ-FILE", "READ-FILE ( c-addr u1 fileid -- u2 ior )", 0, XREAD_FILE
+    BOOT_WORD "WRITE-FILE", "WRITE-FILE ( c-addr u fileid -- ior )", 0, XWRITE_FILE
+    BOOT_WORD "READ-LINE", "READ-LINE ( c-addr u1 fileid -- u2 flag ior )", 0, XREAD_LINE
+    BOOT_WORD "WRITE-LINE", "WRITE-LINE ( c-addr u fileid -- ior )", 0, XWRITE_LINE
+    BOOT_WORD "FILE-POSITION", "FILE-POSITION ( fileid -- ud ior )", 0, XFILE_POSITION
+    BOOT_WORD "FILE-SIZE", "FILE-SIZE ( fileid -- ud ior )", 0, XFILE_SIZE
+    BOOT_WORD "REPOSITION-FILE", "REPOSITION-FILE ( ud fileid -- ior )", 0, XREPOSITION_FILE
+    BOOT_WORD "RESIZE-FILE", "RESIZE-FILE ( ud fileid -- ior )", 0, XRESIZE_FILE
+    BOOT_WORD "DELETE-FILE", "DELETE-FILE ( c-addr u -- ior )", 0, XDELETE_FILE
+    BOOT_WORD "RENAME-FILE", "RENAME-FILE ( c-addr1 u1 c-addr2 u2 -- ior )", 0, XRENAME_FILE
+    BOOT_WORD "FILE-STATUS", "FILE-STATUS ( c-addr u -- x ior )", 0, XFILE_STATUS
+    BOOT_WORD "FLUSH-FILE", "FLUSH-FILE ( fileid -- ior )", 0, XFLUSH_FILE
     BOOT_WORD "UNUSED", "UNUSED ( -- u ) bytes remaining in dictionary (HERE to dictionary limit)", 0, XUNUSED
     BOOT_WORD "REDEF-WARNING", "REDEF-WARNING ( -- addr ) variable; nonzero warns on redefine", 0, XREDEF_WARNING
     BOOT_WORD "USER-DICT", "USER-DICT ( -- addr ) base of user dictionary", 0, XUSER_DICT

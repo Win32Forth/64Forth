@@ -30,13 +30,7 @@ VARIABLE cerrors  0 #ERRORS ! fload src/coreexttest.fth .( #ERRORS @ = ) #ERRORS
 VARIABLE derrors  0 #ERRORS ! fload src/doubletest.fth .( #ERRORS @ = ) #ERRORS @  derrors !
 VARIABLE eerrors  0 #ERRORS ! fload src/exceptiontest.fth .( #ERRORS @ = ) #ERRORS @  eerrors !
 
-\ File-Access suite needs OPEN-FILE etc. — skip cleanly if missing
-[UNDEFINED] OPEN-FILE [IF]
-  VARIABLE ferrors  0 ferrors !
-  .( filetest: skipped (no File-Access word set) ) CR
-[ELSE]
-  VARIABLE ferrors  0 #ERRORS ! fload src/filetest.fth .( #ERRORS @ = ) #ERRORS @  ferrors !
-[THEN]
+VARIABLE ferrors  0 #ERRORS ! fload src/filetest.fth .( #ERRORS @ = ) #ERRORS @  ferrors !
 
 VARIABLE lerrors  0 #ERRORS ! fload src/localstest.fth .( #ERRORS @ = ) #ERRORS @  lerrors !
 VARIABLE merrors  0 #ERRORS ! fload src/memorytest.fth .( #ERRORS @ = ) #ERRORS @  merrors !
