@@ -1,0 +1,14 @@
+# ANS-VALIDATE modular suite (CLI harness + app FROMLIB path)
+# Last green: 2026-07-29
+#
+# Run:  FROMLIB FLOAD ANSValidate/ANS-VALIDATE.fth
+#
+# ANS-VALIDATE: 351 passed, 0 failed.
+# ALL PASS
+# === ANS-VALIDATE driver done ===
+#
+# Modules: tester, core, core-ext, search, string, facility (+ Facility Ext),
+# exception, memory, double, locals, tools, file, block (LOAD/BLK restore),
+# xchar, float (Tier A/B spot-checks).
+#
+# Not a formal ANS certificate. Prefer HayesTest for stock forth2012 coverage.

@@ -1,8 +1,18 @@
 # 64Forth — LLDB: do not stop on memory faults from the Forth kernel.
-# The kernel installs SIGSEGV/SIGBUS handlers that siglongjmp back to the REPL
-# (same idea as TZForth soft throws). Without this, Xcode stops in the debugger
-# on EXC_BAD_ACCESS before the Unix signal is delivered to the process.
+# The kernel installs SIGSEGV/SIGBUS handlers that siglongjmp back to the REPL.
+# Without this, Xcode stops on EXC_BAD_ACCESS *before* the Unix signal is
+# delivered — so you see "Exception at forth.s:1555", no console output
+# (emit buffer never flushes), and soft recovery never runs.
 #
-# Wired via the 64Forth shared scheme: customLLDBInitFile.
+# Wired via the 64Forth scheme: customLLDBInitFile = $(SRCROOT)/.lldbinit-64forth
+#
+# Also: in Xcode Breakpoint navigator, disable any "Exception" breakpoint
+# (All Exceptions / C++ / Objective-C) if stops persist. Then Continue (⌃⌘Y)
+# once so the signal can reach the process, or run the .app from Finder
+# (no debugger) for clean soft faults.
+
 process handle SIGSEGV -n true -p true -s false
 process handle SIGBUS  -n true -p true -s false
+
+# Prefer not stopping the process on these; pass to the inferior.
+settings set target.process.thread.step-in-avoid-nodebug true

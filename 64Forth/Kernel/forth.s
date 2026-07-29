@@ -35,7 +35,7 @@
 // Cell size: 64-bit (8 bytes). Flags: true = -1, false = 0.
 //
 // CORE (6.1) — word names: complete (all required Core names are present).
-// ENVIRONMENT? answers CORE true, CORE-EXT true, FLOORED false.
+// ENVIRONMENT? answers CORE/CORE-EXT true (value+true), FLOORED false (value+true).
 // Input number syntax (3.4.1 / Hayes coreplustest): base prefixes # $ % with
 // optional sign after the prefix (#-1289, $-12eF, %-10010110); 'c' character
 // literals ('z', '''). This is not a formal ANS certificate — run Hayes for
@@ -108,7 +108,8 @@
 //   Control-flow stack = data stack (1 cell/item); CS-PICK/ROLL ≡ PICK/ROLL.
 //   Name token nt = CFA (same as xt); NAME>STRING via NFA = CFA - NFA_OFF.
 //
-// ENVIRONMENT? returns CORE-EXT true (names present; not a formal ANS certificate).
+// ENVIRONMENT? returns CORE-EXT true (value+true; names present; not a formal certificate).
+// Extended-Character: UTF-8 XC!+/XC@+/XEMIT + high-level width/string/pictured words.
 //
 // ----------------------------------------------------------------------------
 // PickleForth extensions (not ANS Core / Core Ext)
@@ -292,6 +293,14 @@ _kernel_cold_common:
 _kernel_set_emit:
     adrp x1, emit_hook@page
     add  x1, x1, emit_hook@pageoff
+    str  x0, [x1]
+    ret
+
+// void kernel_set_emit_buf(void (*fn)(const char *buf, size_t n))
+.globl _kernel_set_emit_buf
+_kernel_set_emit_buf:
+    adrp x1, emit_buf_hook@page
+    add  x1, x1, emit_buf_hook@pageoff
     str  x0, [x1]
     ret
 
@@ -1269,10 +1278,10 @@ XNIP:
     ldr x0, [x22], #8
     NEXT
 
+// TUCK ( x1 x2 -- x2 x1 x2 )  copy TOS under second
+// Was broken: overwrote the new under cell with x1 → (x1 x1 x2).
 XTUCK:
-    ldr x0, [x22]
-    str x20, [x22, #-8]!
-    str x0, [x22]
+    str x20, [x22, #-8]!           // push TOS under; stack becomes x2, x1, x2
     NEXT
 
 XPICK:
@@ -1594,12 +1603,27 @@ XEMIT:
     RESTORE_VM
     NEXT
 
+// KEY ( -- char )  Core: next character. Skips Facility function-key events
+// (tag 2 << 24) so ACCEPT / KEY loops do not see arrow/F-key codes. Character
+// events (tag 1 << 24) are reduced to the code point in the low bits.
 XKEY:
+1:
     SAVE_VM
-    bl _getchar
-    // char in x0; restore VM then push
+    bl   _getchar
     RESTORE_VM
-    DPUSH               // also does mov x20, x0
+    // Function-key event (2<<24): skip for KEY, leave for EKEY consumers
+    mov  x1, x0
+    lsr  x2, x1, #24
+    and  x2, x2, #0xFF
+    cmp  x2, #2
+    b.eq 1b
+    // Character event (1<<24): low 21 bits are the code point
+    cmp  x2, #1
+    b.ne 2f
+    mov  x3, #0x1FFFFF
+    and  x0, x1, x3
+2:
+    DPUSH
     NEXT
 
 // KEY? ( -- flag )  true if a character is available (does not read it)
@@ -1618,6 +1642,19 @@ XKEYQ:
     str  x20, [x22, #-8]!
     cmp  x0, #0
     csetm x20, ne                  // Forth true = -1
+    NEXT
+
+// EKEY ( -- u )  Facility: next key event (implementation-defined encoding).
+// Same host KEY hook as KEY, but does not strip tags or skip function-key events.
+// Encoding (TZForth-compatible):
+//   plain 0..255           character (KEY-compatible)
+//   (1<<24)|cp             character event (EKEY>CHAR)
+//   (2<<24)|k-id           function-key event (EKEY>FKEY / K-*)
+XEKEY:
+    SAVE_VM
+    bl   _getchar
+    RESTORE_VM
+    DPUSH
     NEXT
 
 XCR:
@@ -1677,6 +1714,190 @@ XTYPE:
     bl _write_stdout
     RESTORE_VM
 _type_done:
+    NEXT
+
+// XC!+ ( xchar xc-addr1 -- xc-addr2 )  UTF-8 store + advance (ANS 18.6.1)
+// CODE so multi-byte encoding cannot be broken by high-level stack mistakes.
+XXC_STORE_PLUS:
+    mov  x0, x20                   // addr
+    ldr  x1, [x22], #8             // xchar
+    // clamp to Unicode range (0x10FFFF)
+    movz x2, #0xFFFF
+    movk x2, #0x10, lsl #16
+    cmp  x1, x2
+    csel x1, x2, x1, hi
+    cmp  x1, #0x7F
+    b.ls _xcsp_1
+    cmp  x1, #0x7FF
+    b.ls _xcsp_2
+    movz x2, #0xFFFF
+    cmp  x1, x2
+    b.ls _xcsp_3
+    // 4-byte: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+    lsr  x2, x1, #18
+    orr  w2, w2, #0xF0
+    strb w2, [x0], #1
+    lsr  x2, x1, #12
+    and  w2, w2, #0x3F
+    orr  w2, w2, #0x80
+    strb w2, [x0], #1
+    lsr  x2, x1, #6
+    and  w2, w2, #0x3F
+    orr  w2, w2, #0x80
+    strb w2, [x0], #1
+    and  w2, w1, #0x3F
+    orr  w2, w2, #0x80
+    strb w2, [x0], #1
+    mov  x20, x0
+    NEXT
+_xcsp_3:
+    // 3-byte: 1110xxxx 10xxxxxx 10xxxxxx
+    lsr  x2, x1, #12
+    orr  w2, w2, #0xE0
+    strb w2, [x0], #1
+    lsr  x2, x1, #6
+    and  w2, w2, #0x3F
+    orr  w2, w2, #0x80
+    strb w2, [x0], #1
+    and  w2, w1, #0x3F
+    orr  w2, w2, #0x80
+    strb w2, [x0], #1
+    mov  x20, x0
+    NEXT
+_xcsp_2:
+    // 2-byte: 110xxxxx 10xxxxxx
+    lsr  x2, x1, #6
+    orr  w2, w2, #0xC0
+    strb w2, [x0], #1
+    and  w2, w1, #0x3F
+    orr  w2, w2, #0x80
+    strb w2, [x0], #1
+    mov  x20, x0
+    NEXT
+_xcsp_1:
+    strb w1, [x0], #1
+    mov  x20, x0
+    NEXT
+
+// XC@+ ( xc-addr1 -- xc-addr2 xchar )  UTF-8 fetch + advance
+XXC_FETCH_PLUS:
+    mov  x0, x20                   // addr
+    ldrb w1, [x0], #1              // lead; addr++
+    cmp  w1, #0x80
+    b.lo _xcfp_1                   // ASCII
+    cmp  w1, #0xE0
+    b.lo _xcfp_2
+    cmp  w1, #0xF0
+    b.lo _xcfp_3
+    // 4-byte: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+    and  w2, w1, #0x07
+    ldrb w3, [x0], #1
+    and  w3, w3, #0x3F
+    lsl  w2, w2, #6
+    orr  w2, w2, w3
+    ldrb w3, [x0], #1
+    and  w3, w3, #0x3F
+    lsl  w2, w2, #6
+    orr  w2, w2, w3
+    ldrb w3, [x0], #1
+    and  w3, w3, #0x3F
+    lsl  w2, w2, #6
+    orr  w2, w2, w3
+    str  x0, [x22, #-8]!           // addr2 under
+    mov  x20, x2                   // xchar TOS
+    NEXT
+_xcfp_3:
+    // 3-byte
+    and  w2, w1, #0x0F
+    ldrb w3, [x0], #1
+    and  w3, w3, #0x3F
+    lsl  w2, w2, #6
+    orr  w2, w2, w3
+    ldrb w3, [x0], #1
+    and  w3, w3, #0x3F
+    lsl  w2, w2, #6
+    orr  w2, w2, w3
+    str  x0, [x22, #-8]!
+    mov  x20, x2
+    NEXT
+_xcfp_2:
+    // 2-byte
+    and  w2, w1, #0x1F
+    ldrb w3, [x0], #1
+    and  w3, w3, #0x3F
+    lsl  w2, w2, #6
+    orr  w2, w2, w3
+    str  x0, [x22, #-8]!
+    mov  x20, x2
+    NEXT
+_xcfp_1:
+    str  x0, [x22, #-8]!           // addr+1 under
+    mov  x20, x1                   // xchar = lead
+    NEXT
+
+// XEMIT ( xchar -- ) encode UTF-8 into a temp and TYPE via bulk emit
+XXCHAR_EMIT:
+    // encode into xchar_emit_buf (4 bytes max)
+    mov  x1, x20                   // xchar
+    ldr  x20, [x22], #8
+    movz x2, #0xFFFF
+    movk x2, #0x10, lsl #16
+    cmp  x1, x2
+    csel x1, x2, x1, hi
+    adrp x0, xchar_emit_buf@page
+    add  x0, x0, xchar_emit_buf@pageoff
+    mov  x3, x0                    // start
+    cmp  x1, #0x7F
+    b.ls 1f
+    cmp  x1, #0x7FF
+    b.ls 2f
+    movz x4, #0xFFFF
+    cmp  x1, x4
+    b.ls 3f
+    // 4-byte
+    lsr  x4, x1, #18
+    orr  w4, w4, #0xF0
+    strb w4, [x0], #1
+    lsr  x4, x1, #12
+    and  w4, w4, #0x3F
+    orr  w4, w4, #0x80
+    strb w4, [x0], #1
+    lsr  x4, x1, #6
+    and  w4, w4, #0x3F
+    orr  w4, w4, #0x80
+    strb w4, [x0], #1
+    and  w4, w1, #0x3F
+    orr  w4, w4, #0x80
+    strb w4, [x0], #1
+    b    9f
+3:  // 3-byte
+    lsr  x4, x1, #12
+    orr  w4, w4, #0xE0
+    strb w4, [x0], #1
+    lsr  x4, x1, #6
+    and  w4, w4, #0x3F
+    orr  w4, w4, #0x80
+    strb w4, [x0], #1
+    and  w4, w1, #0x3F
+    orr  w4, w4, #0x80
+    strb w4, [x0], #1
+    b    9f
+2:  // 2-byte
+    lsr  x4, x1, #6
+    orr  w4, w4, #0xC0
+    strb w4, [x0], #1
+    and  w4, w1, #0x3F
+    orr  w4, w4, #0x80
+    strb w4, [x0], #1
+    b    9f
+1:  // 1-byte
+    strb w1, [x0], #1
+9:
+    sub  x1, x0, x3                // len
+    mov  x0, x3                    // buf
+    SAVE_VM
+    bl   _write_stdout
+    RESTORE_VM
     NEXT
 
 // ============================================================================
@@ -1814,15 +2035,16 @@ _swl_loop:
 _swl_cmp:
     cmp  x5, x8
     b.hs _swl_match
-    ldrb w6, [x4, x5]
-    ldrb w7, [x7, x5]
-    cmp  w7, #'a'
+    ldrb w6, [x4, x5]              // dict name byte
+    // Do NOT use w7 for the query byte — x7 holds c-addr for the whole compare.
+    ldrb w10, [x7, x5]             // query byte
+    cmp  w10, #'a'
     b.lo 1f
-    cmp  w7, #'z'
+    cmp  w10, #'z'
     b.hi 1f
-    sub  w7, w7, #32
+    sub  w10, w10, #32
 1:
-    cmp  w6, w7
+    cmp  w6, w10
     b.ne _swl_next
     add  x5, x5, #1
     b    _swl_cmp
@@ -3724,6 +3946,64 @@ XLOCAL_STORE:
 1:
     NEXT
 
+// (LOCAL) ( c-addr u -- )  ANS 13.6.1.0086 — compile-time only
+// u <> 0: declare a local named by c-addr u (first named gets TOS at run-time).
+// u = 0:  "last local" — compile (LOCAL-INIT) for the sequence.
+// Init order is reverse=0 (first declared ← TOS), unlike {: which uses reverse=1.
+XLOCAL_PAREN:
+    // compile-only
+    adrp x0, state_var@page
+    add  x0, x0, state_var@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 9f                    // interpret: no-op (undefined by ANS)
+    mov  x1, x20                   // u
+    ldr  x0, [x22], #8             // c-addr
+    ldr  x20, [x22], #8
+    cbz  x1, _lparen_last
+    // starting a new sequence?
+    adrp x2, local_declaring@page
+    add  x2, x2, local_declaring@pageoff
+    ldr  x3, [x2]
+    cbnz x3, 1f
+    // first name of sequence: reset tables; reverse=0 for (LOCAL)/LOCALS|
+    stp  x0, x1, [sp, #-16]!
+    bl   _local_compile_reset
+    ldp  x0, x1, [sp], #16
+    adrp x3, local_init_reverse@page
+    add  x3, x3, local_init_reverse@pageoff
+    str  xzr, [x3]                 // reverse = 0
+    mov  x3, #1
+    adrp x2, local_declaring@page
+    add  x2, x2, local_declaring@pageoff
+    str  x3, [x2]
+1:
+    // add name and count as initialized
+    bl   _local_add_name           // uses x0=addr x1=len
+    adrp x2, local_init_count@page
+    add  x2, x2, local_init_count@pageoff
+    ldr  x3, [x2]
+    add  x3, x3, #1
+    str  x3, [x2]
+    b    9f
+_lparen_last:
+    // last-local message: finalize even if zero names
+    adrp x2, local_declaring@page
+    add  x2, x2, local_declaring@pageoff
+    ldr  x3, [x2]
+    cbnz x3, 2f
+    // no prior names: empty frame
+    bl   _local_compile_reset
+    adrp x3, local_init_reverse@page
+    add  x3, x3, local_init_reverse@pageoff
+    str  xzr, [x3]
+2:
+    bl   _local_finalize_compile
+    adrp x2, local_declaring@page
+    add  x2, x2, local_declaring@pageoff
+    str  xzr, [x2]                 // sequence complete; names remain for lookup
+9:
+    NEXT
+
 // {:  immediate — parse args | vals -- outs :} then compile (LOCAL-INIT)
 // MUST NOT clobber x19 (IP) / x20-x24 (VM). Phase lives in local_brace_phase.
 XLOCAL_BRACE:
@@ -3733,6 +4013,10 @@ XLOCAL_BRACE:
     ldr  x0, [x0]
     cbz  x0, 9f
     bl   _local_compile_reset
+    // not in (LOCAL) sequence
+    adrp x0, local_declaring@page
+    add  x0, x0, local_declaring@pageoff
+    str  xzr, [x0]
     // reverse init for {:
     mov  x0, #1
     adrp x1, local_init_reverse@page
@@ -3866,6 +4150,7 @@ XTO_IMM:
     adrp x3, data_stack@page
     add  x3, x3, data_stack@pageoff
     add  x3, x3, #4096             // SP0 empty
+    mov  x4, x3                    // keep SP0
     sub  x3, x3, x22
     lsr  x3, x3, #3                // #cells under TOS
     add  x3, x3, #1                // + TOS
@@ -3875,12 +4160,20 @@ XTO_IMM:
     str  x20, [x0, #8]             // hi
     ldr  x1, [x22], #8             // lo
     str  x1, [x0]
+    // pop new TOS if under remains; else empty (DSP at SP0)
+    cmp  x22, x4
+    b.hs 4f
     ldr  x20, [x22], #8
     b    9f
 3:
-    // VALUE: single cell
+    // VALUE: single cell ( x -- )
     str  x20, [x0]
+    cmp  x22, x4
+    b.hs 4f                        // no under — leave empty stack
     ldr  x20, [x22], #8
+    b    9f
+4:
+    mov  x20, #0                   // empty: TOS placeholder; DSP already SP0
 9:
     NEXT
 
@@ -3896,6 +4189,9 @@ _local_compile_reset:
     str  xzr, [x0]
     adrp x0, local_init_reverse@page
     add  x0, x0, local_init_reverse@pageoff
+    str  xzr, [x0]
+    adrp x0, local_declaring@page
+    add  x0, x0, local_declaring@pageoff
     str  xzr, [x0]
     ret
 
@@ -6169,6 +6465,7 @@ _cont_no:
     NEXT
 
 // EVALUATE ( c-addr u -- )  nest SOURCE and interpret the string
+// Saves BLK in the source frame (see _push_source); does not change BLK.
 XEVALUATE:
     mov x1, x20                    // u
     ldr x0, [x22], #8              // c-addr
@@ -6183,6 +6480,33 @@ XEVALUATE:
     mov x1, #-1
     str x1, [x0]
     b _interpret_loop
+
+// (LOAD-ENTER) ( u -- u )
+// Nested LOAD helper: push SOURCE frame (saves outer BLK), then set BLK = u.
+// Must run before BLOCK so the outer BLK is what _pop_source restores.
+XLOAD_ENTER:
+    stp x20, x30, [sp, #-16]!
+    bl  _push_source
+    ldp x20, x30, [sp], #16
+    adrp x0, blk_var@page
+    add  x0, x0, blk_var@pageoff
+    str  x20, [x0]                 // BLK = u
+    NEXT
+
+// (LOAD-RUN) ( c-addr u -- )
+// Install block buffer as SOURCE (SOURCE-ID -1) and interpret it.
+// When SOURCE ends, _pop_source restores outer SOURCE and BLK.
+// Like EVALUATE: does not return into the colon definition that called it.
+XLOAD_RUN:
+    mov  x1, x20                   // u
+    ldr  x0, [x22], #8             // c-addr
+    ldr  x20, [x22], #8
+    bl   _set_source
+    adrp x0, source_id_var@page
+    add  x0, x0, source_id_var@pageoff
+    mov  x1, #-1
+    str  x1, [x0]
+    b    _interpret_loop
 
 // CATCH ( i*x xt -- j*x 0 | i*x n )
 // R-stack frame (top first): saved_IP, saved_DSP, saved_TOS, prev_handler
@@ -6790,10 +7114,13 @@ _tn_done:
     NEXT
 
 // ENVIRONMENT? ( c-addr u -- false | i*x true )  ANS
-// Recognized queries (minimal Core set + a few useful ones):
-//   /COUNTED-STRING  ADDRESS-UNIT-BITS  CORE  CORE-EXT  FLOORED
-//   MAX-CHAR  MAX-N  MAX-U  RETURN-STACK-CELLS  STACK-CELLS
-//   FLOATING  FLOAT-EXT  FLOATING-STACK  MAX-FLOAT
+// See env_* tables (ENV_COUNT). Kinds:
+//   0 = flag only (legacy; prefer kind 1 for word-set booleans)
+//   1 = value then true   (ttester double-[IF] idiom)
+//   2 = c-addr u then true (asciz string value)
+// Honesty: answers mean "names/features present in this build", not a formal
+// ANS System certificate. CORE/CORE-EXT/FLOORED use kind 1 (value+true).
+.equ ENV_COUNT, 31
 XENVIRONMENT_Q:
     mov x1, x20                    // u
     ldr x0, [x22], #8              // c-addr
@@ -6802,7 +7129,7 @@ XENVIRONMENT_Q:
 _env_next:
     // load name pointer and length from table: each entry is .quad ptr, .quad len, then next
     // Simpler: fixed table of asciz names, parallel values
-    cmp x4, #14                    // ENV_COUNT
+    cmp x4, #ENV_COUNT
     b.hs _env_no
     // name at env_name_ptrs[x4]
     adrp x5, env_name_ptrs@page
@@ -6833,7 +7160,10 @@ _env_cont:
     add x4, x4, #1
     b _env_next
 _env_yes:
-    // value kind in env_kinds[x4]: 0 = flag true only, 1 = single cell then true
+    // value kind in env_kinds[x4]:
+    //   0 = flag only (true/false)
+    //   1 = single cell then true
+    //   2 = c-addr u then true (value = asciz string pointer)
     adrp x5, env_kinds@page
     add x5, x5, env_kinds@pageoff
     ldrb w5, [x5, x4]
@@ -6841,9 +7171,24 @@ _env_yes:
     add x6, x6, env_values@pageoff
     ldr x6, [x6, x4, lsl #3]
     cbz w5, _env_flag_only
-    // push value, then true
+    cmp w5, #2
+    b.eq _env_string
+    // kind 1: push value, then true
     str x6, [x22, #-8]!
     mov x20, #-1
+    NEXT
+_env_string:
+    // kind 2: push c-addr, u, true  (x6 = asciz ptr)
+    mov x0, #0
+1:
+    ldrb w1, [x6, x0]
+    cbz w1, 2f
+    add x0, x0, #1
+    b 1b
+2:
+    str x6, [x22, #-8]!           // c-addr under
+    str x0, [x22, #-8]!           // u under TOS
+    mov x20, #-1                   // true
     NEXT
 _env_flag_only:
     // boolean query: value is the flag (-1 present / 0 absent)
@@ -7753,8 +8098,10 @@ _interpret_loop:
     str x1, [x23, #-8]!    // push word len
 
     // Dictionary before number/float so defined words such as fconstant -0 / +0
-    // are not stolen by integer parse of -0 → 0 (Hayes ieee-arith / signed zero).
-    // Order: FIND (and compile-time locals) → charlit → number → float → undefined.
+    // are not stolen by integer parse of -0 → 0 (Hayes ieee-arith / signed zero),
+    // and so names starting with # $ % (e.g. #PASS, #LOCALS) are found as words
+    // before optional base-prefix number conversion.
+    // Order: locals → FIND → number → charlit → float → undefined.
     b    _try_find
 
 _compile_lit:
@@ -7879,6 +8226,17 @@ _try_float_fail:
     b    _undefined_word
 
 // Dictionary / locals first (name still on rstack: [len, addr]).
+//
+// Interpret order (ANS-compatible for named words that look like numbers):
+//   1) compile-time locals
+//   2) FIND in search order   ← entire token, including names that start with
+//      # $ % (e.g. #PASS, #LOCALS). Never strip a base prefix before FIND.
+//   3) only if FIND misses: number (optional #/$/% prefix), 'c', float
+//   4) undefined
+//
+// So VARIABLE #PASS / ENVIRONMENT queries as words are not stolen by decimal
+// base-prefix parsing. A FIND miss on "#PASS" still fails as a number (non-digit
+// after #) and becomes undefined — it does not become a numeric value.
 _try_find:
     ldr  x1, [x23]                 // len (peek)
     ldr  x0, [x23, #8]             // addr (peek)
@@ -7910,7 +8268,7 @@ _try_find:
 2:
     ldp  x0, x1, [sp], #16
 1:
-    bl   _find_word
+    bl   _find_word                // full token; #/$/% names OK if defined
     cbz  x0, _try_number_after_find
 
     // Found: drop saved name
@@ -7949,7 +8307,7 @@ _compile_entry:
     bl   _compile_cell
     b    _interpret_loop
 
-// Not in dictionary: try number → charlit → float → undefined
+// FIND missed — only then try number (with optional #/$/% base prefix).
 _try_number_after_find:
     ldr  x1, [x23]                 // len
     ldr  x0, [x23, #8]             // addr
@@ -8248,8 +8606,10 @@ _fe_done:
     ldp x29, x30, [sp], #16
     ret
 
-// _push_source: save current SOURCE/>IN/SOURCE-ID/file_echo_pos on source_stack.
-// Frame = 5 quads (addr, len, >IN, source-id, file_echo_pos). Clobbers x0-x3.
+// _push_source: save current SOURCE/>IN/SOURCE-ID/file_echo_pos/BLK on source_stack.
+// Frame = 6 quads (addr, len, >IN, source-id, file_echo_pos, BLK). Clobbers x0-x3.
+// BLK is saved so LOAD can set BLK after the push and have it restored when the
+// nested EVALUATE/LOAD source ends (EVALUATE does not return into colon defs).
 // Returns x0=1 ok, x0=0 overflow.
 _push_source:
     adrp x0, source_sp@page
@@ -8257,12 +8617,12 @@ _push_source:
     ldr x1, [x0]
     cmp x1, #8
     b.hs 1f
-    mov x2, #40                    // 5*8 per frame
+    mov x2, #48                    // 6*8 per frame
     mul x3, x1, x2
     adrp x2, source_stack@page
     add x2, x2, source_stack@pageoff
     add x2, x2, x3
-    // store addr, len, to_in, source_id, file_echo_pos
+    // store addr, len, to_in, source_id, file_echo_pos, BLK
     adrp x3, source_addr@page
     add x3, x3, source_addr@pageoff
     ldr x3, [x3]
@@ -8282,6 +8642,10 @@ _push_source:
     adrp x3, file_echo_pos@page
     add x3, x3, file_echo_pos@pageoff
     ldr x3, [x3]
+    str x3, [x2], #8
+    adrp x3, blk_var@page
+    add x3, x3, blk_var@pageoff
+    ldr x3, [x3]
     str x3, [x2]
     add x1, x1, #1
     str x1, [x0]
@@ -8291,7 +8655,7 @@ _push_source:
     mov x0, #0
     ret
 
-// _pop_source: restore SOURCE/>IN/SOURCE-ID/file_echo_pos. x0=1 ok, x0=0 underflow.
+// _pop_source: restore SOURCE/>IN/SOURCE-ID/file_echo_pos/BLK. x0=1 ok, x0=0 underflow.
 _pop_source:
     adrp x0, source_sp@page
     add x0, x0, source_sp@pageoff
@@ -8299,7 +8663,7 @@ _pop_source:
     cbz x1, 1f
     sub x1, x1, #1
     str x1, [x0]
-    mov x2, #40
+    mov x2, #48
     mul x3, x1, x2
     adrp x2, source_stack@page
     add x2, x2, source_stack@pageoff
@@ -8325,9 +8689,13 @@ _pop_source:
     adrp x0, source_id_var@page
     add x0, x0, source_id_var@pageoff
     str x3, [x0]
-    ldr x3, [x2]
+    ldr x3, [x2], #8
     adrp x0, file_echo_pos@page
     add x0, x0, file_echo_pos@pageoff
+    str x3, [x0]
+    ldr x3, [x2]
+    adrp x0, blk_var@page
+    add x0, x0, blk_var@pageoff
     str x3, [x0]
     mov x0, #1
     ret
@@ -8427,12 +8795,25 @@ _emit_memfault_msg:
     ldp x29, x30, [sp], #16
     ret
 
-// _write_stdout: x0 = buf, x1 = len  (routes through emit_hook when set)
+// _write_stdout: x0 = buf, x1 = len  (routes through emit hooks when set)
+// Prefer emit_buf_hook for a single UTF-8 chunk (XEMIT/TYPE); else per-byte emit_hook.
 _write_stdout:
     stp x29, x30, [sp, #-32]!
     stp x19, x20, [sp, #16]
     mov x19, x0                    // buf
     mov x20, x1                    // len
+    // Bulk UTF-8 path (host decodes whole buffer at once)
+    adrp x0, emit_buf_hook@page
+    add  x0, x0, emit_buf_hook@pageoff
+    ldr  x0, [x0]
+    cbz  x0, _ws_try_byte
+    cbz  x20, _ws_done
+    mov  x1, x20                   // n
+    mov  x2, x0                    // keep hook
+    mov  x0, x19                   // buf
+    blr  x2
+    b    _ws_done
+_ws_try_byte:
     adrp x0, emit_hook@page
     add  x0, x0, emit_hook@pageoff
     ldr  x0, [x0]
@@ -9840,13 +10221,14 @@ repl_batch_stop: .quad 0           // set by \S on SOURCE-ID 0; host takes via k
 pad_buffer:     .skip 256
 hold_ptr:       .quad 0
 // Nested SOURCE stack: 8 frames * 5 quads (addr, len, >IN, source-id, file_echo_pos)
-source_stack:   .skip 320
+source_stack:   .skip 384          // 8 frames * 48 bytes (addr,len,>IN,id,echo,BLK)
 source_sp:      .quad 0
 source_id_var:  .quad 0
 throw_handler:  .quad 0
 
-// ENVIRONMENT? tables (name ptrs, value cells, kinds: 0=flag only, 1=value+true)
-.equ ENV_COUNT, 14
+// ENVIRONMENT? tables (name ptrs, value cells, kinds: 0=flag, 1=value+true, 2=string+true)
+// Word-set booleans use kind 1 (value then true) for ttester ENVIRONMENT? [IF] [IF] …
+// ENV_COUNT is .equ'd next to XENVIRONMENT_Q (must match row counts below).
 .align 8
 env_name_ptrs:
     .quad env_n_counted
@@ -9863,26 +10245,60 @@ env_name_ptrs:
     .quad env_n_float_ext
     .quad env_n_floating_stack
     .quad env_n_max_float
+    .quad env_n_string
+    .quad env_n_facility
+    .quad env_n_facility_ext
+    .quad env_n_locals
+    .quad env_n_nlocals
+    .quad env_n_xchar
+    .quad env_n_xchar_enc
+    .quad env_n_max_xchar
+    .quad env_n_xchar_maxmem
+    .quad env_n_double
+    .quad env_n_exception
+    .quad env_n_mem
+    .quad env_n_search
+    .quad env_n_wordlists
+    .quad env_n_block
+    .quad env_n_file
+    .quad env_n_file_ext
 env_values:
     .quad 255                      // /COUNTED-STRING
     .quad 8                        // ADDRESS-UNIT-BITS
-    .quad -1                       // CORE (flag)
-    .quad -1                       // CORE-EXT (true — names present)
-    .quad 0                        // FLOORED (false — we use symmetric /)
+    .quad -1                       // CORE (names present)
+    .quad -1                       // CORE-EXT (names present)
+    .quad 0                        // FLOORED (false — symmetric /)
     .quad 255                      // MAX-CHAR
     .quad 0x7FFFFFFFFFFFFFFF       // MAX-N
     .quad 0xFFFFFFFFFFFFFFFF       // MAX-U
     .quad 256                      // RETURN-STACK-CELLS (2048/8)
     .quad 512                      // STACK-CELLS (4096/8)
-    // FLOATING / FLOAT-EXT: value TRUE then present TRUE (ttester double-[IF] idiom).
-    // Kind 0 (flag-only) left only TRUE and broke: ENVIRONMENT? [IF] [IF] TRUE …
-    .quad -1                       // FLOATING value
-    .quad -1                       // FLOAT-EXT value
+    .quad -1                       // FLOATING
+    .quad -1                       // FLOAT-EXT
     .quad 16                       // FLOATING-STACK depth
     .quad 0x7FEFFFFFFFFFFFFF       // MAX-FLOAT (approx max finite double bits as cell)
+    .quad -1                       // STRING
+    .quad -1                       // FACILITY
+    .quad -1                       // FACILITY-EXT (structures + EKEY>FKEY / K-*)
+    .quad -1                       // LOCALS
+    .quad 32                       // #LOCALS
+    .quad -1                       // EXTENDED-CHARACTER
+    .quad env_s_utf8               // XCHAR-ENCODING → "UTF-8"
+    .quad 0x10FFFF                 // MAX-XCHAR
+    .quad 4                        // XCHAR-MAXMEM
+    .quad -1                       // DOUBLE
+    .quad -1                       // EXCEPTION
+    .quad -1                       // MEMORY-ALLOCATION
+    .quad -1                       // SEARCH-ORDER
+    .quad 8                        // WORDLISTS (max order depth)
+    .quad -1                       // BLOCK (file-backed volume)
+    .quad -1                       // FILE
+    .quad -1                       // FILE-EXT
 env_kinds:
-    .byte 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1
-    .space 2
+    // All kind 1 except XCHAR-ENCODING (2). No kind-0 entries (ttester-safe).
+    // 31 entries: pad to 32 bytes with one zero.
+    .byte 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+    .space 1
 env_n_counted:  .asciz "/COUNTED-STRING"
 env_n_aub:      .asciz "ADDRESS-UNIT-BITS"
 env_n_core:     .asciz "CORE"
@@ -9897,6 +10313,24 @@ env_n_floating: .asciz "FLOATING"
 env_n_float_ext: .asciz "FLOAT-EXT"
 env_n_floating_stack: .asciz "FLOATING-STACK"
 env_n_max_float: .asciz "MAX-FLOAT"
+env_n_string:   .asciz "STRING"
+env_n_facility: .asciz "FACILITY"
+env_n_facility_ext: .asciz "FACILITY-EXT"
+env_n_locals:   .asciz "LOCALS"
+env_n_nlocals:  .asciz "#LOCALS"
+env_n_xchar:    .asciz "EXTENDED-CHARACTER"
+env_n_xchar_enc: .asciz "XCHAR-ENCODING"
+env_n_max_xchar: .asciz "MAX-XCHAR"
+env_n_xchar_maxmem: .asciz "XCHAR-MAXMEM"
+env_n_double:   .asciz "DOUBLE"
+env_n_exception: .asciz "EXCEPTION"
+env_n_mem:      .asciz "MEMORY-ALLOCATION"
+env_n_search:   .asciz "SEARCH-ORDER"
+env_n_wordlists: .asciz "WORDLISTS"
+env_n_block:    .asciz "BLOCK"
+env_n_file:     .asciz "FILE"
+env_n_file_ext: .asciz "FILE-EXT"
+env_s_utf8:     .asciz "UTF-8"
 
 str_hello:  .asciz "PickleForth v0.6.0\n"
 str_prompt: .asciz "\nok> "
@@ -9931,6 +10365,8 @@ str_x:      .asciz "X"
 .align 8
 embed_mode:     .quad 0            // 0 = terminal cold start, 1 = host embed
 emit_hook:      .quad 0            // void (*)(int c)
+emit_buf_hook:  .quad 0            // void (*)(const char *buf, size_t n) — bulk UTF-8 TYPE
+xchar_emit_buf: .skip 8            // temp for XXCHAR_EMIT (max 4 UTF-8 bytes)
 key_hook:       .quad 0            // int (*)(void) — KEY (blocking)
 key_q_hook:     .quad 0            // int (*)(void) — KEY? (non-zero if ready)
 time_date_hook: .quad 0            // void (*)(int64_t out[6]) — TIME&DATE
@@ -10338,20 +10774,89 @@ forth_init_str:
     // COMPARE / SEARCH are CODE primitives
     .ascii "DOC\" SLITERAL ( c-addr u -- ) compile string literal (immediate)\" "
     .ascii ": SLITERAL ?COMP SLIT-ADDR , DUP C, BEGIN DUP WHILE OVER C@ C, 1 /STRING REPEAT 2DROP ALIGN ; IMMEDIATE "
+    // String Ext: PLACE helper, REPLACES / SUBSTITUTE / UNESCAPE (ANS 17.6.2)
+    .ascii "DOC\" PLACE ( c-addr1 u c-addr2 -- ) copy as counted string at c-addr2\" "
+    .ascii ": PLACE 2DUP 2>R CHAR+ SWAP MOVE 2R> C! ; "
+    .ascii "32 CONSTANT (SUBST-MAX) "
+    .ascii "CREATE (SUBST-NAMES) 32 32 * ALLOT "
+    .ascii "CREATE (SUBST-TEXTS) 32 256 * ALLOT "
+    .ascii "VARIABLE (SUBST-CNT) 0 (SUBST-CNT) ! "
+    .ascii "VARIABLE (SF-I) VARIABLE (SS-I) "
+    .ascii ": (SUBST-NAME) ( i -- c-addr ) 32 * (SUBST-NAMES) + ; "
+    .ascii ": (SUBST-TEXT) ( i -- c-addr ) 256 * (SUBST-TEXTS) + ; "
+    .ascii ": (SUBST-FIND) ( c-addr u -- i true | false ) "
+    .ascii "  0 (SF-I) ! BEGIN (SF-I) @ (SUBST-CNT) @ < WHILE "
+    .ascii "  2DUP (SF-I) @ (SUBST-NAME) COUNT COMPARE 0= IF 2DROP (SF-I) @ TRUE EXIT THEN "
+    .ascii "  1 (SF-I) +! REPEAT 2DROP FALSE ; "
+    .ascii "DOC\" REPLACES ( c-addr1 u1 c-addr2 u2 -- ) set substitution text for name\" "
+    .ascii ": REPLACES 2DUP (SUBST-FIND) IF NIP NIP (SUBST-TEXT) PLACE "
+    .ascii "  ELSE (SUBST-CNT) @ (SUBST-MAX) >= IF 2DROP 2DROP EXIT THEN "
+    .ascii "  (SUBST-CNT) @ >R R@ (SUBST-NAME) PLACE R@ (SUBST-TEXT) PLACE R> DROP 1 (SUBST-CNT) +! THEN ; "
+    .ascii "VARIABLE (UE-B) VARIABLE (UE-D) "
+    .ascii "DOC\" UNESCAPE ( c-addr1 u1 c-addr2 -- c-addr2 u2 ) double each % character\" "
+    .ascii ": UNESCAPE DUP (UE-B) ! (UE-D) ! 0 (SS-I) ! BEGIN (SS-I) @ OVER < WHILE "
+    .ascii "  2 PICK (SS-I) @ + C@ DUP 37 = IF DROP 37 (UE-D) @ C! 1 (UE-D) +! 37 THEN "
+    .ascii "  (UE-D) @ C! 1 (UE-D) +! 1 (SS-I) +! REPEAT 2DROP (UE-B) @ (UE-D) @ OVER - ; "
+    .ascii "VARIABLE (SS-DEST) VARIABLE (SS-MAX) VARIABLE (SS-LEN) VARIABLE (SS-N) VARIABLE (SS-ERR) "
+    .ascii "CREATE (SS-NBUF) 64 ALLOT "
+    .ascii ": (SS-ADD) ( c -- ) (SS-LEN) @ (SS-MAX) @ < IF (SS-DEST) @ (SS-LEN) @ + C! 1 (SS-LEN) +! ELSE DROP -1 (SS-ERR) ! THEN ; "
+    .ascii ": (SS-ADDS) ( c-addr u -- ) BEGIN DUP WHILE OVER C@ (SS-ADD) 1 /STRING REPEAT 2DROP ; "
+    .ascii ": (SS-LOOK) ( c-addr u -- ) 2DUP (SUBST-FIND) IF NIP NIP (SUBST-TEXT) COUNT (SS-ADDS) 1 (SS-N) +! "
+    .ascii "  ELSE 37 (SS-ADD) (SS-ADDS) 37 (SS-ADD) THEN ; "
+    .ascii "DOC\" SUBSTITUTE ( c-addr1 u1 c-addr2 u2 -- c-addr2 u3 n ) expand %name% substitutions\" "
+    .ascii ": SUBSTITUTE "
+    .ascii "  OVER >R 3 PICK R@ = IF 2DROP DROP R> 0 -1 EXIT THEN R> DROP "
+    .ascii "  (SS-MAX) ! (SS-DEST) ! 0 (SS-LEN) ! 0 (SS-N) ! 0 (SS-ERR) ! "
+    .ascii "  BEGIN DUP 0> WHILE "
+    .ascii "    OVER C@ 37 <> IF OVER C@ (SS-ADD) 1 /STRING "
+    .ascii "    ELSE DUP 1 > IF OVER 1+ C@ 37 = IF 37 (SS-ADD) 2 /STRING "
+    .ascii "      ELSE 0 (SS-I) ! BEGIN 1 (SS-I) +! DUP (SS-I) @ > 0= IF (SS-ADDS) 0 0 TRUE "
+    .ascii "        ELSE OVER (SS-I) @ + C@ 37 = IF OVER 1+ (SS-I) @ 1- (SS-NBUF) PLACE (SS-NBUF) COUNT (SS-LOOK) (SS-I) @ 1+ /STRING TRUE "
+    .ascii "        ELSE FALSE THEN THEN UNTIL "
+    .ascii "      THEN ELSE 37 (SS-ADD) 1 /STRING THEN THEN "
+    .ascii "  REPEAT 2DROP (SS-DEST) @ (SS-LEN) @ (SS-ERR) @ IF (SS-ERR) @ ELSE (SS-N) @ THEN ; "
 
-    // --- 9. Facility (MS/KEY? are CODE; EKEY family thin wrappers) ---
-    .ascii "DOC\" EKEY? ( -- flag ) same as KEY? when no extended keys\" "
+    // --- 9. Facility + Facility Ext (MS/KEY?/EKEY CODE; structures; K-*) ---
+    // EKEY event encoding (TZForth-compatible, implementation-defined):
+    //   0..255              plain character (also KEY)
+    //   (1<<24)|codepoint   character event for EKEY>CHAR
+    //   (2<<24)|k-id        function-key event for EKEY>FKEY (k-id = K-* values)
+    .ascii "DOC\" EKEY? ( -- flag ) true if a key event is available\" "
     .ascii ": EKEY? KEY? ; "
-    .ascii "DOC\" EKEY ( -- u ) wait for key; same as KEY for ASCII\" "
-    .ascii ": EKEY KEY ; "
-    .ascii "DOC\" EKEY>CHAR ( u -- u false | char true )\" "
-    .ascii ": EKEY>CHAR DUP 0 256 WITHIN IF TRUE ELSE FALSE THEN ; "
+    .ascii "DOC\" EKEY>CHAR ( u -- u false | char true ) decode character event\" "
+    .ascii ": EKEY>CHAR DUP $FF000000 AND $02000000 = IF FALSE EXIT THEN "
+    .ascii "  DUP $FF000000 AND $01000000 = IF $1FFFFF AND TRUE EXIT THEN "
+    .ascii "  DUP 0 256 WITHIN IF TRUE ELSE FALSE THEN ; "
+    .ascii "DOC\" EKEY>FKEY ( u -- u false | k true ) decode K-* function-key event\" "
+    .ascii ": EKEY>FKEY DUP $FF000000 AND $02000000 = IF $FFFFFF AND TRUE ELSE FALSE THEN ; "
     .ascii "DOC\" EMIT? ( -- flag ) always true (console always ready)\" "
     .ascii ": EMIT? TRUE ; "
     .ascii "DOC\" PAGE ( -- ) clear screen (emit form-feed / ANSI home+clear)\" "
     .ascii ": PAGE 12 EMIT 27 EMIT 91 EMIT 72 EMIT 27 EMIT 91 EMIT 50 EMIT 74 EMIT ; "
     .ascii "DOC\" AT-XY ( u1 u2 -- ) set cursor column u1 row u2 (ANSI 1-based)\" "
     .ascii ": AT-XY 1+ SWAP 1+ SWAP 27 EMIT 91 EMIT 0 U.R 59 EMIT 0 U.R 72 EMIT ; "
+    // Facility Ext structures (ANS 10.6.2)
+    .ascii "DOC\" BEGIN-STRUCTURE ( 'name' -- struct-sys 0 ) start structure definition\" "
+    .ascii ": BEGIN-STRUCTURE CREATE HERE 0 0 , DOES> @ ; "
+    .ascii "DOC\" END-STRUCTURE ( struct-sys +n -- ) finish structure; name returns size\" "
+    .ascii ": END-STRUCTURE SWAP ! ; "
+    .ascii "DOC\" +FIELD ( n1 n2 'name' -- n3 ) field of n2 bytes at offset n1\" "
+    .ascii ": +FIELD CREATE OVER , + DOES> @ + ; "
+    .ascii "DOC\" FIELD: ( n1 'name' -- n2 ) aligned cell field\" "
+    .ascii ": FIELD: ALIGNED 1 CELLS +FIELD ; "
+    .ascii "DOC\" CFIELD: ( n1 'name' -- n2 ) character field\" "
+    .ascii ": CFIELD: 1 CHARS +FIELD ; "
+    // Facility Ext K-* constants (ids stable; match TZForth FacilityFKey)
+    .ascii "1 CONSTANT K-LEFT  2 CONSTANT K-RIGHT  3 CONSTANT K-UP  4 CONSTANT K-DOWN "
+    .ascii "5 CONSTANT K-HOME  6 CONSTANT K-END  7 CONSTANT K-PRIOR  8 CONSTANT K-NEXT "
+    .ascii "9 CONSTANT K-INSERT  10 CONSTANT K-DELETE "
+    .ascii "11 CONSTANT K-F1  12 CONSTANT K-F2  13 CONSTANT K-F3  14 CONSTANT K-F4 "
+    .ascii "15 CONSTANT K-F5  16 CONSTANT K-F6  17 CONSTANT K-F7  18 CONSTANT K-F8 "
+    .ascii "19 CONSTANT K-F9  20 CONSTANT K-F10  21 CONSTANT K-F11  22 CONSTANT K-F12 "
+    .ascii "$2000 CONSTANT K-SHIFT-MASK  $4000 CONSTANT K-CTRL-MASK  $8000 CONSTANT K-ALT-MASK "
+    // Locals Ext: LOCALS| built on (LOCAL)
+    .ascii "DOC\" LOCALS| ( name...name | -- ) declare locals (obsolescent; immediate)\" "
+    .ascii ": LOCALS| BEGIN BL WORD COUNT OVER C@ 124 - OVER 1 - OR WHILE (LOCAL) REPEAT 2DROP 0 0 (LOCAL) ; IMMEDIATE "
     // TIME&DATE needs host; stub returns 0s until host hook
     .ascii "DOC\" WARNING ( -- addr ) variable; used by some test suites\" "
     .ascii "VARIABLE WARNING "
@@ -10386,7 +10891,11 @@ forth_init_str:
     .ascii "DOC\" CLOSE-BLOCK-FILE ( fileid -- ior ) flush if current, then CLOSE-FILE\" "
     .ascii ": CLOSE-BLOCK-FILE DUP BLOCK-FILE @ = IF FLUSH 0 BLOCK-FILE ! THEN CLOSE-FILE ; "
     .ascii "DOC\" LOAD ( i*x u -- j*x ) interpret block u\" "
-    .ascii ": LOAD BLK @ >R DUP BLK ! BLOCK 1024 EVALUATE R> BLK ! ; "
+    // EVALUATE never returns into a colon def, so "BLK @ >R … R> BLK !" was dead and
+    // left BLK stuck at u (broke \\ comments in files after LOAD of nonzero blocks).
+    // (LOAD-ENTER) pushes SOURCE (saving outer BLK) then sets BLK=u; (LOAD-RUN) nests
+    // the block buffer; _pop_source restores outer BLK when the block SOURCE ends.
+    .ascii ": LOAD (LOAD-ENTER) BLOCK 1024 (LOAD-RUN) ; "
     .ascii "DOC\" THRU ( i*x u1 u2 -- j*x ) LOAD u1..u2 inclusive\" "
     .ascii ": THRU 1+ SWAP ?DO I LOAD LOOP ; "
     .ascii "DOC\" LIST ( u -- ) display block u as 16 lines of 64 chars\" "
@@ -10477,6 +10986,71 @@ forth_init_str:
     .ascii ": FLITERAL 102 (F-OP) FLIT-ADDR , , ; IMMEDIATE "
     .ascii "ONLY FORTH DEFINITIONS "
 
+    // --- Extended-Character word set (ANS 18, UTF-8) ---
+    .ascii "DOC\" XC-SIZE ( xchar -- u ) UTF-8 byte count for code point\" "
+    .ascii ": XC-SIZE DUP 127 > IF DUP 2047 > IF DUP 65535 > IF DROP 4 ELSE DROP 3 THEN ELSE DROP 2 THEN ELSE DROP 1 THEN ; "
+    .ascii "DOC\" X-SIZE ( xc-addr u -- u ) size of first UTF-8 xchar in buffer\" "
+    .ascii ": X-SIZE DROP C@ DUP 128 < IF DROP 1 ELSE DUP 224 < IF DROP 2 ELSE DUP 240 < IF DROP 3 ELSE DROP 4 THEN THEN THEN ; "
+    // XC@+ is CODE (XXC_FETCH_PLUS)
+    // XC!+ is CODE (XXC_STORE_PLUS)
+    .ascii "DOC\" XC!+? ( xchar xc-addr u1 -- xc-addr' u2 flag ) store if fits\" "
+    .ascii "VARIABLE (XQ-SZ) VARIABLE (XQ-MAX) "
+    // Fail: ( xc addr ) → NIP → addr, then u1 false. (DROP NIP left only u1 false.)
+    .ascii ": XC!+? (XQ-MAX) ! OVER XC-SIZE DUP (XQ-SZ) ! (XQ-MAX) @ > IF "
+    .ascii "  NIP (XQ-MAX) @ FALSE ELSE XC!+ (XQ-MAX) @ (XQ-SZ) @ - TRUE THEN ; "
+    .ascii "DOC\" XC, ( xchar -- ) append UTF-8 xchar to dictionary\" "
+    .ascii ": XC, HERE XC!+ HERE - ALLOT ; "
+    .ascii "DOC\" XCHAR+ ( xc-addr1 -- xc-addr2 ) skip one UTF-8 xchar forward\" "
+    .ascii ": XCHAR+ DUP 1 X-SIZE + ; "
+    .ascii "DOC\" XCHAR- ( xc-addr1 -- xc-addr2 ) skip one UTF-8 xchar backward\" "
+    .ascii ": XCHAR- BEGIN 1- DUP C@ 192 AND 128 <> UNTIL ; "
+    .ascii "DOC\" +X/STRING ( xc-addr1 u1 -- xc-addr2 u2 ) skip one xchar in string\" "
+    .ascii ": +X/STRING DUP 0= IF EXIT THEN 2DUP X-SIZE /STRING ; "
+    .ascii "DOC\" X\\STRING- ( xc-addr u1 -- xc-addr u2 ) trim last xchar from string\" "
+    .ascii ": X\\STRING- DUP 0= IF EXIT THEN OVER + XCHAR- OVER - ; "
+    .ascii "DOC\" -TRAILING-GARBAGE ( xc-addr u1 -- xc-addr u2 ) trim incomplete trailing UTF-8\" "
+    // Temps: (TGA)=base (TGU)=len (TGP)=last-xchar start. Drop last xchar if incomplete.
+    .ascii "VARIABLE (TGA) VARIABLE (TGU) VARIABLE (TGP) "
+    .ascii ": -TRAILING-GARBAGE DUP 0= IF EXIT THEN OVER (TGA) ! DUP (TGU) ! "
+    .ascii "  (TGA) @ (TGU) @ + 1- (TGP) ! "
+    .ascii "  BEGIN (TGP) @ C@ 192 AND 128 = (TGP) @ (TGA) @ U> AND WHILE "
+    .ascii "  (TGP) @ 1- (TGP) ! REPEAT "
+    .ascii "  DROP DROP "
+    .ascii "  (TGP) @ C@ DUP 128 < IF DROP (TGA) @ (TGU) @ EXIT THEN "
+    .ascii "  DUP 224 < IF DROP 2 ELSE DUP 240 < IF DROP 3 ELSE DROP 4 THEN THEN "
+    .ascii "  (TGU) @ (TGP) @ (TGA) @ - - > IF (TGA) @ (TGP) @ (TGA) @ - ELSE (TGA) @ (TGU) @ THEN ; "
+    // XEMIT is CODE (XXCHAR_EMIT)
+    .ascii "DOC\" XKEY? ( -- flag ) true if a key/xchar is available\" "
+    .ascii ": XKEY? KEY? ; "
+    .ascii "DOC\" XKEY ( -- xchar ) read next UTF-8 xchar from KEY\" "
+    .ascii ": XKEY KEY DUP 128 < IF EXIT THEN "
+    .ascii "  DUP 224 < IF 31 AND KEY 63 AND SWAP 6 LSHIFT OR EXIT THEN "
+    .ascii "  DUP 240 < IF 15 AND KEY 63 AND SWAP 6 LSHIFT OR KEY 63 AND SWAP 6 LSHIFT OR EXIT THEN "
+    .ascii "  7 AND KEY 63 AND SWAP 6 LSHIFT OR KEY 63 AND SWAP 6 LSHIFT OR KEY 63 AND SWAP 6 LSHIFT OR ; "
+    .ascii "DOC\" EKEY>XCHAR ( u -- u false | xchar true ) convert EKEY to xchar\" "
+    .ascii ": EKEY>XCHAR DUP 0 128 WITHIN IF TRUE ELSE FALSE THEN ; "
+    .ascii "DOC\" XHOLD ( xchar -- ) hold UTF-8 xchar in pictured numeric (bytes high→low via HOLD)\" "
+    .ascii "VARIABLE (XH-A) VARIABLE (XH-U) "
+    .ascii ": XHOLD PAD SWAP OVER XC!+ OVER - (XH-U) ! (XH-A) ! "
+    .ascii "  BEGIN (XH-U) @ WHILE (XH-U) @ 1- DUP (XH-U) ! (XH-A) @ + C@ HOLD REPEAT ; "
+    .ascii "DOC\" XC-WIDTH ( xchar -- +n ) display width of one xchar\" "
+    .ascii ": XC-WIDTH DUP 32 < IF DROP 0 EXIT THEN DUP 127 <= IF DROP 1 EXIT THEN "
+    .ascii "  DUP 4352 < IF DROP 1 EXIT THEN DUP 4448 < IF DROP 2 EXIT THEN "
+    .ascii "  DUP 11904 < IF DROP 1 EXIT THEN DUP 42192 < IF DROP 2 EXIT THEN "
+    .ascii "  DUP 44032 < IF DROP 1 EXIT THEN DUP 55204 < IF DROP 2 EXIT THEN DROP 1 ; "
+    .ascii "DOC\" X-WIDTH ( xc-addr u -- +n ) total display width of string\" "
+    // Use variables — do not mix >R with nested colon calls on the return stack.
+    .ascii "VARIABLE (XWA) VARIABLE (XWU) VARIABLE (XWS) "
+    .ascii ": X-WIDTH (XWU) ! (XWA) ! 0 (XWS) ! "
+    .ascii "  BEGIN (XWU) @ WHILE "
+    .ascii "  (XWA) @ XC@+ XC-WIDTH (XWS) @ + (XWS) ! "
+    .ascii "  DUP (XWA) @ - (XWU) @ SWAP - (XWU) ! (XWA) ! "
+    .ascii "  REPEAT (XWS) @ ; "
+    .ascii "DOC\" CHAR ( '<spaces>name' -- xchar ) first xchar of next word\" "
+    .ascii ": CHAR BL WORD COUNT DROP XC@+ SWAP DROP ; "
+    .ascii "DOC\" [CHAR] ( compile: '<spaces>name' -- ) compile xchar literal (immediate)\" "
+    .ascii ": [CHAR] ?COMP CHAR LIT-ADDR , , ; IMMEDIATE "
+
     // Default MAIN if AutoLoad does not define one (kernel_eval \"MAIN\" at startup)
     .ascii "DOC\" MAIN ( -- ) default app entry; AutoLoad may redefine\" "
     .ascii ": MAIN ; "
@@ -10521,6 +11095,7 @@ local_name_count:   .quad 0
 local_init_count:   .quad 0
 local_init_reverse: .quad 0
 local_brace_phase:  .quad 0        // {: parse phase (not in VM regs — x19 is IP!)
+local_declaring:    .quad 0        // 1 while (LOCAL) sequence open (before u=0)
 local_names:        .skip LOCAL_MAX * LOCAL_NAME_STR
 local_frame_depth:  .quad 0
 local_frame_rsp:    .skip LOCAL_FRAME_MAX * 8

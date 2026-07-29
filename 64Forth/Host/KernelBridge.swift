@@ -31,6 +31,8 @@ private func kernel_take_fault_flag() -> Int32
 
 @_silgen_name("kernel_set_emit")
 private func kernel_set_emit(_ fn: (@convention(c) (Int32) -> Void)?)
+@_silgen_name("kernel_set_emit_buf")
+private func kernel_set_emit_buf(_ fn: (@convention(c) (UnsafePointer<CChar>?, Int) -> Void)?)
 
 @_silgen_name("kernel_set_key")
 private func kernel_set_key(_ fn: (@convention(c) () -> Int32)?)
@@ -155,6 +157,17 @@ private var kernelHookTarget: KernelBridge?
 
 private let kernelEmitTrampoline: @convention(c) (Int32) -> Void = { c in
     kernelHookTarget?.handleEmitFromKernel(c)
+}
+
+/// Bulk TYPE/XEMIT: decode the whole buffer as UTF-8 (Latin-1 fallback).
+private let kernelEmitBufTrampoline: @convention(c) (UnsafePointer<CChar>?, Int) -> Void = { ptr, n in
+    guard let ptr, n > 0 else { return }
+    let raw = UnsafeRawPointer(ptr).bindMemory(to: UInt8.self, capacity: n)
+    let buf = UnsafeBufferPointer(start: raw, count: n)
+    let s = String(bytes: buf, encoding: .utf8)
+        ?? String(bytes: buf, encoding: .isoLatin1)
+        ?? ""
+    kernelHookTarget?.handleEmitString(s)
 }
 
 private let kernelKeyTrampoline: @convention(c) () -> Int32 = {
@@ -435,6 +448,10 @@ final class KernelBridge {
     /// batching, each char schedules a main-queue NSTextView update and the UI
     /// freezes (spinning beach ball) during Hayes / long INCLUDE.
     private var pendingEmit = ""
+    /// Raw bytes from kernel EMIT/TYPE. Decoded as UTF-8 into `pendingEmit` on flush
+    /// so multi-byte xchars (e.g. U+20AC → E2 82 AC) become one Swift character, not
+    /// three Latin-1 code units. Incomplete trailing sequences stay here across flushes.
+    private var pendingEmitBytes: [UInt8] = []
     /// True while a main-queue flush of `pendingEmit` is scheduled or running.
     private var emitFlushScheduled = false
     private var keyQueue: [Int32] = []
@@ -459,6 +476,7 @@ final class KernelBridge {
         installKeyDownMonitor()
 
         kernel_set_emit(kernelEmitTrampoline)
+        kernel_set_emit_buf(kernelEmitBufTrampoline)
         kernel_set_key(kernelKeyTrampoline)
         kernel_set_key_q(kernelKeyQTrampoline)
         kernel_set_time_date(kernelTimeDateTrampoline)
@@ -494,6 +512,7 @@ final class KernelBridge {
         Self.installMemoryFaultHandlers()
         lock.lock()
         pendingEmit = ""
+        pendingEmitBytes = []
         lock.unlock()
         FileHost.shared.releaseIncludeBuffers()
         FileHost.shared.endAllLoadCwds()
@@ -506,10 +525,57 @@ final class KernelBridge {
         }
     }
 
+    /// Expected UTF-8 sequence length from a leading byte (1…4). Continuation/invalid → 1.
+    private static func utf8SequenceLength(_ b: UInt8) -> Int {
+        if b < 0x80 { return 1 }
+        if b & 0xE0 == 0xC0 { return 2 }
+        if b & 0xF0 == 0xE0 { return 3 }
+        if b & 0xF8 == 0xF0 { return 4 }
+        return 1
+    }
+
+    /// Move complete UTF-8 sequences from `pendingEmitBytes` into `pendingEmit`.
+    /// Leaves an incomplete trailing sequence in the byte buffer. Call with `lock` held.
+    private func absorbEmitBytesLocked() {
+        guard !pendingEmitBytes.isEmpty else { return }
+        var i = 0
+        let n = pendingEmitBytes.count
+        while i < n {
+            let b = pendingEmitBytes[i]
+            // Unexpected continuation byte: emit as Latin-1 and resync.
+            if b >= 0x80 && (b & 0xC0) == 0x80 {
+                if let s = String(bytes: [b], encoding: .isoLatin1) {
+                    pendingEmit.append(s)
+                }
+                i += 1
+                continue
+            }
+            let need = Self.utf8SequenceLength(b)
+            if i + need > n {
+                break // incomplete trailing sequence — wait for more bytes
+            }
+            let slice = Array(pendingEmitBytes[i ..< i + need])
+            if let s = String(bytes: slice, encoding: .utf8) {
+                pendingEmit.append(s)
+                i += need
+            } else {
+                // Invalid sequence: emit first byte as Latin-1 and resync.
+                if let s = String(bytes: [b], encoding: .isoLatin1) {
+                    pendingEmit.append(s)
+                }
+                i += 1
+            }
+        }
+        if i > 0 {
+            pendingEmitBytes.removeFirst(i)
+        }
+    }
+
     /// Drain `pendingEmit` to `onEmit` (main thread). Used at startup and when
     /// installing the sink; long-running eval uses `scheduleEmitFlush`.
     private func flushPendingEmit() {
         lock.lock()
+        absorbEmitBytesLocked()
         let pending = pendingEmit
         pendingEmit = ""
         emitFlushScheduled = false
@@ -552,6 +618,7 @@ final class KernelBridge {
     /// Take all pending text and deliver once; re-schedule if more arrived.
     private func drainEmitBufferToSink() {
         lock.lock()
+        absorbEmitBytesLocked()
         let chunk = pendingEmit
         pendingEmit = ""
         let sink = onEmit
@@ -564,6 +631,7 @@ final class KernelBridge {
         }
 
         // If more was buffered while we delivered, schedule another drain.
+        // Incomplete UTF-8 tails stay in pendingEmitBytes without forcing a spin.
         lock.lock()
         let stillPending = !pendingEmit.isEmpty
         let needAgain = stillPending && !emitFlushScheduled
@@ -640,6 +708,20 @@ final class KernelBridge {
         }
     }
 
+    /// ANS Facility function-key ids (must match kernel K-* constants / TZForth).
+    private enum FacilityFKey {
+        static let left = 1, right = 2, up = 3, down = 4
+        static let home = 5, end = 6, prior = 7, next = 8
+        static let insert = 9, delete = 10
+        static let f1 = 11, f2 = 12, f3 = 13, f4 = 14
+        static let f5 = 15, f6 = 16, f7 = 17, f8 = 18
+        static let f9 = 19, f10 = 20, f11 = 21, f12 = 22
+        /// Tagged EKEY event: (2 << 24) | k-id
+        static func event(_ id: Int) -> Int32 {
+            Int32(bitPattern: UInt32((2 << 24) | (id & 0xFFFFFF)))
+        }
+    }
+
     private func installKeyDownMonitor() {
         keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
@@ -649,6 +731,13 @@ final class KernelBridge {
             guard active else { return event }
             // Leave menu shortcuts alone.
             if event.modifierFlags.contains(.command) { return event }
+
+            // Facility Ext: map arrows / navigation / F-keys to tagged EKEY events.
+            // KEY skips tag-2 events; EKEY returns them for EKEY>FKEY.
+            if let fkid = Self.facilityFKeyId(for: event) {
+                self.pushKey(FacilityFKey.event(fkid))
+                return nil
+            }
 
             let chars = event.charactersIgnoringModifiers ?? event.characters
             if let chars, !chars.isEmpty {
@@ -665,6 +754,37 @@ final class KernelBridge {
             // Consume other keys while evaluating so they do not edit the console.
             return nil
         }
+    }
+
+    /// Map NSEvent special keys → K-* id, or nil for normal character keys.
+    private static func facilityFKeyId(for event: NSEvent) -> Int? {
+        // Prefer keyCode for arrows / nav (charactersIgnoringModifiers may be empty).
+        switch event.keyCode {
+        case 123: return FacilityFKey.left
+        case 124: return FacilityFKey.right
+        case 125: return FacilityFKey.down
+        case 126: return FacilityFKey.up
+        case 115: return FacilityFKey.home
+        case 119: return FacilityFKey.end
+        case 116: return FacilityFKey.prior   // page up
+        case 121: return FacilityFKey.next    // page down
+        case 114: return FacilityFKey.insert
+        case 117: return FacilityFKey.delete  // forward delete
+        case 122: return FacilityFKey.f1
+        case 120: return FacilityFKey.f2
+        case 99:  return FacilityFKey.f3
+        case 118: return FacilityFKey.f4
+        case 96:  return FacilityFKey.f5
+        case 97:  return FacilityFKey.f6
+        case 98:  return FacilityFKey.f7
+        case 100: return FacilityFKey.f8
+        case 101: return FacilityFKey.f9
+        case 109: return FacilityFKey.f10
+        case 103: return FacilityFKey.f11
+        case 111: return FacilityFKey.f12
+        default: break
+        }
+        return nil
     }
 
     /// Clear the sticky multi-line paste stop (call before a paste batch if needed).
@@ -841,9 +961,21 @@ final class KernelBridge {
     // MARK: - Hooks
 
     fileprivate func handleEmitFromKernel(_ c: Int32) {
+        // Buffer as raw bytes (not Latin-1 one-byte Strings) so UTF-8 multi-byte
+        // sequences stay intact across EMIT calls. Absorb complete sequences into
+        // pendingEmit immediately so order matches interleaved TYPE/emit_buf
+        // (handleEmitString). Without that, CR (byte path) piles up in
+        // pendingEmitBytes while TYPE appends to pendingEmit; flush then dumps
+        // all newlines at the end → one long line + trailing blank lines.
         let u = UInt8(truncatingIfNeeded: c)
-        let s = String(bytes: [u], encoding: .isoLatin1) ?? ""
-        handleEmitString(s)
+        lock.lock()
+        pendingEmitBytes.append(u)
+        absorbEmitBytesLocked()
+        let hasSink = (onEmit != nil)
+        lock.unlock()
+        if hasSink {
+            scheduleEmitFlush()
+        }
     }
 
     fileprivate func handleKeyFromKernel() -> Int32 {
@@ -879,9 +1011,12 @@ final class KernelBridge {
         return ready ? 1 : 0
     }
 
-    private func handleEmitString(_ s: String) {
+    fileprivate func handleEmitString(_ s: String) {
         guard !s.isEmpty else { return }
         lock.lock()
+        // Drain any complete UTF-8 already in the byte buffer before this chunk
+        // so CR/EMIT bytes stay in front of TYPE/emit_buf text.
+        absorbEmitBytesLocked()
         pendingEmit.append(s)
         let hasSink = (onEmit != nil)
         lock.unlock()

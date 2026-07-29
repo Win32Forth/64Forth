@@ -8,7 +8,7 @@
 \
 This document tracks implementation status of the 2012 ANS Forth Standard word sets in **64Forth** (hybrid ARM64 ITC kernel in `64Forth/Kernel/forth.s` + Swift host). It is **not** a formal ANS System certificate; use the bundled Hayes forth2012-test-suite for semantic validation.\
 \
-**Last update (Core / Core Ext only):** 2026-07-29. Sections for Search-Order and later word sets still contain older notes and will be revised when those sets are brought to full 64Forth compliance documentation.\
+**Last update:** 2026-07-29 (v0.6.0+). Core through Float and full Facility Ext are implemented in the 64Forth kernel/host. This file is a living checklist \'97 not a formal ANS certificate. Prefer Hayes (`HayesTest/HayesTest.fth`) and Library modular `ANSValidate/ANS-VALIDATE.fth` for runtime checks. Behaviour described is for **64Forth** unless noted.\
 \
 ## Summary\
 \
@@ -24,12 +24,16 @@ This document tracks implementation status of the 2012 ANS Forth Standard word s
 | **Memory-Allocation (14)** | Complete \'97 14.6.1 (`ALLOCATE`, `FREE`, `RESIZE`); extension `GROWMEMORYMB` |\
 | **Double-Number (8)** | Complete \'97 8.6.1 + 8.6.2 (`2ROT`, `2VALUE`, `DU<`); trailing `.` literals |\
 | **Locals (13)** | Complete \'97 `(LOCAL)`, `LOCALS|`, `\{:`; `TO` for locals; max 32 (`#LOCALS`) |\
-| **Facility (10)** | Complete (TZForth host) \'97 structures, `PAGE`/`AT-XY`, `MS`, `TIME&DATE`, `EKEY*`, `EMIT?`, `K-*`; Hayes `facilitytest.fth` 0 errors |\
-| **Block (10)** | Complete \'97 file-backed `.blk`, LRU buffer cache; Hayes `blocktest.fth` 0 errors; FTEST Block + TZ extension spot-checks |\
-| **Extended-Character (18)** | Complete \'97 UTF-8 codec; shadow `CHAR`/`[CHAR]`/`PARSE`; `XEMIT`/`XKEY`/`XKEY?`/`EKEY>XCHAR`; `XHOLD`; `XC-WIDTH`/`X-WIDTH`; ENVIRONMENT? queries |\
-| **Float (12)** | Tier A + **Tier B (Float Ext)** + **Tier C** (`REPRESENT`, `FS.`/`FE.`/`F.`) \'97 IEEE 64-bit, separate 16-deep F stack; literals incl. `0e`/`1E`; trig/exp/log; `F~`, `FVARIABLE`/`FVALUE`/`TO`, `F>D`/`F>S`, `SF@`/`DF@` |\
+| **Facility (10)** | Complete \'97 `MS`, `TIME&DATE`, `KEY?`, `EKEY`/`EKEY?`/`EKEY>CHAR`, `EMIT?`, `PAGE`, `AT-XY`; Hayes `facilitytest.fth` 0 errors |\
+| **Facility Ext (10.6.2)** | Complete \'97 structures (`BEGIN-STRUCTURE` \'85); `EKEY>FKEY`; `K-LEFT`\'85`K-F12`, masks; host maps arrows/F-keys to tagged events; `ENVIRONMENT? FACILITY-EXT` true |\
+| **Block (10)** | Complete \'97 file-backed `.blk`; Hayes `blocktest.fth` 0 errors; `LOAD` restores `BLK` via source-stack frame |\
+| **Extended-Character (18)** | Complete (kernel UTF-8) \'97 `XC!+`/`XC@+` CODE; `XEMIT`; width/`XHOLD`/`XC!+?`; ENVIRONMENT? XChar queries; modular ANSValidate + `all-in-one.fth` |\
+| **Float (12)** | Tier A + **Tier B (Float Ext)** + **Tier C** \'97 IEEE 64-bit, 16-deep F stack in `VOCABULARY FP` |\
 \
-**Validation (64Forth):** Bundled suite under `Resources/Library/HayesTest/` \'97 e.g. `FROMLIB FLOAD HayesTest/HayesTest.fth` (or individual `core.fr` / `coreexttest.fth` / `coreplustest.fth`). Core and Core Ext names and the text-interpreter number forms below are implemented in the kernel; re-run Hayes after engine changes for a green certificate.\
+**Validation (64Forth):**\
+\
+- **Hayes:** `FROMLIB FLOAD HayesTest/HayesTest.fth` \'97 core through FP/paranoia Excellent, Block, File, Facility structures.\
+- **ANS-VALIDATE (modular pure Forth):** `FROMLIB FLOAD ANSValidate/ANS-VALIDATE.fth` \'97 modules tester through float; expect **~351 passed, 0 failed** (spot-checks, not a formal certificate).\
 \
 ## Core (6.1) \'97 Complete (64Forth)\
 \
@@ -69,22 +73,41 @@ All Core words required for name-level conformance are implemented in the ARM64 
 - **`POSTPONE`** / compile path use dictionary CFAs; immediate words compile their run-time behaviour as required.\
 - **`INCLUDE` / `FLOAD`** (File-Access / host) load a whole file into one `SOURCE` buffer; `REFILL` is false for file/`EVALUATE` sources and true only for the terminal line path where applicable.\
 \
-### ENVIRONMENT? (Core-related queries implemented)\
+### ENVIRONMENT? (implemented queries)\
+\
+Boolean / word-set queries leave **value then true** (kind 1), so the Hayes/ttester double-`[IF]` idiom works. Unknown names leave a single false.\
 \
 | Query | Result |\
 |-------|--------|\
-| `CORE` | true (flag only) |\
-| `CORE-EXT` | true (flag only) |\
-| `FLOORED` | false |\
-| `/COUNTED-STRING` | 255 |\
-| `ADDRESS-UNIT-BITS` | 8 |\
-| `MAX-CHAR` | 255 |\
-| `MAX-N` | `$7FFFFFFFFFFFFFFF` |\
-| `MAX-U` | `$FFFFFFFFFFFFFFFF` |\
-| `STACK-CELLS` | 512 (data stack 4096 bytes) |\
-| `RETURN-STACK-CELLS` | 256 (return stack 2048 bytes) |\
+| `CORE` | true true (names present; not a formal certificate) |\
+| `CORE-EXT` | true true |\
+| `FLOORED` | false true (symmetric `/`; value is false) |\
+| `/COUNTED-STRING` | 255 true |\
+| `ADDRESS-UNIT-BITS` | 8 true |\
+| `MAX-CHAR` | 255 true |\
+| `MAX-N` | `$7FFFFFFFFFFFFFFF` true |\
+| `MAX-U` | `$FFFFFFFFFFFFFFFF` true |\
+| `STACK-CELLS` | 512 true |\
+| `RETURN-STACK-CELLS` | 256 true |\
+| `STRING` | true true |\
+| `FACILITY` | true true |\
+| `FACILITY-EXT` | true true (structures + EKEY>FKEY / K-*) |\
+| `LOCALS` | true true |\
+| `#LOCALS` | 32 true |\
+| `DOUBLE` | true true |\
+| `EXCEPTION` | true true |\
+| `MEMORY-ALLOCATION` | true true |\
+| `SEARCH-ORDER` | true true |\
+| `WORDLISTS` | 8 true |\
+| `BLOCK` | true true (file-backed volume) |\
+| `FLOATING` / `FLOAT-EXT` | true true |\
+| `FLOATING-STACK` | 16 true |\
+| `MAX-FLOAT` | approx max finite double bits true |\
+| `EXTENDED-CHARACTER` | true true |\
+| `XCHAR-ENCODING` | c-addr u true (`"UTF-8"`) |\
+| `MAX-XCHAR` | `$10FFFF` true |\
+| `XCHAR-MAXMEM` | 4 true |\
 \
-(Additional queries for Float and other word sets are listed in those sections when documented for 64Forth.)\
 \
 ### Memory and buffers (implementation-defined)\
 \
@@ -427,9 +450,9 @@ During an active structure, **`ALIGNED`** aligns the structure offset (for `ALIG
 | `EMIT?` | Always true (`-1`) in console host |\
 | `K-*` | `K-LEFT`\'85`K-F12`, `K-PRIOR`/`K-NEXT`, `K-INSERT`/`K-DELETE`, shift/ctrl/alt masks |\
 \
-## Extended-Character (18) \'97 Complete\
+## Extended-Character (18) \'97 Complete (64Forth kernel)\
 \
-ANS word set 18.6.1 and 18.6.2 with UTF-8 as the xchar encoding (`TZForthXChar.swift`). Malformed UTF-8 or invalid code points throw **-77**.\
+ANS word set 18 with **UTF-8** encoded in the ARM64 kernel (`forth.s` / `boot_words.inc`) and host console bulk emit (`KernelBridge` `emit_buf`). Not TZForth\'92s Swift XChar engine.\
 \
 ### Memory and string (18.6.1)\
 \
@@ -437,29 +460,29 @@ ANS word set 18.6.1 and 18.6.2 with UTF-8 as the xchar encoding (`TZForthXChar.s
 |------|----------------|\
 | `XC-SIZE` | `( xchar -- u )` \'97 encoded byte count |\
 | `X-SIZE` | `( xc-addr u -- u' )` \'97 size from leading byte |\
-| `XC@+` / `XC!+` / `XC!+?` / `XC,` | fetch/store/append encoded xchars |\
+| `XC@+` / `XC!+` / `XC!+?` / `XC,` | fetch/store/append encoded xchars (`XC!+`/`XC@+` CODE) |\
 | `XCHAR+` / `XCHAR-` | advance/retreat within UTF-8 buffer |\
 | `+X/STRING` / `X\\STRING-` | skip/include xchars in bounded string |\
 | `-TRAILING-GARBAGE` | trim incomplete trailing UTF-8 sequence |\
 \
 ### Parsing and I/O (18.6.2)\
 \
-Shadow Core **`CHAR`**, **`[CHAR]`**, **`PARSE`** \'97 first xchar / delimiter parsing in UTF-8. **`XEMIT`**, **`XKEY`**, **`XKEY?`**, **`EKEY>XCHAR`** \'97 terminal I/O. **`XHOLD`** \'97 pictured numeric (UTF-8 bytes via `picturedHoldsBytes`). **`XC-WIDTH`** / **`X-WIDTH`** \'97 display columns (ANS wc-table).\
+**`XEMIT`**, **`EKEY>XCHAR`**, **`XHOLD`**, **`XC-WIDTH`** / **`X-WIDTH`**. Console multi-byte output uses host UTF-8 bulk emit when available.\
 \
 ### Environmental queries (18.3.2)\
 \
 | Query | Returns |\
 |-------|---------|\
-| `EXTENDED-CHARACTER` | `-1` (word set present) |\
-| `XCHAR-ENCODING` | `c-addr u` \uc0\u8594  `"UTF-8"` |\
-| `MAX-XCHAR` | `u` \uc0\u8594  `$10FFFF` |\
-| `XCHAR-MAXMEM` | `u` \uc0\u8594  `4` |\
+| `EXTENDED-CHARACTER` | true true (value + present) |\
+| `XCHAR-ENCODING` | c-addr u true \uc0\u8594  `"UTF-8"` |\
+| `MAX-XCHAR` | `$10FFFF` true |\
+| `XCHAR-MAXMEM` | `4` true |\
 \
-FTEST / `ANS-VALIDATE` cover codec, memory/string words, shadow parsing, I/O, pictured `XHOLD`, display width, and all four ENVIRONMENT? queries.\
+**Validate:** absolute `INCLUDE` of `Resources/Library/ANSValidate/all-in-one.fth` (expect **28 passed, 0 failed**).\
 \
 ## Float (12) \'97 Tier A + Tier B (Float Ext)\
 \
-Implemented in **`TZForthFloat.swift`**. IEEE **64-bit double** on a **separate 16-deep floating-point stack** fixed in low memory (after return stack, before dictionary `DP`). Decimal/scientific literals when `BASE` is 10 (ANS 12.3.7), including bare `0e` / `1E` / `10E`; tokens ending in `.` alone (e.g. `42.`) remain double-cell literals. `>FLOAT` accepts optional `D` suffix (`1D`, `2.0D0`).\
+Implemented in **64Forth** via host **`FloatHost.swift`** (IEEE **64-bit**) and kernel multiplex; public names in **`VOCABULARY FP`**. Separate **16-deep** floating-point stack. Decimal/scientific literals when `BASE` is 10 (ANS 12.3.7), including bare `0e` / `1E` / `10E`; tokens ending in `.` alone (e.g. `42.`) remain double-cell literals. `>FLOAT` accepts optional `D` suffix (`1D`, `2.0D0`).\
 \
 | Category | Words |\
 |----------|-------|\

@@ -1,0 +1,139 @@
+\ all-in-one.fth -- single-file XChar validate (no nested FLOAD)
+\
+\   FROMLIB FLOAD ANSValidate/all-in-one.fth
+\
+\ Prefer the multi-module driver for the full ANS-VALIDATE port:
+\   FROMLIB FLOAD ANSValidate/ANS-VALIDATE.fth
+\
+\ CRITICAL 64Forth rules:
+\   1) Do NOT use IF/ELSE/THEN/BEGIN while interpreting -- they always compile.
+\      Put conditionals inside colon definitions only.
+\   2) Inside colon defs use DOT-QUOTE for runtime print; DOT-PAREN is compile-time.
+\
+\ Version marker: AIO-v4
+
+DECIMAL
+ONLY FORTH DEFINITIONS
+
+CR .( AIO-START v4) CR
+
+\ Fix XC!+? fail path (kernel had DROP NIP; needs NIP only). Safe to redefine.
+VARIABLE (XQ-SZ)
+VARIABLE (XQ-MAX)
+: XC!+?  ( xchar xc-addr u1 -- xc-addr2 u2 flag )
+  (XQ-MAX) ! OVER XC-SIZE DUP (XQ-SZ) !
+  (XQ-MAX) @ > IF
+    NIP (XQ-MAX) @ FALSE
+  ELSE
+    XC!+ (XQ-MAX) @ (XQ-SZ) @ - TRUE
+  THEN ;
+
+VARIABLE PASSN
+VARIABLE FAILN
+0 PASSN !
+0 FAILN !
+
+: T.PASS  PASSN @ 1+ PASSN ! ;
+: T.FAIL  ( ca u -- ) FAILN @ 1+ FAILN ! ." FAIL: " TYPE CR ;
+: EXPECT  ( flag ca u -- ) ROT IF 2DROP T.PASS ELSE T.FAIL THEN ;
+
+: .SUM
+  CR ." results: " PASSN @ . ." passed, " FAILN @ . ." failed." CR
+  FAILN @ IF ." *** FAILURES ***" CR ELSE ." ALL PASS" CR THEN ;
+
+\ ENV helpers -- IF only inside colon words
+: ENV1  ( ca u -- flag )
+  ENVIRONMENT? IF DROP TRUE ELSE FALSE THEN ;
+
+: ENV-MAXXC  ( -- flag )
+  S" MAX-XCHAR" ENVIRONMENT? IF $10FFFF = ELSE FALSE THEN ;
+
+: ENV-MAXMEM  ( -- flag )
+  S" XCHAR-MAXMEM" ENVIRONMENT? IF 4 = ELSE FALSE THEN ;
+
+: ENV-UTF8  ( -- flag )
+  S" XCHAR-ENCODING" ENVIRONMENT? IF S" UTF-8" COMPARE 0= ELSE FALSE THEN ;
+
+CREATE XCBUF 64 ALLOT
+VARIABLE XCLEN
+VARIABLE XCNT
+
+: XC-ENC  ( xc -- ) XCBUF XC!+ XCBUF - XCLEN ! ;
+
+: XC-RT  ( xc -- flag )
+  DUP XCBUF XC!+ XCBUF -
+  OVER XC-SIZE <> IF DROP FALSE EXIT THEN
+  XCBUF XC@+ NIP = ;
+
+: XC-N  ( a u -- n )
+  0 XCNT !
+  BEGIN DUP WHILE XCNT @ 1+ XCNT ! +X/STRING REPEAT
+  2DROP XCNT @ ;
+
+CR .( AIO-READY) CR
+
+CR .( === 1 ENVIRONMENT? ===) CR
+S" EXTENDED-CHARACTER" ENV1 S" EXTENDED-CHARACTER" EXPECT
+ENV-MAXXC S" MAX-XCHAR" EXPECT
+ENV-MAXMEM S" XCHAR-MAXMEM" EXPECT
+ENV-UTF8 S" XCHAR-ENCODING" EXPECT
+
+CR .( === 2 XC-SIZE ===) CR
+0 XC-SIZE 1 = S" sz0" EXPECT
+$7F XC-SIZE 1 = S" sz7F" EXPECT
+$80 XC-SIZE 2 = S" sz80" EXPECT
+$20AC XC-SIZE 3 = S" szEUR" EXPECT
+$10000 XC-SIZE 4 = S" sz4" EXPECT
+
+CR .( === 3 round-trip ===) CR
+$41 XC-RT S" rtA" EXPECT
+$20AC XC-RT S" rtEUR" EXPECT
+$1F600 XC-RT S" rtEmoji" EXPECT
+
+$48 XCBUF XC!+ $65 SWAP XC!+ $6C SWAP XC!+ $6C SWAP XC!+
+$6F SWAP XC!+ $20AC SWAP XC!+ $21 SWAP XC!+
+XCBUF - XCLEN !
+XCLEN @ 9 = S" helloLen" EXPECT
+XCBUF XCLEN @ XC-N 7 = S" helloN" EXPECT
+
+CR .( === 4 XCHAR ===) CR
+$41 XCBUF XC!+ $20AC SWAP XC!+ $42 SWAP XC!+ XCBUF - XCLEN !
+XCBUF XCHAR+ XC@+ NIP $20AC = S" xpEUR" EXPECT
+XCBUF XCLEN @ + XCHAR- XC@+ NIP $42 = S" xmB" EXPECT
+
+CR .( === 5 XC!+? ===) CR
+$20AC XCBUF 3 XC!+? NIP NIP S" fit3" EXPECT
+$20AC XCBUF 2 XC!+? NIP NIP 0= S" rej2" EXPECT
+
+CR .( === 6 strings ===) CR
+$41 XCBUF XC!+ $42 SWAP XC!+ $43 SWAP XC!+ XCBUF - XCLEN !
+XCBUF XCLEN @ +X/STRING NIP XCLEN @ 1 - = S" pxs" EXPECT
+
+CR .( === 7 TG ===) CR
+$20AC XC-ENC
+XCBUF XCLEN @ -TRAILING-GARBAGE NIP 3 = S" tgOK" EXPECT
+$E2 XCBUF C! $82 XCBUF 1+ C!
+XCBUF 2 -TRAILING-GARBAGE NIP 0 = S" tgTrim" EXPECT
+
+CR .( === 8 width ===) CR
+$41 XC-WIDTH 1 = S" wA" EXPECT
+$4E00 XC-WIDTH 2 = S" wCJK" EXPECT
+$41 XCBUF XC!+ $4E00 SWAP XC!+ $42 SWAP XC!+ XCBUF - XCLEN !
+XCBUF XCLEN @ X-WIDTH 4 = S" wMix" EXPECT
+
+CR .( === 9 XHOLD ===) CR
+: XHD  <# $32 HOLD $20AC XHOLD $31 HOLD 0 0 #> ;
+XHD NIP 5 = S" hLen" EXPECT
+
+CR .( === 10 CHAR ===) CR
+$61 EKEY>XCHAR NIP S" eka" EXPECT
+CHAR A $41 = S" charA" EXPECT
+
+CR .( === 11 XC, ===) CR
+HERE $20AC XC, HERE SWAP - 3 = S" xc," EXPECT
+
+CR .( === 12 XEMIT ===) CR
+.( samples: ) $41 XEMIT $20 XEMIT $20AC XEMIT CR
+
+.SUM
+CR .( AIO-END) CR

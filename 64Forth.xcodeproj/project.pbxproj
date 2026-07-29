@@ -15,9 +15,6 @@
 		B1000012 /* FileAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000112 /* FileAccess.swift */; };
 		B1000006 /* forth.s in Sources */ = {isa = PBXBuildFile; fileRef = B1000106 /* forth.s */; };
 		B1000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000107 /* Assets.xcassets */; };
-		B1000008 /* AutoLoad in Resources */ = {isa = PBXBuildFile; fileRef = B1000108 /* AutoLoad */; };
-		B1000009 /* Library in Resources */ = {isa = PBXBuildFile; fileRef = B1000109 /* Library */; };
-		B100000A /* Docs in Resources */ = {isa = PBXBuildFile; fileRef = B100010A /* Docs */; };
 		B1000010 /* ConsoleTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000110 /* ConsoleTextView.swift */; };
 		B1000011 /* BigIntHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000111 /* BigIntHost.swift */; };
 		B1000013 /* FloatHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000113 /* FloatHost.swift */; };
@@ -144,6 +141,9 @@
 				B1000401 /* Sources */,
 				B1000200 /* Frameworks */,
 				B1000402 /* Resources */,
+				B1000701 /* Copy AutoLoad */,
+				B1000702 /* Copy Library */,
+				B1000703 /* Copy Docs */,
 			);
 			buildRules = (
 			);
@@ -187,14 +187,77 @@
 			buildActionMask = 2147483647;
 			files = (
 				B1000007 /* Assets.xcassets in Resources */,
-				B1000008 /* AutoLoad in Resources */,
 				FA6AA0DF301916D30007C369 /* 64Forth.jpg in Resources */,
-				B1000009 /* Library in Resources */,
-				B100000A /* Docs in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		B1000701 /* Copy AutoLoad */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/64Forth/Resources/AutoLoad",
+			);
+			name = "Copy AutoLoad";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/AutoLoad",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nSRC=\"${SRCROOT}/64Forth/Resources/AutoLoad\"\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/AutoLoad\"\n# Copy everything in Resources/AutoLoad → Contents/Resources/AutoLoad/\n# (ENABLE_USER_SCRIPT_SANDBOXING is OFF so the whole folder is readable.)\nrm -rf \"${DEST}\"\nmkdir -p \"${DEST}\"\nif [ -d \"${SRC}\" ]; then\n  for f in \"${SRC}\"/* \"${SRC}\"/.[!.]* \"${SRC}\"/..?*; do\n    [ -e \"$f\" ] || continue\n    base=$(basename \"$f\")\n    case \"$base\" in\n      .DS_Store|*.swp|*~) continue ;;\n    esac\n    if [ -f \"$f\" ]; then\n      cp -f \"$f\" \"${DEST}/\"\n    elif [ -d \"$f\" ]; then\n      cp -R \"$f\" \"${DEST}/\"\n    fi\n  done\nfi\n";
+		};
+		B1000702 /* Copy Library */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/64Forth/Resources/Library",
+			);
+			name = "Copy Library";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Library",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nSRC=\"${SRCROOT}/64Forth/Resources/Library\"\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Library\"\n# Fresh copy every build — avoids stale FROMLIB sources from folder-ref caching.\nrm -rf \"${DEST}\"\nmkdir -p \"${DEST}\"\nif [ -d \"${SRC}\" ]; then\n  for f in \"${SRC}\"/* \"${SRC}\"/.[!.]* \"${SRC}\"/..?*; do\n    [ -e \"$f\" ] || continue\n    base=$(basename \"$f\")\n    case \"$base\" in\n      .DS_Store|*.swp|*~) continue ;;\n    esac\n    if [ -f \"$f\" ]; then\n      cp -f \"$f\" \"${DEST}/\"\n    elif [ -d \"$f\" ]; then\n      cp -R \"$f\" \"${DEST}/\"\n    fi\n  done\nfi\n";
+		};
+		B1000703 /* Copy Docs */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/64Forth/Resources/Docs",
+			);
+			name = "Copy Docs";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Docs",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nSRC=\"${SRCROOT}/64Forth/Resources/Docs\"\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Docs\"\nrm -rf \"${DEST}\"\nmkdir -p \"${DEST}\"\nif [ -d \"${SRC}\" ]; then\n  for f in \"${SRC}\"/* \"${SRC}\"/.[!.]* \"${SRC}\"/..?*; do\n    [ -e \"$f\" ] || continue\n    base=$(basename \"$f\")\n    case \"$base\" in\n      .DS_Store|*.swp|*~) continue ;;\n    esac\n    if [ -f \"$f\" ]; then\n      cp -f \"$f\" \"${DEST}/\"\n    elif [ -d \"$f\" ]; then\n      cp -R \"$f\" \"${DEST}/\"\n    fi\n  done\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		B1000401 /* Sources */ = {
@@ -246,7 +309,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				EXCLUDED_ARCHS = "x86_64 i386";
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -295,7 +358,7 @@
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				EXCLUDED_ARCHS = "x86_64 i386";
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;

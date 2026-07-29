@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-07-29 — **v0.6.0** (Core/Core Ext polish, FIND-before-number, Tools `?`, Hayes harness under `src/Harness/`, full Hayes subset green including paranoia Excellent).
+**Updated:** 2026-07-29 — **v0.6.0+** (Hayes subset green; modular Library **ANSValidate** ~351/0 through Float; Facility Ext `EKEY>FKEY`/`K-*` + `FACILITY-EXT`; `LOAD` restores `BLK` via source stack; UTF-8 XChar; String/Locals Ext).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
@@ -18,7 +18,8 @@
 | Host multiprecision BI-MUL / BI-DIVMOD / BI-ISQRT | **TZForth** algorithms (`BigIntHost.swift`) | BIG-INTEGER library support |
 | Floating-point (IEEE-64 F-stack, parse/print) | **TZForth** `TZForthFloat.swift` → `FloatHost.swift` | **`VOCABULARY FP`** (public names); thin FORTH hooks `FLIT` / `(F-OP)` |
 | File-Access + Block volumes | TZForth-style host + kernel CODE | `FileAccess.swift`, block file words, Hayes prepare-blocks |
-| XChar / SZ-EDITOR productization | TZForth (optional later) | Not required for Hayes subset |
+| XChar | Kernel UTF-8 CODE + high-level words; bulk `emit_buf` for multi-byte TYPE | ANS 18; validate via `ANSValidate/all-in-one.fth` |
+| SZ-EDITOR productization | TZForth (optional later) | Sources under `Library/Editor`; not polished as in-app product |
 
 ---
 
@@ -82,6 +83,12 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 - `FileHost`: logical cwd, FROMLIB → `Resources/Library`, nested relatives
 - Kernel `INCLUDE` via `load_file_hook`; `FLOAD` / `REQUIRE` aliases
 - Bare FLOAD/CHDIR → panels; `PWD`; quoted paths with spaces
+- **Bundle copy (TZForth-style):** Xcode Run Script phases **Copy AutoLoad**,
+  **Copy Library**, **Copy Docs** wipe and re-copy
+  `64Forth/Resources/{AutoLoad,Library,Docs}` →
+  `Contents/Resources/…` on every build (`alwaysOutOfDate`,
+  `ENABLE_USER_SCRIPT_SANDBOXING = NO`). Avoids stale folder-reference
+  copies that left FROMLIB serving old `.fth` sources.
 
 ### Phase 4 — AutoLoad — **done**
 
@@ -135,17 +142,33 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 | Exception | **done** | `CATCH`/`THROW`; soft uncaught THROW under embed |
 | File-Access | **done** | Host `FileAccess` + CODE (`OPEN-FILE` … `FLUSH-FILE`) |
 | Locals / Memory / Search-Order | **done** | `{: :}`, `ALLOCATE`, multi-wordlist |
-| Facility | **done** | `MS` nanosleep; `KEY`/`KEY?`; `PAGE`/`AT-XY`; `TIME&DATE` |
-| Block | **done** | File volume: `OPEN-BLOCK-FILE` / `CREATE-BLOCK-FILE` / `USE-BLOCK-FILE`; `prepare-blocks.fth` → Application Support |
+| Facility + Facility Ext | **done** | `MS`; `KEY`/`KEY?`/`EKEY`; `EKEY>CHAR`/`EKEY>FKEY`; `K-*` constants; host maps arrows/F-keys; structures; `ENVIRONMENT? FACILITY` / `FACILITY-EXT` |
+| Block | **done** | File volume; `LOAD` pushes SOURCE and restores outer `BLK` (source-stack frame includes BLK) |
 | **Floating-point** | **done** | Host `FloatHost` (IEEE-64, 16-deep F-stack); public words in **`VOCABULARY FP`**; FORTH holds `FLIT` / `(F-OP)` / `FLIT-ADDR` only; float literals in outer interpreter |
-| Extended Character | optional | Not required for current Hayes driver |
+| String Ext (17.6.2) | **done** | `REPLACES` / `SUBSTITUTE` / `UNESCAPE` (high-level) |
+| Locals Ext | **done** | `(LOCAL)`, `LOCALS|`, `{: … :}`; `#LOCALS` = 32 |
+| **Extended Character (18)** | **done** | UTF-8 in kernel; validate via modular `ANSValidate/` or `all-in-one.fth` |
 
-### Floating-point design (v0.5)
+**Honesty:** Word-set presence means required **names** (and working semantics for the Hayes/ANSValidate paths exercised). This is **not** a formal ANS System certificate.
+
+**ANS-VALIDATE (pure Forth modules):**  
+`FROMLIB FLOAD ANSValidate/ANS-VALIDATE.fth` — tester → core … block → xchar → float. Expect **ALL PASS** (~351/0). Nested relative `FLOAD` uses per-file load cwd.
+
+### Floating-point design (v0.5+)
 
 - **Not** pure assembly: same hybrid as BigInteger — Swift host + thin kernel multiplex (`kernel_set_float_op`).
 - **Vocabulary:** `ALSO FP` to use `F+`, `F.`, `FVARIABLE`, …; default FORTH search order stays clean.
 - **Literals:** `1.5e0` / `3.14` recognized by the outer interpreter (trailing-only `123.` remains double).
-- **ENVIRONMENT?:** `FLOATING`, `FLOAT-EXT`, `FLOATING-STACK` (16), `MAX-FLOAT` (ttester double-`[IF]` needs value+true for FLOATING).
+- **ENVIRONMENT?:** boolean/word-set queries return **value then true** (ttester double-`[IF]` idiom). Float: `FLOATING`, `FLOAT-EXT`, `FLOATING-STACK` (16), `MAX-FLOAT`.
+
+### Extended Character design (v0.6)
+
+- **Encoding:** UTF-8; `MAX-XCHAR` = `$10FFFF`; `XCHAR-MAXMEM` = 4; `XCHAR-ENCODING` → `"UTF-8"`.
+- **CODE:** `XC!+`, `XC@+`, `XEMIT` (multi-byte via host `emit_buf` when set).
+- **High-level:** `XC-SIZE`, `XCHAR+`/`XCHAR-`, `+X/STRING`, `-TRAILING-GARBAGE`, `XC-WIDTH`/`X-WIDTH`, `XHOLD`, `XC!+?`, `XC,`, `EKEY>XCHAR`, …
+- **Validate (disk preferred after editing `.fth`):**  
+  `INCLUDE …/Resources/Library/ANSValidate/all-in-one.fth`  
+  (Bundle `FROMLIB` may be stale until rebuild.)
 
 **Hayes driver:** `FROMLIB FLOAD HayesTest/HayesTest.fth`
 
@@ -284,14 +307,16 @@ Kernel improvements can be cherry-picked PickleForth ↔ `64Forth/Kernel` until 
 
 ### Still missing vs full TZForth (high level)
 
-- **Extended-Character** (XChar) word set  
 - **SZ-EDITOR** as a polished in-app library path (sources exist under Library/Editor)  
 - Line-at-a-time INCLUDE driven by real ANS fileids (whole-file SOURCE model today)  
-- Optional polish: multi-buffer block cache, compiled `TO` for FVALUE, store sandbox  
+- Optional polish: multi-buffer block cache, compiled `TO` for FVALUE, App Sandbox for store  
 
-### Present and Hayes-validated (v0.5)
+### Present and validated (v0.6+)
 
-- File-Access, Facility, Block (file volume), Floating-point (FP vocab), core through tools/search/string  
+- Hayes subset: core through File/Block/FP (`FROMLIB FLOAD HayesTest/HayesTest.fth`)  
+- Modular ANSValidate: Core … Float, Facility Ext fkeys, XChar (~351/0)  
+- Facility Ext: structures + `EKEY>FKEY` + `K-*` + host special-key mapping  
+- String Ext, Locals Ext, Search-Order, Memory-Allocation, full Facility  
 
 ---
 
@@ -299,7 +324,7 @@ Kernel improvements can be cherry-picked PickleForth ↔ `64Forth/Kernel` until 
 
 1. App sandbox on/off for public builds  
 2. Whether to add TZForth-style “no GROWMEMORYMB after ALLOCATE” (currently N/A)  
-3. Further editor / XChar ports vs keep host-only features  
+3. Further editor productization vs keep host-only EDIT  
 4. Release packaging / branding beyond current AppIcon  
 
 ---

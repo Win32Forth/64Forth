@@ -21,6 +21,8 @@ int kernel_init(void);
 int kernel_eval(const char *line, size_t n);
 
 void kernel_set_emit(void (*fn)(int c));
+/// Bulk TYPE path: emit `n` bytes at `buf` as one UTF-8 (or Latin-1 fallback) chunk.
+void kernel_set_emit_buf(void (*fn)(const char *buf, size_t n));
 void kernel_set_key(int (*fn)(void));
 
 /// KEY? — non-blocking: return non-zero if a key is available (does not consume it).

@@ -69,13 +69,17 @@ boot_word_table:
     BOOT_WORD "C!", "C! ( byte addr -- ) store byte", 0, XCSTORE
     BOOT_WORD "+!", "+! ( n addr -- ) add to memory", 0, XPLUSSTORE
     BOOT_WORD "EMIT", "EMIT ( c -- ) emit character", 0, XEMIT
-    BOOT_WORD "KEY", "KEY ( -- c ) wait for and return next key code", 0, XKEY
+    BOOT_WORD "KEY", "KEY ( -- c ) wait for and return next character (skips K-* function-key events)", 0, XKEY
     BOOT_WORD "KEY?", "KEY? ( -- flag ) true if a key is available (does not consume)", 0, XKEYQ
+    BOOT_WORD "EKEY", "EKEY ( -- u ) next key event (chars or tagged function keys for EKEY>FKEY)", 0, XEKEY
     BOOT_WORD "CR", "CR ( -- ) carriage return / newline", 0, XCR
     BOOT_WORD ".", ". ( n -- ) print number (with space)", 0, XDOT
     BOOT_WORD "U.", "U. ( u -- ) print unsigned", 0, XUDOT
     BOOT_WORD ".S", ".S ( -- ) print data stack contents", 0, XDOTS
     BOOT_WORD "TYPE", "TYPE ( addr len -- ) type string", 0, XTYPE
+    BOOT_WORD "XC!+", "XC!+ ( xchar xc-addr1 -- xc-addr2 ) store UTF-8 xchar, advance", 0, XXC_STORE_PLUS
+    BOOT_WORD "XC@+", "XC@+ ( xc-addr1 -- xc-addr2 xchar ) fetch UTF-8 xchar, advance", 0, XXC_FETCH_PLUS
+    BOOT_WORD "XEMIT", "XEMIT ( xchar -- ) emit UTF-8 xchar to console", 0, XXCHAR_EMIT
     BOOT_WORD ".(", ".( ( -- ) print text until ) immediately (immediate)", 1, XDOTPAREN
     BOOT_WORD "STATE", "STATE ( -- addr ) compilation state variable", 0, XSTATE
     BOOT_WORD "BASE", "BASE ( -- addr ) current numeric base variable", 0, XBASE
@@ -132,6 +136,7 @@ boot_word_table:
     BOOT_WORD "(LOCAL-INIT)", "(LOCAL-INIT) ( n nInit rev -- ) create locals frame", 0, XLOCAL_INIT
     BOOT_WORD "(LOCAL@)", "(LOCAL@) ( idx -- x ) fetch local", 0, XLOCAL_AT
     BOOT_WORD "(LOCAL!)", "(LOCAL!) ( x idx -- ) store local", 0, XLOCAL_STORE
+    BOOT_WORD "(LOCAL)", "(LOCAL) ( c-addr u -- ) declare local or end locals (compile only)", 0, XLOCAL_PAREN
     BOOT_WORD "{:", "{: ( -- ) declare locals {: args | vals -- outs :} (immediate)", 1, XLOCAL_BRACE
     BOOT_WORD "TO", "TO ( x 'name' -- ) store to VALUE or local (immediate)", 1, XTO_IMM
     BOOT_WORD "WORDS", "WORDS ( ['filter'] -- ) list first search-order wordlist, sorted", 0, XWORDS
@@ -261,6 +266,8 @@ boot_word_table:
     BOOT_WORD "(BLOCK-BUF)", "(BLOCK-BUF) ( -- addr ) address of the 1K system block buffer", 0, XBLOCK_BUF
     BOOT_WORD "(BLOCK-NR)", "(BLOCK-NR) ( -- addr ) block number currently cached in buffer", 0, XBLOCK_NR
     BOOT_WORD "(BLOCK-UPD)", "(BLOCK-UPD) ( -- addr ) nonzero if block buffer is dirty", 0, XBLOCK_UPD
+    BOOT_WORD "(LOAD-ENTER)", "(LOAD-ENTER) ( u -- u ) push SOURCE + set BLK for LOAD", 0, XLOAD_ENTER
+    BOOT_WORD "(LOAD-RUN)", "(LOAD-RUN) ( c-addr u -- ) interpret buffer as nested SOURCE for LOAD", 0, XLOAD_RUN
     // Floating-point: engine trampolines in FORTH; public words in FP vocabulary
     BOOT_WORD "FLIT", "FLIT ( -- ) ( F: -- r ) runtime: push inline IEEE bits as float", 0, XFLIT
     BOOT_WORD "(F-OP)", "(F-OP) ( i*x op -- j*x ) float host multiplex (internal)", 0, XFLOAT_OP
@@ -274,7 +281,7 @@ boot_word_table:
     BOOT_WORD "NAME>COMPILE", "NAME>COMPILE ( nt -- x xt ) compilation semantics pair for name token", 0, XNAME_COMPILE
     .quad 0, 0, 0, 0
 
-.equ BOOT_WORD_COUNT, 217
+.equ BOOT_WORD_COUNT, 220
 
 // Empty help used by : / CREATE / :NONAME
 .align 8

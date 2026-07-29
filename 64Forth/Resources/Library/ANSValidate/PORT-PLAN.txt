@@ -1,0 +1,53 @@
+64Forth ANS-VALIDATE — TZForth port plan
+========================================
+
+Source of truth: TZForth Swift FTEST / ANS-VALIDATE
+  TZForth/TZForthTests.swift  (runANSValidation)
+  TZForth/TestTZForth.swift   (CLI FTEST)
+  Baseline transcript: TZForth/ANS-VALIDATE.txt (~427 tests)
+
+64Forth approach: pure Forth modules under ANSValidate/, one word set at a time.
+  Driver: ANS-VALIDATE.fth
+  Harness: tester.fth
+
+Module order
+------------
+  [done]  tester.fth     harness
+  [done]  core.fth       Core
+  [done]  core-ext.fth   Core Ext
+  [done]  search.fth     Search-Order
+  [done]  string.fth     String
+  [done]  facility.fth   Facility + Facility Ext (structures, K-*, EKEY>FKEY)
+  [done]  exception.fth  Exception - CATCH THROW
+  [done]  memory.fth     Memory-Allocation - ALLOCATE FREE RESIZE
+  [done]  double.fth     Double-Number
+  [done]  locals.fth     Locals - LOCALS| {: TO
+  [done]  tools.fth      Programming-Tools - subset
+  [done]  file.fth       File-Access - /tmp paths
+  [done]  block.fth      Block - /tmp .blk volume
+  [done]  xchar.fth      Extended Character
+  [done]  float.fth      Float Tier A/B - ALSO FP
+
+Skip / never pure Forth
+-----------------------
+  TZForth harness-only: temp-file FLOAD fault injection, console PAGE
+  buffer capture, DEBUG-ON UI, dictionary snapshot restore (Swift).
+  Those stay Hayes or host-side if needed.
+
+Rules when porting
+------------------
+  - No interpret-time IF/ELSE/THEN/BEGIN
+  - EXPECT leaves pass/fail in #PASS/#FAIL
+  - Prefer stack flags over matching printed "." text
+  - Skip TZForth-only words - H. ID. >XID .ENVIRONMENT LOCATE ARSHIFT …
+  - .( messages: no nested )
+  - Use CHAR not [CHAR] while interpreting
+
+How to run - no absolute paths
+------------------------------
+  FROMLIB FLOAD ANSValidate/ANS-VALIDATE.fth
+  Library is copied into the app bundle on every build - FROMLIB resolves there.
+
+Standalone XChar still works
+----------------------------
+  FROMLIB FLOAD ANSValidate/all-in-one.fth

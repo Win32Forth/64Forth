@@ -3060,7 +3060,7 @@ Pass #17: testing AND
 Pass #18: testing AND
 Pass #19: testing AND
 
-*debug-bootstrap ready â try: T{ 1 2 + -> 3 }T  then  #ERRORS @ .
+*debug-bootstrap ready — try: T{ 1 2 + -> 3 }T  then  #ERRORS @ .
 prepare-blocks: using hayes-blocks.blk
 \ Additional tests on the the ANS Forth Core word set
 
