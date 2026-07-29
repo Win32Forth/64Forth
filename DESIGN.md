@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-07-28 (reflects implementation through GROWMEMORYMB, WORDS sections, fault recovery, PI/BI fixes).
+**Updated:** 2026-07-29 — **v0.5.0** (File-Access, file-backed Block, Floating-point in `VOCABULARY FP`, Hayes subset green including FP).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
@@ -16,7 +16,9 @@
 | Resources layout (`AutoLoad/`, `Library/`, `Docs/`) | **TZForth** bundle pattern | Bundled libraries & samples |
 | FROMLIB / FLOAD / CHDIR / DIR / EDIT | **TZForth** host file architecture | Path resolution & UX |
 | Host multiprecision BI-MUL / BI-DIVMOD / BI-ISQRT | **TZForth** algorithms (`BigIntHost.swift`) | BIG-INTEGER library support |
-| Float / Block / XChar / full ANS suites | TZForth (not yet) | Future optional ports |
+| Floating-point (IEEE-64 F-stack, parse/print) | **TZForth** `TZForthFloat.swift` → `FloatHost.swift` | **`VOCABULARY FP`** (public names); thin FORTH hooks `FLIT` / `(F-OP)` |
+| File-Access + Block volumes | TZForth-style host + kernel CODE | `FileAccess.swift`, block file words, Hayes prepare-blocks |
+| XChar / SZ-EDITOR productization | TZForth (optional later) | Not required for Hayes subset |
 
 ---
 
@@ -33,9 +35,11 @@
                              │
 ┌────────────────────────────▼────────────────────────────────┐
 │  Host layer (Swift)                                           │
-│    • KernelBridge — C ABI, emit/key, eval reentrancy guard    │
-│    • FileHost — FROMLIB, INCLUDE buffers, DIR, EDIT, CHDIR    │
+│    • KernelBridge — C ABI, emit/key, eval off-main + UI pump  │
+│    • FileHost — FROMLIB, INCLUDE, DIR, EDIT, CHDIR (main panels)│
+│    • FileAccess — OPEN-FILE … buffered table                  │
 │    • BigIntHost — BI-MUL / BI-DIVMOD / BI-ISQRT (base 10^9)  │
+│    • FloatHost — IEEE-64 F-stack (depth 16), float_op hook    │
 │    • SIGSEGV/SIGBUS → kernel_on_memory_fault (soft recover)   │
 └────────────────────────────┬────────────────────────────────┘
                              │
@@ -44,6 +48,7 @@
 │    • kernel_init / kernel_eval (embed); _kernel_cold_start    │
 │    • Dictionary in user_dict_area; CODE bodies in .text       │
 │    • INCLUDE nests whole-file SOURCE; FILE-ECHO; \S           │
+│    • VOCABULARIES: FORTH, BIG-INTEGER, EDITOR, ASSEMBLER, FP  │
 │    • GROWMEMORYMB raises logical dict size (CFA-stable)       │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -87,12 +92,13 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 
 - **DIR** (wildcards, FROMLIB)
 - Eval reentrancy guard; App Sandbox off for v0.1; bookmarks + cwd persistence
-- [ ] Later: background `kernel_eval` for huge loads; full sandbox; Hayes suite in-tree
+- Batched console emit + main-thread open panels (responsive long INCLUDE/Hayes)
+- [ ] Later: full App Sandbox for store builds; further editor UX
 
 ### Phase 6 — Search-Order, BIG-INTEGER, locals — **done**
 
 - Multi-wordlist FIND / CURRENT; WORDLIST, ONLY, ALSO, DEFINITIONS, ORDER, …
-- `VOCABULARY` + `BIG-INTEGER` / `EDITOR` / `ASSEMBLER`
+- `VOCABULARY` + `BIG-INTEGER` / `EDITOR` / `ASSEMBLER` / **`FP`**
 - Host `ALLOCATE` / `FREE` / `RESIZE`; `BI-MUL` / `BI-DIVMOD` / `BI-ISQRT`
 - Locals `{: … :}`, `TO` for stock `big-int.fth` / π
 
@@ -120,18 +126,33 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 
 ---
 
-## 3b. Word-set coverage (in progress)
+## 3b. Word-set coverage — **v0.5.0 (Hayes subset green)**
 
-| Phase | Word set | Notes |
-|-------|----------|--------|
-| 1 | Core Ext | `U>` `0<>` `0>` `WITHIN` are **CODE**; remaining Core Ext mostly in `forth_init_str` (VALUE, CASE, DEFER, MARKER, …) plus `.R` |
-| 2 | Double + String | Double ops **CODE** (`D+` `D-` `D0=` …); double literals (`1.`); `COMPARE`/`SEARCH` CODE; `BLANK` `-TRAILING` `SLITERAL` high-level |
-| 3 | Block | RAM-backed `BLOCK`/`BUFFER`/`LOAD`/`LIST`… (not yet file volume / OPEN-BLOCK-FILE) |
-| 4 | Facility | `MS` = CODE `nanosleep`; `KEY`/`KEY?` host queue (eval off-main); `PAGE`/`AT-XY` ANSI; `TIME&DATE` host Calendar; `WARNING` variable |
+| Word set | Status | Notes |
+|----------|--------|--------|
+| Core / Core Ext | **done** | CODE + `forth_init_str`; Tools `[IF]`/`[DEFINED]`/`[UNDEFINED]` |
+| Double + String | **done** | Double CODE; `COMPARE`/`SEARCH`; pictured `#` double-cell |
+| Exception | **done** | `CATCH`/`THROW`; soft uncaught THROW under embed |
+| File-Access | **done** | Host `FileAccess` + CODE (`OPEN-FILE` … `FLUSH-FILE`) |
+| Locals / Memory / Search-Order | **done** | `{: :}`, `ALLOCATE`, multi-wordlist |
+| Facility | **done** | `MS` nanosleep; `KEY`/`KEY?`; `PAGE`/`AT-XY`; `TIME&DATE` |
+| Block | **done** | File volume: `OPEN-BLOCK-FILE` / `CREATE-BLOCK-FILE` / `USE-BLOCK-FILE`; `prepare-blocks.fth` → Application Support |
+| **Floating-point** | **done** | Host `FloatHost` (IEEE-64, 16-deep F-stack); public words in **`VOCABULARY FP`**; FORTH holds `FLIT` / `(F-OP)` / `FLIT-ADDR` only; float literals in outer interpreter |
+| Extended Character | optional | Not required for current Hayes driver |
 
-**Hayes driver:** `FROMLIB FLOAD HayesTest/HayesTest.fth` — runs core/double/string/file/facility/search; skips FP and block-file when missing.
+### Floating-point design (v0.5)
 
-**File-Access:** host `FileAccess` buffered table + kernel CODE words (`OPEN-FILE` … `FLUSH-FILE`). Relative paths use logical cwd; writes under the app bundle remap to `Application Support/64Forth/`.
+- **Not** pure assembly: same hybrid as BigInteger — Swift host + thin kernel multiplex (`kernel_set_float_op`).
+- **Vocabulary:** `ALSO FP` to use `F+`, `F.`, `FVARIABLE`, …; default FORTH search order stays clean.
+- **Literals:** `1.5e0` / `3.14` recognized by the outer interpreter (trailing-only `123.` remains double).
+- **ENVIRONMENT?:** `FLOATING`, `FLOAT-EXT`, `FLOATING-STACK` (16), `MAX-FLOAT` (ttester double-`[IF]` needs value+true for FLOATING).
+
+**Hayes driver:** `FROMLIB FLOAD HayesTest/HayesTest.fth`
+
+- Resets `ONLY FORTH` then `ALSO FP` before FP suite (searchordertest leaves odd orders).
+- Expect: `Running FP Tests` … `FP tests finished`, all `*ERRORS @ = 0`, including `FPERRORS` and `BERRORS`.
+
+**File-Access / Block:** relative paths use logical cwd; bundle writes remap to `Application Support/64Forth/`; Hayes blocks file under `Application Support/64Forth/hayes-blocks.blk`.
 
 ## 4. FROMLIB semantics
 
@@ -263,12 +284,14 @@ Kernel improvements can be cherry-picked PickleForth ↔ `64Forth/Kernel` until 
 
 ### Still missing vs full TZForth (high level)
 
-- Full **File-Access** word set (OPEN-FILE, READ-LINE, …) beyond host INCLUDE  
-- **Facility** (`PAGE`, `MS`, `TIME&DATE`, …)  
-- **Float**, **Block**, **Extended-Character**  
-- Hayes / `ANS-VALIDATE` in-tree  
-- **SZ-EDITOR** library  
-- Line-at-a-time INCLUDE with real fileids (TZForth model)
+- **Extended-Character** (XChar) word set  
+- **SZ-EDITOR** as a polished in-app library path (sources exist under Library/Editor)  
+- Line-at-a-time INCLUDE driven by real ANS fileids (whole-file SOURCE model today)  
+- Optional polish: multi-buffer block cache, compiled `TO` for FVALUE, store sandbox  
+
+### Present and Hayes-validated (v0.5)
+
+- File-Access, Facility, Block (file volume), Floating-point (FP vocab), core through tools/search/string  
 
 ---
 
@@ -276,9 +299,8 @@ Kernel improvements can be cherry-picked PickleForth ↔ `64Forth/Kernel` until 
 
 1. App sandbox on/off for public builds  
 2. Whether to add TZForth-style “no GROWMEMORYMB after ALLOCATE” (currently N/A)  
-3. Background `kernel_eval` for multi-second loads (PLDI `MAIN`, etc.)  
-4. Branding / icon  
-5. How much ANS optional word set to port vs keep host-only features  
+3. Further editor / XChar ports vs keep host-only features  
+4. Release packaging / branding beyond current AppIcon  
 
 ---
 
@@ -305,10 +327,12 @@ Prefer writing only under `64Forth` unless explicitly changing PickleForth/TZFor
 | `64Forth/Kernel/forth.s` | ITC kernel, colon bootstrap, WORDS, faults, dict |
 | `64Forth/Kernel/boot_words.inc` | CODE word catalog |
 | `64Forth/Kernel/kernel_api.h` | C ABI for host |
-| `64Forth/Host/KernelBridge.swift` | Embed bridge, eval, signals |
+| `64Forth/Host/KernelBridge.swift` | Embed bridge, eval, signals, float_op hook |
 | `64Forth/Host/FileHost.swift` | Paths, INCLUDE, DIR, EDIT |
+| `64Forth/Host/FileAccess.swift` | File-Access table |
 | `64Forth/Host/BigIntHost.swift` | Multiprecision host ops |
-| `64Forth/App/ConsoleView.swift` | REPL, paste, `\S` batch stop |
-| `64Forth/Resources/Library/` | BigInteger, PI, smoke tests |
+| `64Forth/Host/FloatHost.swift` | IEEE-64 F-stack + float ops (TZForthFloat port) |
+| `64Forth/App/ConsoleView.swift` | REPL, paste, `\S` batch stop, batched emit follow |
+| `64Forth/Resources/Library/` | BigInteger, PI, HayesTest, Editor samples |
 | `.lldbinit-64forth` | LLDB: pass memory faults to process |
 | `64Forth.xcodeproj/.../64Forth.xcscheme` | `customLLDBInitFile` → that lldbinit |

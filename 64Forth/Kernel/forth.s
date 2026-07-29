@@ -204,7 +204,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #19                    // "PickleForth v0.4.0\n"
+    mov x2, #19                    // "PickleForth v0.5.0\n"
     mov x16, #4
     svc #0x80
 
@@ -420,6 +420,14 @@ _kernel_set_free:
 _kernel_set_bi_mul:
     adrp x1, bi_mul_hook@page
     add  x1, x1, bi_mul_hook@pageoff
+    str  x0, [x1]
+    ret
+
+// void kernel_set_float_op(float_op_fn)
+.globl _kernel_set_float_op
+_kernel_set_float_op:
+    adrp x1, float_op_hook@page
+    add  x1, x1, float_op_hook@pageoff
     str  x0, [x1]
     ret
 
@@ -1147,9 +1155,18 @@ _boot_cache_cfa:
     adrp x1, boot_cmp_local_store@page
     add x1, x1, boot_cmp_local_store@pageoff
     bl _zcmp
-    cbnz x0, 9f
+    cbnz x0, 84f
     adrp x2, cfa_local_store@page
     add x2, x2, cfa_local_store@pageoff
+    str x20, [x2]
+    b 9f
+84: mov x0, x19
+    adrp x1, boot_cmp_flit@page
+    add x1, x1, boot_cmp_flit@pageoff
+    bl _zcmp
+    cbnz x0, 9f
+    adrp x2, cfa_flit@page
+    add x2, x2, cfa_flit@pageoff
     str x20, [x2]
 9:
     ldp x19, x20, [sp], #16
@@ -2415,7 +2432,18 @@ _include_fail_restore:
     ldp  x25, x26, [sp], #16
     RESTORE_VM
 _include_fail:
-    b    _error_abandon
+    // Do not abandon the *caller* SOURCE (e.g. runfptests.fth). Report and return
+    // so nested INCLUDED/FLOAD failure does not wipe the rest of the FP suite.
+    adrp x0, str_cant_open@page
+    add  x0, x0, str_cant_open@pageoff
+    mov  x1, #12                   // "can't open: "
+    bl   _write_stdout
+    adrp x0, word_scratch@page
+    add  x0, x0, word_scratch@pageoff
+    bl   _print_string_svc
+    mov  x0, #10
+    bl   _putchar
+    NEXT
 
 // _next_filespec: like _next_word but supports "quoted paths with spaces"
 // → x25=len, word_scratch filled; x25=0 if bare/EOF
@@ -4874,6 +4902,216 @@ XFLUSH_FILE:
     mov  x20, x0
     NEXT
 
+// ============================================================================
+// Floating-point (host F-stack; public words in FP vocabulary)
+// ============================================================================
+// FLIT ( -- ) ( F: -- r )  inline IEEE-64 bits at IP
+XFLIT:
+    ldr  x1, [x19], #8             // bits
+    mov  x0, #101                  // FOP_FPUSH_BITS
+    mov  x2, #0
+    mov  x3, #0
+    mov  x4, #0
+    mov  x5, #0
+    SAVE_VM
+    bl   _float_op_call
+    RESTORE_VM
+    NEXT
+
+// FLIT-ADDR ( -- xt )
+XFLIT_ADDR:
+    DPUSH
+    adrp x0, cfa_flit@page
+    add  x0, x0, cfa_flit@pageoff
+    ldr  x20, [x0]
+    NEXT
+
+// (F-OP) ( i*x op -- j*x )  host multiplex; op selects stack args / results
+XFLOAT_OP:
+    mov  x9, x20                   // op
+    ldr  x20, [x22], #8            // prior TOS
+    mov  x1, #0                    // a
+    mov  x2, #0                    // b
+    mov  x3, #0
+    mov  x4, #0
+    mov  x5, #0                    // ptr
+    // Ops that take one data-stack cell as a (addr or n)
+    cmp  x9, #22                   // F@
+    b.eq _fo_a1
+    cmp  x9, #23                   // F!
+    b.eq _fo_a1
+    cmp  x9, #24                   // SF@
+    b.eq _fo_a1
+    cmp  x9, #25
+    b.eq _fo_a1
+    cmp  x9, #26
+    b.eq _fo_a1
+    cmp  x9, #27
+    b.eq _fo_a1
+    cmp  x9, #28                   // S>F
+    b.eq _fo_a1
+    cmp  x9, #37                   // SET-PRECISION
+    b.eq _fo_a1
+    cmp  x9, #39                   // FLOATS
+    b.eq _fo_a1
+    cmp  x9, #40                   // FLOAT+
+    b.eq _fo_a1
+    cmp  x9, #41
+    b.eq _fo_a1
+    cmp  x9, #42
+    b.eq _fo_a1
+    cmp  x9, #43
+    b.eq _fo_a1
+    cmp  x9, #44
+    b.eq _fo_a1
+    cmp  x9, #70
+    b.eq _fo_a1
+    cmp  x9, #71
+    b.eq _fo_a1
+    cmp  x9, #72
+    b.eq _fo_a1
+    cmp  x9, #73
+    b.eq _fo_a1
+    cmp  x9, #74
+    b.eq _fo_a1
+    cmp  x9, #75
+    b.eq _fo_a1
+    cmp  x9, #30                   // D>F lo under hi TOS
+    b.eq _fo_d2
+    cmp  x9, #32                   // >FLOAT c-addr u
+    b.eq _fo_cu
+    cmp  x9, #38                   // REPRESENT c-addr u
+    b.eq _fo_cu
+    b    _fo_go
+_fo_a1:
+    mov  x1, x20
+    ldr  x20, [x22], #8
+    b    _fo_go
+_fo_d2:
+    // TOS=hi, under=lo
+    mov  x2, x20                   // hi = b
+    ldr  x1, [x22], #8             // lo = a
+    ldr  x20, [x22], #8
+    b    _fo_go
+_fo_cu:
+    // TOS=u, under=c-addr
+    mov  x2, x20                   // u = b
+    ldr  x5, [x22], #8             // c-addr as ptr
+    ldr  x20, [x22], #8
+    b    _fo_go
+_fo_go:
+    mov  x0, x9                    // op
+    str  x9, [x23, #-8]!           // save op for result dispatch
+    SAVE_VM
+    bl   _float_op_call
+    RESTORE_VM
+    ldr  x9, [x23], #8             // op
+    // Push host results onto data stack for ops that return values
+    // 1 result in o1 (x6): depths, flags, F>S, FLOATS, FLOAT+, PRECISION, >FLOAT flag, aligned, fpopBits
+    // 2 results: F>D (lo o1 hi o2)
+    // 3 results: REPRESENT k sign exact
+    cmp  x9, #31                   // F>D
+    b.eq _fo_push2
+    cmp  x9, #38                   // REPRESENT
+    b.eq _fo_push3
+    // single-result ops
+    cmp  x9, #1                    // FDEPTH
+    b.eq _fo_push1
+    cmp  x9, #15
+    b.eq _fo_push1
+    cmp  x9, #16
+    b.eq _fo_push1
+    cmp  x9, #17
+    b.eq _fo_push1
+    cmp  x9, #18
+    b.eq _fo_push1
+    cmp  x9, #19
+    b.eq _fo_push1
+    cmp  x9, #20
+    b.eq _fo_push1
+    cmp  x9, #21
+    b.eq _fo_push1
+    cmp  x9, #29                   // F>S
+    b.eq _fo_push1
+    cmp  x9, #32                   // >FLOAT flag
+    b.eq _fo_push1
+    cmp  x9, #36                   // PRECISION
+    b.eq _fo_push1
+    cmp  x9, #39
+    b.eq _fo_push1
+    cmp  x9, #40
+    b.eq _fo_push1
+    cmp  x9, #41
+    b.eq _fo_push1
+    cmp  x9, #42
+    b.eq _fo_push1
+    cmp  x9, #43
+    b.eq _fo_push1
+    cmp  x9, #44
+    b.eq _fo_push1
+    cmp  x9, #70
+    b.eq _fo_push1
+    cmp  x9, #71
+    b.eq _fo_push1
+    cmp  x9, #72
+    b.eq _fo_push1
+    cmp  x9, #73
+    b.eq _fo_push1
+    cmp  x9, #74
+    b.eq _fo_push1
+    cmp  x9, #75
+    b.eq _fo_push1
+    cmp  x9, #102                  // fpopBits
+    b.eq _fo_push1
+    NEXT
+_fo_push1:
+    str  x20, [x22, #-8]!
+    mov  x20, x6
+    NEXT
+_fo_push2:
+    str  x20, [x22, #-8]!
+    str  x6, [x22, #-8]!           // lo
+    mov  x20, x7                   // hi
+    NEXT
+_fo_push3:
+    str  x20, [x22, #-8]!
+    str  x6, [x22, #-8]!           // k
+    str  x7, [x22, #-8]!           // sign flag
+    mov  x20, x8                   // exact
+    NEXT
+
+// Helper: float_op_hook  x0=op x1=a x2=b x3=c x4=d x5=ptr
+// Out: x0=ior x6=o1 x7=o2 x8=o3
+_float_op_call:
+    stp  x29, x30, [sp, #-16]!
+    mov  x29, sp
+    adrp x9, float_op_hook@page
+    add  x9, x9, float_op_hook@pageoff
+    ldr  x9, [x9]
+    cbz  x9, 1f
+    sub  sp, sp, #64
+    add  x6, sp, #16
+    add  x7, sp, #24
+    add  x8, sp, #32
+    str  xzr, [x6]
+    str  xzr, [x7]
+    str  xzr, [x8]
+    str  x8, [sp]
+    blr  x9
+    ldr  x6, [sp, #16]
+    ldr  x7, [sp, #24]
+    ldr  x8, [sp, #32]
+    add  sp, sp, #64
+    ldp  x29, x30, [sp], #16
+    ret
+1:
+    mov  x0, #-1
+    mov  x6, #0
+    mov  x7, #0
+    mov  x8, #0
+    ldp  x29, x30, [sp], #16
+    ret
+
 // _block_erase_buf: fill block_buf with blanks (space). Clobbers x0-x2.
 _block_erase_buf:
     adrp x0, block_buf@page
@@ -6346,6 +6584,7 @@ _tn_done:
 // Recognized queries (minimal Core set + a few useful ones):
 //   /COUNTED-STRING  ADDRESS-UNIT-BITS  CORE  CORE-EXT  FLOORED
 //   MAX-CHAR  MAX-N  MAX-U  RETURN-STACK-CELLS  STACK-CELLS
+//   FLOATING  FLOAT-EXT  FLOATING-STACK  MAX-FLOAT
 XENVIRONMENT_Q:
     mov x1, x20                    // u
     ldr x0, [x22], #8              // c-addr
@@ -6354,7 +6593,7 @@ XENVIRONMENT_Q:
 _env_next:
     // load name pointer and length from table: each entry is .quad ptr, .quad len, then next
     // Simpler: fixed table of asciz names, parallel values
-    cmp x4, #10                    // ENV_COUNT
+    cmp x4, #14                    // ENV_COUNT
     b.hs _env_no
     // name at env_name_ptrs[x4]
     adrp x5, env_name_ptrs@page
@@ -7306,7 +7545,7 @@ _interpret_loop:
 
     // Try number (x0=1 single in x1; x0=2 double lo=x1 hi=x2; x0=0 fail)
     bl _parse_number
-    cbz x0, _try_find
+    cbz x0, _try_float
 
     // Pop saved word addr/len from return stack
     add x23, x23, #16
@@ -7364,6 +7603,51 @@ _compile_dlit:
     add sp, sp, #16
     b _interpret_loop
 
+// Float literal (host parse; IEEE bits). Tries before FIND so 1.5e0 works.
+_try_float:
+    ldr x1, [x23]                  // len (keep on rstack for now)
+    ldr x0, [x23, #8]              // addr
+    // call parseLit: op=100, ptr=addr, b=len
+    mov  x5, x0
+    mov  x2, x1
+    mov  x0, #100
+    mov  x1, #0
+    mov  x3, #0
+    mov  x4, #0
+    SAVE_VM
+    bl   _float_op_call
+    RESTORE_VM
+    // x6=ok, x7=bits
+    cbz  x6, _try_float_fail
+    // success: drop saved name
+    add  x23, x23, #16
+    adrp x2, state_var@page
+    add  x2, x2, state_var@pageoff
+    ldr  x2, [x2]
+    cbnz x2, _compile_flit
+    // interpret: fpush bits
+    mov  x1, x7
+    mov  x0, #101
+    mov  x2, #0
+    mov  x3, #0
+    mov  x4, #0
+    mov  x5, #0
+    SAVE_VM
+    bl   _float_op_call
+    RESTORE_VM
+    b    _interpret_loop
+_compile_flit:
+    // compile FLIT bits
+    str  x7, [x23, #-8]!
+    adrp x0, cfa_flit@page
+    add  x0, x0, cfa_flit@pageoff
+    ldr  x0, [x0]
+    bl   _compile_cell
+    ldr  x0, [x23], #8
+    bl   _compile_cell
+    b    _interpret_loop
+_try_float_fail:
+    // fall through to find with name still on rstack
 _try_find:
     // Restore word addr and len from return stack
     ldr x1, [x23], #8      // pop len
@@ -9282,7 +9566,7 @@ source_id_var:  .quad 0
 throw_handler:  .quad 0
 
 // ENVIRONMENT? tables (name ptrs, value cells, kinds: 0=flag only, 1=value+true)
-.equ ENV_COUNT, 10
+.equ ENV_COUNT, 14
 .align 8
 env_name_ptrs:
     .quad env_n_counted
@@ -9295,6 +9579,10 @@ env_name_ptrs:
     .quad env_n_maxu
     .quad env_n_rstack
     .quad env_n_stack
+    .quad env_n_floating
+    .quad env_n_float_ext
+    .quad env_n_floating_stack
+    .quad env_n_max_float
 env_values:
     .quad 255                      // /COUNTED-STRING
     .quad 8                        // ADDRESS-UNIT-BITS
@@ -9306,9 +9594,15 @@ env_values:
     .quad 0xFFFFFFFFFFFFFFFF       // MAX-U
     .quad 256                      // RETURN-STACK-CELLS (2048/8)
     .quad 512                      // STACK-CELLS (4096/8)
+    // FLOATING / FLOAT-EXT: value TRUE then present TRUE (ttester double-[IF] idiom).
+    // Kind 0 (flag-only) left only TRUE and broke: ENVIRONMENT? [IF] [IF] TRUE …
+    .quad -1                       // FLOATING value
+    .quad -1                       // FLOAT-EXT value
+    .quad 16                       // FLOATING-STACK depth
+    .quad 0x7FEFFFFFFFFFFFFF       // MAX-FLOAT (approx max finite double bits as cell)
 env_kinds:
-    .byte 1, 1, 0, 0, 0, 1, 1, 1, 1, 1
-    .space 6
+    .byte 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1
+    .space 2
 env_n_counted:  .asciz "/COUNTED-STRING"
 env_n_aub:      .asciz "ADDRESS-UNIT-BITS"
 env_n_core:     .asciz "CORE"
@@ -9319,8 +9613,12 @@ env_n_maxn:     .asciz "MAX-N"
 env_n_maxu:     .asciz "MAX-U"
 env_n_rstack:   .asciz "RETURN-STACK-CELLS"
 env_n_stack:    .asciz "STACK-CELLS"
+env_n_floating: .asciz "FLOATING"
+env_n_float_ext: .asciz "FLOAT-EXT"
+env_n_floating_stack: .asciz "FLOATING-STACK"
+env_n_max_float: .asciz "MAX-FLOAT"
 
-str_hello:  .asciz "PickleForth v0.4.0\n"
+str_hello:  .asciz "PickleForth v0.5.0\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
 str_bye:    .asciz "Bye!\n"
@@ -9370,6 +9668,7 @@ edit_hook:      .quad 0            // void (*)(path, path_len); path_len 0 = bar
 alloc_hook:     .quad 0            // int (*)(size_t n, void **out)
 free_hook:      .quad 0            // int (*)(void *p)
 bi_mul_hook:    .quad 0            // void (*)(int64 a, int64 b, int64 r)
+float_op_hook:  .quad 0            // float_op multiplex (FloatHost)
 bi_divmod_hook: .quad 0            // void (*)(int64 num, den, quot, rem)
 bi_isqrt_hook:   .quad 0            // void (*)(int64 a, int64 r)
 kernel_inited:  .quad 0
@@ -9547,6 +9846,7 @@ forth_init_str:
     .ascii "VOCABULARY BIG-INTEGER "
     .ascii "VOCABULARY EDITOR "
     .ascii "VOCABULARY ASSEMBLER "
+    .ascii "VOCABULARY FP "
     .ascii "ONLY FORTH DEFINITIONS "
 
     // --- 4b. Pictured numeric output (single-cell); . and U. stay native (BASE-aware) ---
@@ -9812,6 +10112,91 @@ forth_init_str:
     .ascii "DOC\" LIST ( u -- ) display block u as 16 lines of 64 chars\" "
     .ascii ": LIST DUP SCR ! BLOCK 16 0 DO CR I 3 .R SPACE DUP 64 TYPE 64 + LOOP DROP CR ; "
 
+    // --- Floating-point word set in FP vocabulary (host F-stack) ---
+    // (F-OP) / FLIT / FLIT-ADDR stay in FORTH; public names live in FP.
+    .ascii "ALSO FP DEFINITIONS "
+    .ascii ": FDEPTH 1 (F-OP) ; "
+    .ascii ": FDROP 2 (F-OP) ; "
+    .ascii ": FDUP 3 (F-OP) ; "
+    .ascii ": FSWAP 4 (F-OP) ; "
+    .ascii ": FOVER 5 (F-OP) ; "
+    .ascii ": FROT 6 (F-OP) ; "
+    .ascii ": F+ 7 (F-OP) ; "
+    .ascii ": F- 8 (F-OP) ; "
+    .ascii ": F* 9 (F-OP) ; "
+    .ascii ": F/ 10 (F-OP) ; "
+    .ascii ": FNEGATE 11 (F-OP) ; "
+    .ascii ": FABS 12 (F-OP) ; "
+    .ascii ": FMAX 13 (F-OP) ; "
+    .ascii ": FMIN 14 (F-OP) ; "
+    .ascii ": F0= 15 (F-OP) ; "
+    .ascii ": F0< 16 (F-OP) ; "
+    .ascii ": F< 17 (F-OP) ; "
+    .ascii ": F> 18 (F-OP) ; "
+    .ascii ": F= 19 (F-OP) ; "
+    .ascii ": F<> 20 (F-OP) ; "
+    .ascii ": F~ 21 (F-OP) ; "
+    .ascii ": F@ 22 (F-OP) ; "
+    .ascii ": F! 23 (F-OP) ; "
+    .ascii ": SF@ 24 (F-OP) ; "
+    .ascii ": SF! 25 (F-OP) ; "
+    .ascii ": DF@ 26 (F-OP) ; "
+    .ascii ": DF! 27 (F-OP) ; "
+    .ascii ": S>F 28 (F-OP) ; "
+    .ascii ": F>S 29 (F-OP) ; "
+    .ascii ": D>F 30 (F-OP) ; "
+    .ascii ": F>D 31 (F-OP) ; "
+    .ascii ": >FLOAT 32 (F-OP) ; "
+    .ascii ": F. 33 (F-OP) ; "
+    .ascii ": FS. 34 (F-OP) ; "
+    .ascii ": FE. 35 (F-OP) ; "
+    .ascii ": PRECISION 36 (F-OP) ; "
+    .ascii ": SET-PRECISION 37 (F-OP) ; "
+    .ascii ": REPRESENT 38 (F-OP) ; "
+    .ascii ": FLOATS 39 (F-OP) ; "
+    .ascii ": FLOAT+ 40 (F-OP) ; "
+    .ascii ": SFLOATS 41 (F-OP) ; "
+    .ascii ": SFLOAT+ 42 (F-OP) ; "
+    .ascii ": DFLOATS 43 (F-OP) ; "
+    .ascii ": DFLOAT+ 44 (F-OP) ; "
+    .ascii ": FSQRT 45 (F-OP) ; "
+    .ascii ": F** 46 (F-OP) ; "
+    .ascii ": FEXP 47 (F-OP) ; "
+    .ascii ": FEXPM1 48 (F-OP) ; "
+    .ascii ": FLN 49 (F-OP) ; "
+    .ascii ": FLNP1 50 (F-OP) ; "
+    .ascii ": FLOG 51 (F-OP) ; "
+    .ascii ": FALOG 52 (F-OP) ; "
+    .ascii ": FSIN 53 (F-OP) ; "
+    .ascii ": FCOS 54 (F-OP) ; "
+    .ascii ": FTAN 55 (F-OP) ; "
+    .ascii ": FASIN 56 (F-OP) ; "
+    .ascii ": FACOS 57 (F-OP) ; "
+    .ascii ": FATAN 58 (F-OP) ; "
+    .ascii ": FATAN2 59 (F-OP) ; "
+    .ascii ": FSINCOS 60 (F-OP) ; "
+    .ascii ": FSINH 61 (F-OP) ; "
+    .ascii ": FCOSH 62 (F-OP) ; "
+    .ascii ": FTANH 63 (F-OP) ; "
+    .ascii ": FASINH 64 (F-OP) ; "
+    .ascii ": FACOSH 65 (F-OP) ; "
+    .ascii ": FATANH 66 (F-OP) ; "
+    .ascii ": FLOOR 67 (F-OP) ; "
+    .ascii ": FROUND 68 (F-OP) ; "
+    .ascii ": FMOD 69 (F-OP) ; "
+    .ascii ": FALIGNED 73 (F-OP) ; "
+    .ascii ": SFALIGNED 74 (F-OP) ; "
+    .ascii ": DFALIGNED 75 (F-OP) ; "
+    .ascii ": FALIGN HERE DUP FALIGNED SWAP - ALLOT ; "
+    .ascii ": SFALIGN HERE DUP SFALIGNED SWAP - ALLOT ; "
+    .ascii ": DFALIGN FALIGN ; "
+    .ascii ": F, HERE 8 ALLOT F! ; "
+    .ascii ": FVARIABLE CREATE 8 ALLOT ; "
+    .ascii ": FCONSTANT CREATE F, DOES> F@ ; "
+    .ascii ": FVALUE CREATE F, DOES> F@ ; "
+    .ascii ": FLITERAL 102 (F-OP) FLIT-ADDR , , ; IMMEDIATE "
+    .ascii "ONLY FORTH DEFINITIONS "
+
     // Default MAIN if AutoLoad does not define one (kernel_eval \"MAIN\" at startup)
     .ascii "DOC\" MAIN ( -- ) default app entry; AutoLoad may redefine\" "
     .ascii ": MAIN ; "
@@ -9839,6 +10224,7 @@ cfa_catch_ok:   .quad 0
 cfa_local_init: .quad 0
 cfa_local_at:   .quad 0
 cfa_local_store: .quad 0
+cfa_flit:       .quad 0
 
 // Pending help for next : / CREATE / :NONAME (SETDOC / DOC")
 pending_help_addr: .quad 0

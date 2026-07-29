@@ -2,7 +2,8 @@
 
 **Public domain.**
 
-**64Forth's Heritage: **When I decided to make yet another Forth system, I went looking for a name for it. I thought of my earlier Forths, like F-PC, and Win32Forth, and thought possibly of Win64Forth. But this Forth is not designed for Windows, so that seemed wrong. I then thought of 64Forth, and went looking for Forth systems on the internet with that name. You will never guess what I found. Yes, you guessed it. 64Forth was the name of my earlier Forth system for the Commodore 64 Computer. In that case, the 64 represented the fact that the Commodore had I believe 64 MB of memory, which was quite a lot in that day. Anyway, I realized that I essentially already had dibs on the 64Forth name, so that is the name I chose for this MacOS M1-M5+ Forth system that is a hybrid of the two previous Forth systems I created this month. I hope you will find 64Forth interesting, at least enough to take a look. It is constructed mostly by Grok with an assembly language kernel, and a Swift code console and extensions, and like TZForth,it has some Libraries built right into the app. It is not as evolved as TZForth, no blocks, no Floating Point, limited File capability, and several other missing word sets, but it is still pretty functional, and it evolved well b beyond PickleForth, that provided the Assembly language kernel for it. The architecture is very interesting, the code words are constructed in assembly, with no headers, just assembly labels. Then the Assembler builds headers for all the CODE words using MACROS. The header structure is pretty traditional, with NFA (Name Field Address), LFA (Link Field Address), FFA (Flag Field Address), CFA (Code Field Address) followed by the BODY address. I have added an additional HFA (Help Field Address) that sits before the NFA, and is pointed to by an offset value in the FFA. The FFA hods the immediate flag, and also hold an offset value to the NFA, which makes traversal around the header pretty easy. Go Forth and prosper!
+**64Forth's Heritage: **When I decided to make yet another Forth system, I went looking for a name for it. I thought of my earlier Forths, like F-PC, and Win32Forth, and thought possibly of Win64Forth. But this Forth is not designed for Windows, so that seemed wrong. I then thought of 64Forth, and went looking for Forth systems on the internet with that name. You will never guess what I found. Yes, you guessed it. 64Forth was the name of my earlier Forth system for the Commodore 64 Computer. In that case, the 64 represented the fact that the Commodore had I believe 64 MB of memory, which was quite a lot in that day. Anyway, I realized that I essentially already had dibs on the 64Forth name, so that is the name I chose for this MacOS M1-M5+ Forth system that is a hybrid of the two previous Forth systems I created this month. I hope you will find 64Forth interesting, at least enough to take a look. It is constructed mostly by Grok with an assembly language kernel, and a Swift code console and extensions, and like TZForth, it has some Libraries built right into the app. **As of v0.5.0** it includes File-Access, file-backed Blocks, Floating-point (`VOCABULARY FP`), and a green in-app Hayes subset (core through FP). Remaining gaps vs full TZForth are mainly Extended Character and editor productization. The architecture is very interesting: CODE words are assembly labels; macros build traditional headers (NFA, LFA, FFA, CFA, BODY) plus an HFA (Help Field Address). Go Forth and prosper!
+
 
 **Getting 64Forth to run on your Mac: **All of the latest security changes Apple has made to MacOS, have made it fairly difficult to run apps obtained from outside the Apple App Store, but it is not impossible. Here is how you to it;
 
@@ -44,15 +45,15 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
   64Forth.xcodeproj/
   64Forth/
     App/           SwiftUI entry + content
-    Host/          FileHost, KernelBridge (Swift ↔ kernel)
-    Kernel/        forth.s, boot_words.inc, colon_words.inc
+    Host/          FileHost, FileAccess, BigIntHost, FloatHost, KernelBridge
+    Kernel/        forth.s, boot_words.inc, colon_words.inc, kernel_api.h
     Resources/     AutoLoad/, Library/, Docs/  → copied into app bundle
     Assets.xcassets/
 ```
 
 ---
 
-## Status
+## Status (v0.5.0)
 
 - [x] Project folder and design doc  
 - [x] Kernel sources copied from PickleForth (`_kernel_cold_start` entry, not `_main`)  
@@ -62,13 +63,28 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 - [x] Console parity: protected region, Return commit, ↑/↓ history, Tools menus (Phase 2)  
 - [x] FROMLIB + host-driven INCLUDE/FLOAD/REQUIRE (Phase 3)  
 - [x] AutoLoad on launch (`Resources/AutoLoad/autoload.fth` → MAIN) (Phase 4)  
-- [x] DIR + Phase 5 hardening (reentrancy, bookmarks, entitlements)  
+- [x] DIR + Phase 5 hardening (reentrancy, bookmarks, entitlements; batched emit)  
 - [x] Search-Order vocabularies + BIG-INTEGER + host BI-MUL/DIVMOD/ISQRT + ALLOCATE  
 - [x] Locals (`{:` / `TO`) for full `big-int.fth`  
 - [x] `REQUIRED` / absolute-path include registry / `.INCLUDED`  
 - [x] Multi-wordlist `FORGET`, `RESIZE`, quoted `INCLUDE "…"` paths, console KEY  
+- [x] File-Access word set (`FileAccess` host + CODE)  
+- [x] Block word set with file volume (`OPEN-BLOCK-FILE` …; Hayes prepare-blocks)  
+- [x] Floating-point (`FloatHost` + `VOCABULARY FP`; `ALSO FP` to use)  
+- [x] In-app Hayes subset green: core through FP (`FROMLIB FLOAD HayesTest/HayesTest.fth`)  
+
+Optional later: Extended Character (XChar), SZ-EDITOR polish, App Sandbox for store builds.
 
 Open `64Forth.xcodeproj` in **full Xcode** (Apple Silicon; not Command Line Tools alone). Build the **64Forth** app target.
+
+### Quick examples
+
+```text
+FROMLIB FLOAD BigInteger/big-int.fth
+FROMLIB FLOAD HayesTest/HayesTest.fth
+ALSO FP
+1.5e0 2e0 F+ F.
+```
 
 ### Phase 1 API (assembly ↔ Swift)
 
@@ -87,7 +103,7 @@ Open `64Forth.xcodeproj` in **full Xcode** (Apple Silicon; not Command Line Tool
 FROMLIB FLOAD BigInteger/big-int.fth
 ```
 
-(Resolves under `Resources/Library`. Full BigInteger stack needs TZForth words not yet in the Pickle kernel — use simple `.fth` files to smoke-test loads.)
+(Resolves under `Resources/Library`. BigInteger + PI libraries and the Hayes suite are supported on the current kernel/host.)
 
 See `64Forth/Kernel/kernel_api.h`. Do **not** call `_kernel_cold_start` from the UI.
 

@@ -11,6 +11,7 @@
 #define SIXTYFOURFORTH_KERNEL_API_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,6 +34,11 @@ void kernel_set_time_date(void (*fn)(int64_t out[6]));
 typedef long long (*kernel_file_op_fn)(long long op, long long a, long long b, long long c, long long d,
                                        void *ptr, long long *o1, long long *o2, long long *o3);
 void kernel_set_file_op(kernel_file_op_fn fn);
+
+/// Floating-point multiplexor (IEEE 64-bit F-stack in host). Same ABI shape as file_op.
+typedef long long (*kernel_float_op_fn)(long long op, long long a, long long b, long long c, long long d,
+                                        void *ptr, long long *o1, long long *o2, long long *o3);
+void kernel_set_float_op(kernel_float_op_fn fn);
 
 /// FROMLIB / FROM-LIBRARY — host arms Library resolve for next load/CHDIR.
 void kernel_set_fromlib(void (*fn)(void));

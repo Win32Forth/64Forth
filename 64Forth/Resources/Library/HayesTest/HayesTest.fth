@@ -6,12 +6,11 @@
 \ Named FLOAD chdirs to this file's folder (HayesTest/), so nested loads
 \ use bare subpaths under that folder (src/…).
 \
-\ 64Forth notes (vs full TZForth baseline):
-\   - No floating-point engine → FP suite is skipped (fperrors left 0 with message).
-\   - No File-Access / block-file volume yet → prepare-blocks is best-effort;
-\     blocktest may report errors until host block files exist.
-\   - Pass criteria for this port: core/double/string/search/facility counters
-\     at 0; ignore FPERRORS unless you add FP later.
+\ 64Forth notes:
+\   - Floating-point words live in vocabulary FP — driver does ONLY FORTH ALSO FP
+\     before the FP suite (searchordertest can leave a weird search order).
+\   - Look for: "Running FP Tests" … "FP tests finished" and FPERRORS @ = 0
+\   - If you see "fp/runfptests: skipped" the FP vocabulary/words were not found.
 \
 \ Full suite source remains under src/ for comparison with HAYES-RESULTS.txt.
 
@@ -47,9 +46,27 @@ VARIABLE faerrors  0 #ERRORS ! fload src/facilitytest.fth .( #ERRORS @ = ) #ERRO
   VARIABLE berrors  0 #ERRORS ! fload src/blocktest.fth .( #ERRORS @ = ) #ERRORS @  berrors !
 [THEN]
 
-\ FP not implemented in 64Forth kernel
+\ Floating-point: words live in the FP vocabulary.
+\ Reset search order first — searchordertest often leaves ONLY / odd orders
+\ so a bare ALSO FP can fail with undefined: FP and abort the driver.
 VARIABLE fperrors  0 fperrors !
-.( fp/runfptests: skipped - no floating-point ) CR
+ONLY FORTH
+[UNDEFINED] FP [IF]
+  .( fp/runfptests: skipped - VOCABULARY FP not defined - rebuild with FP ) CR
+[ELSE]
+  ALSO FP
+  [UNDEFINED] F+ [IF]
+    .( fp/runfptests: skipped - F+ missing in FP vocabulary ) CR
+  [ELSE]
+    .( --- starting FP suite --- ) CR
+    .( Expect: Running FP Tests, per-file FP: lines, then FP tests finished ) CR
+    0 #ERRORS !
+    FLOAD src/fp/runfptests.fth
+    #ERRORS @ fperrors !
+    .( --- FP suite returned; FPERRORS will be #ERRORS after suite --- ) CR
+  [THEN]
+  PREVIOUS
+[THEN]
 
 .( CPERRORS @ = ) cperrors @ .
 .( CERRORS @ = ) cerrors @ .

@@ -138,6 +138,17 @@ private func kernel_set_bi_isqrt(
     _ fn: (@convention(c) (Int64, Int64) -> Void)?
 )
 
+@_silgen_name("kernel_set_float_op")
+private func kernel_set_float_op(
+    _ fn: (@convention(c) (
+        Int64, Int64, Int64, Int64, Int64,
+        UnsafeMutableRawPointer?,
+        UnsafeMutablePointer<Int64>?,
+        UnsafeMutablePointer<Int64>?,
+        UnsafeMutablePointer<Int64>?
+    ) -> Int64)?
+)
+
 // MARK: - C hook target (must not touch KernelBridge.shared)
 
 private var kernelHookTarget: KernelBridge?
@@ -380,6 +391,16 @@ private let kernelBiIsqrtTrampoline: @convention(c) (Int64, Int64) -> Void = { a
     BigIntHost.isqrt(a: a, r: r)
 }
 
+private let kernelFloatOpTrampoline: @convention(c) (
+    Int64, Int64, Int64, Int64, Int64,
+    UnsafeMutableRawPointer?,
+    UnsafeMutablePointer<Int64>?,
+    UnsafeMutablePointer<Int64>?,
+    UnsafeMutablePointer<Int64>?
+) -> Int64 = { op, a, b, c, d, ptr, o1, o2, o3 in
+    FloatHost.shared.dispatch(op: op, a: a, b: b, c: c, d: d, ptr: ptr, o1: o1, o2: o2, o3: o3)
+}
+
 // MARK: - Bridge
 
 final class KernelBridge {
@@ -457,6 +478,11 @@ final class KernelBridge {
         kernel_set_bi_mul(kernelBiMulTrampoline)
         kernel_set_bi_divmod(kernelBiDivmodTrampoline)
         kernel_set_bi_isqrt(kernelBiIsqrtTrampoline)
+        kernel_set_float_op(kernelFloatOpTrampoline)
+        FloatHost.shared.onEmit = { [weak self] s in
+            self?.handleEmitString(s)
+        }
+        FloatHost.shared.reset()
 
         FileHost.shared.onMessage = { [weak self] s in
             self?.handleEmitString(s)
@@ -552,7 +578,7 @@ final class KernelBridge {
 
     func statusLine() -> String {
         if isKernelLive {
-            return "[64Forth] kernel live — vocab/BIG-INTEGER · BI-MUL · FROMLIB FLOAD DIR\n"
+            return "[64Forth] kernel live — FP · BIG-INTEGER · FROMLIB FLOAD DIR\n"
         }
         return "[64Forth] kernel embed API failed to start\n"
     }

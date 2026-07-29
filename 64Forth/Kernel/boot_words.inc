@@ -260,9 +260,13 @@ boot_word_table:
     BOOT_WORD "(BLOCK-BUF)", "(BLOCK-BUF) ( -- addr ) address of the 1K system block buffer", 0, XBLOCK_BUF
     BOOT_WORD "(BLOCK-NR)", "(BLOCK-NR) ( -- addr ) block number currently cached in buffer", 0, XBLOCK_NR
     BOOT_WORD "(BLOCK-UPD)", "(BLOCK-UPD) ( -- addr ) nonzero if block buffer is dirty", 0, XBLOCK_UPD
+    // Floating-point: engine trampolines in FORTH; public words in FP vocabulary
+    BOOT_WORD "FLIT", "FLIT ( -- ) ( F: -- r ) runtime: push inline IEEE bits as float", 0, XFLIT
+    BOOT_WORD "(F-OP)", "(F-OP) ( i*x op -- j*x ) float host multiplex (internal)", 0, XFLOAT_OP
+    BOOT_WORD "FLIT-ADDR", "FLIT-ADDR ( -- xt ) xt of FLIT (for FLITERAL)", 0, XFLIT_ADDR
     .quad 0, 0, 0, 0
 
-.equ BOOT_WORD_COUNT, 206
+.equ BOOT_WORD_COUNT, 209
 
 // Empty help used by : / CREATE / :NONAME
 .align 8
@@ -283,3 +287,4 @@ boot_cmp_catch_ok: .asciz "(CATCH-OK)"
 boot_cmp_local_init: .asciz "(LOCAL-INIT)"
 boot_cmp_local_at: .asciz "(LOCAL@)"
 boot_cmp_local_store: .asciz "(LOCAL!)"
+boot_cmp_flit: .asciz "FLIT"
