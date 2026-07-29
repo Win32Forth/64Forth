@@ -1,9 +1,9 @@
-=== 64Forth 0.5.0 ===
+=== 64Forth 0.6.0 ===
 cwd: /Users/thomaszimmer/Documents
  ok
 64Forth AutoLoad complete.
  ok
-ok> fromlib fload
+ok> FROMLIB FLOAD HayesTest/HayesTest.fth
 debug-bootstrap: loading Hayes harness...
 
 

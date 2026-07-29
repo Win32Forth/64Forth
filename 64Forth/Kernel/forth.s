@@ -1854,10 +1854,8 @@ XTICK:
     mov x20, x0                 // CFA
     NEXT
 _tick_fail:
-    // Must use emit_hook path (not raw write) so the SwiftUI console shows it.
-    // word_scratch is still the failed name (NUL-terminated by _next_word).
-    bl   _report_undefined
-    b    _do_quit
+    // word_scratch still holds the failed name (NUL-terminated by _next_word).
+    b    _undefined_word
 
 // EXECUTE ( xt -- )  xt = CFA
 // TOS-cache: when only xt is on the stack (DSP at SP0), do not pop under —
@@ -4496,8 +4494,7 @@ _bracket_tick_interpret:
     NEXT
 
 _bracket_tick_fail:
-    bl   _report_undefined
-    b    _do_quit
+    b    _undefined_word
 
 // LIT-ADDR ( -- addr ) push dict_lit entry address
 XLIT_ADDR:
@@ -7879,8 +7876,7 @@ _compile_flit:
 _try_float_fail:
     // Name still on rstack; not a number/charlit/float/dict word
     add  x23, x23, #16             // drop saved name
-    bl   _report_undefined
-    b    _error_abandon
+    b    _undefined_word
 
 // Dictionary / locals first (name still on rstack: [len, addr]).
 _try_find:
@@ -7975,6 +7971,19 @@ _try_number_after_find:
     DPUSH
     mov  x20, x1
     b    _interpret_loop
+
+// Undefined word: ANS system exception -13 when CATCH is active; otherwise
+// print "undefined: name" and abandon the rest of SOURCE (soft fault).
+_undefined_word:
+    adrp x7, throw_handler@page
+    add  x7, x7, throw_handler@pageoff
+    ldr  x1, [x7]
+    cbz  x1, _undef_print_abandon
+    mov  x20, #-13                 // ANS: undefined word
+    b    XTHROW
+_undef_print_abandon:
+    bl   _report_undefined
+    b    _error_abandon
 
 // _report_undefined: print "undefined: <word_scratch>\n" via host emit_hook
 // (raw svc write never appears in the SwiftUI console). word_scratch must be
@@ -10254,16 +10263,14 @@ forth_init_str:
     .ascii ": */MOD >R M* R> SM/REM ; "
     .ascii "DOC\" */ ( n1 n2 n3 -- n4 ) multiply to double-cell, divide (quotient)\" "
     .ascii ": */ */MOD SWAP DROP ; "
-    // ABORT / ABORT" — high-level; QUIT is pure CODE (XQUIT -> _do_quit).
-    // ABORT: SP0 SP! clears data stack (TOS-cache model), then QUIT.
-    .ascii "DOC\" ABORT ( -- ) THROW -1 (catchable; prints Aborted! if uncaught)\" "
-    .ascii ": ABORT SP0 SP! QUIT ; "
-    // ANS ABORT" ( x -- ): if x nonzero, type ccc and abort; else discard x.
-    // Old body compiled S" TYPE ABORT with no IF — always aborted (bubble-sort
-    // verify-list failed even when the list was correctly sorted).
+    // ABORT / ABORT" — ANS Exception: THROW -1 / -2 (CATCH-able).
+    // Uncaught THROW prints "uncaught THROW n" and soft-abandons the line.
+    .ascii "DOC\" ABORT ( -- ) THROW -1 (catchable)\" "
+    .ascii ": ABORT -1 THROW ; "
+    // ANS ABORT" ( x -- ): if x nonzero, type ccc and THROW -2; else discard x.
     // Note: do not put ABORT" inside DOC" — the embedded quote truncates DOC".
-    .ascii "DOC\" ABORT quote ( x -- ) if x nonzero type message and ABORT (immediate)\" "
-    .ascii ": ABORT\" STATE @ IF POSTPONE IF POSTPONE S\" POSTPONE TYPE POSTPONE CR POSTPONE ABORT POSTPONE THEN ELSE 34 PARSE ROT IF TYPE CR ABORT THEN 2DROP THEN ; IMMEDIATE "
+    .ascii "DOC\" ABORT quote ( x -- ) if x nonzero type message and THROW -2 (immediate)\" "
+    .ascii ": ABORT\" STATE @ IF POSTPONE IF POSTPONE S\" POSTPONE TYPE POSTPONE CR -2 POSTPONE THROW POSTPONE THEN ELSE 34 PARSE ROT IF TYPE CR -2 THROW THEN 2DROP THEN ; IMMEDIATE "
     // FORGET is CODE (XFORGET): multi-wordlist prune + USER-DICT fence.
     // ANEW — classic reload marker (formerly AutoLoad/ANEW.fth; single definition).
     // If name exists: FORGET it (and all newer words), then CREATE the marker again.
