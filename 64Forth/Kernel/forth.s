@@ -4297,6 +4297,15 @@ XEXIT_ADDR:
     mov x20, x0
     NEXT
 
+// SLIT-ADDR ( -- xt ) xt of (S") — for SEE without embedding quotes in forth_init
+XSLIT_ADDR:
+    DPUSH
+    adrp x0, cfa_slit@page
+    add  x0, x0, cfa_slit@pageoff
+    ldr  x0, [x0]
+    mov  x20, x0
+    NEXT
+
 // DOCON-ADDR ( -- addr ) address of DOCON code (for CONSTANT)
 XDOCON_ADDR:
     DPUSH
@@ -9337,13 +9346,17 @@ forth_init_str:
     .ascii "DOC\" SYNONYM ( 'newname' 'oldname' -- ) newname behaves as oldname\" "
     .ascii ": SYNONYM >IN @ >R PARSE-NAME 2DROP ' R> >IN ! ALIAS ; "
     // SEE / HELP — one-line header, then body walk.
-    // (SEE-BR?) ( xt -- flag ) true if BRANCH / 0BRANCH / (LOOP) / (+LOOP)
+    // SEE helpers — keep forth_init free of embedded \" names like (S")
     .ascii "DOC\" (SEE-BR?) ( xt -- flag ) SEE helper: branch/loop xt?\" "
     .ascii ": (SEE-BR?) >R R@ BRANCH-ADDR = R@ 0BRANCH-ADDR = OR R@ ['] (LOOP) = OR R@ ['] (+LOOP) = OR R> DROP ; "
-    // Hold each body cell in R so NAME>STRING cannot drop the xt before branch tests.
-    // NAME>HELP empty path must leave xt: 2DROP DUP NAME>STRING (not 2DROP NAME>STRING).
+    .ascii "DOC\" (SEE-HDR) ( xt -- xt ) print C/colon tag, help or name, CR\" "
+    .ascii ": (SEE-HDR) DUP DOCOL? IF 58 EMIT SPACE ELSE 67 EMIT 79 EMIT 68 EMIT 69 EMIT SPACE THEN DUP NAME>HELP DUP IF TYPE ELSE 2DROP DUP NAME>STRING TYPE THEN CR ; "
+    .ascii "DOC\" (SEE-PRIM) ( xt -- ) print (primitive) for non-colon\" "
+    .ascii ": (SEE-PRIM) DROP 40 EMIT 112 EMIT 114 EMIT 105 EMIT 109 EMIT 105 EMIT 116 EMIT 105 EMIT 118 EMIT 101 EMIT 41 EMIT CR ; "
+    .ascii "DOC\" (SEE-STEP) ( addr -- addr' ) decompile one body cell; advances addr\" "
+    .ascii ": (SEE-STEP) DUP @ >R R@ EXIT-ADDR = IF R> DROP DROP 59 EMIT CR 0 EXIT THEN R@ LIT-ADDR = IF R> DROP 8 + DUP @ . SPACE 8 + EXIT THEN R@ SLIT-ADDR = IF R> DROP 8 + DUP @ >R 8 + 83 EMIT 34 EMIT SPACE DUP R@ TYPE 34 EMIT SPACE R> + ALIGNED EXIT THEN R@ (SEE-BR?) IF R@ NAME>STRING TYPE SPACE R> DROP 8 + DUP @ . SPACE 8 + EXIT THEN R@ NAME>STRING TYPE SPACE R> DROP 8 + ; "
     .ascii "DOC\" SEE ( 'name' -- ) show help and decompile word\" "
-    .ascii ": SEE ' DUP DOCOL? IF 58 EMIT SPACE ELSE 67 EMIT 79 EMIT 68 EMIT 69 EMIT SPACE THEN DUP NAME>HELP DUP IF TYPE ELSE 2DROP DUP NAME>STRING TYPE THEN CR DUP DOCOL? 0= IF DROP 40 EMIT 112 EMIT 114 EMIT 105 EMIT 109 EMIT 105 EMIT 116 EMIT 105 EMIT 118 EMIT 101 EMIT 41 EMIT CR EXIT THEN >BODY BEGIN DUP @ >R R@ EXIT-ADDR = IF R> DROP DROP 59 EMIT CR EXIT THEN R@ LIT-ADDR = IF R> DROP 8 + DUP @ . SPACE 8 + ELSE R@ ['] (S\") = IF R> DROP 8 + DUP @ >R 8 + 83 EMIT 34 EMIT SPACE DUP R@ TYPE 34 EMIT SPACE R> + ALIGNED ELSE R@ (SEE-BR?) IF R@ NAME>STRING TYPE SPACE R> DROP 8 + DUP @ . SPACE 8 + ELSE R@ NAME>STRING TYPE SPACE R> DROP 8 + THEN THEN THEN AGAIN ; "
+    .ascii ": SEE ' DUP (SEE-HDR) DUP DOCOL? 0= IF (SEE-PRIM) EXIT THEN >BODY BEGIN (SEE-STEP) DUP 0= UNTIL DROP ; "
     .ascii "DOC\" HELP ( 'name' -- ) show help and decompile word (same as SEE)\" "
     .ascii ": HELP SEE ; "
     .ascii "' INCLUDE ALIAS FLOAD "
@@ -9464,7 +9477,7 @@ forth_init_str:
     .ascii ": -TRAILING BEGIN DUP WHILE 1- 2DUP + C@ BL <> IF 1+ EXIT THEN REPEAT ; "
     // COMPARE / SEARCH are CODE primitives
     .ascii "DOC\" SLITERAL ( c-addr u -- ) compile string literal (immediate)\" "
-    .ascii ": SLITERAL ?COMP POSTPONE (S\") DUP C, BEGIN DUP WHILE OVER C@ C, 1 /STRING REPEAT 2DROP ALIGN ; IMMEDIATE "
+    .ascii ": SLITERAL ?COMP SLIT-ADDR , DUP C, BEGIN DUP WHILE OVER C@ C, 1 /STRING REPEAT 2DROP ALIGN ; IMMEDIATE "
 
     // --- 9. Facility (MS/KEY? are CODE; EKEY family thin wrappers) ---
     .ascii "DOC\" EKEY? ( -- flag ) same as KEY? when no extended keys\" "

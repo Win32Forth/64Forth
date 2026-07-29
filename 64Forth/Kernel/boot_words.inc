@@ -141,6 +141,7 @@ boot_word_table:
     BOOT_WORD "0BRANCH-ADDR", "0BRANCH-ADDR ( -- xt ) xt of 0BRANCH (for SEE)", 0, X0BRANCH_ADDR
     BOOT_WORD "BRANCH-ADDR", "BRANCH-ADDR ( -- xt ) xt of BRANCH (for SEE)", 0, XBRANCH_ADDR
     BOOT_WORD "EXIT-ADDR", "EXIT-ADDR ( -- xt ) xt of EXIT (for SEE)", 0, XEXIT_ADDR
+    BOOT_WORD "SLIT-ADDR", "SLIT-ADDR ( -- xt ) xt of (S\") runtime (for SEE)", 0, XSLIT_ADDR
     BOOT_WORD "NEGATE", "NEGATE ( n -- -n ) negate", 0, XNEGATE
     BOOT_WORD "ABS", "ABS ( n -- u ) absolute value", 0, XABS
     BOOT_WORD "MIN", "MIN ( n1 n2 -- min ) minimum", 0, XMIN
