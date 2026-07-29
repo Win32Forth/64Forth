@@ -10,7 +10,7 @@
 \ TZForth ships FROMLIB FLOAD Editor/SZ-EDITOR.fth — not in the Pickle kernel stack yet.
 
 : APP-RUN  ( -- )
-  .( 64Forth AutoLoad complete.) CR
+  S" 64Forth AutoLoad complete." TYPE CR
   ;
 
 : MAIN  ( -- )

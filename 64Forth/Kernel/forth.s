@@ -1595,6 +1595,20 @@ XDOTS:
     RESTORE_VM
     NEXT
 
+// .( ( -- ) IMMEDIATE — parse until ')' and TYPE (Core Ext). Boot CODE so AutoLoad
+// works even if high-level forth_init aborts before the colon definition of .(.
+XDOTPAREN:
+    mov  w7, #41                   // ')'
+    stp  x29, x30, [sp, #-16]!
+    bl   _parse_quote              // → x2=c-addr, x5=u
+    mov  x0, x2
+    mov  x1, x5
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    str  x0, [x22, #-8]!           // addr under
+    mov  x20, x1                   // u TOS
+    b    XTYPE
+
 // TYPE ( addr u -- ) write u bytes at addr to stdout (host emit hook when set)
 XTYPE:
     mov x2, x20            // x2 = u (length)
@@ -9407,8 +9421,7 @@ forth_init_str:
     .ascii ": COMPILE, , ; "
     .ascii "DOC\" [COMPILE] ( 'name' -- ) force-compile name even if immediate (immediate)\" "
     .ascii ": [COMPILE] ?COMP BL WORD FIND 0= IF DROP EXIT THEN DROP , ; IMMEDIATE "
-    .ascii "DOC\" .( ( -- ) print text until ) immediately (immediate)\" "
-    .ascii ": .( 41 PARSE TYPE ; IMMEDIATE "
+    // .( is CODE immediate (XDOTPAREN) — do not redefine here
     .ascii "DOC\" BUFFER: ( u 'name' -- ) create a buffer of u bytes\" "
     .ascii ": BUFFER: CREATE ALLOT ; "
     .ascii "DOC\" VALUE ( x 'name' -- ) create a value; change with TO\" "
@@ -9498,6 +9511,10 @@ forth_init_str:
     .ascii ": THRU 1+ SWAP ?DO I LOAD LOOP ; "
     .ascii "DOC\" LIST ( u -- ) display block u\" "
     .ascii ": LIST DUP SCR ! BLOCK 16 0 DO CR I 3 .R SPACE DUP 64 TYPE 64 + LOOP DROP CR ; "
+
+    // Default MAIN if AutoLoad does not define one (kernel_eval \"MAIN\" at startup)
+    .ascii "DOC\" MAIN ( -- ) default app entry; AutoLoad may redefine\" "
+    .ascii ": MAIN ; "
 
     .byte 0  // null terminator
 

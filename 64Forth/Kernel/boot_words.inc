@@ -76,6 +76,7 @@ boot_word_table:
     BOOT_WORD "U.", "U. ( u -- ) print unsigned", 0, XUDOT
     BOOT_WORD ".S", ".S ( -- ) print data stack contents", 0, XDOTS
     BOOT_WORD "TYPE", "TYPE ( addr len -- ) type string", 0, XTYPE
+    BOOT_WORD ".(", ".( ( -- ) print text until ) immediately (immediate)", 1, XDOTPAREN
     BOOT_WORD "STATE", "STATE ( -- addr ) compilation state variable", 0, XSTATE
     BOOT_WORD "BASE", "BASE ( -- addr ) current numeric base variable", 0, XBASE
     BOOT_WORD "]", "] ( -- ) enter compile mode", 0, XRBRA
