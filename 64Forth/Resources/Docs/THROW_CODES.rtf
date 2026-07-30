@@ -12,7 +12,7 @@ It is **not** the old TZForth `kernelThrow` / `errorFlag` migration plan. 64Fort
 \
 **Reference:** [ANS THROW](https://forth-standard.org/standard/exception/THROW), Forth-2012 \'a79.3.1\'96\'a79.3.5.\
 \
-**Last update:** 2026-07-29 (64Forth v0.7.0).\
+**Last update:** 2026-07-29 (64Forth v0.8.0).\
 \
 ---\
 \
@@ -145,7 +145,7 @@ Driver: `Resources/Library/HayesTest/`; expect `EERRORS @ = 0` in the summary.\
 4. Map float stack faults to **-3/-4** or ANS **-60\'96-65** if desired.\
 5. Optional **`.ERROR` ( n -- )** helper for spaced standard messages after `CATCH` (not required by ANS; useful for apps).\
 \
-None of these are required for the current Hayes exception subset green on 64Forth v0.7.\
+None of these are required for the current Hayes exception subset green on 64Forth v0.8.\
 \
 ---\
 \
@@ -165,7 +165,7 @@ None of these are required for the current Hayes exception subset green on 64For
 \
 ## Related docs\
 \
-- **ANS_COMPLIANCE.rtf** \'97 word-set status (Core / Core Ext detailed for v0.7).\
+- **ANS_COMPLIANCE.rtf** \'97 word-set status (Core / Core Ext detailed for v0.8).\
 - **Hayes:** `Resources/Library/HayesTest/` \'97 driver + stock suite; baseline `src/HAYES-RESULTS.txt`.\
 \
 For full standard wording, see the official Forth-2012 document, Exception word set (\'a79).\

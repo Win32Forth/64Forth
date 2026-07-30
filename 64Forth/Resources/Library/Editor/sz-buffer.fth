@@ -117,35 +117,136 @@ CREATE SZ-FNAME  256 ALLOT         \ counted path of current file (0 = untitled)
    SZ-FNAME C@ 0<> ;
 
 \ -----------------------------------------------------------------------------
-\ Line scan — CR / LF / CRLF via host primitives (no Forth C@ walks)
+\ Line scan — CR / LF / CRLF (pure Forth; TZForth used Swift host scans)
 \ -----------------------------------------------------------------------------
 
 $0A CONSTANT SZ-CH-LF
 $0D CONSTANT SZ-CH-CR
 
-\ ( addr -- addr' )  address of next CR or LF at/after addr, or SZ-TEND
-: SZ-NEXTLF  ( addr -- addr' )
-   SZ-HOST-NEXT-EOL ;
+: SZ-HOST-CLAMP  ( addr -- addr' )
+   DUP SZ-TBUF U< IF  DROP SZ-TBUF  THEN
+   DUP SZ-TEND U> IF  DROP SZ-TEND  THEN ;
 
-\ ( addr -- addr' )  start of line containing addr
-: SZ-LINE-START  ( addr -- addr' )
-   SZ-HOST-LINE-START ;
+\ ( addr -- addr' )  next CR or LF at/after addr, or SZ-TEND
+: SZ-HOST-NEXT-EOL  ( addr -- addr' )
+   SZ-HOST-CLAMP
+   BEGIN
+      DUP SZ-TEND SZ-U>= IF  EXIT  THEN
+      DUP C@ DUP SZ-CH-LF = SWAP SZ-CH-CR = OR IF  EXIT  THEN
+      1+
+   AGAIN ;
 
-\ ( line-start -- line-start u )  length of line body (not including CR/LF/CRLF)
-: SZ-PARSE-LINE  ( addr -- addr u )
-   DUP SZ-HOST-NEXT-EOL  ( a aEOL )
-   OVER -                ( a u )
-;
+\ ( addr -- addr' )  skip one EOL at addr (CRLF / CR / LF); else unchanged
+: SZ-HOST-SKIP-EOL  ( addr -- addr' )
+   SZ-HOST-CLAMP
+   DUP SZ-TEND SZ-U>= IF  EXIT  THEN
+   DUP C@ SZ-CH-CR = IF
+      1+ DUP SZ-TEND U< IF  DUP C@ SZ-CH-LF = IF  1+  THEN  THEN
+      EXIT
+   THEN
+   DUP C@ SZ-CH-LF = IF  1+  THEN ;
 
-\ ( line-start -- line-start' )  following / previous line starts (host)
-: SZ-NEXT-LINE  ( ls -- ls' )  SZ-HOST-NEXT-LINE ;
-: SZ-PREV-LINE  ( ls -- ls' )  SZ-HOST-PREV-LINE ;
+\ ( addr -- addr' )  start of line containing addr (EOL bytes belong to that line)
+: SZ-HOST-LINE-START  ( addr -- addr' )
+   SZ-HOST-CLAMP
+   DUP SZ-TBUF = IF  EXIT  THEN
+   DUP SZ-TEND U< IF
+      DUP C@ SZ-CH-LF = IF
+         DUP SZ-TBUF U> IF  DUP 1- C@ SZ-CH-CR = IF  1-  THEN  THEN
+         DUP SZ-TBUF = IF  EXIT  THEN
+         1-
+      ELSE DUP C@ SZ-CH-CR = IF
+         DUP SZ-TBUF = IF  EXIT  THEN
+         1-
+      ELSE
+         1-
+      THEN THEN
+   ELSE
+      1-
+   THEN
+   DUP SZ-TBUF U> IF
+      DUP C@ SZ-CH-LF = IF  DUP 1- C@ SZ-CH-CR = IF  1-  THEN  THEN
+   THEN
+   BEGIN
+      DUP SZ-TBUF = IF  EXIT  THEN
+      DUP C@ SZ-CH-LF = IF  1+ EXIT  THEN
+      DUP C@ SZ-CH-CR = IF
+         DUP 1+ SZ-TEND U< IF  DUP 1+ C@ SZ-CH-LF = IF  2 + EXIT  THEN  THEN
+         1+ EXIT
+      THEN
+      1-
+   AGAIN ;
 
-\ ( -- n )  line count via host (1-based index of TEND = last line #, or 0 if empty)
-: SZ-LINE-COUNT  ( -- n )
+: SZ-HOST-PREV-LINE  ( ls -- ls' )
+   SZ-HOST-CLAMP
+   DUP SZ-TBUF = IF  EXIT  THEN
+   1- SZ-HOST-LINE-START ;
+
+: SZ-HOST-NEXT-LINE  ( ls -- ls' )
+   SZ-HOST-CLAMP
+   DUP SZ-TEND SZ-U>= IF  DROP SZ-TEND EXIT  THEN
+   SZ-HOST-NEXT-EOL SZ-HOST-SKIP-EOL ;
+
+\ ( addr -- n )  1-based line number of byte addr
+: SZ-HOST-LINE-NO  ( addr -- n )
+   SZ-HOST-CLAMP >R
+   1 SZ-TBUF                        ( n p )  ( R: target )
+   BEGIN
+      DUP R@ U<
+   WHILE
+      DUP C@ SZ-CH-CR = IF
+         1+ SWAP 1+ SWAP            \ n++ ; p++
+         DUP R@ U< IF  DUP C@ SZ-CH-LF = IF  1+  THEN  THEN
+      ELSE DUP C@ SZ-CH-LF = IF
+         1+ SWAP 1+ SWAP
+      ELSE
+         1+
+      THEN THEN
+   REPEAT
+   DROP R> DROP ;
+
+\ ( from-ls to-ls -- n )  line steps from from to to (0 if to at/before from)
+: SZ-HOST-LINE-STEPS  ( from to -- n )
+   SZ-HOST-LINE-START >R
+   SZ-HOST-LINE-START               ( from' )  ( R: to' )
+   0 SWAP                           ( n p )
+   BEGIN
+      DUP R@ U<
+   WHILE
+      SZ-HOST-NEXT-LINE             ( n p' )
+      SWAP 1+ SWAP
+   REPEAT
+   DROP R> DROP ;
+
+VARIABLE SZ-ET-ROWS
+VARIABLE SZ-ET-TOP
+VARIABLE SZ-ET-CUR
+
+\ ( cursor top rows -- newtop )  keep cursor line visible in rows text lines
+: SZ-HOST-ENSURE-TOP  ( cursor top rows -- newtop )
+   SZ-ET-ROWS !
+   SZ-HOST-LINE-START SZ-ET-TOP !
+   SZ-HOST-LINE-START SZ-ET-CUR !
+   SZ-ET-CUR @ SZ-ET-TOP @ U< IF  SZ-ET-CUR @ EXIT  THEN
+   SZ-ET-TOP @ SZ-ET-CUR @ SZ-HOST-LINE-STEPS
+   SZ-ET-ROWS @ < IF  SZ-ET-TOP @ EXIT  THEN
+   SZ-ET-CUR @
+   SZ-ET-ROWS @ 1- 0 MAX 0 ?DO
+      DUP SZ-HOST-PREV-LINE
+      2DUP = IF  DROP LEAVE  THEN
+      NIP
+   LOOP ;
+
+\ Thin aliases used by the rest of the editor
+: SZ-NEXTLF       ( addr -- addr' )  SZ-HOST-NEXT-EOL ;
+: SZ-LINE-START   ( addr -- addr' )  SZ-HOST-LINE-START ;
+: SZ-PARSE-LINE   ( addr -- addr u )
+   DUP SZ-HOST-NEXT-EOL OVER - ;
+: SZ-NEXT-LINE    ( ls -- ls' )  SZ-HOST-NEXT-LINE ;
+: SZ-PREV-LINE    ( ls -- ls' )  SZ-HOST-PREV-LINE ;
+: SZ-LINE-COUNT   ( -- n )
    SZ-TLEN @ 0= IF  0 EXIT  THEN
-   SZ-TEND 1- SZ-HOST-LINE-NO
-;
+   SZ-TEND 1- SZ-HOST-LINE-NO ;
 
 \ -----------------------------------------------------------------------------
 \ Load / save
@@ -211,13 +312,13 @@ $0D CONSTANT SZ-CH-CR
 \ -----------------------------------------------------------------------------
 
 : SZ-.INFO  ( -- )
-   .( SZ-buffer: )
-   SZ-HAS-NAME? IF  SZ-GET-NAME TYPE  ELSE  .( untitled)  THEN
-   .(  bytes=) SZ-TLEN @ 0 .R
-   .(  cap=) SZ-TBUF-CAP @ 0 .R
-   .(  lines=) SZ-LINE-COUNT 0 .R
-   .(  free=) SZ-FREE-BYTES 0 .R
-   SZ-MODIFIED @ IF  .(  *modified*)  THEN
+   ." SZ-buffer: "
+   SZ-HAS-NAME? IF  SZ-GET-NAME TYPE  ELSE  ." untitled"  THEN
+   ."  bytes=" SZ-TLEN @ 0 .R
+   ."  cap=" SZ-TBUF-CAP @ 0 .R
+   ."  lines=" SZ-LINE-COUNT 0 .R
+   ."  free=" SZ-FREE-BYTES 0 .R
+   SZ-MODIFIED @ IF  ."  *modified*"  THEN
    CR
 ;
 
@@ -239,7 +340,7 @@ CREATE SZ-CRLF  SZ-CH-CR C, SZ-CH-LF C,
 \ Write a short scratch file, load it, report, save a copy (needs writable cwd).
 : SZ-BUFFER-SMOKE  ( -- )
    S" sz-smoke-out.txt" W/O CREATE-FILE  ( fid ior )
-   DUP 0<> IF  .( sz-buffer smoke: CREATE failed ior=) . CR NIP EXIT  THEN
+   DUP 0<> IF  ." sz-buffer smoke: CREATE failed ior=" . CR NIP EXIT  THEN
    DROP >R
    S" line1" R@ WRITE-FILE DROP
    SZ-CRLF 2 R@ WRITE-FILE DROP
@@ -247,11 +348,11 @@ CREATE SZ-CRLF  SZ-CH-CR C, SZ-CH-LF C,
    SZ-CRLF 2 R@ WRITE-FILE DROP
    R> CLOSE-FILE DROP
    S" sz-smoke-out.txt" SZ-LOAD
-   DUP IF  .( sz-buffer smoke: LOAD failed ior=) . CR EXIT  THEN  DROP
+   DUP IF  ." sz-buffer smoke: LOAD failed ior=" . CR EXIT  THEN  DROP
    SZ-.INFO
    S" sz-smoke-copy.txt" SZ-SAVE-AS
-   DUP IF  .( sz-buffer smoke: SAVE-AS failed ior=) . CR EXIT  THEN  DROP
-   .( sz-buffer: OK - load/save smoke wrote sz-smoke-out.txt and sz-smoke-copy.txt) CR
+   DUP IF  ." sz-buffer smoke: SAVE-AS failed ior=" . CR EXIT  THEN  DROP
+   ." sz-buffer: OK - load/save smoke wrote sz-smoke-out.txt and sz-smoke-copy.txt" CR
 ;
 
 \ Allocate the initial 1 MB buffer when this module loads.

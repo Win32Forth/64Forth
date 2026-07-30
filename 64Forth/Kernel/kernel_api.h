@@ -82,9 +82,24 @@ void kernel_set_dir(void (*fn)(const char *path, size_t n));
 /// Honors FROMLIB (Library resolve; does not permanently chdir into Library).
 void kernel_set_edit(void (*fn)(const char *path, size_t n));
 
+/// Facility terminal (PAGE / AT-XY / TERMINAL-REFRESH / FACILITY-OFF).
+/// op: 1=PAGE  2=AT-XY (a=col b=row, 0-based)  3=TERMINAL-REFRESH
+///     4=FACILITY-OFF  5=resize (a=cols b=rows)
+void kernel_set_facility_op(void (*fn)(int64_t op, int64_t a, int64_t b));
+
 /// \S / \s on the console SOURCE (SOURCE-ID 0): sticky flag for multi-line paste stop.
 /// Returns 1 if set since last call, else 0; always clears the flag (TZForth-style).
 int kernel_take_repl_batch_stop(void);
+
+/// SZ-EDITOR bare open request (SZ-HOST-REQUEST-OPEN / bare SZEDIT).
+/// Returns 1 if set since last call, else 0; always clears the flag.
+int kernel_take_sz_editor_open(void);
+
+/// Cmd-Q while SZ-EDITOR open: quit app only after the editor session ends.
+void kernel_set_sz_app_quit(void);
+void kernel_clear_sz_app_quit(void);
+/// Nonzero if app-quit-after-editor is pending (does not clear).
+int kernel_sz_app_quit_pending(void);
 
 /// Memory-fault recovery (SIGSEGV / SIGBUS). Kernel installs handlers at init;
 /// host may reinstall. longjmps to the active kernel_eval / QUIT setjmp.

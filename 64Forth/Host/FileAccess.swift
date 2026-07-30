@@ -55,6 +55,8 @@ final class FileAccess {
     // MARK: - Paths
 
     /// Resolve a Forth path string relative to FileHost logical cwd.
+    /// Honors **FROMLIB** when armed (same as FLOAD/INCLUDE): relative paths under
+    /// `Resources/Library`, then clear the flag so one-shot arming matches TZForth.
     func resolvePath(_ name: String) -> URL {
         var n = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if n.hasPrefix("~") {
@@ -62,6 +64,11 @@ final class FileAccess {
         }
         if n.hasPrefix("/") {
             return URL(fileURLWithPath: n).standardizedFileURL
+        }
+        // FROMLIB SZEDIT Editor/foo.txt  →  OPEN-FILE under bundle Library
+        if FileHost.shared.fromLibraryArmed, let lib = FileHost.shared.libraryURL {
+            FileHost.shared.clearFromLibrary()
+            return lib.appendingPathComponent(n).standardizedFileURL
         }
         let base = FileHost.shared.logicalCurrentDirectory
         return URL(fileURLWithPath: base)

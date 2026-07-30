@@ -14,6 +14,19 @@ final class SixtyFourForthAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }
+
+    /// ⌘Q while SZ-EDITOR is open: close the editor first (S/D prompt if dirty).
+    /// Cancel (any other key on the prompt) keeps the app running.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let k = KernelBridge.shared
+        if k.isEvaluating && k.isFacilityTerminalActive {
+            k.requestQuitAppAfterEditorClose()
+            // 17 = SZ-CTRL-Q → SZ-DO-QUIT (same as ⌘W close editor)
+            k.pushKey(17)
+            return .terminateCancel
+        }
+        return .terminateNow
+    }
 }
 
 @main
@@ -26,6 +39,20 @@ struct SixtyFourForthApp: App {
         }
         .commands {
             CommandGroup(replacing: .newItem) { }
+            // ⌘S / ⌘W: while SZ-EDITOR is open, Save / Close editor (not the app).
+            // ⌘Q still quits the application.
+            CommandGroup(replacing: .saveItem) {
+                Button("Save") {
+                    NotificationCenter.default.post(name: .fileSave, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: .command)
+            }
+            CommandGroup(after: .saveItem) {
+                Button("Close Editor") {
+                    NotificationCenter.default.post(name: .fileClose, object: nil)
+                }
+                .keyboardShortcut("w", modifiers: .command)
+            }
             CommandMenu("Tools") {
                 Button("CLS") {
                     NotificationCenter.default.post(name: .clearConsole, object: nil)

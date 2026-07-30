@@ -420,6 +420,120 @@ _kernel_set_edit:
     str  x0, [x1]
     ret
 
+// void kernel_set_facility_op(void (*fn)(int64_t op, int64_t a, int64_t b))
+.globl _kernel_set_facility_op
+_kernel_set_facility_op:
+    adrp x1, facility_op_hook@page
+    add  x1, x1, facility_op_hook@pageoff
+    str  x0, [x1]
+    ret
+
+// Facility terminal CODE words (host FacilityTerminal grid; not ANSI CSI).
+// PAGE ( -- )
+XPAGE:
+    mov  x0, #1
+    mov  x1, #0
+    mov  x2, #0
+    b    _facility_op_go
+
+// AT-XY ( u1 u2 -- )  col u1, row u2 (ANS 0-based)
+XAT_XY:
+    mov  x2, x20                   // row
+    ldr  x1, [x22], #8             // col
+    ldr  x20, [x22], #8
+    mov  x0, #2
+    b    _facility_op_go
+
+// TERMINAL-REFRESH ( -- )
+XTERM_REFRESH:
+    mov  x0, #3
+    mov  x1, #0
+    mov  x2, #0
+    b    _facility_op_go
+
+// FACILITY-OFF ( -- )
+XFACILITY_OFF:
+    mov  x0, #4
+    mov  x1, #0
+    mov  x2, #0
+    b    _facility_op_go
+
+// (FACILITY-SIZE) ( cols rows -- )  resize grid (SZ-EDITOR SET-EDIT-WINDOW)
+XFACILITY_SIZE:
+    mov  x2, x20                   // rows
+    ldr  x1, [x22], #8             // cols
+    ldr  x20, [x22], #8
+    mov  x0, #5
+    b    _facility_op_go
+
+_facility_op_go:
+    adrp x9, facility_op_hook@page
+    add  x9, x9, facility_op_hook@pageoff
+    ldr  x9, [x9]
+    cbz  x9, 1f
+    SAVE_VM
+    blr  x9
+    RESTORE_VM
+1:
+    NEXT
+
+// int kernel_take_sz_editor_open(void) — sticky flag from SZ-HOST-REQUEST-OPEN
+.globl _kernel_take_sz_editor_open
+_kernel_take_sz_editor_open:
+    adrp x1, sz_editor_open_flag@page
+    add  x1, x1, sz_editor_open_flag@pageoff
+    ldr  x0, [x1]
+    str  xzr, [x1]
+    ret
+
+// (SZ-OPEN-REQ) ( -- )  set flag for host open panel after evaluate
+XSZ_OPEN_REQ:
+    adrp x0, sz_editor_open_flag@page
+    add  x0, x0, sz_editor_open_flag@pageoff
+    mov  x1, #1
+    str  x1, [x0]
+    NEXT
+
+// (SZ-CLR-APP-QUIT) ( -- )  cancel pending quit-app after editor close (user cancelled S/D)
+XSZ_CLR_APP_QUIT:
+    adrp x0, sz_app_quit_flag@page
+    add  x0, x0, sz_app_quit_flag@pageoff
+    str  xzr, [x0]
+    NEXT
+
+// (SZ-SET-APP-QUIT) ( -- )  host may also set via API; Forth rarely needs this
+XSZ_SET_APP_QUIT:
+    adrp x0, sz_app_quit_flag@page
+    add  x0, x0, sz_app_quit_flag@pageoff
+    mov  x1, #1
+    str  x1, [x0]
+    NEXT
+
+// int kernel_take_sz_app_quit(void) — 1 if quit-app after editor; does not clear
+// int kernel_clear_sz_app_quit(void)
+// void kernel_set_sz_app_quit(void)
+.globl _kernel_sz_app_quit_pending
+_kernel_sz_app_quit_pending:
+    adrp x0, sz_app_quit_flag@page
+    add  x0, x0, sz_app_quit_flag@pageoff
+    ldr  x0, [x0]
+    ret
+
+.globl _kernel_set_sz_app_quit
+_kernel_set_sz_app_quit:
+    adrp x0, sz_app_quit_flag@page
+    add  x0, x0, sz_app_quit_flag@pageoff
+    mov  x1, #1
+    str  x1, [x0]
+    ret
+
+.globl _kernel_clear_sz_app_quit
+_kernel_clear_sz_app_quit:
+    adrp x0, sz_app_quit_flag@page
+    add  x0, x0, sz_app_quit_flag@pageoff
+    str  xzr, [x0]
+    ret
+
 .globl _kernel_set_allocate
 _kernel_set_allocate:
     adrp x1, alloc_hook@page
@@ -7221,8 +7335,11 @@ XSLIT:
 
 // S" ( -- c-addr u | compile-time ) IMMEDIATE
 // Parse is fully inlined so we never clobber VM regs via nested helpers.
+// String starts at current >IN.  The text interpreter's WORD already consumed
+// the single blank after the word name S"; any further spaces are content
+// (e.g. S"  hi" → one leading space in the string).  Do not skip blanks here.
 XSQUOTE:
-    // --- skip blanks; parse to " ---
+    // --- parse to " (no leading-blank skip) ---
     adrp x0, source_addr@page
     add x0, x0, source_addr@pageoff
     ldr x9, [x0]                    // SOURCE base
@@ -7235,19 +7352,7 @@ XSQUOTE:
     ldr x12, [x0]                   // SOURCE len
     add x1, x9, x11                 // cursor
     add x6, x9, x12                 // end
-_sq_skip:
-    cmp x1, x6
-    b.hs _sq_body0
-    ldrb w2, [x1]
-    cmp w2, #32
-    b.eq _sq_sk1
-    cmp w2, #9
-    b.ne _sq_body0
-_sq_sk1:
-    add x1, x1, #1
-    b _sq_skip
-_sq_body0:
-    mov x2, x1                      // c-addr
+    mov x2, x1                      // c-addr (include leading spaces)
 _sq_scan:
     cmp x1, x6
     b.hs _sq_eos
@@ -7329,6 +7434,7 @@ XCSTR:
 
 // C" ( -- c-addr ) IMMEDIATE  ANS counted string
 // Interpret: counted copy in PAD. Compile: (C") + counted bytes + align.
+// Same as S": do not skip leading blanks (WORD already took the name blank).
 XCQUOTE:
     // Parse to " (same style as S")
     adrp x0, source_addr@page
@@ -7343,19 +7449,7 @@ XCQUOTE:
     ldr x12, [x0]
     add x1, x9, x11
     add x6, x9, x12
-_cq_skip:
-    cmp x1, x6
-    b.hs _cq_body
-    ldrb w2, [x1]
-    cmp w2, #32
-    b.eq _cq_sk1
-    cmp w2, #9
-    b.ne _cq_body
-_cq_sk1:
-    add x1, x1, #1
-    b _cq_skip
-_cq_body:
-    mov x2, x1
+    mov x2, x1                      // c-addr (include leading spaces)
 _cq_scan:
     cmp x1, x6
     b.hs _cq_eos
@@ -7437,6 +7531,7 @@ _cq_comp:
 // S\" ( -- c-addr u ) IMMEDIATE  ANS escaped string
 // Escapes: \a \b \e \f \l \m \n \q \r \t \v \z \" \\ \xHH
 // Interpret: expand into slit_esc_buf. Compile: (S") + expanded bytes.
+// No leading-blank skip (same rule as S" / .").
 XSESCAPE:
     adrp x0, source_addr@page
     add x0, x0, source_addr@pageoff
@@ -7448,20 +7543,8 @@ XSESCAPE:
     adrp x0, source_len@page
     add x0, x0, source_len@pageoff
     ldr x12, [x0]
-    add x1, x9, x11                // cursor
+    add x1, x9, x11                // cursor (include leading spaces)
     add x6, x9, x12                // end
-_se_skip:
-    cmp x1, x6
-    b.hs _se_body
-    ldrb w2, [x1]
-    cmp w2, #32
-    b.eq _se_sk1
-    cmp w2, #9
-    b.ne _se_body
-_se_sk1:
-    add x1, x1, #1
-    b _se_skip
-_se_body:
     // Expand into slit_esc_buf (max 255)
     adrp x7, slit_esc_buf@page
     add x7, x7, slit_esc_buf@pageoff
@@ -7759,6 +7842,7 @@ _ri_fail:
     NEXT
 
 // ." ( -- ) IMMEDIATE
+// Same parse rule as S": WORD ate the blank after ."; further spaces are text.
 XDOTQ:
     // Reuse S" logic by calling the same parse, then TYPE or compile TYPE
     // Implement by branching into shared structure via stack trick:
@@ -7775,19 +7859,7 @@ XDOTQ:
     ldr x12, [x0]
     add x1, x9, x11
     add x6, x9, x12
-_dq_skip:
-    cmp x1, x6
-    b.hs _dq_body0
-    ldrb w2, [x1]
-    cmp w2, #32
-    b.eq _dq_sk1
-    cmp w2, #9
-    b.ne _dq_body0
-_dq_sk1:
-    add x1, x1, #1
-    b _dq_skip
-_dq_body0:
-    mov x2, x1
+    mov x2, x1                      // c-addr (include leading spaces)
 _dq_scan:
     cmp x1, x6
     b.hs _dq_eos
@@ -10381,6 +10453,7 @@ chdir_hook:     .quad 0            // void (*)(path, path_len); path_len 0 = bar
 pwd_hook:       .quad 0            // void (*)(void)
 dir_hook:       .quad 0            // void (*)(path, path_len); path_len 0 = list cwd
 edit_hook:      .quad 0            // void (*)(path, path_len); path_len 0 = bare EDIT dialog
+facility_op_hook: .quad 0          // void (*)(op, a, b) Facility terminal
 alloc_hook:     .quad 0            // int (*)(size_t n, void **out)
 free_hook:      .quad 0            // int (*)(void *p)
 bi_mul_hook:    .quad 0            // void (*)(int64 a, int64 b, int64 r)
@@ -10388,6 +10461,8 @@ float_op_hook:  .quad 0            // float_op multiplex (FloatHost)
 bi_divmod_hook: .quad 0            // void (*)(int64 num, den, quot, rem)
 bi_isqrt_hook:   .quad 0            // void (*)(int64 a, int64 r)
 kernel_inited:  .quad 0
+sz_editor_open_flag: .quad 0       // set by (SZ-OPEN-REQ); taken by host after eval
+sz_app_quit_flag: .quad 0          // Cmd-Q while editor: quit app after editor closes
 
 str_search_order: .asciz "Search order: "
 str_comp_wl:      .asciz "Compilation wordlist: "
@@ -10831,10 +10906,7 @@ forth_init_str:
     .ascii ": EKEY>FKEY DUP $FF000000 AND $02000000 = IF $FFFFFF AND TRUE ELSE FALSE THEN ; "
     .ascii "DOC\" EMIT? ( -- flag ) always true (console always ready)\" "
     .ascii ": EMIT? TRUE ; "
-    .ascii "DOC\" PAGE ( -- ) clear screen (emit form-feed / ANSI home+clear)\" "
-    .ascii ": PAGE 12 EMIT 27 EMIT 91 EMIT 72 EMIT 27 EMIT 91 EMIT 50 EMIT 74 EMIT ; "
-    .ascii "DOC\" AT-XY ( u1 u2 -- ) set cursor column u1 row u2 (ANSI 1-based)\" "
-    .ascii ": AT-XY 1+ SWAP 1+ SWAP 27 EMIT 91 EMIT 0 U.R 59 EMIT 0 U.R 72 EMIT ; "
+    // PAGE / AT-XY / TERMINAL-REFRESH / FACILITY-OFF are CODE (FacilityTerminal host).
     // Facility Ext structures (ANS 10.6.2)
     .ascii "DOC\" BEGIN-STRUCTURE ( 'name' -- struct-sys 0 ) start structure definition\" "
     .ascii ": BEGIN-STRUCTURE CREATE HERE 0 0 , DOES> @ ; "

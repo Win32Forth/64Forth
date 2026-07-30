@@ -20,9 +20,14 @@ extension Notification.Name {
     static let toolsFload = Notification.Name("SixtyFourForthToolsFload")
     static let toolsChdir = Notification.Name("SixtyFourForthToolsChdir")
     static let toolsEdit = Notification.Name("SixtyFourForthToolsEdit")
+    /// File → Save (⌘S) while SZ-EDITOR is active → inject save key (19).
+    static let fileSave = Notification.Name("SixtyFourForthFileSave")
+    /// File → Close (⌘W) while SZ-EDITOR is active → inject quit-editor key (17).
+    /// Must not quit the app; ⌘Q does that.
+    static let fileClose = Notification.Name("SixtyFourForthFileClose")
 }
 
-private let banner = "=== 64Forth 0.7.0 ===\n"
+private let banner = "=== 64Forth 0.8.0 ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner
@@ -70,6 +75,21 @@ struct ConsoleView: View {
             kernel.onEmit = { chunk in
                 appendEngineOutput(chunk)
             }
+            // Facility terminal (PAGE/AT-XY): replace console body with grid paint.
+            kernel.onTerminalRefresh = { screen in
+                isProgrammaticConsoleAppend = true
+                consoleText = kernel.facilityPaintPrefix + screen
+                if !consoleText.hasSuffix("\n") {
+                    consoleText += "\n"
+                }
+                markProtectedThroughEndOfText()
+                keepCursorVisible(followPrompt: true)
+                DispatchQueue.main.async {
+                    isProgrammaticConsoleAppend = false
+                    // Reverse-video insert point (TZForth facility cursor).
+                    applyFacilityCursorHighlight()
+                }
+            }
             // Startup: banner (already in consoleText) → cwd → AutoLoad → prompt.
             isProgrammaticConsoleAppend = true
             appendEngineOutput("cwd: \(host.logicalCurrentDirectory)\n")
@@ -99,6 +119,12 @@ struct ConsoleView: View {
                 maybeFollowOutputIfNearBottom()
                 return
             }
+            // Facility PAGE/AT-XY paints replace the whole console body each frame.
+            if kernel.isFacilityTerminalActive {
+                keepCursorVisible()
+                applyFacilityCursorHighlight()
+                return
+            }
             if newValue.count < protectedLength
                 || (!protectedSnapshot.isEmpty && !newValue.hasPrefix(protectedSnapshot)) {
                 isRevertingProtectedEdit = true
@@ -110,6 +136,12 @@ struct ConsoleView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .clearConsole)) { _ in
             clearConsole()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .fileSave)) { _ in
+            handleFileSave()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .fileClose)) { _ in
+            handleFileClose()
         }
         .onReceive(NotificationCenter.default.publisher(for: .showLibraryFolder)) { _ in
             host.revealInFinder(host.libraryURL)
@@ -278,6 +310,7 @@ struct ConsoleView: View {
             }
         }
         kernel.clearReplBatchStop()
+        handleSzEditorOpenRequestIfNeeded()
         if !consoleText.hasSuffix("\n") {
             consoleText += "\n"
             markProtectedThroughEndOfText()
@@ -285,6 +318,65 @@ struct ConsoleView: View {
         appendPrompt()
         isProgrammaticConsoleAppend = false
         keepCursorVisible(followPrompt: true)
+    }
+
+    /// Bare SZEDIT / SZ-HOST-REQUEST-OPEN → open panel, then enter SZ-EDITOR.
+    private func handleSzEditorOpenRequestIfNeeded() {
+        guard kernel.takeSzEditorOpenRequest() else { return }
+        let startDir = kernel.szEditorOpenStartDirectory
+            ?? URL(fileURLWithPath: host.logicalCurrentDirectory, isDirectory: true)
+        kernel.szEditorOpenStartDirectory = nil
+
+        presentSzEditorOpenPanel(startDirectory: startDir) { url in
+            guard let url else {
+                self.appendEngineOutput("(SZEDIT cancelled)\n")
+                self.markProtectedThroughEndOfText()
+                return
+            }
+            self.isProgrammaticConsoleAppend = true
+            _ = self.kernel.openInSzEditor(path: url.path)
+            self.markProtectedThroughEndOfText()
+            if !self.consoleText.hasSuffix("\n") {
+                self.consoleText += "\n"
+                self.markProtectedThroughEndOfText()
+            }
+            self.appendPrompt()
+            self.isProgrammaticConsoleAppend = false
+            self.keepCursorVisible(followPrompt: true)
+        }
+    }
+
+    private func presentSzEditorOpenPanel(
+        startDirectory: URL,
+        completion: @escaping (URL?) -> Void
+    ) {
+        let work = {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            panel.allowedContentTypes = [
+                UTType(filenameExtension: "fth") ?? .plainText,
+                UTType(filenameExtension: "fs") ?? .plainText,
+                UTType(filenameExtension: "4th") ?? .plainText,
+                UTType(filenameExtension: "txt") ?? .plainText,
+                .plainText,
+                .text
+            ]
+            panel.prompt = "Open"
+            panel.message = "SZ-EDITOR — open a file to edit"
+            panel.directoryURL = startDirectory
+            if panel.runModal() == .OK, let url = panel.url {
+                completion(url)
+            } else {
+                completion(nil)
+            }
+        }
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
+        }
     }
 
     /// Multi-line paste ending with newline: commit without an extra Return.
@@ -347,6 +439,51 @@ struct ConsoleView: View {
         appendPrompt()
         isProgrammaticConsoleAppend = false
         keepCursorVisible(followPrompt: true)
+    }
+
+    // MARK: - File menu while SZ-EDITOR is open (⌘S / ⌘W)
+
+    /// ⌘S — inject save (code 19 = SZ-CTRL-S) into the editor KEY loop.
+    private func handleFileSave() {
+        guard kernel.isEvaluating, kernel.isFacilityTerminalActive else {
+            appendEngineOutput("? Save: open a file in SZ-EDITOR first (SZEDIT)\n")
+            markProtectedThroughEndOfText()
+            return
+        }
+        kernel.pushKey(19)
+    }
+
+    /// ⌘W — close the editor only (code 17 = SZ-CTRL-Q → SZ-DO-QUIT), not the app.
+    private func handleFileClose() {
+        guard kernel.isEvaluating, kernel.isFacilityTerminalActive else {
+            // Not in editor: ignore (must not quit the window/app; use ⌘Q to quit).
+            return
+        }
+        kernel.pushKey(17)
+    }
+
+    /// TZForth-style reverse-video cell at the Facility cursor (editor insert point).
+    private func applyFacilityCursorHighlight() {
+        guard kernel.isFacilityTerminalActive else { return }
+        guard let textView = consoleTextView, let storage = textView.textStorage else { return }
+
+        let full = NSRange(location: 0, length: storage.length)
+        if full.length > 0 {
+            storage.removeAttribute(.backgroundColor, range: full)
+            storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: full)
+        }
+
+        let prefixLen = (kernel.facilityPaintPrefix as NSString).length
+        let cols = max(1, kernel.facilityCols)
+        let row = kernel.facilityCursorRow
+        let col = min(max(0, kernel.facilityCursorCol), cols - 1)
+        // Each rendered line is `cols` ASCII glyphs + '\n'
+        let loc = prefixLen + row * (cols + 1) + col
+        guard loc >= 0 && loc < storage.length else { return }
+
+        let range = NSRange(location: loc, length: 1)
+        storage.addAttribute(.backgroundColor, value: NSColor.controlAccentColor, range: range)
+        storage.addAttribute(.foregroundColor, value: NSColor.white, range: range)
     }
 
     private func presentFloadPanel() {

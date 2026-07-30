@@ -196,28 +196,29 @@ VARIABLE SZ-PAINTED
 : SZ-SHOW-STATUS  ( -- )
    0 SZ-BLANK-ROW
    0 0 AT-XY
-   .( SZ-EDITOR )
+   ." SZ-EDITOR "
    SZ-HAS-NAME? IF
       SZ-GET-NAME
       \ keep name short: leave room for " L… C… b/… WxH"
       DUP 28 > IF  DROP 28  THEN
       TYPE
    ELSE
-      .( untitled)
+      ." untitled"
    THEN
-   SZ-MODIFIED @ IF  .( *)  THEN
-   .(  L) SZ-CUR-LINE-NO 0 .R
-   .( C) SZ-CUR-COL 1+ 0 .R
-   .(  ) SZ-TLEN @ 0 .R .( b)
-   .( /) SZ-TBUF-CAP @ 0 .R
-   .(  ) SZ-TEXT-WIDTH @ 0 .R .( x) SZ-TEXT-ROWS 0 .R
+   SZ-MODIFIED @ IF  ." *"  THEN
+   \ Spaces between fields: " L12 C3 1958b/1048576 80x20"
+   ."  L" SZ-CUR-LINE-NO 0 .R
+   ."  C" SZ-CUR-COL 1+ 0 .R
+   ."  " SZ-TLEN @ 0 .R ." b/"
+   SZ-TBUF-CAP @ 0 .R
+   ."  " SZ-TEXT-WIDTH @ 0 .R ." x" SZ-TEXT-ROWS 0 .R
 ;
 
 : SZ-SHOW-HELP  ( -- )
    SZ-TEXT-BOT @ 2 + SZ-BLANK-ROW
    0 SZ-TEXT-BOT @ 2 + AT-XY
    \ ASCII only (facility is a byte grid; non-ASCII used to blank the whole help row).
-   .( Cmd-S save  Cmd-O open  Cmd-W close | arrows Home/End PgUp/Dn BS Del)
+   ." Cmd-S save  Cmd-W close | arrows Ctrl-Home/End Home/End PgUp/Dn BS"
 ;
 
 \ True if SZ-CUR lies on the logical line starting at `ls`.
@@ -297,8 +298,20 @@ VARIABLE SZ-HAVE-AT
    KEY DROP
    FACILITY-OFF
    CLS
-   .( sz-screen: OK) CR
+   ." sz-screen: OK" CR
 ;
 
 \ Sync layout from host settings (default 80×20 text body).
+\ Apply default geometry from EDIT-WINDOW (sz-host variables)
 EDIT-WINDOW SZ-APPLY-EDIT-WINDOW
+
+\ Re-bind SET-EDIT-WINDOW so size changes update layout + facility grid
+: SET-EDIT-WINDOW  ( width height -- )
+   SZ-WIN-H !  SZ-WIN-W !
+   SZ-WIN-W @  SZ-WIN-H @  SZ-APPLY-EDIT-WINDOW
+   \ Facility chrome: width+8 cols, height+4 rows (status, borders, help)
+   SZ-WIN-W @ 8 +  SZ-WIN-H @ 4 +  (FACILITY-SIZE)
+;
+
+\ Apply current window size to facility grid at load
+SZ-WIN-W @ 8 +  SZ-WIN-H @ 4 +  (FACILITY-SIZE)

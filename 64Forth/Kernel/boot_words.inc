@@ -72,6 +72,13 @@ boot_word_table:
     BOOT_WORD "KEY", "KEY ( -- c ) wait for and return next character (skips K-* function-key events)", 0, XKEY
     BOOT_WORD "KEY?", "KEY? ( -- flag ) true if a key is available (does not consume)", 0, XKEYQ
     BOOT_WORD "EKEY", "EKEY ( -- u ) next key event (chars or tagged function keys for EKEY>FKEY)", 0, XEKEY
+    BOOT_WORD "(SZ-OPEN-REQ)", "(SZ-OPEN-REQ) ( -- ) request SZ-EDITOR open panel after this evaluate", 0, XSZ_OPEN_REQ
+    BOOT_WORD "(SZ-CLR-APP-QUIT)", "(SZ-CLR-APP-QUIT) ( -- ) cancel pending app quit after editor close", 0, XSZ_CLR_APP_QUIT
+    BOOT_WORD "PAGE", "PAGE ( -- ) clear facility terminal and home cursor", 0, XPAGE
+    BOOT_WORD "AT-XY", "AT-XY ( u1 u2 -- ) facility cursor to column u1 row u2 (0-based)", 0, XAT_XY
+    BOOT_WORD "TERMINAL-REFRESH", "TERMINAL-REFRESH ( -- ) paint facility terminal to host console", 0, XTERM_REFRESH
+    BOOT_WORD "FACILITY-OFF", "FACILITY-OFF ( -- ) leave facility terminal mode", 0, XFACILITY_OFF
+    BOOT_WORD "(FACILITY-SIZE)", "(FACILITY-SIZE) ( cols rows -- ) resize facility terminal grid", 0, XFACILITY_SIZE
     BOOT_WORD "CR", "CR ( -- ) carriage return / newline", 0, XCR
     BOOT_WORD ".", ". ( n -- ) print number (with space)", 0, XDOT
     BOOT_WORD "U.", "U. ( u -- ) print unsigned", 0, XUDOT
@@ -281,7 +288,7 @@ boot_word_table:
     BOOT_WORD "NAME>COMPILE", "NAME>COMPILE ( nt -- x xt ) compilation semantics pair for name token", 0, XNAME_COMPILE
     .quad 0, 0, 0, 0
 
-.equ BOOT_WORD_COUNT, 220
+.equ BOOT_WORD_COUNT, 227
 
 // Empty help used by : / CREATE / :NONAME
 .align 8

@@ -8,7 +8,7 @@
 \
 This document tracks implementation status of the 2012 ANS Forth Standard word sets in **64Forth** (hybrid ARM64 ITC kernel in `64Forth/Kernel/forth.s` + Swift host). It is **not** a formal ANS System certificate; use the bundled Hayes forth2012-test-suite for semantic validation.\
 \
-**Last update:** 2026-07-29 (v0.7.0). Core through Float and full Facility Ext are implemented in the 64Forth kernel/host. This file is a living checklist \'97 not a formal ANS certificate. Prefer Hayes (`HayesTest/HayesTest.fth`) and Library modular `ANSValidate/ANS-VALIDATE.fth` for runtime checks. Behaviour described is for **64Forth** unless noted.\
+**Last update:** 2026-07-29 (v0.8.0). Core through Float and full Facility Ext are implemented in the 64Forth kernel/host; FacilityTerminal cell grid drives PAGE/AT-XY for SZ-EDITOR. This file is a living checklist \'97 not a formal ANS certificate. Prefer Hayes (`HayesTest/HayesTest.fth`) and Library modular `ANSValidate/ANS-VALIDATE.fth` for runtime checks. Behaviour described is for **64Forth** unless noted.\
 \
 ## Summary\
 \
@@ -433,11 +433,12 @@ During an active structure, **`ALIGNED`** aligns the structure offset (for `ALIG
 \
 | Word | Notes |\
 |------|-------|\
-| `KEY?` | Done \'97 non-blocking `inputQueue` test |\
-| `PAGE` | Clears **80\'d725** facility buffer, homes cursor; `onTerminalRefresh` updates host console |\
-| `AT-XY` | `( u1 u2 -- )` \'97 column `u1`, row `u2` (0-based); subsequent `EMIT`/`TYPE`/`CR` write into buffer |\
+| `KEY?` | Done \'97 non-blocking host key queue |\
+| `PAGE` | Clears the **FacilityTerminal** cell grid (default chrome ~88\'d724 for SZ-EDITOR), homes cursor; `TERMINAL-REFRESH` paints the console |\
+| `AT-XY` | `( u1 u2 -- )` \'97 column `u1`, row `u2` (0-based); subsequent `EMIT`/`TYPE`/`CR` write into cells |\
 \
-`CLS` deactivates the facility buffer and clears scrollback (TZForth host). `EMIT`/`TYPE`/`CR`/`SPACES` route to the buffer while terminal mode is active (after `PAGE` or `AT-XY`).\
+`CLS` / `FACILITY-OFF` deactivates the grid and restores the scrollback console. `EMIT`/`TYPE`/`CR`/`SPACES` route to the cell buffer while terminal mode is active (after `PAGE` or `AT-XY`). Used by **SZ-EDITOR** (`Library/Editor/`).\
+
 \
 ### Facility extensions (10.6.2) \'97 done\
 \

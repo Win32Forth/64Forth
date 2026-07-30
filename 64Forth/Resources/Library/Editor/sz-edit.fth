@@ -132,7 +132,8 @@ VARIABLE SZ-DONE
 ;
 
 : SZ-GO-LEFT  ( -- )
-   SZ-CUR @ SZ-TBUF > IF  -1 SZ-CUR +!  THEN
+   \ Use unsigned compare — heap buffer addresses must not use signed >
+   SZ-CUR @ SZ-TBUF U> IF  -1 SZ-CUR +!  THEN
    SZ-REMEMBER-COL
 ;
 
@@ -219,42 +220,53 @@ VARIABLE SZ-PAGE-N
 : SZ-DO-SAVE  ( -- )
    SZ-HAS-NAME? 0= IF
       SZ-MSG-LINE
-      .( no filename — use SZ-SAVE-AS after quit)
+      ." no filename — use SZ-SAVE-AS after quit"
       TERMINAL-REFRESH
       EXIT
    THEN
    SZ-SAVE IF
       SZ-MSG-LINE
-      .( SAVE failed)
+      ." SAVE failed"
       TERMINAL-REFRESH
    ELSE
       SZ-MSG-LINE
-      .( saved )
+      ." saved "
       SZ-GET-NAME TYPE
-      .(  ) SZ-TLEN @ 0 .R .( b)
+      ."  " SZ-TLEN @ 0 .R ." b"
       TERMINAL-REFRESH
    THEN
 ;
 
-\ Returns true if the editor should close.
-\ Dirty buffer: S = save then close (if save ok), D = discard and close, else stay.
+\ Returns true if the editor should close (Cmd-W / Ctrl-Q / File→Close).
+\ Dirty buffer: S = save then close (if save ok); D = discard and close;
+\ any other key keeps the editor open.
 : SZ-CONFIRM-QUIT  ( -- flag )
    SZ-MODIFIED @ 0= IF  -1 EXIT  THEN
    SZ-MSG-LINE
-   .( Modified! Save or Discard before Closing and Quiting? S/D )
+   ." Modified! Save or Discard? S/D "
    TERMINAL-REFRESH
-   KEY 255 AND
+   KEY 255 AND                           ( c )
    DUP [CHAR] s = OVER [CHAR] S = OR IF
       DROP
       SZ-DO-SAVE
-      SZ-MODIFIED @ 0=                      \ close only if clean after save
+      SZ-MODIFIED @ 0=                   \ close only if save cleared dirty
       EXIT
    THEN
-   DUP [CHAR] d = SWAP [CHAR] D = OR        \ D = discard
+   DUP [CHAR] d = OVER [CHAR] D = OR IF
+      DROP
+      SZ-CLEAN                           \ discard edits — no "still modified" warning
+      -1 EXIT
+   THEN
+   DROP 0                                \ cancel — stay in editor
 ;
 
 : SZ-DO-QUIT  ( -- )
-   SZ-CONFIRM-QUIT IF  -1 SZ-DONE !  THEN
+   SZ-CONFIRM-QUIT IF
+      -1 SZ-DONE !
+   ELSE
+      \ User cancelled Save/Discard — do not quit the app either
+      (SZ-CLR-APP-QUIT)
+   THEN
 ;
 
 \ Host menu / session flags (see TZForth host primitives SZ-HOST-EDITOR-ACTIVE!)
@@ -265,7 +277,7 @@ VARIABLE SZ-PAGE-N
 : SZ-DO-MENU-OPEN  ( -- )
    SZ-HOST-TAKE-PATH
    DUP 0= IF  2DROP EXIT  THEN
-   SZ-LOAD IF  .( SZ-EDITOR: open failed) CR EXIT  THEN
+   SZ-LOAD IF  ." SZ-EDITOR: open failed" CR EXIT  THEN
    SZ-VIEW-RESET
 ;
 
@@ -313,18 +325,25 @@ VARIABLE SZ-PAGE-N
       SZ-DONE @ 0=
    WHILE
       SZ-REDRAW
-      KEY SZ-HANDLE-KEY
+      SZ-KEY SZ-HANDLE-KEY
    REPEAT
    SZ-EDITOR-LEAVE
    FACILITY-OFF
    CLS
-   .( SZ-EDITOR: done) CR
-   SZ-MODIFIED @ IF  .( warning: buffer still modified) CR  THEN
+   \ Drop any stray data-stack junk left by key handlers before console I/O
+   BEGIN DEPTH WHILE DROP REPEAT
+   ." SZ-EDITOR: done" CR
+   SZ-MODIFIED @ IF  ." warning: buffer still modified" CR  THEN
    SZ-.INFO
 ;
 
 : SZ-EDIT-FILE  ( c-addr u -- )
-   SZ-LOAD IF  .( SZ-EDIT-FILE: load failed) CR EXIT  THEN
+   2DUP SZ-LOAD IF
+      ." SZ-EDIT-FILE: load failed: " TYPE CR
+      ."   try absolute path, or FROMLIB for Library-relative names" CR
+      EXIT
+   THEN
+   2DROP
    SZ-EDIT-LOOP
 ;
 

@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-07-29 — **v0.7.0** (Hayes subset green; modular Library **ANSValidate** ~351/0 through Float; Facility Ext `EKEY>FKEY`/`K-*` + `FACILITY-EXT`; `LOAD` restores `BLK` via source stack; UTF-8 XChar; String/Locals Ext).
+**Updated:** 2026-07-29 — **v0.8.0** (FacilityTerminal cell grid + SZ-EDITOR; `S"`/`."` leading-space fix; builds on v0.7.0 Hayes/ANSValidate/Facility Ext).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
@@ -19,7 +19,8 @@
 | Floating-point (IEEE-64 F-stack, parse/print) | **TZForth** `TZForthFloat.swift` → `FloatHost.swift` | **`VOCABULARY FP`** (public names); thin FORTH hooks `FLIT` / `(F-OP)` |
 | File-Access + Block volumes | TZForth-style host + kernel CODE | `FileAccess.swift`, block file words, Hayes prepare-blocks |
 | XChar | Kernel UTF-8 CODE + high-level words; bulk `emit_buf` for multi-byte TYPE | ANS 18; validate via `ANSValidate/all-in-one.fth` |
-| SZ-EDITOR productization | TZForth (optional later) | Sources under `Library/Editor`; not polished as in-app product |
+| Facility terminal grid | TZForth-style host | `FacilityTerminal.swift` — `PAGE`/`AT-XY` cell buffer for SZ-EDITOR |
+| SZ-EDITOR | TZForth Library/Editor port | Full-screen facility editor; FROMLIB + open panel; Cmd-S/W/Q |
 
 ---
 
@@ -41,6 +42,7 @@
 │    • FileAccess — OPEN-FILE … buffered table                  │
 │    • BigIntHost — BI-MUL / BI-DIVMOD / BI-ISQRT (base 10^9)  │
 │    • FloatHost — IEEE-64 F-stack (depth 16), float_op hook    │
+│    • FacilityTerminal — PAGE/AT-XY character cell grid         │
 │    • SIGSEGV/SIGBUS → kernel_on_memory_fault (soft recover)   │
 └────────────────────────────┬────────────────────────────────┘
                              │
@@ -307,15 +309,17 @@ Kernel improvements can be cherry-picked PickleForth ↔ `64Forth/Kernel` until 
 
 ### Still missing vs full TZForth (high level)
 
-- **SZ-EDITOR** as a polished in-app library path (sources exist under Library/Editor)  
 - Line-at-a-time INCLUDE driven by real ANS fileids (whole-file SOURCE model today)  
 - Optional polish: multi-buffer block cache, compiled `TO` for FVALUE, App Sandbox for store  
+- Editor extras: search/replace, dual buffers (core SZ-EDITOR is usable)
 
-### Present and validated (v0.7.0)
+### Present and validated (v0.8.0)
 
 - Hayes subset: core through File/Block/FP (`FROMLIB FLOAD HayesTest/HayesTest.fth`)  
 - Modular ANSValidate: Core … Float, Facility Ext fkeys, XChar (~351/0)  
 - Facility Ext: structures + `EKEY>FKEY` + `K-*` + host special-key mapping  
+- FacilityTerminal grid + SZ-EDITOR (Library/Editor; FROMLIB open; Cmd-S/W/Q)  
+- `S"` / `."` / `C"` / `S\"`: only the WORD delimiter blank is skipped; further spaces are content  
 - String Ext, Locals Ext, Search-Order, Memory-Allocation, full Facility  
 
 ---
@@ -324,7 +328,7 @@ Kernel improvements can be cherry-picked PickleForth ↔ `64Forth/Kernel` until 
 
 1. App sandbox on/off for public builds  
 2. Whether to add TZForth-style “no GROWMEMORYMB after ALLOCATE” (currently N/A)  
-3. Further editor productization vs keep host-only EDIT  
+3. Editor search / dual-buffer vs keep host-only EDIT for casual files  
 4. Release packaging / branding beyond current AppIcon  
 
 ---

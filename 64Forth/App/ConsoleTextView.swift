@@ -256,13 +256,106 @@ struct ConsoleTextView: NSViewRepresentable {
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                // During KEY wait, Return is a character (LF), not "submit line".
-                // (Also handled by the keyDown monitor; keep this as a fallback.)
-                if KernelBridge.shared.isEvaluating {
+            // -----------------------------------------------------------------
+            // While kernel_eval is active (KEY / EKEY / SZ-KEY waiting — e.g.
+            // SZ-EDITOR), AppKit still delivers doCommandBy for arrows, Delete,
+            // Home/End, PgUp/Dn, Return.  We must NOT move the NSTextView caret
+            // or change the facility paint string; instead push classic F-PC
+            // key codes into the Forth key queue (same numbers as sz-edit.fth):
+            //
+            //   1  Home / start of line     5  End / end of line
+            //   2  Left arrow               6  Right arrow
+            //   8  Backspace (delete left) 10  Enter / LF
+            //  14  Down arrow              16  Up arrow
+            //  23  Page Up                 24  Page Down
+            //  28  Ctrl-Home / start file  29  Ctrl-End / end of file
+            // 127  Forward Delete (delete under cursor)
+            //
+            // KernelBridge's keyDown monitor also maps hardware keys; this path
+            // is the reliable fallback when the text view eats the event first.
+            // -----------------------------------------------------------------
+            if KernelBridge.shared.isEvaluating {
+                // Return / Enter → LF (10); SZ-EDITOR inserts CRLF
+                if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                     parent.onKeyCharacter(10)
                     return true
                 }
+                // Delete (backspace) → BS (8); erase character left of cursor
+                if commandSelector == #selector(NSResponder.deleteBackward(_:)) {
+                    parent.onKeyCharacter(8)
+                    return true
+                }
+                // Forward Delete (fn-Delete / Del) → 127; erase under cursor
+                if commandSelector == #selector(NSResponder.deleteForward(_:)) {
+                    parent.onKeyCharacter(127)
+                    return true
+                }
+                // Left arrow / Ctrl-B style → 2 (SZ-LEFT)
+                if commandSelector == #selector(NSResponder.moveLeft(_:))
+                    || commandSelector == #selector(NSResponder.moveBackward(_:)) {
+                    parent.onKeyCharacter(2)
+                    return true
+                }
+                // Right arrow / Ctrl-F style → 6 (SZ-RIGHT)
+                if commandSelector == #selector(NSResponder.moveRight(_:))
+                    || commandSelector == #selector(NSResponder.moveForward(_:)) {
+                    parent.onKeyCharacter(6)
+                    return true
+                }
+                // Up arrow → 16 (SZ-UP)
+                if commandSelector == #selector(NSResponder.moveUp(_:)) {
+                    parent.onKeyCharacter(16)
+                    return true
+                }
+                // Down arrow → 14 (SZ-DOWN)
+                if commandSelector == #selector(NSResponder.moveDown(_:)) {
+                    parent.onKeyCharacter(14)
+                    return true
+                }
+                // Ctrl/Cmd-Home, Cmd-↑, scroll-to-doc-start → start of file (28)
+                if commandSelector == #selector(NSResponder.moveToBeginningOfDocument(_:))
+                    || commandSelector == #selector(NSResponder.scrollToBeginningOfDocument(_:)) {
+                    parent.onKeyCharacter(28)
+                    return true
+                }
+                // Ctrl/Cmd-End, Cmd-↓, scroll-to-doc-end → end of file (29)
+                if commandSelector == #selector(NSResponder.moveToEndOfDocument(_:))
+                    || commandSelector == #selector(NSResponder.scrollToEndOfDocument(_:)) {
+                    parent.onKeyCharacter(29)
+                    return true
+                }
+                // Home / beginning of line → 1 (SZ-HOME-LINE)
+                if commandSelector == #selector(NSResponder.moveToBeginningOfLine(_:))
+                    || commandSelector == #selector(NSResponder.moveToLeftEndOfLine(_:)) {
+                    parent.onKeyCharacter(1)
+                    return true
+                }
+                // End / end of line → 5 (SZ-END-LINE)
+                if commandSelector == #selector(NSResponder.moveToEndOfLine(_:))
+                    || commandSelector == #selector(NSResponder.moveToRightEndOfLine(_:)) {
+                    parent.onKeyCharacter(5)
+                    return true
+                }
+                // Page Up → 23 (SZ-PGUP)
+                if commandSelector == #selector(NSResponder.pageUp(_:)) {
+                    parent.onKeyCharacter(23)
+                    return true
+                }
+                // Page Down → 24 (SZ-PGDN)
+                if commandSelector == #selector(NSResponder.pageDown(_:)) {
+                    parent.onKeyCharacter(24)
+                    return true
+                }
+                // Any other command (select all, etc.): swallow so NSTextView
+                // does not mutate the facility terminal paint.
+                return true
+            }
+
+            // -----------------------------------------------------------------
+            // Normal REPL (not waiting on KEY): Return submits the input line;
+            // Up/Down recall history; Left stops at the protected prefix edge.
+            // -----------------------------------------------------------------
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 return parent.onReturnPressed()
             }
 
@@ -271,6 +364,7 @@ struct ConsoleTextView: NSViewRepresentable {
             let caretInInputLine = sel.length == 0 && sel.location >= minLoc
 
             if caretInInputLine {
+                // Up / Down on the editable input line → command history
                 if commandSelector == #selector(NSResponder.moveUp(_:)) {
                     parent.onHistoryUp()
                     return true
@@ -279,6 +373,7 @@ struct ConsoleTextView: NSViewRepresentable {
                     parent.onHistoryDown()
                     return true
                 }
+                // Left: do not walk the caret into protected engine output
                 if commandSelector == #selector(NSResponder.moveLeft(_:))
                     || commandSelector == #selector(NSResponder.moveBackward(_:)) {
                     if sel.location <= minLoc {
@@ -287,6 +382,7 @@ struct ConsoleTextView: NSViewRepresentable {
                     textView.setSelectedRange(NSRange(location: sel.location - 1, length: 0))
                     return true
                 }
+                // Word-left / Home / Page Up / document start → clamp to input start
                 if commandSelector == #selector(NSResponder.moveWordLeft(_:))
                     || commandSelector == #selector(NSResponder.moveWordBackward(_:))
                     || commandSelector == #selector(NSResponder.moveToBeginningOfLine(_:))

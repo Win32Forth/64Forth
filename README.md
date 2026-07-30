@@ -2,7 +2,7 @@
 
 **Public domain.**
 
-**64Forth's Heritage: **When I decided to make yet another Forth system, I went looking for a name for it. I thought of my earlier Forths, like F-PC, and Win32Forth, and thought possibly of Win64Forth. But this Forth is not designed for Windows, so that seemed wrong. I then thought of 64Forth, and went looking for Forth systems on the internet with that name. You will never guess what I found. Yes, you guessed it. 64Forth was the name of my earlier Forth system for the Commodore 64 Computer. In that case, the 64 represented the fact that the Commodore had I believe 64 MB of memory, which was quite a lot in that day. Anyway, I realized that I essentially already had dibs on the 64Forth name, so that is the name I chose for this MacOS M1-M5+ Forth system that is a hybrid of the two previous Forth systems I created this month. I hope you will find 64Forth interesting, at least enough to take a look. It is constructed mostly by Grok with an assembly language kernel, and a Swift code console and extensions, and like TZForth, it has some Libraries built right into the app. **As of v0.7.0** it includes File-Access, file-backed Blocks, Floating-point (`VOCABULARY FP`), Core/Core Ext, String Ext, Locals, **Facility + Facility Ext** (structures, `EKEY>FKEY`, `K-*`), **Extended Character (UTF-8 XChar)**, a green Hayes subset (core through FP/paranoia Excellent), and modular Library **ANSValidate** (~351 passed / 0 failed). Remaining gaps vs full TZForth are mainly SZ-EDITOR productization and store sandbox. The architecture is very interesting: CODE words are assembly labels; macros build traditional headers (NFA, LFA, FFA, CFA, BODY) plus an HFA (Help Field Address). Go Forth and prosper!
+**64Forth's Heritage: **When I decided to make yet another Forth system, I went looking for a name for it. I thought of my earlier Forths, like F-PC, and Win32Forth, and thought possibly of Win64Forth. But this Forth is not designed for Windows, so that seemed wrong. I then thought of 64Forth, and went looking for Forth systems on the internet with that name. You will never guess what I found. Yes, you guessed it. 64Forth was the name of my earlier Forth system for the Commodore 64 Computer. In that case, the 64 represented the fact that the Commodore had I believe 64 MB of memory, which was quite a lot in that day. Anyway, I realized that I essentially already had dibs on the 64Forth name, so that is the name I chose for this MacOS M1-M5+ Forth system that is a hybrid of the two previous Forth systems I created this month. I hope you will find 64Forth interesting, at least enough to take a look. It is constructed mostly by Grok with an assembly language kernel, and a Swift code console and extensions, and like TZForth, it has some Libraries built right into the app. **As of v0.8.0** it includes File-Access, file-backed Blocks, Floating-point (`VOCABULARY FP`), Core/Core Ext, String Ext, Locals, **Facility + Facility Ext** (structures, `EKEY>FKEY`, `K-*`), **FacilityTerminal** full-screen `PAGE`/`AT-XY`, **SZ-EDITOR** (FROMLIB + open panel, Cmd-S/W/Q), **Extended Character (UTF-8 XChar)**, a green Hayes subset (core through FP/paranoia Excellent), and modular Library **ANSValidate** (~351 passed / 0 failed). Remaining gaps vs full TZForth are mainly store sandbox and further editor polish. The architecture is very interesting: CODE words are assembly labels; macros build traditional headers (NFA, LFA, FFA, CFA, BODY) plus an HFA (Help Field Address). Go Forth and prosper!
 
 
 **Getting 64Forth to run on your Mac: **All of the latest security changes Apple has made to MacOS, have made it fairly difficult to run apps obtained from outside the Apple App Store, but it is not impossible. Here is how you to it;
@@ -45,7 +45,7 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
   64Forth.xcodeproj/
   64Forth/
     App/           SwiftUI entry + content
-    Host/          FileHost, FileAccess, BigIntHost, FloatHost, KernelBridge
+    Host/          FileHost, FileAccess, BigIntHost, FloatHost, FacilityTerminal, KernelBridge
     Kernel/        forth.s, boot_words.inc, colon_words.inc, kernel_api.h
     Resources/     AutoLoad/, Library/, Docs/  → copied into app bundle
     Assets.xcassets/
@@ -53,7 +53,7 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 
 ---
 
-## Status (v0.7.0)
+## Status (v0.8.0)
 
 - [x] Project folder and design doc  
 - [x] Kernel sources copied from PickleForth (`_kernel_cold_start` entry, not `_main`)  
@@ -75,8 +75,9 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 - [x] v0.6: FIND-before-number, Tools `?`, CODE `DEPTH`, include buffer 256 KiB, Hayes harness  
 - [x] String Ext, Locals Ext, Facility structures, Extended Character (UTF-8 XChar)  
 - [x] **v0.7.0:** Modular ANS-VALIDATE (~351/0); Facility Ext (`EKEY>FKEY`, `K-*`); `LOAD`/`BLK` restore; docs  
+- [x] **v0.8.0:** `FacilityTerminal` cell grid for `PAGE`/`AT-XY`; **SZ-EDITOR** full-screen edit (FROMLIB, open panel, Cmd-S/W/Q, Ctrl-Home/End); `S"`/`."` keep leading spaces after the name blank  
 
-Optional later: SZ-EDITOR polish, line-at-a-time INCLUDE via fileid, App Sandbox for store builds.
+Optional later: line-at-a-time INCLUDE via fileid, App Sandbox for store builds, editor search/dual-buffer.
 
 Open `64Forth.xcodeproj` in **full Xcode** (Apple Silicon; not Command Line Tools alone). Build the **64Forth** app target.
 
@@ -89,6 +90,9 @@ ALSO FP
 1.5e0 2e0 F+ F.
 
 FROMLIB FLOAD ANSValidate/ANS-VALIDATE.fth
+
+FROMLIB FLOAD Editor/SZ-EDITOR.fth
+FROMLIB SZEDIT Editor/SZ-EDITOR-README.txt
 ```
 
 ### Phase 1 API (assembly ↔ Swift)

@@ -18,6 +18,7 @@
 		B1000010 /* ConsoleTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000110 /* ConsoleTextView.swift */; };
 		B1000011 /* BigIntHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000111 /* BigIntHost.swift */; };
 		B1000013 /* FloatHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000113 /* FloatHost.swift */; };
+		B1000014 /* FacilityTerminal.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000114 /* FacilityTerminal.swift */; };
 		FA6AA0DF301916D30007C369 /* 64Forth.jpg in Resources */ = {isa = PBXBuildFile; fileRef = FA6AA0DE301916D30007C369 /* 64Forth.jpg */; };
 /* End PBXBuildFile section */
 
@@ -42,6 +43,7 @@
 		B1000110 /* ConsoleTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleTextView.swift; sourceTree = "<group>"; };
 		B1000111 /* BigIntHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BigIntHost.swift; sourceTree = "<group>"; };
 		B1000113 /* FloatHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatHost.swift; sourceTree = "<group>"; };
+		B1000114 /* FacilityTerminal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FacilityTerminal.swift; sourceTree = "<group>"; };
 		FA6AA0DE301916D30007C369 /* 64Forth.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = 64Forth.jpg; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -99,6 +101,7 @@
 				B1000112 /* FileAccess.swift */,
 				B1000111 /* BigIntHost.swift */,
 				B1000113 /* FloatHost.swift */,
+				B1000114 /* FacilityTerminal.swift */,
 			);
 			path = Host;
 			sourceTree = "<group>";
@@ -273,6 +276,7 @@
 				B1000012 /* FileAccess.swift in Sources */,
 				B1000011 /* BigIntHost.swift in Sources */,
 				B1000013 /* FloatHost.swift in Sources */,
+				B1000014 /* FacilityTerminal.swift in Sources */,
 				B1000006 /* forth.s in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -394,7 +398,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.7.0;
+				MARKETING_VERSION = 0.8.0;
 				OTHER_CFLAGS = "-I$(SRCROOT)/64Forth/Kernel";
 				PRODUCT_BUNDLE_IDENTIFIER = com.win32forth.SixtyFourForth;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -422,7 +426,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.7.0;
+				MARKETING_VERSION = 0.8.0;
 				OTHER_CFLAGS = "-I$(SRCROOT)/64Forth/Kernel";
 				PRODUCT_BUNDLE_IDENTIFIER = com.win32forth.SixtyFourForth;
 				PRODUCT_NAME = "$(TARGET_NAME)";

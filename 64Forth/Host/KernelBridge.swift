@@ -23,6 +23,18 @@ private func kernel_eval(_ line: UnsafePointer<CChar>?, _ n: Int) -> Int32
 @_silgen_name("kernel_take_repl_batch_stop")
 private func kernel_take_repl_batch_stop() -> Int32
 
+@_silgen_name("kernel_take_sz_editor_open")
+private func kernel_take_sz_editor_open() -> Int32
+
+@_silgen_name("kernel_set_sz_app_quit")
+private func kernel_set_sz_app_quit()
+
+@_silgen_name("kernel_clear_sz_app_quit")
+private func kernel_clear_sz_app_quit()
+
+@_silgen_name("kernel_sz_app_quit_pending")
+private func kernel_sz_app_quit_pending() -> Int32
+
 @_silgen_name("kernel_on_memory_fault")
 private func kernel_on_memory_fault(_ sig: Int32)
 
@@ -115,6 +127,11 @@ private func kernel_set_edit(
     _ fn: (@convention(c) (UnsafePointer<CChar>?, Int) -> Void)?
 )
 
+@_silgen_name("kernel_set_facility_op")
+private func kernel_set_facility_op(
+    _ fn: (@convention(c) (Int64, Int64, Int64) -> Void)?
+)
+
 @_silgen_name("kernel_set_allocate")
 private func kernel_set_allocate(
     _ fn: (@convention(c) (Int, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> Int32)?
@@ -159,15 +176,17 @@ private let kernelEmitTrampoline: @convention(c) (Int32) -> Void = { c in
     kernelHookTarget?.handleEmitFromKernel(c)
 }
 
-/// Bulk TYPE/XEMIT: decode the whole buffer as UTF-8 (Latin-1 fallback).
+/// Bulk TYPE/XEMIT: copy bytes first (kernel buffer must not be assumed stable),
+/// then UTF-8 decode (Latin-1 fallback). Facility mode paints cells without
+/// building a large intermediate String when possible.
 private let kernelEmitBufTrampoline: @convention(c) (UnsafePointer<CChar>?, Int) -> Void = { ptr, n in
     guard let ptr, n > 0 else { return }
-    let raw = UnsafeRawPointer(ptr).bindMemory(to: UInt8.self, capacity: n)
-    let buf = UnsafeBufferPointer(start: raw, count: n)
-    let s = String(bytes: buf, encoding: .utf8)
-        ?? String(bytes: buf, encoding: .isoLatin1)
-        ?? ""
-    kernelHookTarget?.handleEmitString(s)
+    // Guard against garbage length (e.g. stack corruption after editor exit).
+    let count = min(n, 1 << 20) // 1 MiB cap
+    guard count > 0 else { return }
+    var bytes = [UInt8](repeating: 0, count: count)
+    memcpy(&bytes, ptr, count)
+    kernelHookTarget?.handleEmitBytes(bytes)
 }
 
 private let kernelKeyTrampoline: @convention(c) () -> Int32 = {
@@ -414,6 +433,35 @@ private let kernelFloatOpTrampoline: @convention(c) (
     FloatHost.shared.dispatch(op: op, a: a, b: b, c: c, d: d, ptr: ptr, o1: o1, o2: o2, o3: o3)
 }
 
+/// Facility terminal: 1=PAGE 2=AT-XY 3=TERMINAL-REFRESH 4=FACILITY-OFF 5=resize
+private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> Void = { op, a, b in
+    let term = FacilityTerminal.shared
+    switch op {
+    case 1:
+        term.page()
+    case 2:
+        term.atXY(col: Int(a), row: Int(b))
+    case 3:
+        guard term.isActive else { return }
+        term.refreshPending = false
+        let screen = term.render()
+        let paint: () -> Void = {
+            KernelBridge.shared.onTerminalRefresh?(screen)
+        }
+        if Thread.isMainThread {
+            paint()
+        } else {
+            DispatchQueue.main.async(execute: paint)
+        }
+    case 4:
+        term.deactivate()
+    case 5:
+        term.resize(cols: Int(a), rows: Int(b))
+    default:
+        break
+    }
+}
+
 // MARK: - Bridge
 
 final class KernelBridge {
@@ -434,6 +482,25 @@ final class KernelBridge {
     /// Set when `\S` / `\s` runs on the console SOURCE (SOURCE-ID 0). Host multi-line
     /// paste should stop further lines (TZForth `replBatchStop`). Cleared on read.
     private(set) var replBatchStopRequested = false
+
+    /// Bare SZEDIT / SZ-HOST-REQUEST-OPEN: host should show open panel after evaluate.
+    private(set) var szEditorOpenRequested = false
+
+    /// Start directory for the next SZ-EDITOR open panel (e.g. Library after FROMLIB).
+    var szEditorOpenStartDirectory: URL?
+
+    /// Facility PAGE/AT-XY grid active (SZ-EDITOR full-screen mode).
+    var isFacilityTerminalActive: Bool { FacilityTerminal.shared.isActive }
+
+    var facilityCols: Int { FacilityTerminal.shared.cols }
+    var facilityCursorCol: Int { FacilityTerminal.shared.cursorCol }
+    var facilityCursorRow: Int { FacilityTerminal.shared.cursorRow }
+
+    /// Host replaces console body with rendered facility screen (cols×rows + newlines).
+    var onTerminalRefresh: ((String) -> Void)?
+
+    /// Optional banner prefix kept above facility paints (e.g. empty while editing).
+    var facilityPaintPrefix: String = ""
 
     var onEmit: ((String) -> Void)? {
         didSet {
@@ -497,10 +564,12 @@ final class KernelBridge {
         kernel_set_bi_divmod(kernelBiDivmodTrampoline)
         kernel_set_bi_isqrt(kernelBiIsqrtTrampoline)
         kernel_set_float_op(kernelFloatOpTrampoline)
+        kernel_set_facility_op(kernelFacilityOpTrampoline)
         FloatHost.shared.onEmit = { [weak self] s in
             self?.handleEmitString(s)
         }
         FloatHost.shared.reset()
+        FacilityTerminal.shared.deactivate()
 
         FileHost.shared.onMessage = { [weak self] s in
             self?.handleEmitString(s)
@@ -729,13 +798,77 @@ final class KernelBridge {
             let active = self.evaluatingFlag
             self.lock.unlock()
             guard active else { return event }
-            // Leave menu shortcuts alone.
-            if event.modifierFlags.contains(.command) { return event }
+            let mods = event.modifierFlags.intersection([.control, .option, .shift, .command])
+            let facilityOn = FacilityTerminal.shared.isActive
+
+            // ⌘S / ⌘W / ⌘Q while facility editor is open.
+            // 19 = save, 17 = close editor (S/D if dirty). ⌘Q also marks app-quit-after-close.
+            // ⌘Home / ⌘End → start/end of file (Mac-friendly; same as Ctrl-Home/End).
+            if mods.contains(.command) {
+                if facilityOn {
+                    let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
+                    if ch == "s" {
+                        self.pushKey(19)
+                        return nil
+                    }
+                    if ch == "w" {
+                        self.pushKey(17)
+                        return nil
+                    }
+                    if ch == "q" {
+                        // Same S/D prompt as close; cancel stays in editor and does not quit app.
+                        self.requestQuitAppAfterEditorClose()
+                        self.pushKey(17)
+                        return nil
+                    }
+                    switch event.keyCode {
+                    case 115: // Home
+                        self.pushKey(28) // SZ-HOME-FILE
+                        return nil
+                    case 119: // End
+                        self.pushKey(29) // SZ-END-FILE
+                        return nil
+                    default:
+                        break
+                    }
+                }
+                // Other ⌘ shortcuts (menus, etc.) pass through.
+                return event
+            }
+
+            // macOS Delete (backspace) is keyCode 51; its character is often DEL (127).
+            // SZ-EDITOR treats 8 as backspace and 127 as forward-delete.
+            if event.keyCode == 51 {
+                self.pushKey(8) // BS
+                return nil
+            }
+
+            // Ctrl-Home / Ctrl-End → start/end of file (sz-edit: 28 / 29).
+            // Plain Home/End → start/end of line (1 / 5) via F-PC mapping below.
+            // Also accept while KEY is waiting even if facility flag races briefly.
+            if mods.contains(.control) {
+                switch event.keyCode {
+                case 115: // Home
+                    self.pushKey(28) // SZ-HOME-FILE
+                    return nil
+                case 119: // End
+                    self.pushKey(29) // SZ-END-FILE
+                    return nil
+                default:
+                    break
+                }
+            }
 
             // Facility Ext: map arrows / navigation / F-keys to tagged EKEY events.
             // KEY skips tag-2 events; EKEY returns them for EKEY>FKEY.
+            // Also push classic F-PC editor codes so SZ-HANDLE-KEY works.
             if let fkid = Self.facilityFKeyId(for: event) {
-                self.pushKey(FacilityFKey.event(fkid))
+                if facilityOn,
+                   let pc = Self.editorPCKeyCode(forFacilityId: fkid) {
+                    self.pushKey(pc)
+                } else {
+                    self.pushKey(FacilityFKey.event(fkid))
+                }
                 return nil
             }
 
@@ -745,6 +878,8 @@ final class KernelBridge {
                     var v = Int32(bitPattern: UInt32(scalar.value))
                     // Normalize Return/Enter to LF (10).
                     if v == 13 { v = 10 }
+                    // Mac backspace character is often 127 — map to BS when facility editor active
+                    if v == 127 && FacilityTerminal.shared.isActive { v = 8 }
                     if v > 0 && v < 0x11_0000 {
                         self.pushKey(v)
                     }
@@ -785,6 +920,22 @@ final class KernelBridge {
         default: break
         }
         return nil
+    }
+
+    /// Classic F-PC codes used by sz-edit.fth (SZ-LEFT=2, SZ-RIGHT=6, …).
+    private static func editorPCKeyCode(forFacilityId id: Int) -> Int32? {
+        switch id {
+        case FacilityFKey.left: return 2
+        case FacilityFKey.right: return 6
+        case FacilityFKey.down: return 14
+        case FacilityFKey.up: return 16
+        case FacilityFKey.home: return 1
+        case FacilityFKey.end: return 5
+        case FacilityFKey.prior: return 23
+        case FacilityFKey.next: return 24
+        case FacilityFKey.delete: return 127
+        default: return nil
+        }
     }
 
     /// Clear the sticky multi-line paste stop (call before a paste batch if needed).
@@ -844,7 +995,41 @@ final class KernelBridge {
 
         let status = runKernelEval(t)
         evalLock.unlock()
+        // Off-main callers: still surface open request (ConsoleView handles on main).
         return status
+    }
+
+    /// Clear open-panel sticky after ConsoleView services it.
+    func takeSzEditorOpenRequest() -> Bool {
+        let v = szEditorOpenRequested
+        szEditorOpenRequested = false
+        return v
+    }
+
+    /// ⌘Q while editor open: after SZ-EDIT-LOOP ends, terminate the app.
+    func requestQuitAppAfterEditorClose() {
+        kernel_set_sz_app_quit()
+    }
+
+    func clearQuitAppAfterEditorClose() {
+        kernel_clear_sz_app_quit()
+    }
+
+    /// If true after an evaluate that left the facility editor, host should quit.
+    var quitAppAfterEditorClosePending: Bool {
+        kernel_sz_app_quit_pending() != 0
+    }
+
+    /// Open a path in SZ-EDITOR (EDITOR vocabulary). Path is absolute or relative.
+    @discardableResult
+    func openInSzEditor(path: String) -> Int32 {
+        // Escape for S" … " — use a counted path via evaluate of SET-PATH + OPEN-EDIT
+        let escaped = path
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        // Stage path then enter editor (words live in EDITOR wordlist)
+        let line = "ONLY FORTH ALSO EDITOR S\" \(escaped)\" SZ-HOST-SET-PATH SZ-HOST-OPEN-EDIT ONLY FORTH"
+        return evaluate(line)
     }
 
     /// Body of evaluate on the Forth serial queue (or any non-reentrant caller).
@@ -871,6 +1056,18 @@ final class KernelBridge {
             replBatchStopRequested = true
         }
 
+        // Bare SZEDIT / (SZ-OPEN-REQ): open panel after this evaluate returns.
+        if kernel_take_sz_editor_open() != 0 {
+            szEditorOpenRequested = true
+            // FROMLIB SZEDIT (no path) → panel starts at Resources/Library
+            if FileHost.shared.fromLibraryArmed, let lib = FileHost.shared.libraryURL {
+                FileHost.shared.clearFromLibrary()
+                szEditorOpenStartDirectory = lib
+            } else {
+                szEditorOpenStartDirectory = nil
+            }
+        }
+
         if status == -1 {
             if kernel_take_fault_flag() != 0 {
                 handleEmitString("memory access error\n")
@@ -887,6 +1084,14 @@ final class KernelBridge {
         // Ensure last output reaches the console before evaluate returns.
         // Off-main: schedule drain; main wait loop also drains after join.
         scheduleEmitFlush()
+
+        // ⌘Q while editor was open: quit app only after the editor session ended.
+        if quitAppAfterEditorClosePending && !FacilityTerminal.shared.isActive {
+            clearQuitAppAfterEditorClose()
+            DispatchQueue.main.async {
+                NSApplication.shared.terminate(nil)
+            }
+        }
 
         if status == 1 {
             DispatchQueue.main.async {
@@ -961,6 +1166,11 @@ final class KernelBridge {
     // MARK: - Hooks
 
     fileprivate func handleEmitFromKernel(_ c: Int32) {
+        // Facility terminal (PAGE/AT-XY mode): paint into cell grid, not console stream.
+        if FacilityTerminal.shared.isActive {
+            FacilityTerminal.shared.emit(UInt8(truncatingIfNeeded: c))
+            return
+        }
         // Buffer as raw bytes (not Latin-1 one-byte Strings) so UTF-8 multi-byte
         // sequences stay intact across EMIT calls. Absorb complete sequences into
         // pendingEmit immediately so order matches interleaved TYPE/emit_buf
@@ -976,6 +1186,21 @@ final class KernelBridge {
         if hasSink {
             scheduleEmitFlush()
         }
+    }
+
+    /// Bulk emit from kernel TYPE/XEMIT (already copied out of kernel memory).
+    fileprivate func handleEmitBytes(_ bytes: [UInt8]) {
+        guard !bytes.isEmpty else { return }
+        if FacilityTerminal.shared.isActive {
+            for b in bytes {
+                FacilityTerminal.shared.emit(b)
+            }
+            return
+        }
+        let s = String(bytes: bytes, encoding: .utf8)
+            ?? String(bytes: bytes, encoding: .isoLatin1)
+            ?? ""
+        handleEmitString(s)
     }
 
     fileprivate func handleKeyFromKernel() -> Int32 {
@@ -1013,6 +1238,12 @@ final class KernelBridge {
 
     fileprivate func handleEmitString(_ s: String) {
         guard !s.isEmpty else { return }
+        if FacilityTerminal.shared.isActive {
+            for b in s.utf8 {
+                FacilityTerminal.shared.emit(b)
+            }
+            return
+        }
         lock.lock()
         // Drain any complete UTF-8 already in the byte buffer before this chunk
         // so CR/EMIT bytes stay in front of TYPE/emit_buf text.

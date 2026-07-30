@@ -14,7 +14,9 @@ Examples
   FROMLIB FLOAD BigInteger/big-int.fth
   FROMLIB FLOAD PI/pi-test.fth
   FROMLIB FLOAD xchar-smoke.fth
+  FROMLIB FLOAD Editor/SZ-EDITOR.fth
+  FROMLIB SZEDIT Editor/SZ-EDITOR-README.txt
 
 After editing Library .fth files, rebuild/run so the bundle copy updates.
 
-See ANSValidate/README.txt and Docs/README.txt.
+See ANSValidate/README.txt, Editor/SZ-EDITOR-README.txt, and Docs/README.txt.
