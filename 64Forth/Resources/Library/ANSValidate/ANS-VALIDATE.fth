@@ -26,6 +26,7 @@
 \  13) block.fth      Block
 \  14) xchar.fth      Extended Character
 \  15) float.fth      Float Tier A/B
+\  16) host.fth       TZForth FTEST high-ROI port wave (FIND, POSTPONE, …)
 \
 \ CRITICAL: no interpret-time IF/ELSE/THEN/BEGIN.
 \ CRITICAL: .( stops at first ) — no nested parentheses in messages.
@@ -36,7 +37,7 @@ ONLY FORTH DEFINITIONS
 
 CR .( === 64Forth ANS-VALIDATE ===) CR
 CR .( Library Forth - not a formal ANS certificate.) CR
-CR .( Modules: tester, core, core-ext, search, string, facility, exception, memory, double, locals, tools, file, block, xchar, float ) CR
+CR .( Modules: tester, core, core-ext, search, string, facility, exception, memory, double, locals, tools, file, block, xchar, float, host ) CR
 
 \ Relative to this file's directory - ANSValidate/ under Resources/Library.
 FLOAD tester.fth
@@ -54,6 +55,7 @@ FLOAD file.fth
 FLOAD block.fth
 FLOAD xchar.fth
 FLOAD float.fth
+FLOAD host.fth
 
 S" ANS-VALIDATE" .TEST-SUMMARY
 CR .( === ANS-VALIDATE driver done ===) CR

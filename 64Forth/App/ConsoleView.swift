@@ -27,7 +27,7 @@ extension Notification.Name {
     static let fileClose = Notification.Name("SixtyFourForthFileClose")
 }
 
-private let banner = "=== 64Forth 0.8.1 ===\n"
+private let banner = "=== 64Forth 0.8.2 ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner

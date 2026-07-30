@@ -29,6 +29,9 @@ Expected
   ALL PASS
   === ANS-VALIDATE driver done ===
 
+  Approximate count after host.fth (v0.8.2): mid-370s EXPECT cases.
+  TZForth FTEST logs ~427 including Swift host-only checks — not a 1:1 goal.
+
 Current modules - driver load order
 -----------------------------------
   tester.fth     PASS/FAIL harness - EXPECT #PASS #FAIL
@@ -46,6 +49,10 @@ Current modules - driver load order
   block.fth      Block - /tmp .blk volume, LOAD
   xchar.fth      Extended Character UTF-8
   float.fth      Float Tier A/B - ALSO FP vocabulary
+  host.fth       High-ROI TZForth FTEST ports (FIND, POSTPONE, SLITERAL,
+                 MARKER, 2!/2@, SIGN, REQUIRED/INCLUDED, EMIT?/EKEY?,
+                 double literals, {:} order, FALIGNED/FATAN2/FLITERAL,
+                 GD8 +LOOP, compile ABORT")
 
 Standalone XChar only
 ---------------------
@@ -61,9 +68,8 @@ Layout
   ANS-VALIDATE.fth   multi-module driver - FROMLIB entry point
   PORT-PLAN.txt      word-set port order
   tester.fth         harness
-  core.fth           Core
-  xchar.fth          Extended Character
-  float.fth          Float Tier A/B
+  core.fth … float.fth  word-set modules
+  host.fth           extra FTEST port wave (see above)
   all-in-one.fth     self-contained XChar suite
   run-from-disk.fth  alias → FROMLIB FLOAD ANSValidate/ANS-VALIDATE.fth
   probe / bisect / hello   diagnostics

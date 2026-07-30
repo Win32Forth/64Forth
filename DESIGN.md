@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-07-29 — **v0.8.1** (`ABORT"` compile fix; v0.8.0 FacilityTerminal + SZ-EDITOR + `S"`/`."` leading spaces).
+**Updated:** 2026-07-29 — **v0.8.2** (ANSValidate `host.fth` port wave; `SLITERAL` layout fix; prior: `ABORT"`, FacilityTerminal, SZ-EDITOR).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
@@ -313,7 +313,7 @@ Kernel improvements can be cherry-picked PickleForth ↔ `64Forth/Kernel` until 
 - Optional polish: multi-buffer block cache, compiled `TO` for FVALUE, App Sandbox for store  
 - Editor extras: search/replace, dual buffers (core SZ-EDITOR is usable)
 
-### Present and validated (v0.8.1)
+### Present and validated (v0.8.2)
 
 - Hayes subset: core through File/Block/FP (`FROMLIB FLOAD HayesTest/HayesTest.fth`)  
 - Modular ANSValidate: Core … Float, Facility Ext fkeys, XChar (~351/0)  

@@ -1,14 +1,21 @@
 # ANS-VALIDATE modular suite (CLI harness + app FROMLIB path)
-# Last green: 2026-07-29
+# Last green: 2026-07-29  v0.8.2
 #
 # Run:  FROMLIB FLOAD ANSValidate/ANS-VALIDATE.fth
 #
-# ANS-VALIDATE: 351 passed, 0 failed.
+# ANS-VALIDATE: 383 passed, 0 failed.
 # ALL PASS
 # === ANS-VALIDATE driver done ===
 #
 # Modules: tester, core, core-ext, search, string, facility (+ Facility Ext),
 # exception, memory, double, locals, tools, file, block (LOAD/BLK restore),
-# xchar, float (Tier A/B spot-checks).
+# xchar, float (Tier A/B), host (TZForth FTEST high-ROI port wave).
+#
+# host.fth covers: FIND, SOURCE, POSTPONE, SLITERAL, 2!/2@, SIGN, double
+# literals, {:} order, EMIT?/EKEY?, ABORT", REQUIRED/INCLUDED, GD8 +LOOP,
+# FALIGNED (alignment flag, TZForth-style)/FATAN2/FLITERAL, MARKER.
+#
+# Note: ABORT" nonzero test may print "boom" before CATCH; that is expected.
 #
 # Not a formal ANS certificate. Prefer HayesTest for stock forth2012 coverage.
+# TZForth FTEST ~427 includes Swift host-only checks not ported here.

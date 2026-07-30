@@ -27,11 +27,13 @@ Module order
   [done]  block.fth      Block - /tmp .blk volume
   [done]  xchar.fth      Extended Character
   [done]  float.fth      Float Tier A/B - ALSO FP
+  [done]  host.fth       TZForth FTEST high-ROI wave (v0.8.2)
 
 Skip / never pure Forth
 -----------------------
   TZForth harness-only: temp-file FLOAD fault injection, console PAGE
-  buffer capture, DEBUG-ON UI, dictionary snapshot restore (Swift).
+  buffer capture, DEBUG-ON UI, dictionary snapshot restore (Swift),
+  WARNING redef strings, GROWMEMORYMB, XKEY inject, exact FS./FE. text.
   Those stay Hayes or host-side if needed.
 
 Rules when porting

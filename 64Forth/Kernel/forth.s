@@ -10850,8 +10850,9 @@ forth_init_str:
     .ascii "DOC\" -TRAILING ( c-addr u1 -- c-addr u2 ) remove trailing spaces\" "
     .ascii ": -TRAILING BEGIN DUP WHILE 1- 2DUP + C@ BL <> IF 1+ EXIT THEN REPEAT ; "
     // COMPARE / SEARCH are CODE primitives
+    // (S") layout is cell length then bytes (same as S"); not a counted string.
     .ascii "DOC\" SLITERAL ( c-addr u -- ) compile string literal (immediate)\" "
-    .ascii ": SLITERAL ?COMP SLIT-ADDR , DUP C, BEGIN DUP WHILE OVER C@ C, 1 /STRING REPEAT 2DROP ALIGN ; IMMEDIATE "
+    .ascii ": SLITERAL ?COMP SLIT-ADDR , DUP , BEGIN DUP WHILE OVER C@ C, 1 /STRING REPEAT 2DROP ALIGN ; IMMEDIATE "
     // String Ext: PLACE helper, REPLACES / SUBSTITUTE / UNESCAPE (ANS 17.6.2)
     .ascii "DOC\" PLACE ( c-addr1 u c-addr2 -- ) copy as counted string at c-addr2\" "
     .ascii ": PLACE 2DUP 2>R CHAR+ SWAP MOVE 2R> C! ; "

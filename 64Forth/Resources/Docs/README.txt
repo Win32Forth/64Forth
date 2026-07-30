@@ -1,7 +1,7 @@
 64Forth — Swift host + PickleForth ARM64 kernel
 ================================================
 
-Version 0.8.1 (2026-07-29)
+Version 0.8.2 (2026-07-29)
 
 Hybrid macOS app: ARM64 ITC kernel (assembly) + SwiftUI console/host
 (TZForth-style FileHost, AutoLoad, Library, FROMLIB).
@@ -62,8 +62,8 @@ ANS-VALIDATE - Library Forth spot-checks
 ----------------------------------------
   FROMLIB FLOAD ANSValidate/ANS-VALIDATE.fth
   Modules: tester, core, core-ext, search, string, facility, exception,
-  memory, double, locals, tools, file, block, xchar, float.
-  Expect: ANS-VALIDATE: N passed, 0 failed. ALL PASS  (about 351 / 0)
+  memory, double, locals, tools, file, block, xchar, float, host.
+  Expect: ANS-VALIDATE: N passed, 0 failed. ALL PASS  (mid-370s / 0 after host.fth)
 
 Still optional / not full TZForth parity
 ----------------------------------------
