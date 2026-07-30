@@ -10779,9 +10779,12 @@ forth_init_str:
     .ascii "DOC\" ABORT ( -- ) THROW -1 (catchable)\" "
     .ascii ": ABORT -1 THROW ; "
     // ANS ABORT" ( x -- ): if x nonzero, type ccc and THROW -2; else discard x.
+    // Compile path must POSTPONE LITERAL for -2: a bare -2 only pushes during
+    // ABORT" execution and corrupts the IF/THEN address on the stack, so THEN
+    // patches address -2 and faults (seen compiling BI-ENSURE in big-int.fth).
     // Note: do not put ABORT" inside DOC" — the embedded quote truncates DOC".
     .ascii "DOC\" ABORT quote ( x -- ) if x nonzero type message and THROW -2 (immediate)\" "
-    .ascii ": ABORT\" STATE @ IF POSTPONE IF POSTPONE S\" POSTPONE TYPE POSTPONE CR -2 POSTPONE THROW POSTPONE THEN ELSE 34 PARSE ROT IF TYPE CR -2 THROW THEN 2DROP THEN ; IMMEDIATE "
+    .ascii ": ABORT\" STATE @ IF POSTPONE IF POSTPONE S\" POSTPONE TYPE POSTPONE CR -2 POSTPONE LITERAL POSTPONE THROW POSTPONE THEN ELSE 34 PARSE ROT IF TYPE CR -2 THROW THEN 2DROP THEN ; IMMEDIATE "
     // FORGET is CODE (XFORGET): multi-wordlist prune + USER-DICT fence.
     // ANEW — classic reload marker (formerly AutoLoad/ANEW.fth; single definition).
     // If name exists: FORGET it (and all newer words), then CREATE the marker again.

@@ -12,7 +12,7 @@ It is **not** the old TZForth `kernelThrow` / `errorFlag` migration plan. 64Fort
 \
 **Reference:** [ANS THROW](https://forth-standard.org/standard/exception/THROW), Forth-2012 \'a79.3.1\'96\'a79.3.5.\
 \
-**Last update:** 2026-07-29 (64Forth v0.8.0).\
+**Last update:** 2026-07-29 (64Forth v0.8.1).\
 \
 ---\
 \
@@ -74,7 +74,7 @@ User applications may `THROW` any nonzero value; codes \uc0\u8804  -40 are conve
 | Site | Code | Notes |\
 |------|------|-------|\
 | **`ABORT`** | **-1** | High-level: `-1 THROW` |\
-| **`ABORT"`** | **-2** | Nonzero flag: type message, then `-2 THROW` (no message on caught path after TYPE if you THROW before TYPE \'97 we TYPE then THROW; uncaught still soft-aborts) |\
+| **`ABORT"`** | **-2** | Nonzero flag: type message, then `-2 THROW`. Compile path: `IF S" \'85 TYPE CR -2 LITERAL THROW THEN` (v0.8.1: must `POSTPONE LITERAL` for -2 so IF/THEN is not corrupted) |\
 | **Undefined word** (text interpreter, `'`, `[']` interpret) | **-13** | If `throw_handler` nonzero \uc0\u8594  `THROW -13`; else print `undefined: name` and abandon SOURCE |\
 | **`?COMP`** (compile-only in interpret) | **-14** | High-level: type `compile only`, then `-14 THROW` |\
 | **Application `THROW n`** | *n* | Any nonzero *n* |\

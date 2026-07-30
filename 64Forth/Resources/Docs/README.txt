@@ -1,7 +1,7 @@
 64Forth — Swift host + PickleForth ARM64 kernel
 ================================================
 
-Version 0.8.0 (2026-07-29)
+Version 0.8.1 (2026-07-29)
 
 Hybrid macOS app: ARM64 ITC kernel (assembly) + SwiftUI console/host
 (TZForth-style FileHost, AutoLoad, Library, FROMLIB).

@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-07-29 — **v0.8.0** (FacilityTerminal cell grid + SZ-EDITOR; `S"`/`."` leading-space fix; builds on v0.7.0 Hayes/ANSValidate/Facility Ext).
+**Updated:** 2026-07-29 — **v0.8.1** (`ABORT"` compile fix; v0.8.0 FacilityTerminal + SZ-EDITOR + `S"`/`."` leading spaces).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
@@ -127,7 +127,7 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 | **FILE-ECHO** | Echo INCLUDE/FLOAD source through emit_hook (not raw `write(1)`). Advance `file_echo_pos` **before** `_putchar` (emit clobbers caller-saved regs) |
 | **ANS pictured `#` / `#S` / `#>`** | Double-cell (ud = lo under, hi TOS). Single-cell `#` broke `BI.` / π (`n 0 <# #S #>` printed only hi → `0.000…`) |
 | **`.ELAPSED` / `.H2` / `.HA` / `U.R`** | Use `0 <# #S #>` (or equivalent) for single-cell values as doubles |
-| **`ABORT"`** | Must test flag: compile `IF S" …" TYPE CR ABORT THEN` (old body always aborted → bubble-sort “not sorted”) |
+| **`ABORT"`** | Compile: `IF S" …" TYPE CR -2 LITERAL THROW THEN`. Must `POSTPONE LITERAL` for `-2` (bare `-2` corrupts IF/THEN stack → memory fault compiling `BI-ENSURE`) |
 | **PI pool** | Generous BI buffer budget; host BI capacity overflow must not soft-zero results |
 | **WORDS** | First search-order wordlist only; optional filter. **System** words (CFA &lt; fence after bootstrap): A–Z under banner `64Forth System Words`. **User** words (CFA ≥ fence): load order under `64Forth User Words` (banner only if any) |
 | **User dict memory** | See §6 |
@@ -313,7 +313,7 @@ Kernel improvements can be cherry-picked PickleForth ↔ `64Forth/Kernel` until 
 - Optional polish: multi-buffer block cache, compiled `TO` for FVALUE, App Sandbox for store  
 - Editor extras: search/replace, dual buffers (core SZ-EDITOR is usable)
 
-### Present and validated (v0.8.0)
+### Present and validated (v0.8.1)
 
 - Hayes subset: core through File/Block/FP (`FROMLIB FLOAD HayesTest/HayesTest.fth`)  
 - Modular ANSValidate: Core … Float, Facility Ext fkeys, XChar (~351/0)  
