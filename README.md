@@ -7,13 +7,13 @@
 
 **Getting 64Forth to run on your Mac**: All of the latest security changes Apple has made to MacOS, have made it fairly difficult to run apps obtained from outside the Apple App Store, but it is not impossible. Here is how you to it;
 
-1. **Download the .dmg **file from the '**releases**' folder in the 64Forth development folder.
+1. **Download the .dmg** file from the '**releases**' folder in the 64Forth development folder.
 2. **Open** and view the .jpg image called '**Getting 64Forth to run.jpg**'.
 3. This image shows a collage of the dialogs you have to traverse to get the MacOS to allow you to open the app.
 4. Don't despair, it's not that hard, just follow along;
 5. **Mount the .dmg** file and you will see **64Forth.app**.
 6. Drag the app onto your desktop.
-7. Hold down the **Control key **and click the app and select **Open** from the menu that pops up.
+7. Hold down the **Control key** and click the app and select **Open** from the menu that pops up.
 8. You will get an error dialog that tells you that the app cannot be verified and will not be opened.
 9. This last step is important because it sets up the MacOS so that you can now go into **Settings** and tell it to allow the app to open.
 10. **Open Settings**, and scroll down to **Privacy & Security**. A list of apps and setting will be displayed.
