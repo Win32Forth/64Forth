@@ -35,20 +35,20 @@ VARIABLE XCNT
   BEGIN DUP WHILE XCNT @ 1+ XCNT ! +X/STRING REPEAT
   2DROP XCNT @ ;
 
-CR .( === 1 ENVIRONMENT? ===) CR
+.( === 1 ENVIRONMENT? ===) CR
 S" EXTENDED-CHARACTER" ENV1 S" EXTENDED-CHARACTER" EXPECT
 ENV-MAXXC S" MAX-XCHAR" EXPECT
 ENV-MAXMEM S" XCHAR-MAXMEM" EXPECT
 ENV-UTF8 S" XCHAR-ENCODING" EXPECT
 
-CR .( === 2 XC-SIZE ===) CR
+.( === 2 XC-SIZE ===) CR
 0 XC-SIZE 1 = S" sz0" EXPECT
 $7F XC-SIZE 1 = S" sz7F" EXPECT
 $80 XC-SIZE 2 = S" sz80" EXPECT
 $20AC XC-SIZE 3 = S" szEUR" EXPECT
 $10000 XC-SIZE 4 = S" sz4" EXPECT
 
-CR .( === 3 round-trip ===) CR
+.( === 3 round-trip ===) CR
 $41 XC-RT S" rtA" EXPECT
 $20AC XC-RT S" rtEUR" EXPECT
 $1F600 XC-RT S" rtEmoji" EXPECT
@@ -58,43 +58,42 @@ XCBUF - XCLEN !
 XCLEN @ 9 = S" helloLen" EXPECT
 XCBUF XCLEN @ XC-N 7 = S" helloN" EXPECT
 
-CR .( === 4 XCHAR ===) CR
+.( === 4 XCHAR ===) CR
 $41 XCBUF XC!+ $20AC SWAP XC!+ $42 SWAP XC!+ XCBUF - XCLEN !
 XCBUF XCHAR+ XC@+ NIP $20AC = S" xpEUR" EXPECT
 XCBUF XCLEN @ + XCHAR- XC@+ NIP $42 = S" xmB" EXPECT
 
-CR .( === 5 XC!+? ===) CR
+.( === 5 XC!+? ===) CR
 $20AC XCBUF 3 XC!+? NIP NIP S" fit3" EXPECT
 $20AC XCBUF 2 XC!+? NIP NIP 0= S" rej2" EXPECT
 
-CR .( === 6 strings ===) CR
+.( === 6 strings ===) CR
 $41 XCBUF XC!+ $42 SWAP XC!+ $43 SWAP XC!+ XCBUF - XCLEN !
 XCBUF XCLEN @ +X/STRING NIP XCLEN @ 1 - = S" pxs" EXPECT
 
-CR .( === 7 TG ===) CR
+.( === 7 TG ===) CR
 $20AC XC-ENC
 XCBUF XCLEN @ -TRAILING-GARBAGE NIP 3 = S" tgOK" EXPECT
 $E2 XCBUF C! $82 XCBUF 1+ C!
 XCBUF 2 -TRAILING-GARBAGE NIP 0 = S" tgTrim" EXPECT
 
-CR .( === 8 width ===) CR
+.( === 8 width ===) CR
 $41 XC-WIDTH 1 = S" wA" EXPECT
 $4E00 XC-WIDTH 2 = S" wCJK" EXPECT
 $41 XCBUF XC!+ $4E00 SWAP XC!+ $42 SWAP XC!+ XCBUF - XCLEN !
 XCBUF XCLEN @ X-WIDTH 4 = S" wMix" EXPECT
 
-CR .( === 9 XHOLD ===) CR
+.( === 9 XHOLD ===) CR
 : XHD  <# $32 HOLD $20AC XHOLD $31 HOLD 0 0 #> ;
 XHD NIP 5 = S" hLen" EXPECT
 
-CR .( === 10 CHAR ===) CR
+.( === 10 CHAR ===) CR
 $61 EKEY>XCHAR NIP S" eka" EXPECT
 CHAR A $41 = S" charA" EXPECT
 
-CR .( === 11 XC, ===) CR
+.( === 11 XC, ===) CR
 HERE $20AC XC, HERE SWAP - 3 = S" xc," EXPECT
 
-CR .( === 12 XEMIT ===) CR
+.( === 12 XEMIT ===) CR
 .( samples: ) $41 XEMIT $20 XEMIT $20AC XEMIT CR
-
-CR .( --- XChar batch done ---) CR
+.( --- XChar batch done ---) .STACK-DEPTH CR

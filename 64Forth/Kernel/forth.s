@@ -29,6 +29,16 @@
 // LATEST = CFA. NEXT: W = CFA from *IP; br *W.
 // _header_build for BOOT_WORD and : / CREATE. SETDOC/DOC" set pending help.
 //
+// Dictionary threads (hashed wordlist chains):
+//   DICT_THREADS = number of head cells per wid (FORTH latest_var / WORDLIST).
+//   Start at 1 (classic single chain). Raise to 2, 4, 8, 16 when ready —
+//   rebuild; no other constant should need changing for power-of-two counts
+//   (modulo works for any positive N).
+//   Hash is case-folded polynomial over the name; link/find use the same index.
+//   last_cfa tracks the most recently defined CFA (IMMEDIATE / DOES>).
+//   MARKER saves/restores HERE + all FORTH heads[0..DICT_THREADS-1].
+.equ DICT_THREADS, 16
+//
 // ----------------------------------------------------------------------------
 // ANS Forth 2012 compatibility
 // ----------------------------------------------------------------------------
@@ -244,15 +254,23 @@ _kernel_cold_common:
     add  x23, x23, return_stack@pageoff
     add  x23, x23, #2048      // RSP starts at TOP of stack (grows down)
 
-    // x24 = address of latest_var (pointer to variable holding newest dict entry)
+    // x24 = address of FORTH wordlist head array (latest_var[DICT_THREADS])
     adrp x24, latest_var@page
     add  x24, x24, latest_var@pageoff
 
     // Initialize TOS (empty stack)
     mov  x20, #0
 
-    // LATEST empty until boot catalog is built
-    str  xzr, [x24]
+    // Clear all FORTH thread heads (empty until boot catalog is built)
+    mov  x0, x24
+    mov  x1, #DICT_THREADS
+1:
+    str  xzr, [x0], #8
+    subs x1, x1, #1
+    b.ne 1b
+    adrp x0, last_cfa@page
+    add  x0, x0, last_cfa@pageoff
+    str  xzr, [x0]
 
     // HERE = user_dict_area
     adrp x0, here_ptr@page
@@ -691,6 +709,26 @@ _kinit_already:
     mov  x0, #0
     b    _embed_ret_x0
 
+// int kernel_data_depth(void) — cells on data stack (same formula as DEPTH).
+// Uses saved VM DSP from last kernel_eval; does not push/pop.
+.globl _kernel_data_depth
+_kernel_data_depth:
+    adrp x0, data_stack@page
+    add  x0, x0, data_stack@pageoff
+    add  x0, x0, #4096             // SP0
+    adrp x1, vm_dsp@page
+    add  x1, x1, vm_dsp@pageoff
+    ldr  x1, [x1]
+    cbz  x1, 1f                    // never saved → empty
+    cmp  x1, x0
+    b.hi 1f                        // DSP above SP0 → treat empty
+    sub  x0, x0, x1                // bytes under TOS cache
+    lsr  x0, x0, #3
+    ret
+1:
+    mov  x0, #0
+    ret
+
 // int kernel_eval(const char *line, size_t n)
 .globl _kernel_eval
 _kernel_eval:
@@ -975,10 +1013,41 @@ DODOES:
 // ============================================================================
 // Dictionary header builder (runtime) + kernel boot from structured records
 // ============================================================================
+// _dict_hash: x0=name addr, x1=len → x0 = thread index in [0, DICT_THREADS)
+// Case-folded polynomial hash; empty name → thread 0 (:NONAME).
+.align 4
+_dict_hash:
+    mov  x2, #5381
+    cbz  x1, 3f
+    mov  x3, #0
+1:
+    cmp  x3, x1
+    b.hs 2f
+    ldrb w4, [x0, x3]
+    cmp  w4, #'a'
+    b.lo 11f
+    cmp  w4, #'z'
+    b.hi 11f
+    sub  w4, w4, #32
+11:
+    lsl  x5, x2, #5
+    add  x2, x5, x2
+    add  x2, x2, x4
+    add  x3, x3, #1
+    b    1b
+2:
+    mov  x0, #DICT_THREADS
+    udiv x1, x2, x0
+    msub x0, x1, x0, x2
+    ret
+3:
+    mov  x0, #0
+    ret
+
 // _header_build:
 //   x0=name addr, x1=name len, x2=help addr, x3=help len, x4=code addr, x5=imm(0/1)
 //   Builds: HFA help | NFA name | LFA link | FFA flags | CFA code
-//   HERE → CFA+8. Links into CURRENT wordlist head. Returns x0 = CFA.
+//   HERE → CFA+8. Links into CURRENT wordlist heads[hash]. Returns x0 = CFA.
 //   Names UPPERCASE. Help always written (empty = count 0 + pad 8).
 // ============================================================================
 .align 4
@@ -995,7 +1064,7 @@ _header_build:
     mov x23, x4                    // code
     str x5, [sp, #-16]!            // imm
 
-    // CURRENT wordlist head cell (wid); fallback to latest_var
+    // CURRENT wordlist base (wid); fallback to latest_var
     adrp x24, current_var@page
     add  x24, x24, current_var@pageoff
     ldr  x24, [x24]
@@ -1062,9 +1131,18 @@ _header_build:
     add x2, x2, #1
     b 9b
 10:
-    // --- LFA ---
-    ldr x1, [x24]
-    str x1, [x6], #8
+    // --- LFA: link into heads[hash(name)] ---
+    stp  x6, x7, [sp, #-16]!
+    stp  x8, xzr, [sp, #-16]!
+    mov  x0, x19
+    mov  x1, x20
+    bl   _dict_hash                // x0 = thread
+    mov  x9, x0
+    ldp  x8, xzr, [sp], #16
+    ldp  x6, x7, [sp], #16
+    add  x10, x24, x9, lsl #3      // &heads[i]
+    ldr  x1, [x10]
+    str  x1, [x6], #8              // LFA = previous head of this thread
     // --- FFA placeholder ---
     str xzr, [x6], #8
     // --- CFA ---
@@ -1086,7 +1164,10 @@ _header_build:
     adrp x2, here_ptr@page
     add x2, x2, here_ptr@pageoff
     str x6, [x2]
-    str x0, [x24]                  // LATEST = CFA
+    str x0, [x10]                  // heads[i] = CFA
+    adrp x2, last_cfa@page
+    add  x2, x2, last_cfa@pageoff
+    str  x0, [x2]                  // most recent define (IMMEDIATE/DOES>)
     ldp x23, x24, [sp], #16
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
@@ -2136,7 +2217,17 @@ XSEARCH_WORDLIST:
     ldr  x7, [x22], #8             // c-addr → [x22]=PREV under
     cbz  x9, _swl_zero
     cbz  x8, _swl_zero
-    ldr  x21, [x9]                 // latest CFA in this wordlist
+    // head = wid[hash(c-addr,u)]
+    stp  x7, x8, [sp, #-16]!
+    stp  x9, xzr, [sp, #-16]!
+    mov  x0, x7
+    mov  x1, x8
+    bl   _dict_hash
+    mov  x10, x0
+    ldp  x9, xzr, [sp], #16
+    ldp  x7, x8, [sp], #16
+    add  x9, x9, x10, lsl #3
+    ldr  x21, [x9]                 // thread head CFA
 _swl_loop:
     cbz  x21, _swl_zero
     ldr  x2, [x21, #-8]            // FLAGS
@@ -2228,19 +2319,11 @@ XLITERAL:
     ldp x29, x30, [sp], #16
     NEXT
 
-// IMMEDIATE ( -- ) mark last defined word in CURRENT wordlist as immediate
+// IMMEDIATE ( -- ) mark last defined word as immediate (last_cfa from _header_build)
 XIMMEDIATE:
-    adrp x0, current_var@page
-    add  x0, x0, current_var@pageoff
+    adrp x0, last_cfa@page
+    add  x0, x0, last_cfa@pageoff
     ldr  x0, [x0]
-    cbz  x0, 1f
-    ldr  x0, [x0]                  // latest CFA in CURRENT
-    b    2f
-1:
-    adrp x0, latest_var@page
-    add  x0, x0, latest_var@pageoff
-    ldr  x0, [x0]
-2:
     cbz  x0, 3f
     ldr  x1, [x0, #-8]             // FLAGS
     mov  x2, #1
@@ -3154,7 +3237,16 @@ _included_register_pending:
 // High-Level Forth Support Primitives
 // ============================================================================
 
-// LATEST ( -- addr ) push address of latest_var (FORTH wordlist head cell)
+// LAST ( -- xt ) CFA of most recently defined word (_header_build / last_cfa).
+// Use this instead of LATEST @ when DICT_THREADS > 1 (new words are not always heads[0]).
+XLAST:
+    str  x20, [x22, #-8]!
+    adrp x0, last_cfa@page
+    add  x0, x0, last_cfa@pageoff
+    ldr  x20, [x0]
+    NEXT
+
+// LATEST ( -- addr ) push address of latest_var (FORTH wordlist head array)
 XLATEST:
     DPUSH
     adrp x0, latest_var@page
@@ -3170,7 +3262,7 @@ XCURRENT:
     mov  x20, x0
     NEXT
 
-// WORDLIST ( -- wid ) allot aligned head cell = 0
+// WORDLIST ( -- wid ) allot DICT_THREADS head cells (all 0); wid = base
 XWORDLIST:
     adrp x0, here_ptr@page
     add  x0, x0, here_ptr@pageoff
@@ -3178,8 +3270,12 @@ XWORDLIST:
     // align HERE
     add  x1, x1, #7
     and  x1, x1, #~7
-    mov  x2, x1                    // wid = head cell addr
+    mov  x2, x1                    // wid = first head cell
+    mov  x3, #DICT_THREADS
+1:
     str  xzr, [x1], #8
+    subs x3, x3, #1
+    b.ne 1b
     str  x1, [x0]
     DPUSH
     mov  x20, x2
@@ -3433,15 +3529,20 @@ _print_wid_name:
     bl   _print_string_svc
     b    9f
 1:
-    // Scan FORTH chain for DODOES vocabulary whose PFA (CFA+16) == wid
+    // Scan all FORTH threads for DODOES vocabulary whose PFA (CFA+16) == wid
     adrp x0, DODOES@page
     add  x0, x0, DODOES@pageoff
     mov  x22, x0                   // DODOES code addr
+    mov  x20, #0                   // thread
+20:
+    cmp  x20, #DICT_THREADS
+    b.hs 8f
     adrp x0, latest_var@page
     add  x0, x0, latest_var@pageoff
-    ldr  x21, [x0]                 // start CFA
+    add  x0, x0, x20, lsl #3
+    ldr  x21, [x0]                 // start CFA of thread
 2:
-    cbz  x21, 8f
+    cbz  x21, 21f
     ldr  x0, [x21]                 // code at CFA
     cmp  x0, x22
     b.ne 3f
@@ -3470,6 +3571,9 @@ _print_wid_name:
 3:
     ldr  x21, [x21, #-16]          // link
     b    2b
+21:
+    add  x20, x20, #1
+    b    20b
 8:
     adrp x0, str_wid@page
     add  x0, x0, str_wid@pageoff
@@ -3557,24 +3661,25 @@ XFORGET:
     add  x4, x4, #1
     b    2b
 3:
-    // Scan FORTH chain for DODOES vocabularies; prune their PFA (wid)
+    // Scan all FORTH threads for DODOES vocabularies; prune their PFA (wid)
     adrp x0, DODOES@page
     add  x0, x0, DODOES@pageoff
     mov  x20, x0                   // DODOES code (TOS saved by SAVE_VM)
+    mov  x25, #0                   // thread
+40:
+    cmp  x25, #DICT_THREADS
+    b.hs 6f
     adrp x0, latest_var@page
     add  x0, x0, latest_var@pageoff
+    add  x0, x0, x25, lsl #3
     ldr  x21, [x0]                 // cfa walk
 4:
-    cbz  x21, 6f
+    cbz  x21, 41f
     // Guard: CFA must be in user dict range (avoid following garbage links)
     adrp x0, user_dict_area@page
     add  x0, x0, user_dict_area@pageoff
     cmp  x21, x0
-    b.lo 6f
-    adrp x0, here_ptr@page
-    add  x0, x0, here_ptr@pageoff
-    ldr  x0, [x0]
-    // After HERE=cut, chain heads are < cut; still allow walk of remaining dict
+    b.lo 41f
     // Use dict end (base+logical size) as upper bound for a valid CFA pointer
     adrp x1, user_dict_area@page
     add  x1, x1, user_dict_area@pageoff
@@ -3583,7 +3688,7 @@ XFORGET:
     ldr  x2, [x2]
     add  x1, x1, x2
     cmp  x21, x1
-    b.hs 6f
+    b.hs 41f
     ldr  x0, [x21]
     cmp  x0, x20
     b.ne 5f
@@ -3592,11 +3697,16 @@ XFORGET:
     add  x1, x1, forget_cut@pageoff
     ldr  x1, [x1]
     stp  x20, x21, [sp, #-16]!
+    stp  x25, xzr, [sp, #-16]!
     bl   _prune_wid
+    ldp  x25, xzr, [sp], #16
     ldp  x20, x21, [sp], #16
 5:
     ldr  x21, [x21, #-16]
     b    4b
+41:
+    add  x25, x25, #1
+    b    40b
 6:
     RESTORE_VM
     NEXT
@@ -3618,18 +3728,28 @@ XFORGET:
     RESTORE_VM
     b    _error_abandon
 
-// _prune_wid: x0 = wid (addr of head cell), x1 = cut CFA
-// Unlink heads with CFA >= cut (newest-first chains grow with HERE).
+// _prune_wid: x0 = wid (base of DICT_THREADS head cells), x1 = cut CFA
+// Unlink CFAs >= cut on every thread (newest-first chains grow with HERE).
 _prune_wid:
     cbz  x0, 9f
+    mov  x3, x0                    // wid base
+    mov  x4, x1                    // cut
+    mov  x5, #0                    // thread
+0:
+    cmp  x5, #DICT_THREADS
+    b.hs 9f
+    add  x0, x3, x5, lsl #3        // &heads[t]
 1:
     ldr  x2, [x0]                  // head CFA
-    cbz  x2, 9f
-    cmp  x2, x1
-    b.lo 9f
+    cbz  x2, 2f
+    cmp  x2, x4
+    b.lo 2f
     ldr  x2, [x2, #-16]            // link
     str  x2, [x0]
     b    1b
+2:
+    add  x5, x5, #1
+    b    0b
 9:
     ret
 
@@ -3768,22 +3888,27 @@ XCSROLL:
     b    XROLL
 
 // TRAVERSE-WORDLIST ( i*x xt wid -- j*x )
-// For each name token nt in wordlist wid (newest first), EXECUTE xt with
-// ( i*x nt -- j*x flag ). Stop when flag is false or list ends.
+// For each name token nt in wordlist wid (newest first per thread), EXECUTE xt
+// with ( i*x nt -- j*x flag ). Stop when flag is false or all threads end.
 // nt = CFA (xt); matches NAME>STRING / NFA layout.
-// Continuation uses tw_continue_cell (like restart_cell) so CODE and colon
-// visitors both return via NEXT/EXIT to XTW_CONTINUE.
+// R stack (top first while visiting): next, xt, thread, wid, saved_IP
+// Continuation uses tw_continue_cell so CODE/colon visitors return via NEXT.
 XTRAVERSE_WORDLIST:
     mov  x5, x20                   // wid
     ldr  x6, [x22], #8             // xt (visitor)
     ldr  x20, [x22], #8            // restore TOS of i*x
-    str  x19, [x23, #-8]!          // R: saved IP (restore when finished)
-    ldr  x7, [x5]                  // first CFA (or 0)
+    str  x19, [x23, #-8]!          // R: saved IP
+    str  x5, [x23, #-8]!           // R: wid
+    mov  x7, #0                    // thread
+    str  x7, [x23, #-8]!           // R: thread
+    str  x6, [x23, #-8]!           // R: xt
+    // load heads[0]
+    ldr  x7, [x5]
 _tw_loop:
-    cbz  x7, _tw_done
+    cbz  x7, _tw_advance_thread
     ldr  x8, [x7, #-16]            // link = previous CFA (next to visit)
-    str  x6, [x23, #-8]!           // R: xt  (under next, over saved IP)
-    str  x8, [x23, #-8]!           // R: next
+    ldr  x6, [x23]                 // xt (peek; stay on R)
+    str  x8, [x23, #-8]!           // R: next (under: xt, thread, wid, IP)
     // Push nt, EXECUTE visitor
     str  x20, [x22, #-8]!
     mov  x20, x7                   // nt
@@ -3793,20 +3918,47 @@ _tw_loop:
     add  x19, x19, tw_continue_cell@pageoff
     br   x1
 
+_tw_advance_thread:
+    // R top: xt, thread, wid, IP  (no next)
+    ldr  x6, [x23], #8             // xt
+    ldr  x7, [x23], #8             // thread
+    ldr  x5, [x23], #8             // wid
+    add  x7, x7, #1
+    cmp  x7, #DICT_THREADS
+    b.hs _tw_done_pop_ip
+    // push wid, thread, xt back; load next head
+    str  x5, [x23, #-8]!
+    str  x7, [x23, #-8]!
+    str  x6, [x23, #-8]!
+    add  x0, x5, x7, lsl #3
+    ldr  x7, [x0]
+    b    _tw_loop
+_tw_done_pop_ip:
+    ldr  x19, [x23], #8
+    NEXT
+
 // Continuation after visitor (entered via NEXT). TOS = flag.
 .align 4
 XTW_CONTINUE:
-    // R: next, xt, saved_IP
+    // R: next, xt, thread, wid, saved_IP
     ldr  x8, [x23], #8             // next
-    ldr  x6, [x23], #8             // xt
+    ldr  x6, [x23]                 // xt peek
     cbz  x20, _tw_stop             // flag false → stop
     ldr  x20, [x22], #8            // drop true flag
     mov  x7, x8
+    // leave xt, thread, wid, IP on R; if next==0 advance thread
+    cbz  x7, _tw_advance_thread
     b    _tw_loop
 _tw_stop:
     ldr  x20, [x22], #8            // drop false flag
+    // pop next already done; drop xt, thread, wid, restore IP
+    ldr  x6, [x23], #8             // xt
+    ldr  x7, [x23], #8             // thread
+    ldr  x5, [x23], #8             // wid
+    ldr  x19, [x23], #8            // IP
+    NEXT
 _tw_done:
-    ldr  x19, [x23], #8            // restore IP
+    ldr  x19, [x23], #8
     NEXT
 
 // NAME>INTERPRET ( nt -- xt | 0 )
@@ -4517,13 +4669,18 @@ XWORDS:
     // Fence: CFAs < words_user_base are kernel; >= are user (0 → treat all as kernel).
     // Keep fence/nk in BSS temps — helpers clobber x25+.
 
-    // ---- Pass 1: collect kernel CFAs into words_cfa[0..nk) ----
-    ldr  x20, [x19]                // latest CFA in this wordlist
+    // ---- Pass 1: collect kernel CFAs into words_cfa[0..nk) (all threads) ----
     adrp x21, words_cfa@page
     add  x21, x21, words_cfa@pageoff
     mov  x22, #0                   // count
+    mov  x25, #0                   // thread
+50:
+    cmp  x25, #DICT_THREADS
+    b.hs 6f
+    add  x0, x19, x25, lsl #3
+    ldr  x20, [x0]                 // head CFA of thread
 5:
-    cbz  x20, 6f
+    cbz  x20, 54f
     cmp  x22, #WORDS_MAX
     b.hs 6f
     adrp x0, words_user_base@page
@@ -4547,6 +4704,9 @@ XWORDS:
 52:
     ldr  x20, [x20, #-16]          // LFA @ CFA-16
     b    5b
+54:
+    add  x25, x25, #1
+    b    50b
 6:
     adrp x0, words_nk_tmp@page
     add  x0, x0, words_nk_tmp@pageoff
@@ -4557,9 +4717,14 @@ XWORDS:
     add  x0, x0, words_user_base@pageoff
     ldr  x0, [x0]
     cbz  x0, 65f                   // no fence → no user section
-    ldr  x20, [x19]
+    mov  x25, #0                   // thread
+58:
+    cmp  x25, #DICT_THREADS
+    b.hs 65f
+    add  x0, x19, x25, lsl #3
+    ldr  x20, [x0]
 55:
-    cbz  x20, 65f
+    cbz  x20, 59f
     cmp  x22, #WORDS_MAX
     b.hs 65f
     adrp x0, words_user_base@page
@@ -4581,6 +4746,9 @@ XWORDS:
 57:
     ldr  x20, [x20, #-16]
     b    55b
+59:
+    add  x25, x25, #1
+    b    58b
 65:
     // Reverse user section [nk, n) → load order (oldest first). Walk was newest-first.
     adrp x0, words_nk_tmp@page
@@ -4732,6 +4900,13 @@ XWORDS:
     bl   _putchar
 82:
     RESTORE_VM
+    NEXT
+
+// DICT-THREADS ( -- n )  number of hash chains per wordlist (DICT_THREADS).
+// High-level .THREADS is defined in forth_init (SEE-able).
+XDICT_THREADS:
+    str  x20, [x22, #-8]!
+    mov  x20, #DICT_THREADS
     NEXT
 
 // Record HERE after first completed interpret (end of bootstrap) as the
@@ -5071,23 +5246,17 @@ XLEAVE:
     str x0, [x23]                  // index = limit
     NEXT
 
-// (DOES>) ( -- ) runtime of DOES>: patch CURRENT's latest, then EXIT defining word
+// (DOES>) ( -- ) runtime of DOES>: patch last CREATE'd word, then EXIT defining word
 XDOES_RT:
-    adrp x0, current_var@page
-    add  x0, x0, current_var@pageoff
+    adrp x0, last_cfa@page
+    add  x0, x0, last_cfa@pageoff
     ldr  x0, [x0]
-    cbz  x0, 1f
-    ldr  x0, [x0]                  // latest CFA in CURRENT wordlist
-    b    2f
-1:
-    adrp x0, latest_var@page
-    add  x0, x0, latest_var@pageoff
-    ldr  x0, [x0]
-2:
+    cbz  x0, 3f
     adrp x1, DODOES@page
     add x1, x1, DODOES@pageoff
     str x1, [x0]                   // CODE at CFA = DODOES
     str x19, [x0, #8]              // does_ip at CFA+8
+3:
     RPOP
     NEXT
 
@@ -5206,6 +5375,22 @@ XBIN:
     orr x20, x20, #8
     NEXT
 
+// After consuming former TOS into a scratch reg (and any under args via DSP),
+// restore x20 from the cell under those args (0 if the stack is empty).
+// Required before multi-result file ops that flush x20 under new results —
+// otherwise the last input (fam/fileid/u) is re-pushed as a stack leak.
+.macro FILE_POP_UNDER
+    adrp x9, data_stack@page
+    add  x9, x9, data_stack@pageoff
+    add  x9, x9, #4096             // SP0
+    cmp  x22, x9
+    b.hs 1f
+    ldr  x20, [x22], #8
+    b    2f
+1:  mov  x20, #0
+2:
+.endm
+
 // Helper: call file_op_hook.
 // In:  x0=op x1=a x2=b x3=c x4=d x5=ptr
 // Out: x0=ior x6=o1 x7=o2 x8=o3
@@ -5251,6 +5436,7 @@ XOPEN_FILE:
     mov  x3, x20                   // fam -> c
     ldr  x2, [x22], #8             // u -> b
     ldr  x5, [x22], #8             // c-addr -> ptr
+    FILE_POP_UNDER
     mov  x1, #0                    // a unused
     mov  x4, #0
     mov  x0, #FOP_OPEN
@@ -5270,6 +5456,7 @@ XCREATE_FILE:
     mov  x3, x20
     ldr  x2, [x22], #8
     ldr  x5, [x22], #8
+    FILE_POP_UNDER
     mov  x1, #0
     mov  x4, #0
     mov  x0, #FOP_CREATE
@@ -5300,6 +5487,7 @@ XREAD_FILE:
     mov  x1, x20                   // fileid
     ldr  x2, [x22], #8             // u1
     ldr  x5, [x22], #8             // c-addr
+    FILE_POP_UNDER
     mov  x0, #FOP_READ
     mov  x3, #0
     mov  x4, #0
@@ -5330,6 +5518,7 @@ XREAD_LINE:
     mov  x1, x20
     ldr  x2, [x22], #8
     ldr  x5, [x22], #8
+    FILE_POP_UNDER
     mov  x0, #FOP_RLINE
     mov  x3, #0
     mov  x4, #0
@@ -5359,6 +5548,7 @@ XWRITE_LINE:
 // FILE-POSITION ( fileid -- ud ior )
 XFILE_POSITION:
     mov  x1, x20
+    FILE_POP_UNDER
     mov  x0, #FOP_POS
     mov  x2, #0
     mov  x3, #0
@@ -5376,6 +5566,7 @@ XFILE_POSITION:
 // FILE-SIZE ( fileid -- ud ior )
 XFILE_SIZE:
     mov  x1, x20
+    FILE_POP_UNDER
     mov  x0, #FOP_SIZE
     mov  x2, #0
     mov  x3, #0
@@ -5450,6 +5641,7 @@ XRENAME_FILE:
 XFILE_STATUS:
     mov  x2, x20
     ldr  x5, [x22], #8
+    FILE_POP_UNDER
     mov  x0, #FOP_STATUS
     mov  x1, #0
     mov  x3, #0
@@ -8120,13 +8312,8 @@ _quit_loop:
     add x24, x24, latest_var@pageoff
     bl  _emit_memfault_msg
 2:
-    // Print prompt via raw SVC
-    mov x0, #1
-    adrp x1, str_prompt@page
-    add x1, x1, str_prompt@pageoff
-    mov x2, #5
-    mov x16, #4
-    svc #0x80
+    // Print prompt "\nok(n)> " with live DEPTH (terminal QUIT path)
+    bl   _emit_depth_prompt
 
     // Read line (line editor; maxlen leaves room for NUL)
     adrp x0, input_buffer@page
@@ -8824,6 +9011,37 @@ _source_end:
     add x1, x1, source_len@pageoff
     ldr x1, [x1]
     add x0, x0, x1
+    ret
+
+// _emit_depth_prompt: print "\nok(n)> " with current data-stack depth (x22).
+// Clobbers x0-x2; preserves x19-x28 via SAVE/RESTORE around print helpers.
+_emit_depth_prompt:
+    stp  x29, x30, [sp, #-16]!
+    stp  x19, x20, [sp, #-16]!
+    // depth = (SP0 - DSP) / 8
+    adrp x0, data_stack@page
+    add  x0, x0, data_stack@pageoff
+    add  x0, x0, #4096
+    sub  x19, x0, x22
+    lsr  x19, x19, #3              // depth in x19
+    mov  x0, #10
+    bl   _putchar
+    mov  x0, #'o'
+    bl   _putchar
+    mov  x0, #'k'
+    bl   _putchar
+    mov  x0, #'('
+    bl   _putchar
+    mov  x0, x19
+    bl   _print_unsigned
+    mov  x0, #')'
+    bl   _putchar
+    mov  x0, #'>'
+    bl   _putchar
+    mov  x0, #' '
+    bl   _putchar
+    ldp  x19, x20, [sp], #16
+    ldp  x29, x30, [sp], #16
     ret
 
 // _putchar: x0 = char
@@ -9906,7 +10124,7 @@ _pn_fail:
     ret
 
 // _find_word: x0=addr, x1=len -> x0=CFA or 0, x1=FLAGS (bit32=IMM)
-// Walks search_order wordlists (ANS Search-Order).
+// Walks search_order wordlists (ANS Search-Order); one hash thread per wid.
 _find_word:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -9918,6 +10136,9 @@ _find_word:
     b.hi _fw_fail
     mov x19, x0                    // search name
     mov x20, x1                    // len
+    // Thread index for this name (same hash as _header_build)
+    bl   _dict_hash
+    mov  x22, x0                   // thread (x22 free under saved regs)
     // Keep x24 = &latest_var for rest of VM
     adrp x24, latest_var@page
     add  x24, x24, latest_var@pageoff
@@ -9933,7 +10154,8 @@ _fw_wl:
     add  x0, x0, search_order@pageoff
     ldr  x0, [x0, x23, lsl #3]     // wid
     cbz  x0, _fw_next_wl
-    ldr  x21, [x0]                 // latest CFA in this wordlist
+    add  x0, x0, x22, lsl #3       // &heads[thread]
+    ldr  x21, [x0]                 // thread head CFA
 _fw_loop:
     cbz x21, _fw_next_wl
     ldr x2, [x21, #-8]             // FLAGS
@@ -10279,8 +10501,14 @@ block_upd:      .quad 0            // nonzero = block_buf dirty
 .align 8
 block_buf:      .skip 1024         // single 1K block buffer
 here_ptr:       .quad 0
-latest_var:     .quad 0
-current_var:    .quad 0            // wid (addr of wordlist head cell)
+// FORTH wordlist: DICT_THREADS head cells (CFA or 0). wid = &latest_var.
+.align 8
+latest_var:
+    .rept DICT_THREADS
+    .quad 0
+    .endr
+last_cfa:       .quad 0            // most recent _header_build CFA (IMMEDIATE/DOES>)
+current_var:    .quad 0            // wid (addr of wordlist head array)
 search_order:   .skip 64           // 8 wids
 search_order_n: .quad 0
 host_tmp0:      .skip 32           // scratch for host ABI
@@ -10628,8 +10856,9 @@ forth_init_str:
     // CONSTANT via DOES> (body+0=does_ip, body+8=value; DOES> action @ )
     .ascii "DOC\" CONSTANT ( x 'name' -- ) create a constant\" "
     .ascii ": CONSTANT CREATE , DOES> @ ; "
+    // RECURSE must use LAST (last_cfa), not CURRENT @ @ (heads[0] only).
     .ascii "DOC\" RECURSE ( -- ) recurse into current definition (immediate)\" "
-    .ascii ": RECURSE ?COMP CURRENT @ @ , ; IMMEDIATE "
+    .ascii ": RECURSE ?COMP LAST , ; IMMEDIATE "
 
     // --- Search-Order / VOCABULARY (ANS-style; BIG-INTEGER for host BI) ---
     .ascii "DOC\" VOCABULARY ( 'name' -- ) named word list; execute to push onto search order\" "
@@ -10638,6 +10867,7 @@ forth_init_str:
     .ascii "VOCABULARY EDITOR "
     .ascii "VOCABULARY ASSEMBLER "
     .ascii "VOCABULARY FP "
+
     .ascii "ONLY FORTH DEFINITIONS "
 
     // --- 4b. Pictured numeric output (single-cell); . and U. stay native (BASE-aware) ---
@@ -10712,9 +10942,11 @@ forth_init_str:
     .ascii ": DOCOL? @ DOCOL-ADDR = ; "
     // SEE: walk colon body; skip inline data after LIT, (S"), BRANCH, 0BRANCH,
     // (LOOP), and (+LOOP). Ordinary xts (including (DO), (DOES>), EXIT) are 1 cell.
-    // ALIAS copies CODE field only — correct for CODE words (e.g. FLOAD/INCLUDE)
+    // ALIAS copies CODE field only — correct for CODE words (e.g. FLOAD/INCLUDE).
+    // Must use LAST (last_cfa), not LATEST @ — with DICT_THREADS>1 the new name
+    // is not always in heads[0], so LATEST @ patched the wrong word and FLOAD broke.
     .ascii "DOC\" ALIAS ( xt 'name' -- ) define name with same CODE field as xt\" "
-    .ascii ": ALIAS CREATE LATEST @ SWAP @ SWAP ! ; "
+    .ascii ": ALIAS CREATE LAST SWAP @ SWAP ! ; "
     .ascii "DOC\" SYNONYM ( 'newname' 'oldname' -- ) newname behaves as oldname\" "
     .ascii ": SYNONYM >IN @ >R PARSE-NAME 2DROP ' R> >IN ! ALIAS ; "
     // SEE / HELP — one-line header, then body walk.
@@ -10802,6 +11034,29 @@ forth_init_str:
     .ascii ": U.R >R 0 <# #S #> R> OVER - 0 MAX SPACES TYPE ; "
     .ascii "DOC\" .R ( n n -- ) print n right-justified in field (no trailing space)\" "
     .ascii ": .R >R DUP ABS 0 <# #S ROT SIGN #> R> OVER - 0 MAX SPACES TYPE ; "
+    // Dictionary threads: every wid (FORTH + WORDLIST/VOCABULARY) has DICT_THREADS heads.
+    // LFA = CFA - 2 CELLS. .THREADS uses CONTEXT (first search-order list), like WORDS.
+    // Defined after .R so .THREADS can use 0 .R. (Must not define before .R — broken colon body.)
+    .ascii "DOC\" (THREAD-DEPTH) ( head -- n ) count words in one hash chain\" "
+    .ascii ": (THREAD-DEPTH) 0 SWAP BEGIN DUP WHILE SWAP 1+ SWAP 2 CELLS - @ REPEAT DROP ; "
+    .ascii "DOC\" (CONTEXT) ( -- wid ) first search-order wordlist, or FORTH\" "
+    .ascii ": (CONTEXT) GET-ORDER ?DUP 0= IF FORTH-WORDLIST EXIT THEN BEGIN DUP 1 > WHILE SWAP DROP 1- REPEAT DROP ; "
+    // Depth columns: fixed width 5 (right-justified) so multi-row tables line up.
+    .ascii "DOC\" (WID.THREADS) ( wid -- ) print all thread depths for wid in aligned columns\" "
+    .ascii ": (WID.THREADS) DICT-THREADS 0 DO DUP I CELLS + @ (THREAD-DEPTH) 5 .R LOOP DROP ; "
+    .ascii "DOC\" .THREADS ( -- ) print CONTEXT wordlist hash-chain depths in aligned columns\" "
+    .ascii ": .THREADS (CONTEXT) (WID.THREADS) CR ; "
+    // Name in a left field of width n (TYPE then pad with spaces).
+    .ascii "DOC\" (TYPE-FIELD) ( c-addr u n -- ) type string left-justified in field n\" "
+    .ascii ": (TYPE-FIELD) >R 2DUP TYPE NIP R> SWAP - 0 MAX SPACES ; "
+    // FORTH plus every VOCABULARY word (same DOES> does_ip as FP). Table: name + thread depths.
+    // VOCABULARY PFA (nt + 2 CELLS) is the wid (WORDLIST head array). Name field width 16.
+    .ascii "DOC\" (IS-VOCAB) ( nt -- flag ) true if nt was defined by VOCABULARY\" "
+    .ascii ": (IS-VOCAB) CELL+ @ ['] FP CELL+ @ = ; "
+    .ascii "DOC\" (SHOW-VOCAB) ( nt -- true ) print vocabulary name and thread depths\" "
+    .ascii ": (SHOW-VOCAB) DUP (IS-VOCAB) IF DUP NAME>STRING 16 (TYPE-FIELD) 2 CELLS + (WID.THREADS) CR ELSE DROP THEN TRUE ; "
+    .ascii "DOC\" .VOCABULARIES ( -- ) list FORTH and all VOCABULARY lists with thread depths\" "
+    .ascii ": .VOCABULARIES S\" FORTH\" 16 (TYPE-FIELD) FORTH-WORDLIST (WID.THREADS) CR ['] (SHOW-VOCAB) FORTH-WORDLIST TRAVERSE-WORDLIST ; "
     .ascii "DOC\" HOLDS ( c-addr u -- ) add string to pictured numeric output (prepend via HOLD)\" "
     .ascii ": HOLDS BEGIN DUP WHILE 1- 2DUP + C@ HOLD REPEAT 2DROP ; "
     .ascii "DOC\" COMPILE, ( xt -- ) compile the execution token xt\" "
@@ -10823,9 +11078,18 @@ forth_init_str:
     .ascii ": IS STATE @ IF POSTPONE ['] POSTPONE DEFER! ELSE ' DEFER! THEN ; IMMEDIATE "
     .ascii "DOC\" ACTION-OF ( 'name' -- xt ) xt currently in deferred name (immediate)\" "
     .ascii ": ACTION-OF STATE @ IF POSTPONE ['] POSTPONE DEFER@ ELSE ' DEFER@ THEN ; IMMEDIATE "
-    // MARKER — body: HERE-at-define, LATEST-before-define
-    .ascii "DOC\" MARKER ( 'name' -- ) create a dictionary restore point\" "
-    .ascii ": MARKER LATEST @ HERE CREATE , , DOES> DUP @ DP ! CELL+ @ LATEST ! ; "
+    // MARKER — save HERE + all FORTH thread heads (DICT_THREADS). Body layout:
+    //   cell0 = HERE-cut, cell1..N = heads[0..N-1]
+    // Must not use only LATEST @ (heads[0]) when DICT_THREADS > 1.
+    .ascii "DOC\" MARKER ( 'name' -- ) restore point: HERE + all FORTH hash heads\" "
+    .ascii ": MARKER "
+    .ascii "  HERE DICT-THREADS 0 DO LATEST I CELLS + @ LOOP "
+    .ascii "  CREATE "
+    .ascii "  DICT-THREADS 1+ 0 DO DICT-THREADS I - PICK , LOOP "
+    .ascii "  DICT-THREADS 1+ 0 DO DROP LOOP "
+    .ascii "  DOES> "
+    .ascii "    DUP @ DP ! "
+    .ascii "    CELL+ DICT-THREADS 0 DO DUP @ LATEST I CELLS + ! CELL+ LOOP DROP ; "
 
     // --- 7. Double-Number high-level ---
     .ascii "DOC\" 2CONSTANT ( x1 x2 'name' -- ) create double constant\" "

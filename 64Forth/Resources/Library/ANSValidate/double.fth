@@ -89,4 +89,4 @@ S" DOUBLE" ENVIRONMENT? NIP S" ENV-DOUBLE" EXPECT
 0 0 D0= S" D0=" EXPECT
 -1 -1 D0< S" D0<" EXPECT
 
-CR .( --- Double batch done ---) CR
+.( --- Double batch done ---) .STACK-DEPTH CR

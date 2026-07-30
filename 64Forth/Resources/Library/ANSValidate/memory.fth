@@ -46,4 +46,4 @@ S" MEMORY-ALLOCATION" ENVIRONMENT? NIP S" ENV-MEM" EXPECT
 \ --- UNUSED ---
 UNUSED 0 > S" UNUSED" EXPECT
 
-CR .( --- Memory-Allocation batch done ---) CR
+.( --- Memory-Allocation batch done ---) .STACK-DEPTH CR

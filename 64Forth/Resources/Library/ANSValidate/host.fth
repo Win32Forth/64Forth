@@ -120,8 +120,8 @@ MARKER H-MRK
 : H-TEMP  11 ;
 H-TEMP 11 = S" MARKER-before" EXPECT
 H-MRK
-S" H-TEMP" (H-PADCS) FIND 0= S" MARKER-gone" EXPECT
+S" H-TEMP" (H-PADCS) (H-FMISS) S" MARKER-gone" EXPECT
 
 ONLY FORTH DEFINITIONS
 
-CR .( --- Host port wave done ---) CR
+.( --- Host port wave done ---) .STACK-DEPTH CR

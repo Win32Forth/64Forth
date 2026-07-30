@@ -91,8 +91,7 @@ CE-AG 4 = S" AGAIN" EXPECT
 
 \ --- PAD ---
 PAD 0= 0= S" PAD" EXPECT
-PAD DUP 100 + 42 SWAP C!
-S" ignore" 2DROP
+PAD DUP 100 + 42 SWAP C! DROP
 PAD 100 + C@ 42 = S" PAD-isolate" EXPECT
 
 \ --- EVALUATE ---
@@ -105,4 +104,4 @@ S" CORE-EXT" ENVIRONMENT? NIP S" ENV-CORE-EXT" EXPECT
 1 0> S" 0>" EXPECT
 0 0> 0= S" 0>f" EXPECT
 
-CR .( --- Core Ext batch done ---) CR
+.( --- Core Ext batch done ---) .STACK-DEPTH CR

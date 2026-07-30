@@ -127,4 +127,4 @@ SFBUF SF@ F>S 8 = S" SF@SF!" EXPECT
 \ restore search order for later modules / driver summary
 ONLY FORTH DEFINITIONS
 
-CR .( --- Float batch done ---) CR
+.( --- Float batch done ---) .STACK-DEPTH CR

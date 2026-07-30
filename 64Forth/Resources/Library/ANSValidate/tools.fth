@@ -33,11 +33,10 @@ TL-AH 222 = S" AHEAD" EXPECT
 TL-NR 2 = SWAP 20 = AND SWAP 10 = AND S" N>R" EXPECT
 
 \ --- [DEFINED] / [UNDEFINED] ---
-: TL-DEF  [DEFINED] DUP DUP [THEN] ;
-5 TL-DEF 5 = SWAP 5 = AND S" DEFINED" EXPECT
-
-: TL-UNDEF  [UNDEFINED] NOPE99ZZ 88 [THEN] ;
-TL-UNDEF 88 = S" UNDEFINED" EXPECT
+\ [DEFINED]/[UNDEFINED] are immediate: they leave a flag now (interpret or
+\ while compiling). Do not bury that flag inside a colon body without [IF].
+[DEFINED] DUP S" DEFINED" EXPECT
+[UNDEFINED] NOPE99ZZ S" UNDEFINED" EXPECT
 
 \ --- TRAVERSE-WORDLIST ---
 : TL-TW  DROP 1 TL-TR ! TRUE ;
@@ -62,4 +61,4 @@ TL-TR @ 1 = S" TRAVERSE" EXPECT
 
 ONLY FORTH
 
-CR .( --- Programming-Tools batch done ---) CR
+.( --- Programming-Tools batch done ---) .STACK-DEPTH CR

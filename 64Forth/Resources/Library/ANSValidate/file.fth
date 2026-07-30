@@ -85,4 +85,4 @@ S" /tmp/64forth-ansval-bin.dat" DELETE-FILE DROP
 
 ONLY FORTH
 
-CR .( --- File-Access batch done ---) CR
+.( --- File-Access batch done ---) .STACK-DEPTH CR

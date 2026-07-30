@@ -76,4 +76,4 @@ S" ab  " -TRAILING S" ab" COMPARE 0= S" -TRAIL-CMP" EXPECT
 S" xyzabc" S" abc" SEARCH
 DROP NIP 3 = S" SEARCH-u" EXPECT
 
-CR .( --- String batch done ---) CR
+.( --- String batch done ---) .STACK-DEPTH CR

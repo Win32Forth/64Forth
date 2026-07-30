@@ -79,13 +79,13 @@ struct SixtyFourForthApp: App {
                 Divider()
 
                 Button("Show Library Folder") {
-                    NotificationCenter.default.post(name: .showLibraryFolder, object: nil)
+                    FileHost.shared.revealInFinder(FileHost.shared.libraryURL)
                 }
                 Button("Show AutoLoad Folder") {
-                    NotificationCenter.default.post(name: .showAutoloadFolder, object: nil)
+                    FileHost.shared.revealInFinder(FileHost.shared.autoLoadURL)
                 }
                 Button("Show Docs Folder") {
-                    NotificationCenter.default.post(name: .showDocsFolder, object: nil)
+                    FileHost.shared.revealInFinder(FileHost.shared.docsURL)
                 }
             }
         }

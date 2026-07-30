@@ -87,4 +87,16 @@ ONLY FORTH
 .( BERRORS @ = ) berrors @ .
 .( FPERRORS @ = ) fperrors @ .
 .( #ERRORS @ = ) #ERRORS @ .
+CR
+\ Sum of per-suite counters (each file resets #ERRORS before its run).
+cperrors @ cerrors @ + derrors @ + eerrors @ + ferrors @ +
+lerrors @ + merrors @ + terrors @ + soerrors @ + serrors @ +
+faerrors @ + berrors @ + fperrors @ +
+DUP
+IF
+  .( *** HAYES: FAILURES DETECTED — search log for HAYES FAIL *** ) CR
+ELSE
+  .( *** HAYES: ALL COUNTS ZERO — PASS *** ) CR
+THEN
+DROP
 CR .( === 64Forth Hayes subset complete ===) CR

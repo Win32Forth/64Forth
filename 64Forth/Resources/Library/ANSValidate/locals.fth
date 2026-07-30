@@ -56,4 +56,4 @@ S" #LOCALS" ENVIRONMENT? DROP 32 = S" ENV-#LOCALS" EXPECT
 
 ONLY FORTH
 
-CR .( --- Locals batch done ---) CR
+.( --- Locals batch done ---) .STACK-DEPTH CR

@@ -78,4 +78,4 @@ S" /tmp/64forth-ansval.blk" DELETE-FILE DROP
 (BL-CLEAR)
 ONLY FORTH DEFINITIONS
 
-CR .( --- Block batch done ---) CR
+.( --- Block batch done ---) .STACK-DEPTH CR

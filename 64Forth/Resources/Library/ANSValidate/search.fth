@@ -146,4 +146,4 @@ S" SW-IN-WL2" SW-WL2 (SWL)
 DROP DROP
 ONLY FORTH
 
-CR .( --- Search-Order batch done ---) CR
+.( --- Search-Order batch done ---) .STACK-DEPTH CR

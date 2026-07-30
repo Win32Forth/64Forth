@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-07-29 — **v0.8.2** (ANSValidate `host.fth` port wave; `SLITERAL` layout fix; prior: `ABORT"`, FacilityTerminal, SZ-EDITOR).
+**Updated:** 2026-07-30 — **v0.9.0** (multi-thread wordlists `DICT_THREADS`=16; File-Access multi-result stack fix; Finder folder menus; ANSValidate ~383/0 + stack hygiene; prior 0.8.x editor/validate).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
@@ -30,7 +30,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │  SwiftUI App (SixtyFourForthApp / ContentView / ConsoleView) │
 │    • line / multi-line paste → KernelBridge.evaluate          │
-│    • menus: FLOAD, CHDIR, EDIT, CLS, Library/AutoLoad/Docs  │
+│    • menus: FLOAD, CHDIR, EDIT, CLS; Show Library/AutoLoad/Docs (Finder) │
 │    • security-scoped bookmarks + last cwd (UserDefaults)     │
 │    • LLDB: .lldbinit-64forth passes SIGSEGV/SIGBUS to app    │
 └────────────────────────────┬────────────────────────────────┘
@@ -78,7 +78,7 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 ### Phase 2 — Console parity — **done**
 
 - Protected region, history, Return / multi-line paste
-- AppKit `ConsoleTextView`; Tools menus (CLS, FLOAD, CHDIR, folder reveals)
+- AppKit `ConsoleTextView`; Tools menus (CLS, FLOAD, CHDIR, EDIT; Show Library/AutoLoad/Docs via `NSWorkspace.open`)
 
 ### Phase 3 — File / FROMLIB — **done**
 
@@ -154,7 +154,7 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 **Honesty:** Word-set presence means required **names** (and working semantics for the Hayes/ANSValidate paths exercised). This is **not** a formal ANS System certificate.
 
 **ANS-VALIDATE (pure Forth modules):**  
-`FROMLIB FLOAD ANSValidate/ANS-VALIDATE.fth` — tester → core … block → xchar → float. Expect **ALL PASS** (~351/0). Nested relative `FLOAD` uses per-file load cwd.
+`FROMLIB FLOAD ANSValidate/ANS-VALIDATE.fth` — tester → core … block → xchar → float → host. Expect **ALL PASS** (~383/0). Nested relative `FLOAD` uses per-file load cwd. Batch done lines print `stack(n)`; suite ends with `EMPTY-DATA`.
 
 ### Floating-point design (v0.5+)
 
@@ -313,14 +313,18 @@ Kernel improvements can be cherry-picked PickleForth ↔ `64Forth/Kernel` until 
 - Optional polish: multi-buffer block cache, compiled `TO` for FVALUE, App Sandbox for store  
 - Editor extras: search/replace, dual buffers (core SZ-EDITOR is usable)
 
-### Present and validated (v0.8.2)
+### Present and validated (v0.9.0)
 
 - Hayes subset: core through File/Block/FP (`FROMLIB FLOAD HayesTest/HayesTest.fth`)  
-- Modular ANSValidate: Core … Float, Facility Ext fkeys, XChar (~351/0)  
+- Modular ANSValidate: Core … Float + host.fth (~383/0); cleaner residual stack  
 - Facility Ext: structures + `EKEY>FKEY` + `K-*` + host special-key mapping  
 - FacilityTerminal grid + SZ-EDITOR (Library/Editor; FROMLIB open; Cmd-S/W/Q)  
 - `S"` / `."` / `C"` / `S\"`: only the WORD delimiter blank is skipped; further spaces are content  
 - String Ext, Locals Ext, Search-Order, Memory-Allocation, full Facility  
+- **Multi-thread dict:** each wid has `DICT_THREADS` (16) hash heads; `_dict_hash` in `_header_build` / FIND / SEARCH-WORDLIST / WORDS / FORGET prune / MARKER; `LAST` / `last_cfa` for IMMEDIATE, DOES>, ALIAS, RECURSE  
+- **File multi-result stack:** `OPEN-FILE`/`CREATE-FILE`/`READ-LINE`/`FILE-POSITION`/`FILE-SIZE`/`FILE-STATUS` etc. restore TOS under via `FILE_POP_UNDER` before pushing results (no leftover fam/fileid)  
+- **Prompt:** `ok(n)>` where *n* is data-stack depth (`kernel_data_depth`)  
+- **Tools → Show * Folder:** `FileHost.revealInFinder` uses `NSWorkspace.open` (works inside `.app` Resources)
 
 ---
 

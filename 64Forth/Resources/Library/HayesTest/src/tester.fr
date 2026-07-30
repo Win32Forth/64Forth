@@ -25,10 +25,15 @@ VARIABLE VERBOSE
 
 VARIABLE #ERRORS 0 #ERRORS !
 
-: ERROR      \ ( C-ADDR U -- ) DISPLAY AN ERROR MESSAGE FOLLOWED BY
-      \ THE LINE THAT HAD THE ERROR.
-   CR TYPE SOURCE TYPE       \ DISPLAY LINE CORRESPONDING TO ERROR
-   EMPTY-STACK               \ THROW AWAY EVERY THING ELSE
+\ 64Forth: INCLUDE loads a whole file as one SOURCE. Dumping SOURCE TYPE on
+\ every error floods the console with the entire .fth file. Print a loud
+\ banner + the ttester message only; use VERBOSE / FILE-ECHO for full context.
+: ERROR      \ ( C-ADDR U -- ) loud failure report; empty stack; count error
+   CR
+   S" ********** HAYES FAIL **********" TYPE CR
+   TYPE CR
+   S" ********************************" TYPE CR
+   EMPTY-STACK
    #ERRORS @ 1 + #ERRORS !
 \   QUIT  \ *** Uncomment this line to QUIT on an error
 ;

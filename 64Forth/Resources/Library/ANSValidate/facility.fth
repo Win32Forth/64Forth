@@ -94,4 +94,4 @@ DROP
 EKEY>CHAR
 SWAP 65 = AND S" EKEY>CHAR-tag" EXPECT
 
-CR .( --- Facility batch done ---) CR
+.( --- Facility batch done ---) .STACK-DEPTH CR

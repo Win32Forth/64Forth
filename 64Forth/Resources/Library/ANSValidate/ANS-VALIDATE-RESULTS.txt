@@ -1,11 +1,11 @@
 # ANS-VALIDATE modular suite (CLI harness + app FROMLIB path)
-# Last green: 2026-07-29  v0.8.2
+# Last green: 2026-07-30  v0.9.0 (multi-thread dict; File-Access stack fix)
 #
 # Run:  FROMLIB FLOAD ANSValidate/ANS-VALIDATE.fth
 #
 # ANS-VALIDATE: 383 passed, 0 failed.
 # ALL PASS
-# === ANS-VALIDATE driver done ===
+# === ANS-VALIDATE driver done === stack(0) after EMPTY-DATA
 #
 # Modules: tester, core, core-ext, search, string, facility (+ Facility Ext),
 # exception, memory, double, locals, tools, file, block (LOAD/BLK restore),
@@ -16,6 +16,7 @@
 # FALIGNED (alignment flag, TZForth-style)/FATAN2/FLITERAL, MARKER.
 #
 # Note: ABORT" nonzero test may print "boom" before CATCH; that is expected.
+# Kernel FILE_POP_UNDER: multi-result file words no longer leave fam/fileid.
 #
 # Not a formal ANS certificate. Prefer HayesTest for stock forth2012 coverage.
 # TZForth FTEST ~427 includes Swift host-only checks not ported here.

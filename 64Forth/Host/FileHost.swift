@@ -156,7 +156,17 @@ final class FileHost {
     }
 
     var docsURL: URL? {
-        resourcesURL?.appendingPathComponent("Docs", isDirectory: true)
+        if let root = resourcesURL {
+            let dir = root.appendingPathComponent("Docs", isDirectory: true)
+            if FileManager.default.fileExists(atPath: dir.path) { return dir }
+        }
+        if let u = Bundle.main.url(forResource: "Docs", withExtension: nil) {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: u.path, isDirectory: &isDir), isDir.boolValue {
+                return u
+            }
+        }
+        return nil
     }
 
     func resourceRootsDescription() -> String {
@@ -853,9 +863,29 @@ final class FileHost {
 
     // MARK: - Finder
 
+    /// Open a folder (or select a file) in Finder.
+    /// `activateFileViewerSelecting` is flaky for directories inside the .app
+    /// package (Library/AutoLoad/Docs under Contents/Resources); `open` is reliable.
     func revealInFinder(_ url: URL?) {
-        guard let url else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([url])
+        guard let url else {
+            msg("? folder not available in this build (missing from app bundle)\n")
+            return
+        }
+        let path = url.standardizedFileURL.path
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir) else {
+            msg("? missing: \(path)\n")
+            return
+        }
+        let fileURL = URL(fileURLWithPath: path, isDirectory: isDir.boolValue)
+        if isDir.boolValue {
+            if !NSWorkspace.shared.open(fileURL) {
+                // Fallback: select the folder in its parent
+                NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+            }
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+        }
     }
 
     /// Programmatic CHDIR (Tools menu / host).

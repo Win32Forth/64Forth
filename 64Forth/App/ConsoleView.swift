@@ -27,7 +27,7 @@ extension Notification.Name {
     static let fileClose = Notification.Name("SixtyFourForthFileClose")
 }
 
-private let banner = "=== 64Forth 0.8.2 ===\n"
+private let banner = "=== 64Forth 0.9.0 ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner
@@ -186,7 +186,10 @@ struct ConsoleView: View {
     }
 
     private func appendPrompt() {
-        appendEngineOutput("ok> ")
+        // Show data-stack depth so residual cells after prior work are obvious
+        // (e.g. before FLOAD Hayes / ANS-VALIDATE). Format: ok(0)>
+        let n = kernel.dataStackDepth
+        appendEngineOutput("ok(\(n))> ")
     }
 
     private func keepCursorVisible(followPrompt: Bool = false) {
@@ -263,7 +266,7 @@ struct ConsoleView: View {
             .filter { raw in
                 let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !t.isEmpty && !t.hasPrefix("===") else { return false }
-                if t == "ok>" || t.hasPrefix("ok>") { return false }
+                if t == "ok>" || t.hasPrefix("ok>") || t.hasPrefix("ok(") { return false }
                 if t == "ok" || t.hasSuffix(" ok") { return false }
                 return true
             }

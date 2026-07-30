@@ -118,7 +118,8 @@ boot_word_table:
     BOOT_WORD "EDIT", "EDIT ( -- ) name|dialog open in system editor; updates cwd (FROMLIB ok)", 0, XEDIT
     BOOT_WORD "FROMLIB", "FROMLIB ( -- ) next FLOAD/INCLUDE/REQUIRE/EDIT/CHDIR/DIR uses Resources/Library", 0, XFROMLIB
     BOOT_WORD "FROM-LIBRARY", "FROM-LIBRARY ( -- ) synonym for FROMLIB", 0, XFROMLIB
-    BOOT_WORD "LATEST", "LATEST ( -- addr ) FORTH wordlist head cell", 0, XLATEST
+    BOOT_WORD "LATEST", "LATEST ( -- addr ) FORTH wordlist head array (heads[0] base)", 0, XLATEST
+    BOOT_WORD "LAST", "LAST ( -- xt ) CFA of most recently defined word (all threads)", 0, XLAST
     BOOT_WORD "CURRENT", "CURRENT ( -- addr ) compilation wordlist variable", 0, XCURRENT
     BOOT_WORD "WORDLIST", "WORDLIST ( -- wid ) create empty word list", 0, XWORDLIST
     BOOT_WORD "FORTH-WORDLIST", "FORTH-WORDLIST ( -- wid ) main FORTH word list", 0, XFORTH_WORDLIST
@@ -147,6 +148,7 @@ boot_word_table:
     BOOT_WORD "{:", "{: ( -- ) declare locals {: args | vals -- outs :} (immediate)", 1, XLOCAL_BRACE
     BOOT_WORD "TO", "TO ( x 'name' -- ) store to VALUE or local (immediate)", 1, XTO_IMM
     BOOT_WORD "WORDS", "WORDS ( ['filter'] -- ) list first search-order wordlist, sorted", 0, XWORDS
+    BOOT_WORD "DICT-THREADS", "DICT-THREADS ( -- n ) number of hash threads per wordlist", 0, XDICT_THREADS
     BOOT_WORD "?DUP", "?DUP ( n -- n n | 0 ) dup if non-zero", 0, XQDUP
     BOOT_WORD "[']", "['] ( -- xt ) compile xt of next name", 1, XBRACKET_TICK
     BOOT_WORD "LIT-ADDR", "LIT-ADDR ( -- xt ) address/xt of LIT (for SEE)", 0, XLIT_ADDR

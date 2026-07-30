@@ -20,6 +20,9 @@ private func kernel_init() -> Int32
 @_silgen_name("kernel_eval")
 private func kernel_eval(_ line: UnsafePointer<CChar>?, _ n: Int) -> Int32
 
+@_silgen_name("kernel_data_depth")
+private func kernel_data_depth() -> Int32
+
 @_silgen_name("kernel_take_repl_batch_stop")
 private func kernel_take_repl_batch_stop() -> Int32
 
@@ -468,6 +471,12 @@ final class KernelBridge {
     static let shared = KernelBridge()
 
     private(set) var isKernelLive = false
+
+    /// Data-stack depth in cells after the last eval (for `ok(n)>` prompt). 0 if kernel not live.
+    var dataStackDepth: Int {
+        guard isKernelLive else { return 0 }
+        return Int(kernel_data_depth())
+    }
 
     /// True while kernel_eval is active (Forth queue and/or main waiting on it).
     /// Guarded by `lock` for safe reads from the keyDown monitor on main.

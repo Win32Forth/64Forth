@@ -58,4 +58,6 @@ FLOAD float.fth
 FLOAD host.fth
 
 S" ANS-VALIDATE" .TEST-SUMMARY
-CR .( === ANS-VALIDATE driver done ===) CR
+.( === ANS-VALIDATE driver done ===) .STACK-DEPTH CR
+\ Leave a clean data stack for subsequent work (e.g. Hayes).
+EMPTY-DATA

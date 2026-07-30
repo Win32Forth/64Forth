@@ -81,4 +81,4 @@ S" EXCEPTION" ENVIRONMENT? NIP S" ENV-EXCEPTION" EXPECT
 (EX-CLEAR)
 ONLY FORTH
 
-CR .( --- Exception batch done ---) CR
+.( --- Exception batch done ---) .STACK-DEPTH CR
