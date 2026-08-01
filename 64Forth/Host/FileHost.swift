@@ -8,8 +8,10 @@
 //
 
 import Foundation
-import AppKit
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 
 /// Host-side directories and resolve rules (TZForth lineage).
 final class FileHost {
@@ -61,6 +63,7 @@ final class FileHost {
         onMessage?(s)
     }
 
+    #if os(macOS)
     /// Create, configure, and run an `NSOpenPanel` entirely on the main thread.
     ///
     /// `kernel_eval` often runs on `forthQueue` (so KEY can pump AppKit). AppKit
@@ -92,6 +95,7 @@ final class FileHost {
         }
         return picked
     }
+    #endif
 
     // MARK: - Bundle roots (Contents/Resources/…)
 
@@ -349,6 +353,10 @@ final class FileHost {
 
     /// Bare CHDIR: folder picker. FROMLIB arms start at Library.
     func presentDirectoryPicker() {
+        #if !os(macOS)
+        msg("? bare CHDIR: use CHDIR with a path on iOS (folder dialog not yet available)\n")
+        return
+        #else
         let startDir: URL
         if fromLibraryArmed {
             clearFromLibrary()
@@ -376,6 +384,7 @@ final class FileHost {
             return
         }
         applyChdir(url)
+        #endif
     }
 
     private func applyChdir(_ url: URL) {
@@ -538,7 +547,11 @@ final class FileHost {
 
     private func rememberScopedURL(_ url: URL) {
         // Prefer security-scoped bookmarks when the URL supports them (panel picks).
+        #if os(macOS)
         let opts: URL.BookmarkCreationOptions = [.withSecurityScope]
+        #else
+        let opts: URL.BookmarkCreationOptions = []
+        #endif
         guard let data = try? url.bookmarkData(
             options: opts,
             includingResourceValuesForKeys: nil,
@@ -566,9 +579,14 @@ final class FileHost {
             scopedBookmarkData = saved
             for data in scopedBookmarkData {
                 var isStale = false
+                #if os(macOS)
+                let resolveOpts: URL.BookmarkResolutionOptions = [.withSecurityScope]
+                #else
+                let resolveOpts: URL.BookmarkResolutionOptions = []
+                #endif
                 guard let url = try? URL(
                     resolvingBookmarkData: data,
-                    options: [.withSecurityScope],
+                    options: resolveOpts,
                     relativeTo: nil,
                     bookmarkDataIsStale: &isStale
                 ) else { continue }
@@ -617,6 +635,11 @@ final class FileHost {
         outPtr: UnsafeMutablePointer<UnsafePointer<CChar>?>?,
         outLen: UnsafeMutablePointer<Int>?
     ) -> Int32 {
+        #if !os(macOS)
+        msg("? bare FLOAD: use INCLUDE with a path on iOS (file dialog not yet available)\n")
+        preserveSessionCwdAfterFileOp = false
+        return -1
+        #else
         // Capture start dir / preserve flag on the kernel thread; create the
         // panel only on main (AppKit main-thread rule).
         let startDir: URL
@@ -670,6 +693,7 @@ final class FileHost {
         preserveSessionCwdAfterFileOp = false
 
         return pinFileContents(url: url, displayName: url.lastPathComponent, outPtr: outPtr, outLen: outLen)
+        #endif
     }
 
     private func pinFileContents(
@@ -787,6 +811,10 @@ final class FileHost {
 
     /// Bare EDIT: file open panel. FROMLIB arms start at Library without permanent CHDIR.
     func presentEditPicker() {
+        #if !os(macOS)
+        msg("? bare EDIT: use EDIT with a path on iOS (file dialog not yet available)\n")
+        return
+        #else
         let preserveCwd: Bool
         let savedLogical = logicalCurrentDirectory
         let savedProcess = FileManager.default.currentDirectoryPath
@@ -845,15 +873,20 @@ final class FileHost {
         } else {
             applyChdir(url.deletingLastPathComponent())
         }
+        #endif
     }
 
     private func openInSystemEditor(_ url: URL) {
+        #if os(macOS)
         let ok = NSWorkspace.shared.open(url)
         if ok {
             msg("EDIT: \(url.path)\n")
         } else {
             msg("? EDIT could not open: \(url.path)\n")
         }
+        #else
+        msg("? EDIT open in system editor is not available on iOS: \(url.path)\n")
+        #endif
     }
 
     private func restoreSessionDirectory(logical: String, process: String) {
@@ -863,7 +896,7 @@ final class FileHost {
 
     // MARK: - Finder
 
-    /// Open a folder (or select a file) in Finder.
+    /// Open a folder (or select a file) in Finder (macOS). On iOS, print the path.
     /// `activateFileViewerSelecting` is flaky for directories inside the .app
     /// package (Library/AutoLoad/Docs under Contents/Resources); `open` is reliable.
     func revealInFinder(_ url: URL?) {
@@ -877,6 +910,7 @@ final class FileHost {
             msg("? missing: \(path)\n")
             return
         }
+        #if os(macOS)
         let fileURL = URL(fileURLWithPath: path, isDirectory: isDir.boolValue)
         if isDir.boolValue {
             if !NSWorkspace.shared.open(fileURL) {
@@ -886,6 +920,9 @@ final class FileHost {
         } else {
             NSWorkspace.shared.activateFileViewerSelecting([fileURL])
         }
+        #else
+        msg("folder: \(path)\n")
+        #endif
     }
 
     /// Programmatic CHDIR (Tools menu / host).

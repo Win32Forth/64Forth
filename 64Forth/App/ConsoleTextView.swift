@@ -4,13 +4,15 @@
 //
 //  Public domain.
 //
-//  AppKit-backed console (TZForth lineage): protected engine output prefix,
-//  Return commits the full input line, caret cannot walk into protected text
-//  while editing the input line. Selection/copy of history remains allowed.
+//  Console editor with protected engine-output prefix.
+//  macOS: AppKit NSTextView; iOS: UIKit UITextView.
 //
 
 import SwiftUI
+
+#if os(macOS)
 import AppKit
+
 
 /// AppKit console editor. SwiftUI `TextEditor` does not protect a prefix or
 /// reliably scroll to the insertion point after programmatic appends.
@@ -399,3 +401,122 @@ struct ConsoleTextView: NSViewRepresentable {
         }
     }
 }
+
+#else
+import UIKit
+
+/// iOS console editor (UITextView). Core REPL input; facility/editor keys via pushKey.
+struct ConsoleTextView: UIViewRepresentable {
+    @Binding var text: String
+    @FocusState.Binding var isFocused: Bool
+    @Binding var pinCaretRequest: Int
+    var editableStartUTF16: Int
+    var onReturnPressed: () -> Bool
+    var onHistoryUp: () -> Void = {}
+    var onHistoryDown: () -> Void = {}
+    var onKeyCharacter: (Int32) -> Void = { _ in }
+    var onTextViewReady: (UITextView) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIView(context: Context) -> UITextView {
+        let tv = UITextView()
+        tv.delegate = context.coordinator
+        tv.font = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        tv.backgroundColor = .systemBackground
+        tv.textColor = .label
+        tv.autocorrectionType = .no
+        tv.autocapitalizationType = .none
+        tv.smartDashesType = .no
+        tv.smartQuotesType = .no
+        tv.smartInsertDeleteType = .no
+        tv.spellCheckingType = .no
+        tv.keyboardDismissMode = .interactive
+        tv.text = text
+        tv.selectedRange = NSRange(location: (text as NSString).length, length: 0)
+        context.coordinator.textView = tv
+        onTextViewReady(tv)
+        return tv
+    }
+
+    func updateUIView(_ tv: UITextView, context: Context) {
+        context.coordinator.parent = self
+        let needsPin = context.coordinator.lastHandledPinCaretRequest != pinCaretRequest
+        if needsPin {
+            context.coordinator.lastHandledPinCaretRequest = pinCaretRequest
+        }
+        if tv.text != text {
+            context.coordinator.isProgrammaticUpdate = true
+            tv.text = text
+            context.coordinator.isProgrammaticUpdate = false
+            let end = (text as NSString).length
+            tv.selectedRange = NSRange(location: end, length: 0)
+            scrollToEnd(tv)
+        } else if needsPin {
+            let end = (text as NSString).length
+            tv.selectedRange = NSRange(location: end, length: 0)
+            scrollToEnd(tv)
+        }
+        if isFocused, !tv.isFirstResponder {
+            tv.becomeFirstResponder()
+        }
+    }
+
+    private func scrollToEnd(_ tv: UITextView) {
+        Self.scheduleScrollToInsertionPoint(in: tv)
+    }
+
+    static func scheduleScrollToInsertionPoint(in textView: UITextView) {
+        DispatchQueue.main.async {
+            let len = (textView.text as NSString).length
+            if len > 0 {
+                textView.scrollRangeToVisible(NSRange(location: len - 1, length: 1))
+            }
+        }
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: ConsoleTextView
+        weak var textView: UITextView?
+        var isProgrammaticUpdate = false
+        var lastHandledPinCaretRequest = 0
+
+        init(parent: ConsoleTextView) {
+            self.parent = parent
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            guard !isProgrammaticUpdate else { return }
+            parent.text = textView.text ?? ""
+        }
+
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            let minLoc = min(max(0, parent.editableStartUTF16), (textView.text as NSString).length)
+            if range.location < minLoc {
+                return false
+            }
+            if KernelBridge.shared.isEvaluating {
+                // Return → LF for KEY loop
+                if text == "\n" {
+                    parent.onKeyCharacter(10)
+                    return false
+                }
+                // Single char → push as Latin-1/Unicode scalar
+                if text.count == 1, let sc = text.unicodeScalars.first {
+                    var v = Int32(sc.value)
+                    if v == 127 { v = 8 } // treat DEL as BS in facility
+                    parent.onKeyCharacter(v)
+                }
+                return false
+            }
+            // Return submits the input line
+            if text == "\n" {
+                return parent.onReturnPressed()
+            }
+            return true
+        }
+    }
+}
+#endif

@@ -9,8 +9,12 @@
 //
 
 import SwiftUI
-import AppKit
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 extension Notification.Name {
     static let clearConsole = Notification.Name("SixtyFourForthClearConsole")
@@ -27,7 +31,7 @@ extension Notification.Name {
     static let fileClose = Notification.Name("SixtyFourForthFileClose")
 }
 
-private let banner = "=== 64Forth 0.9.0 ===\n"
+private let banner = "=== 64Forth 0.9.1 ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner
@@ -42,7 +46,11 @@ struct ConsoleView: View {
     @State private var isProgrammaticConsoleAppend = false
     @State private var isHandlingReturn = false
     @State private var pinCaretRequest = 0
+    #if os(macOS)
     @State private var consoleTextView: NSTextView?
+    #else
+    @State private var consoleTextView: UITextView?
+    #endif
     /// Throttle auto-scroll while engine output streams.
     @State private var lastFollowOutputTime = Date.distantPast
 
@@ -90,9 +98,9 @@ struct ConsoleView: View {
                     applyFacilityCursorHighlight()
                 }
             }
-            // Startup: banner (already in consoleText) → cwd → AutoLoad → prompt.
+            // Startup: banner → cwd + blank line → AutoLoad → host prompt.
             isProgrammaticConsoleAppend = true
-            appendEngineOutput("cwd: \(host.logicalCurrentDirectory)\n")
+            appendEngineOutput("cwd: \(host.logicalCurrentDirectory)\n\n")
             markProtectedThroughEndOfText()
             isProgrammaticConsoleAppend = false
             keepCursorVisible(followPrompt: true)
@@ -207,12 +215,18 @@ struct ConsoleView: View {
         // ~20 Hz max scroll work during huge TYPE dumps
         guard now.timeIntervalSince(lastFollowOutputTime) >= 0.05 else { return }
         lastFollowOutputTime = now
-        guard let textView = consoleTextView,
-              let scrollView = textView.enclosingScrollView else { return }
+        guard let textView = consoleTextView else { return }
+        #if os(macOS)
+        guard let scrollView = textView.enclosingScrollView else { return }
         let visible = scrollView.contentView.bounds
         let docH = scrollView.documentView?.bounds.height ?? 0
         // Within ~2 lines of the end → keep following; else leave scroll alone.
         let nearBottom = visible.maxY >= docH - 48
+        #else
+        let visible = textView.bounds
+        let contentH = textView.contentSize.height
+        let nearBottom = textView.contentOffset.y + visible.height >= contentH - 48
+        #endif
         if nearBottom {
             ConsoleTextView.scheduleScrollToInsertionPoint(in: textView)
         }
@@ -353,6 +367,12 @@ struct ConsoleView: View {
         startDirectory: URL,
         completion: @escaping (URL?) -> Void
     ) {
+        #if !os(macOS)
+        appendEngineOutput("? SZEDIT open panel not available on iOS; use SZEDIT with a path\n")
+        markProtectedThroughEndOfText()
+        completion(nil)
+        return
+        #else
         let work = {
             let panel = NSOpenPanel()
             panel.canChooseFiles = true
@@ -380,6 +400,7 @@ struct ConsoleView: View {
         } else {
             DispatchQueue.main.async(execute: work)
         }
+        #endif
     }
 
     /// Multi-line paste ending with newline: commit without an extra Return.
@@ -438,7 +459,7 @@ struct ConsoleView: View {
         isProgrammaticConsoleAppend = true
         consoleText = banner
         markProtectedThroughEndOfText()
-        appendEngineOutput("cwd: \(host.logicalCurrentDirectory)\n")
+        appendEngineOutput("cwd: \(host.logicalCurrentDirectory)\n\n")
         appendPrompt()
         isProgrammaticConsoleAppend = false
         keepCursorVisible(followPrompt: true)
@@ -468,6 +489,7 @@ struct ConsoleView: View {
     /// TZForth-style reverse-video cell at the Facility cursor (editor insert point).
     private func applyFacilityCursorHighlight() {
         guard kernel.isFacilityTerminalActive else { return }
+        #if os(macOS)
         guard let textView = consoleTextView, let storage = textView.textStorage else { return }
 
         let full = NSRange(location: 0, length: storage.length)
@@ -487,9 +509,32 @@ struct ConsoleView: View {
         let range = NSRange(location: loc, length: 1)
         storage.addAttribute(.backgroundColor, value: NSColor.controlAccentColor, range: range)
         storage.addAttribute(.foregroundColor, value: NSColor.white, range: range)
+        #else
+        guard let textView = consoleTextView else { return }
+        let storage = textView.textStorage
+        let full = NSRange(location: 0, length: storage.length)
+        if full.length > 0 {
+            storage.removeAttribute(.backgroundColor, range: full)
+            storage.addAttribute(.foregroundColor, value: UIColor.label, range: full)
+        }
+        let prefixLen = (kernel.facilityPaintPrefix as NSString).length
+        let cols = max(1, kernel.facilityCols)
+        let row = kernel.facilityCursorRow
+        let col = min(max(0, kernel.facilityCursorCol), cols - 1)
+        let loc = prefixLen + row * (cols + 1) + col
+        guard loc >= 0 && loc < storage.length else { return }
+        let range = NSRange(location: loc, length: 1)
+        storage.addAttribute(.backgroundColor, value: UIColor.systemBlue, range: range)
+        storage.addAttribute(.foregroundColor, value: UIColor.white, range: range)
+        #endif
     }
 
     private func presentFloadPanel() {
+        #if !os(macOS)
+        appendEngineOutput("? FLOAD panel not available on iOS; type INCLUDE path\n")
+        markProtectedThroughEndOfText()
+        return
+        #else
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -525,6 +570,7 @@ struct ConsoleView: View {
         appendPrompt()
         isProgrammaticConsoleAppend = false
         keepCursorVisible(followPrompt: true)
+        #endif
     }
 
     private func presentChdirPanel() {

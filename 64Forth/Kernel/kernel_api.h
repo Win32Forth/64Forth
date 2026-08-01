@@ -90,6 +90,9 @@ void kernel_set_edit(void (*fn)(const char *path, size_t n));
 ///     4=FACILITY-OFF  5=resize (a=cols b=rows)
 void kernel_set_facility_op(void (*fn)(int64_t op, int64_t a, int64_t b));
 
+/// Facility cursor for AT-XY? (0-based col, row). Host fills both; nulls ignored.
+void host_facility_xy(int64_t *col_out, int64_t *row_out);
+
 /// \S / \s on the console SOURCE (SOURCE-ID 0): sticky flag for multi-line paste stop.
 /// Returns 1 if set since last call, else 0; always clears the flag (TZForth-style).
 int kernel_take_repl_batch_stop(void);

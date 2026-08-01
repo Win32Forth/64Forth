@@ -10,7 +10,9 @@
 //
 
 import Foundation
+#if os(macOS)
 import AppKit
+#endif
 
 // MARK: - C ABI (forth.s)
 
@@ -465,6 +467,17 @@ private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> 
     }
 }
 
+/// AT-XY? — facility cursor (0-based). Called from kernel CODE `XAT_XY_Q`.
+@_cdecl("host_facility_xy")
+public func host_facility_xy(
+    _ colOut: UnsafeMutablePointer<Int64>?,
+    _ rowOut: UnsafeMutablePointer<Int64>?
+) {
+    let term = FacilityTerminal.shared
+    colOut?.pointee = Int64(term.cursorCol)
+    rowOut?.pointee = Int64(term.cursorRow)
+}
+
 // MARK: - Bridge
 
 final class KernelBridge {
@@ -752,7 +765,7 @@ final class KernelBridge {
         while keyAvailable.wait(timeout: .now()) == .success {}
     }
 
-    /// Dequeue and dispatch AppKit events so the keyDown monitor can run.
+    /// Dequeue and dispatch UI events so KEY can receive input while evaluate waits.
     /// Must run on the main thread (classic modal input loop pattern).
     private func pumpUIForKeyInput(seconds: TimeInterval) {
         if !Thread.isMainThread {
@@ -763,6 +776,7 @@ final class KernelBridge {
         }
         let until = Date(timeIntervalSinceNow: seconds)
         while Date() < until {
+            #if os(macOS)
             // Prefer default mode; also try eventTracking for nested tracking.
             let modes: [RunLoop.Mode] = [.default, .eventTracking, .modalPanel]
             var got = false
@@ -778,6 +792,11 @@ final class KernelBridge {
                     break
                 }
             }
+            #else
+            // iOS: service the run loop so SwiftUI / key handlers can run.
+            let r = CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0.005, true)
+            let got = (r == .handledSource)
+            #endif
             lock.lock()
             let hasKey = !keyQueue.isEmpty
             lock.unlock()
@@ -800,6 +819,7 @@ final class KernelBridge {
         }
     }
 
+    #if os(macOS)
     private func installKeyDownMonitor() {
         keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
@@ -930,6 +950,10 @@ final class KernelBridge {
         }
         return nil
     }
+    #else
+    // iOS: keys arrive via ConsoleTextView / SwiftUI (pushKey), not NSEvent.
+    private func installKeyDownMonitor() {}
+    #endif
 
     /// Classic F-PC codes used by sz-edit.fth (SZ-LEFT=2, SZ-RIGHT=6, …).
     private static func editorPCKeyCode(forFacilityId id: Int) -> Int32? {
@@ -961,6 +985,8 @@ final class KernelBridge {
     ///
     /// On the main thread, the kernel runs on `forthQueue` while main pumps AppKit
     /// events so KEY/KEY? can receive keystrokes (blocking eval on main freezes input).
+    /// Does not print kernel "ok" — embed mode leaves prompts to the host (ANS EVALUATE
+    /// has no required ok output).
     @discardableResult
     func evaluate(_ line: String) -> Int32 {
         let t = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1097,15 +1123,19 @@ final class KernelBridge {
         // ⌘Q while editor was open: quit app only after the editor session ended.
         if quitAppAfterEditorClosePending && !FacilityTerminal.shared.isActive {
             clearQuitAppAfterEditorClose()
+            #if os(macOS)
             DispatchQueue.main.async {
                 NSApplication.shared.terminate(nil)
             }
+            #endif
         }
 
         if status == 1 {
+            #if os(macOS)
             DispatchQueue.main.async {
                 NSApplication.shared.terminate(nil)
             }
+            #endif
         }
         return status
     }
@@ -1153,6 +1183,7 @@ final class KernelBridge {
         host.logicalCurrentDirectory = autoDir.path
         _ = FileManager.default.changeCurrentDirectoryPath(autoDir.path)
 
+        // Embed kernel_eval never prints "ok"; ConsoleView prints ok(n)> once after boot.
         // SEE/HELP are defined in the kernel bootstrap (forth_init_str).
         _ = evaluate("INCLUDE \(autoURL.path)")
         _ = evaluate("MAIN")

@@ -12,11 +12,11 @@
 		B1000003 /* ConsoleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000103 /* ConsoleView.swift */; };
 		B1000004 /* KernelBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000104 /* KernelBridge.swift */; };
 		B1000005 /* FileHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000105 /* FileHost.swift */; };
-		B1000012 /* FileAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000112 /* FileAccess.swift */; };
 		B1000006 /* forth.s in Sources */ = {isa = PBXBuildFile; fileRef = B1000106 /* forth.s */; };
 		B1000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000107 /* Assets.xcassets */; };
 		B1000010 /* ConsoleTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000110 /* ConsoleTextView.swift */; };
 		B1000011 /* BigIntHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000111 /* BigIntHost.swift */; };
+		B1000012 /* FileAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000112 /* FileAccess.swift */; };
 		B1000013 /* FloatHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000113 /* FloatHost.swift */; };
 		B1000014 /* FacilityTerminal.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000114 /* FacilityTerminal.swift */; };
 		FA6AA0DF301916D30007C369 /* 64Forth.jpg in Resources */ = {isa = PBXBuildFile; fileRef = FA6AA0DE301916D30007C369 /* 64Forth.jpg */; };
@@ -29,7 +29,6 @@
 		B1000103 /* ConsoleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleView.swift; sourceTree = "<group>"; };
 		B1000104 /* KernelBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KernelBridge.swift; sourceTree = "<group>"; };
 		B1000105 /* FileHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileHost.swift; sourceTree = "<group>"; };
-		B1000112 /* FileAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileAccess.swift; sourceTree = "<group>"; };
 		B1000106 /* forth.s */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.asm; path = forth.s; sourceTree = "<group>"; };
 		B1000107 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B1000108 /* AutoLoad */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AutoLoad; sourceTree = "<group>"; };
@@ -42,6 +41,7 @@
 		B100010F /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		B1000110 /* ConsoleTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleTextView.swift; sourceTree = "<group>"; };
 		B1000111 /* BigIntHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BigIntHost.swift; sourceTree = "<group>"; };
+		B1000112 /* FileAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileAccess.swift; sourceTree = "<group>"; };
 		B1000113 /* FloatHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatHost.swift; sourceTree = "<group>"; };
 		B1000114 /* FacilityTerminal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FacilityTerminal.swift; sourceTree = "<group>"; };
 		FA6AA0DE301916D30007C369 /* 64Forth.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = 64Forth.jpg; sourceTree = "<group>"; };
@@ -384,24 +384,30 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = 64Forth/64Forth.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = X5YCJL3LJ8;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)/64Forth/Kernel";
 				INFOPLIST_FILE = 64Forth/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.9.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.6;
+				MARKETING_VERSION = 0.9.1;
 				OTHER_CFLAGS = "-I$(SRCROOT)/64Forth/Kernel";
 				PRODUCT_BUNDLE_IDENTIFIER = com.win32forth.SixtyFourForth;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -412,24 +418,30 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = 64Forth/64Forth.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = X5YCJL3LJ8;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)/64Forth/Kernel";
 				INFOPLIST_FILE = 64Forth/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.9.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.6;
+				MARKETING_VERSION = 0.9.1;
 				OTHER_CFLAGS = "-I$(SRCROOT)/64Forth/Kernel";
 				PRODUCT_BUNDLE_IDENTIFIER = com.win32forth.SixtyFourForth;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};

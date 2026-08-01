@@ -462,6 +462,30 @@ XAT_XY:
     mov  x0, #2
     b    _facility_op_go
 
+// AT-XY? ( -- col row )  facility cursor, 0-based (host FacilityTerminal)
+// Not ANSI DSR — works with the SwiftUI cell grid console.
+.extern _host_facility_xy
+XAT_XY_Q:
+    stp  x29, x30, [sp, #-16]!
+    mov  x29, sp
+    sub  sp, sp, #16
+    add  x0, sp, #0                // &col
+    add  x1, sp, #8                // &row
+    str  xzr, [sp]
+    str  xzr, [sp, #8]
+    SAVE_VM
+    bl   _host_facility_xy
+    RESTORE_VM
+    ldr  x1, [sp]                  // col
+    ldr  x2, [sp, #8]              // row
+    add  sp, sp, #16
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    mov  x20, x1                   // col under
+    str  x20, [x22, #-8]!
+    mov  x20, x2                   // row TOS
+    NEXT
+
 // TERMINAL-REFRESH ( -- )
 XTERM_REFRESH:
     mov  x0, #3
@@ -2899,8 +2923,11 @@ _include_fail_restore:
     ldp  x25, x26, [sp], #16
     RESTORE_VM
 _include_fail:
-    // Do not abandon the *caller* SOURCE (e.g. runfptests.fth). Report and return
-    // so nested INCLUDED/FLOAD failure does not wipe the rest of the FP suite.
+    // Missing / unreadable file: same policy as interpret/compile errors —
+    // report, then abandon this evaluate (all nested SOURCEs + outer remainder).
+    // Optional files must be guarded explicitly in source (e.g. [DEFINED],
+    // FILE-STATUS check); we do not silently continue past a failed load.
+    bl   _fromlib_clear
     adrp x0, str_cant_open@page
     add  x0, x0, str_cant_open@pageoff
     mov  x1, #12                   // "can't open: "
@@ -2910,7 +2937,15 @@ _include_fail:
     bl   _print_string_svc
     mov  x0, #10
     bl   _putchar
-    NEXT
+    // CATCH-able: ANS-style non-existent file (-38) when a CATCH frame is active
+    adrp x7, throw_handler@page
+    add  x7, x7, throw_handler@pageoff
+    ldr  x1, [x7]
+    cbz  x1, 1f
+    mov  x20, #-38
+    b    XTHROW
+1:
+    b    _error_abandon
 
 // _next_filespec: like _next_word but supports "quoted paths with spaces"
 // → x25=len, word_scratch filled; x25=0 if bare/EOF
@@ -7031,7 +7066,8 @@ _parse_push:
 
 // WORD ( char "<chars>ccc<char>" -- c-addr )
 // Skip leading delimiters, parse until delimiter, store counted string
-// in word_scratch (transient). Space delimiter also skips TAB/CR/LF.
+// in word_scratch (transient). Space delimiter also skips TAB/CR/LF
+// (Unix LF, classic Mac CR, Windows CRLF).
 XWORD:
     mov w7, w20                     // delimiter
     bl _cursor_load
@@ -7091,6 +7127,17 @@ _word_end:
     ldrb w4, [x2]
     cbz w4, _word_store
     add x2, x2, #1                  // consume delimiter
+    // If that was CR of CRLF, also consume LF (space-delimiter class only).
+    cmp w7, #32
+    b.ne _word_store
+    cmp w4, #13
+    b.ne _word_store
+    cmp x2, x9
+    b.hs _word_store
+    ldrb w4, [x2]
+    cmp w4, #10
+    b.ne _word_store
+    add x2, x2, #1
 _word_store:
     // Save token start/len across _cursor_store (clobbers x0-x3)
     mov x6, x3                      // token start
@@ -7130,6 +7177,7 @@ _word_empty:
 // \ ( -- ) IMMEDIATE  discard rest of parse area (to end of line)
 // When BLK is nonzero (block source): skip to next 64-char line boundary
 // (classic screen width), not a newline (blocks are space-filled, no \n).
+// Line end: LF, CR, or CR of CRLF (then skip the LF too).
 // Note: _source_end clobbers x0/x1 — keep cursor in x10.
 XBACKSLASH:
     adrp x0, blk_var@page
@@ -7146,9 +7194,16 @@ _bs_loop:
     ldrb w2, [x10]
     cbz w2, _bs_done
     cmp w2, #10
-    b.eq _bs_done
+    b.eq _bs_at_nl
+    cmp w2, #13
+    b.eq _bs_at_cr
     add x10, x10, #1
     b _bs_loop
+_bs_at_cr:
+    // Stop before CR; leave >IN on CR so next parse skips it (and LF of CRLF).
+    b _bs_done
+_bs_at_nl:
+    // Leave >IN on LF (skip will advance past it on next word).
 _bs_done:
     mov x0, x10
     bl _cursor_store
@@ -8651,28 +8706,50 @@ _stack_reset_abandon:
     mov x20, #0
     b _error_abandon
 
-// Shared: leave interpret, abandon rest of SOURCE, finish line
+// Shared soft fault: leave interpret, stop *all* remaining input for this
+// evaluate (nested INCLUDE/FLOAD/EVALUATE and the outer SOURCE).
+// Previously only the innermost SOURCE was abandoned, then _interpret_empty
+// popped back to the caller and continued — so autoload could still run
+// later REQUIRE lines after LEDIT.fth hit "undefined".
 _error_abandon:
     adrp x0, state_var@page
-    add x0, x0, state_var@pageoff
-    str xzr, [x0]
+    add  x0, x0, state_var@pageoff
+    str  xzr, [x0]                 // STATE = interpret
+    // Unwind nested INCLUDE/EVALUATE frames (end_include restores host cwd).
+_ea_unwind:
+    adrp x0, source_id_var@page
+    add  x0, x0, source_id_var@pageoff
+    ldr  x0, [x0]
+    cmp  x0, #0
+    b.le 1f
+    adrp x0, end_include_hook@page
+    add  x0, x0, end_include_hook@pageoff
+    ldr  x9, [x0]
+    cbz  x9, 1f
+    blr  x9
+1:
+    bl   _pop_source               // x0=1 restored outer, 0 = already base
+    cbnz x0, _ea_unwind
+    // Base SOURCE only: pin >IN to end so no further tokens this evaluate.
     adrp x0, source_len@page
-    add x0, x0, source_len@pageoff
-    ldr x0, [x0]
+    add  x0, x0, source_len@pageoff
+    ldr  x0, [x0]
     adrp x1, to_in_var@page
-    add x1, x1, to_in_var@pageoff
-    str x0, [x1]
+    add  x1, x1, to_in_var@pageoff
+    str  x0, [x1]
     adrp x0, source_addr@page
-    add x0, x0, source_addr@pageoff
-    ldr x0, [x0]
+    add  x0, x0, source_addr@pageoff
+    ldr  x0, [x0]
     adrp x1, source_len@page
-    add x1, x1, source_len@pageoff
-    ldr x1, [x1]
-    add x0, x0, x1
+    add  x1, x1, source_len@pageoff
+    ldr  x1, [x1]
+    add  x0, x0, x1
     adrp x1, word_cursor@page
-    add x1, x1, word_cursor@pageoff
-    str x0, [x1]
-    b _interpret_empty
+    add  x1, x1, word_cursor@pageoff
+    str  x0, [x1]
+    // Finish this evaluate (print ok / return to host). Do *not* re-enter
+    // the interpret loop on a restored outer line.
+    b    _interpret_done
 
 // End of current SOURCE: pop nested source (INCLUDE/EVALUATE) or finish line
 _interpret_empty:
@@ -8694,16 +8771,17 @@ _interpret_empty:
 _interpret_done:
     // First completion is bootstrap (forth_init_str); fence user WORDS after that.
     bl   _record_words_user_base_once
-    // Print " ok\n" (host emit hook when set)
+    // " ok\n" is a terminal QUIT-loop convention only — not part of ANS EVALUATE
+    // or kernel_eval. Embed host prints its own prompt (ok(n)>) after each line.
+    adrp x0, embed_mode@page
+    add  x0, x0, embed_mode@pageoff
+    ldr  x0, [x0]
+    cbnz x0, _embed_finish         // embed: no ok
     adrp x0, str_ok@page
     add  x0, x0, str_ok@pageoff
     mov  x1, #4
     bl   _write_stdout
-    adrp x0, embed_mode@page
-    add  x0, x0, embed_mode@pageoff
-    ldr  x0, [x0]
-    cbnz x0, _embed_finish
-    b _quit_loop
+    b    _quit_loop
 
 _quit_exit:
     // Print "Bye!\n"
@@ -8779,7 +8857,8 @@ _file_echo_upto_cursor:
     csel x0, x1, x0, lo
     cmp x0, x2
     csel x0, x2, x0, hi
-    // Lookahead: skip whitespace to next token (or end)
+    // Lookahead: skip whitespace to next token (or end).
+    // Include CR (13) so CRLF blank lines are not treated as tokens.
 1:
     cmp x0, x2
     b.hs 2f
@@ -8787,16 +8866,18 @@ _file_echo_upto_cursor:
     cbz w3, 2f
     cmp w3, #32
     b.eq 3f
+    cmp w3, #9
+    b.eq 3f
     cmp w3, #10
     b.eq 3f
-    cmp w3, #9
+    cmp w3, #13
     b.eq 3f
     b 2f                           // non-ws: target found
 3:
     add x0, x0, #1
     b 1b
 2:
-    // x0 = target (next token or end). Find end of that line.
+    // x0 = target (next token or end). Find end of that line (LF or CR).
     mov x3, x0                     // x3 = line_end scan
 4:
     cmp x3, x2
@@ -8805,13 +8886,15 @@ _file_echo_upto_cursor:
     cbz w4, 5f
     cmp w4, #10
     b.eq 5f
+    cmp w4, #13
+    b.eq 5f
     add x3, x3, #1
     b 4b
 5:
-    // x1 = pos (file_echo_pos), clamp into SOURCE
+    // x0 = file_echo_pos, clamp into SOURCE; x3 = line_end (on CR/LF or EOF)
     adrp x4, file_echo_pos@page
     add x4, x4, file_echo_pos@pageoff
-    ldr x0, [x4]                   // x0 = pos (reuse x0; target no longer needed)
+    ldr x0, [x4]
     adrp x1, source_addr@page
     add x1, x1, source_addr@pageoff
     ldr x1, [x1]
@@ -8822,43 +8905,41 @@ _file_echo_upto_cursor:
     // if pos >= line_end, already echoed through this line
     cmp x0, x3
     b.hs _fe_done
-    // write [pos, line_end) via emit_hook (not raw write(1) — embed UI never
-    // sees SVC stdout, which produced a screen full of blank newlines only).
-    // x0=pos, x3=line_end; _write_stdout clobbers caller-saved regs.
+    // write [pos, line_end) via emit_hook — line text only, no CR/LF
     mov x1, x3
-    subs x1, x1, x0                // len = line_end - pos; x0 = buf
+    subs x1, x1, x0                // len = line_end - pos
     b.eq 6f
-    str x3, [sp, #-16]!            // keep line_end
-    bl  _write_stdout              // x0=buf, x1=len → host emit_hook
+    str x3, [sp, #-16]!
+    bl  _write_stdout              // x0=buf, x1=len
     ldr x3, [sp], #16
 6:
-    // Advance file_echo_pos *before* bl _putchar: the Swift emit_hook clobbers
-    // all caller-saved regs (x0–x18), so storing x3 after bl left garbage and
-    // the next word re-echoed the whole file from SOURCE start (massive dup).
-    adrp x0, source_addr@page
-    add x0, x0, source_addr@pageoff
-    ldr x0, [x0]
-    adrp x1, source_len@page
-    add x1, x1, source_len@pageoff
-    ldr x1, [x1]
-    add x0, x0, x1                 // source end
-    cmp x3, x0
-    b.hs 7f
-    ldrb w1, [x3]
-    cmp w1, #10
-    b.ne 7f
-    add x1, x3, #1                 // next pos = past \n
+    // Advance past the source terminator (LF, CR, or CRLF), then emit one
+    // console LF. Leaving pos on CR (old bug) made the next echo write that
+    // CR into the output → extra blank / carriage return on comment lines.
+    // Advance *before* putchar: Swift emit_hook clobbers x0–x18.
+    mov x1, x3                     // candidate next pos
+    cmp x3, x2
+    b.hs 8f                        // already at EOF
+    ldrb w0, [x3]
+    cmp w0, #10
+    b.eq 7f                        // bare LF
+    cmp w0, #13
+    b.ne 8f                        // not a newline (shouldn't happen)
+    // CR: step past it; if CRLF, also step past LF
+    add x1, x3, #1
+    cmp x1, x2
+    b.hs 8f
+    ldrb w0, [x1]
+    cmp w0, #10
+    b.ne 8f
+    add x1, x1, #1
+    b 8f
+7:
+    add x1, x3, #1                 // past LF
+8:
     adrp x4, file_echo_pos@page
     add x4, x4, file_echo_pos@pageoff
     str x1, [x4]
-    mov x0, #10
-    bl _putchar
-    b _fe_done
-7:
-    // No trailing newline in source (last line): print one for the console
-    adrp x4, file_echo_pos@page
-    add x4, x4, file_echo_pos@pageoff
-    str x3, [x4]                   // next pos = line_end (EOF)
     mov x0, #10
     bl _putchar
 _fe_done:
@@ -9870,6 +9951,9 @@ _rl_null:
 
 // _next_word: parse next word -> x0=addr of word_scratch, x1=length (0=done)
 // Stops at SOURCE end (not only NUL) so EVALUATE substrings work.
+// Whitespace: space, tab, LF (10), CR (13) — so Unix LF, classic Mac CR,
+// and Windows CRLF all work. (CR was missing from skip/scan; CRLF files then
+// treated bare CR / empty lines as one-character names → "undefined".)
 _next_word:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -9888,9 +9972,11 @@ _nw_skip:
     cbz w0, _nw_eof
     cmp w0, #32
     b.eq _nw_adv
+    cmp w0, #9
+    b.eq _nw_adv
     cmp w0, #10
     b.eq _nw_adv
-    cmp w0, #9
+    cmp w0, #13
     b.eq _nw_adv
     b _nw_start
 _nw_adv:
@@ -9906,9 +9992,11 @@ _nw_scan:
     cbz w0, _nw_got
     cmp w0, #32
     b.eq _nw_got
+    cmp w0, #9
+    b.eq _nw_got
     cmp w0, #10
     b.eq _nw_got
-    cmp w0, #9
+    cmp w0, #13
     b.eq _nw_got
     add x19, x19, #1
     b _nw_scan
@@ -9921,6 +10009,7 @@ _nw_got:
     // PARSE-NAME. Hayes prelimtest relies on this: after `+!` in
     // `1 >IN +! xSOURCE`, >IN must point at `x` so `1 >IN +!` skips it.
     // Leaving >IN *on* the blank made `1 >IN +!` land on `x` → xSOURCE.
+    // If delimiter is CR of a CRLF pair, also consume the following LF.
     cmp x19, x21
     b.hs _nw_copy_prep
     ldrb w0, [x19]
@@ -9932,6 +10021,13 @@ _nw_got:
     cmp w0, #10
     b.eq _nw_cons
     cmp w0, #13
+    b.ne _nw_copy_prep
+    // CR: consume it; if next is LF (CRLF), consume that too
+    add x19, x19, #1
+    cmp x19, x21
+    b.hs _nw_copy_prep
+    ldrb w0, [x19]
+    cmp w0, #10
     b.ne _nw_copy_prep
 _nw_cons:
     add x19, x19, #1
@@ -10789,12 +10885,17 @@ forth_init_str:
     // FLAGS: low32 NFA_OFF, bits32-62 HFA_OFF, bit63 IMM
     .ascii "DOC\" NFA ( xt -- nfa ) name field address\" "
     .ascii ": NFA DUP >FLAGS @ 4294967295 AND - ; "
+    // Classic F-PC / Win32Forth: >NAME ( cfa -- nfa ); same as NFA here (nt = CFA).
+    .ascii "DOC\" >NAME ( xt -- nfa ) name field address (classic synonym for NFA)\" "
+    .ascii ": >NAME NFA ; "
+    .ascii "DOC\" >NFA ( xt -- nfa ) synonym for >NAME / NFA\" "
+    .ascii ": >NFA NFA ; "
     .ascii "DOC\" HFA ( xt -- hfa ) help field address\" "
     .ascii ": HFA DUP >FLAGS @ 32 RSHIFT 2147483647 AND - ; "
     .ascii "DOC\" NAME>STRING ( nt -- c-addr u ) copy name token name to buffer (valid until next NAME>STRING)\" "
     .ascii ": NAME>STRING NFA COUNT ; "
-    .ascii "DOC\" NAME>HELP ( xt -- c-addr u ) help string\" "
-    .ascii ": NAME>HELP HFA COUNT ; "
+    .ascii "DOC\" >HELP ( xt -- hfa ) help string\" "
+    .ascii ": >HELP HFA ; "
     // Early DOCOL? so tools work even if later forth_init aborts
     .ascii "DOC\" DOCOL? ( xt -- flag ) true if colon definition\" "
     .ascii ": DOCOL? @ DOCOL-ADDR = ; "
@@ -10937,7 +11038,7 @@ forth_init_str:
     .ascii ": ENDCASE ?COMP POSTPONE DROP BEGIN DUP WHILE 1- >R POSTPONE THEN R> REPEAT DROP ; IMMEDIATE "
 
     // --- 5. Tools / extensions ---
-    // WORDS is CODE (XWORDS). DOCOL? defined early after NAME>HELP (may redefine here).
+    // WORDS is CODE (XWORDS). DOCOL? defined early after >HELP (may redefine here).
     .ascii "DOC\" DOCOL? ( xt -- flag ) true if colon definition\" "
     .ascii ": DOCOL? @ DOCOL-ADDR = ; "
     // SEE: walk colon body; skip inline data after LIT, (S"), BRANCH, 0BRANCH,
@@ -10954,7 +11055,7 @@ forth_init_str:
     .ascii "DOC\" (SEE-BR?) ( xt -- flag ) SEE helper: branch/loop xt?\" "
     .ascii ": (SEE-BR?) >R R@ BRANCH-ADDR = R@ 0BRANCH-ADDR = OR R@ ['] (LOOP) = OR R@ ['] (+LOOP) = OR R> DROP ; "
     .ascii "DOC\" (SEE-HDR) ( xt -- xt ) print C/colon tag, help or name, CR\" "
-    .ascii ": (SEE-HDR) DUP DOCOL? IF 58 EMIT SPACE ELSE 67 EMIT 79 EMIT 68 EMIT 69 EMIT SPACE THEN DUP NAME>HELP DUP IF TYPE ELSE 2DROP DUP NAME>STRING TYPE THEN CR ; "
+    .ascii ": (SEE-HDR) DUP DOCOL? IF 58 EMIT SPACE ELSE 67 EMIT 79 EMIT 68 EMIT 69 EMIT SPACE THEN DUP >HELP COUNT DUP IF TYPE ELSE 2DROP DUP NAME>STRING TYPE THEN CR ; "
     .ascii "DOC\" (SEE-PRIM) ( xt -- ) print (primitive) for non-colon\" "
     .ascii ": (SEE-PRIM) DROP 40 EMIT 112 EMIT 114 EMIT 105 EMIT 109 EMIT 105 EMIT 116 EMIT 105 EMIT 118 EMIT 101 EMIT 41 EMIT CR ; "
     .ascii "DOC\" (SEE-STEP) ( addr -- addr' ) decompile one body cell; advances addr\" "

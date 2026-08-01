@@ -8,8 +8,11 @@
 //
 
 import SwiftUI
+#if os(macOS)
 import AppKit
+#endif
 
+#if os(macOS)
 final class SixtyFourForthAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
@@ -28,10 +31,13 @@ final class SixtyFourForthAppDelegate: NSObject, NSApplicationDelegate {
         return .terminateNow
     }
 }
+#endif
 
 @main
 struct SixtyFourForthApp: App {
+    #if os(macOS)
     @NSApplicationDelegateAdaptor(SixtyFourForthAppDelegate.self) private var appDelegate
+    #endif
 
     var body: some Scene {
         WindowGroup {

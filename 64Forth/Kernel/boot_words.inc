@@ -76,6 +76,7 @@ boot_word_table:
     BOOT_WORD "(SZ-CLR-APP-QUIT)", "(SZ-CLR-APP-QUIT) ( -- ) cancel pending app quit after editor close", 0, XSZ_CLR_APP_QUIT
     BOOT_WORD "PAGE", "PAGE ( -- ) clear facility terminal and home cursor", 0, XPAGE
     BOOT_WORD "AT-XY", "AT-XY ( u1 u2 -- ) facility cursor to column u1 row u2 (0-based)", 0, XAT_XY
+    BOOT_WORD "AT-XY?", "AT-XY? ( -- col row ) facility cursor position (0-based)", 0, XAT_XY_Q
     BOOT_WORD "TERMINAL-REFRESH", "TERMINAL-REFRESH ( -- ) paint facility terminal to host console", 0, XTERM_REFRESH
     BOOT_WORD "FACILITY-OFF", "FACILITY-OFF ( -- ) leave facility terminal mode", 0, XFACILITY_OFF
     BOOT_WORD "(FACILITY-SIZE)", "(FACILITY-SIZE) ( cols rows -- ) resize facility terminal grid", 0, XFACILITY_SIZE
