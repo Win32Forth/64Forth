@@ -2299,13 +2299,24 @@ _swl_zero:
 XTICK:
     bl _next_word
     cbz x1, _tick_fail
-    bl _find_word
-    cbz x0, _tick_fail
+    // Save name before _find_word (on fail it clears x0/x1).
+    stp  x0, x1, [sp, #-16]!
+    bl   _find_word
+    ldp  x2, x3, [sp], #16         // addr, len
+    cbz  x0, 1f
     DPUSH
-    mov x20, x0                 // CFA
+    mov  x20, x0                   // CFA
     NEXT
+1:
+    mov  x0, x2
+    mov  x1, x3
+    bl   _capture_undef_name
+    b    _undefined_word
 _tick_fail:
-    // word_scratch still holds the failed name (NUL-terminated by _next_word).
+    // No name token (EOF)
+    mov  x0, #0
+    mov  x1, #0
+    bl   _capture_undef_name
     b    _undefined_word
 
 // EXECUTE ( xt -- )  xt = CFA
@@ -5086,9 +5097,11 @@ XBRACKET_TICK:
     // Compile mode: compile LIT + entry address
     stp x19, x20, [sp, #-16]!
     bl _next_word
-    cbz x1, _bracket_tick_fail
+    cbz x1, _bracket_tick_fail_pop
+    stp x0, x1, [sp, #-16]!        // save name before find clobbers x1
     bl _find_word
-    cbz x0, _bracket_tick_fail
+    ldp x2, x3, [sp], #16
+    cbz x0, 1f
     // x0 = entry address
     mov x19, x0
     // Compile LIT entry address
@@ -5101,19 +5114,37 @@ XBRACKET_TICK:
     bl _compile_cell
     ldp x19, x20, [sp], #16
     NEXT
+1:
+    mov x0, x2
+    mov x1, x3
+    bl _capture_undef_name
+    ldp x19, x20, [sp], #16
+    b _undefined_word
 
 _bracket_tick_interpret:
     // Interpret mode: parse word and push entry address
     bl _next_word
     cbz x1, _bracket_tick_fail
+    stp x0, x1, [sp, #-16]!
     bl _find_word
-    cbz x0, _bracket_tick_fail
+    ldp x2, x3, [sp], #16
+    cbz x0, 1f
     // x0 = entry address
     DPUSH
     mov x20, x0
     NEXT
+1:
+    mov x0, x2
+    mov x1, x3
+    bl _capture_undef_name
+    b _undefined_word
 
+_bracket_tick_fail_pop:
+    ldp x19, x20, [sp], #16
 _bracket_tick_fail:
+    mov  x0, #0
+    mov  x1, #0
+    bl   _capture_undef_name
     b    _undefined_word
 
 // LIT-ADDR ( -- addr ) push dict_lit entry address
@@ -8623,8 +8654,13 @@ _compile_entry:
 
 // FIND missed — only then try number (with optional #/$/% base prefix).
 _try_number_after_find:
+    // Snapshot the token now (addr/len still on rstack). Later float host /
+    // WORD / FILE-ECHO must not change what we report as undefined.
     ldr  x1, [x23]                 // len
     ldr  x0, [x23, #8]             // addr
+    bl   _capture_undef_name
+    ldr  x1, [x23]
+    ldr  x0, [x23, #8]
     bl   _parse_number
     cbz  x0, _try_charlit
 
@@ -8646,6 +8682,8 @@ _try_number_after_find:
 
 // Undefined word: ANS system exception -13 when CATCH is active; otherwise
 // print "undefined: name" and abandon the rest of SOURCE (soft fault).
+// Name comes from undef_name_buf (captured at FIND miss / ' fail), not a
+// possibly-stale word_scratch after float parse or FILE-ECHO.
 _undefined_word:
     adrp x7, throw_handler@page
     add  x7, x7, throw_handler@pageoff
@@ -8657,18 +8695,59 @@ _undef_print_abandon:
     bl   _report_undefined
     b    _error_abandon
 
-// _report_undefined: print "undefined: <word_scratch>\n" via host emit_hook
-// (raw svc write never appears in the SwiftUI console). word_scratch must be
-// the failed name, NUL-terminated (_next_word always does this).
+// _capture_undef_name: x0=addr, x1=len — snapshot failed token for reporting.
+// Clamps to 255 chars; always NUL-terminates undef_name_buf.
+_capture_undef_name:
+    stp  x29, x30, [sp, #-16]!
+    mov  x29, sp
+    stp  x19, x20, [sp, #-16]!
+    mov  x19, x0                   // src
+    mov  x20, x1                   // len
+    cmp  x20, #255
+    b.ls 1f
+    mov  x20, #255
+1:
+    adrp x0, undef_name_len@page
+    add  x0, x0, undef_name_len@pageoff
+    str  x20, [x0]
+    adrp x2, undef_name_buf@page
+    add  x2, x2, undef_name_buf@pageoff
+    mov  x3, #0
+    cbz  x19, 3f
+2:
+    cmp  x3, x20
+    b.hs 3f
+    ldrb w4, [x19, x3]
+    strb w4, [x2, x3]
+    add  x3, x3, #1
+    b    2b
+3:
+    strb wzr, [x2, x3]             // NUL
+    ldp  x19, x20, [sp], #16
+    ldp  x29, x30, [sp], #16
+    ret
+
+// _report_undefined: print "undefined: <name>\n" via host emit (length-accurate).
 _report_undefined:
     stp  x29, x30, [sp, #-16]!
     adrp x0, str_undefined@page
     add  x0, x0, str_undefined@pageoff
     mov  x1, #11                   // "undefined: "
     bl   _write_stdout
+    adrp x0, undef_name_len@page
+    add  x0, x0, undef_name_len@pageoff
+    ldr  x1, [x0]
+    adrp x0, undef_name_buf@page
+    add  x0, x0, undef_name_buf@pageoff
+    cbz  x1, 1f
+    bl   _write_stdout             // exact len — no leftover from longer prior tokens
+    b    2f
+1:
+    // Fallback: C-string in word_scratch (legacy paths)
     adrp x0, word_scratch@page
     add  x0, x0, word_scratch@pageoff
     bl   _print_string_svc
+2:
     mov  x0, #10
     bl   _putchar
     ldp  x29, x30, [sp], #16
@@ -10570,6 +10649,8 @@ input_buffer:   .skip 1024
 .equ FILE_BUFFER_MAX, 262144       // 256 KiB
 file_buffer:    .skip FILE_BUFFER_MAX
 word_scratch:   .skip 512          // paths for INCLUDE / FLOAD (was 64)
+undef_name_buf: .skip 256          // failed token snapshot for "undefined: name"
+undef_name_len: .quad 0
 tty_termios_save: .skip 80
 tty_termios_raw:  .skip 80
 tty_raw_active:   .quad 0

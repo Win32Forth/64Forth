@@ -37,9 +37,9 @@ CREATE TMPBUF 128 ALLOT
                 \ SP0 @ HERE - 300 - ;
                 UNUSED 1000 - ;
 
-: ?DS:          ?CS:    ;
-: DS:!          DROP    ;
-: DS:->SS:              ;
+\ : ?DS:          ?CS:    ;
+\ : DS:!          DROP    ;
+\ : DS:->SS:              ;
 : INIT-CURSOR           ;
 : dos_to_tib            ;
 : SETUP_MEMORY          ;
@@ -126,7 +126,7 @@ variable ?got_dir               \ did we make a directory file properly
 : >err_color    ( -- )
                 err_color attrib ! ;
 
-: ?capslock     ( --- f1 ) 0 $417 c@l $40 and 0<> ;
+: ?capslock     ( --- f1 ) 0 ;  \ 0 $417 c@l $40 and 0<> ; \ disable for now
 
 : color_init    ( -- )          \ init for color or monochrome
                 ?vmode 7 <>

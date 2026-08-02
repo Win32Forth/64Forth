@@ -65,7 +65,9 @@ line editor in special ways.
 
 only forth also hidden definitions also
 
-defer >edattrib ' >attrib3 is >edattrib \ trailing edit attribute is 3
+: noop ;
+
+defer >edattrib ' noop is >edattrib \ trailing edit attribute is noop
 
 true     value stripping_bl's           \ are we stripping trailing blanks?
 false    value autoclear                \ automatically clear line if first
@@ -85,7 +87,7 @@ defer ledbutton ' noop     is ledbutton
 
 132 constant maxedit
     variable editbuf maxedit 2+ allot           \ our edit buffer,
-             editbuf off                        \ 132 characters max
+           0  editbuf c!                        \ 132 characters max
 
 : .ecursor      ( --- )                         \ show the cursor
                 ex ecursor + COLS 1- min ey at ;
@@ -233,9 +235,10 @@ defer doldel    ' <doldel> is doldel
                 then    ;
 
 : doany        ( --- )                         \ handle any character entry
-                graphchar       ( -- <c1> f1 )
-                if      <ichar>
-                then    ;
+\                graphchar       ( -- <c1> f1 )
+\                if      <ichar>
+\                then
+                ;
 
 : ?control     ( --- )                         \ handle control characters
                 lchar   bl <
@@ -253,18 +256,29 @@ defer doldel    ' <doldel> is doldel
                         noop    noop    noop    noop
                 then    ;
 
-: funcarray     ( n1 | <name> --- )     \ create an X array initialized to
-                                        \ NOOP functions
-                >r create
-                xhere paragraph + dup xdpseg ! xseg @ - , xdp off
-                r> 0
-                ?do     ['] noop x,
-                loop    does> @ +XSEG swap 2* @L execute ;
+\ 64Forth CREATE/DOES>: does_ip @ CFA+8, user PFA (first ,) @ CFA+16.
+\ DOES> pushes PFA then runs the fragment. Array of xts is contiguous at PFA.
+\ F-PC FUNCARRAY stored a segment base as the first cell and used @ +XSEG —
+\ that layout is wrong here and caused memory-fault exceptions via @ of a
+\ small absolute address (index*CELL).
+
+: FUNCARRAY     ( n1 'name' )   \ create an array initialized to NOOP functions
+                CREATE  0
+                ?DO     ['] NOOP ,
+                LOOP    DOES>  ( n -- )  SWAP CELLS + @ EXECUTE ;
+
+\ : funcarray     ( n1 | <name> --- )     \ create an X array initialized to
+\                                        \ NOOP functions
+\                >r create
+\                xhere paragraph + dup xdpseg ! xseg @ - , xdp off
+\                r> 0
+\                ?do     ['] noop x,
+\                loop    does> @ +XSEG swap 2* @L execute ;
 
 128 funcarray keyfuncs1
 128 funcarray keyfuncs2
 
-' keyfuncs1 value keysfuncptr           \ default to table1
+' keyfuncs1 value keysfuncptr           \ default to table1 (holds xt)
 
 : >keys1        ( --- )
                 ['] keyfuncs1 is keysfuncptr ;
@@ -274,16 +288,17 @@ defer doldel    ' <doldel> is doldel
 
                                         \ for keys in the range 128 to 255
 : lkey!         ( a1 n1 --- )           \ store key function CFA a1 into
-                                        \ leuvalue n1 of the KEYFUNCS array
+                                        \ keyvalue n1 of the KEYFUNCS array
                 128 - dup 0< over 127 > or
                 abort" keys must be in the range 128 to 255"
-                2* keysfuncptr >body @ +XSEG swap !L ;
+                \ keysfuncptr = xt; body data starts at >BODY CELL+ (CFA+16)
+                CELLS keysfuncptr >BODY CELL+ + ! ;
 
 : lkey@         ( n1 --- a1 )           \ fetch the function CFA a1 of
                                         \ keyvalue n1 from the KEYFUNCS array
                 128 - dup 0< over 127 > or
                 abort" keys must be in the range 128 to 255"
-                2* keysfuncptr >body @ +XSEG swap @L ;
+                CELLS keysfuncptr >BODY CELL+ + @ ;
 
 : ?func        ( --- )                         \ handle function keys
                 lchar   127 >
@@ -340,7 +355,9 @@ forth definitions
                 ['] <equit> save!> equit
                 off> ecursor
                 insertmode off
-                ['] noop save!> doLF
+                \ Host KEY normalizes Return to LF (10). F-PC used CR (13)=doret
+                \ and often ignored LF; map LF to save/exit so Enter finishes.
+                ['] <edone> save!> doLF
                 save> keysfuncptr
                 >keys2
                 <ledit>
@@ -385,15 +402,14 @@ forth definitions
 
 only forth also definitions
 
-\s
 
 only forth also definitions hidden also
 
 variable samplebuffer 128 allot
 
 : sample        ( --- )
-                " Zimmer, Harold" ">$
-                samplebuffer over c@ 1+ cmove
+\               " Zimmer, Harold" ">$ samplebuffer over c@ 1+ cmove
+                S" Zimmer, Harold" samplebuffer PLACE
                 on> autoclear
                 27 04 samplebuffer 24 lineeditor drop ;
 

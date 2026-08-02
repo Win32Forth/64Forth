@@ -126,8 +126,7 @@ pagebytes lowpages *    /nostack1
 \ position of the defined fields!
 \ ----------------------------------------------------------------------
 
-0       /nostack1               \ don't give a stack depth error here
-        2 field@ >page#@        \ physical block number         2 bytes
+0       2 field@ >page#@        \ physical block number         2 bytes
         2 field@ >bytes@        \ length of text in page        2 bytes
         2 field@ >lines@        \ Lines in this page            2 byte
 constant b/rec                  \ bytes in a page record
@@ -136,8 +135,7 @@ constant b/rec                  \ bytes in a page record
                                                 \ we can support in 64k
                                                 \ of page record memory
 
-0       /nostack1               \ don't give a stack depth error here
-        2 field! >page#!        \ physical block number         2 bytes
+0       2 field! >page#!        \ physical block number         2 bytes
         2 field! >bytes!        \ length of text in page        2 bytes
         2 field! >lines!        \ Lines in this page            2 byte
 constant b/rec2                 \ bytes in a page record
@@ -151,44 +149,14 @@ constant b/rec2                 \ bytes in a page record
 : recsbytes     ( -- n1 )       \ total bytes in page records
                 maxpages b/rec * ;
 
-\ : dofield@    ( n1 a1 -- n2 )
-\               @ swap b/rec * + recseg& swap @L ;
+: dofield@    ( n1 a1 -- n2 )
+              @ swap b/rec * + recseg& swap @L ;
 
                                 \ a1 = pointer to the field offset word value
-code dofield@   ( n1 a1 -- n2 ) \ return field value n2 of record n1
-                mov cx, 0 [bx]          \ get the field offset word
-                load_bx
-                mov ax, # b/rec         \ multiply n1 by "b/rec"
-                mul bx
-                mov bx, ax              \ result to BX
-                add bx, cx              \ then add field offset
-                mov cx, &> recseg&      \ base segment of records array
-                mov dx, ds              \ save the data segment
-                mov ds, cx              \ set to the records segment
-                mov bx, 0 [bx]          \ fetch a word from segment
-                mov ds, dx              \ restore the data segment
-                ret             end-code
-
-\ : dofield!    ( n1 n1 a1 -- )
-\               @ swap b/rec * + recseg& swap !L ;
+: dofield!    ( n1 n1 a1 -- )
+              @ swap b/rec * + recseg& swap !L ;
 
                                 \ a1 = pointer to the field offset word value
-code dofield!   ( n1 n2 a1 -- ) \ store n1 to field a1 @ of record n2
-                mov cx, 0 [bx]          \ get the field offset word
-                load_bx
-                mov ax, # b/rec         \ multiply n1 by "b/rec"
-                mul bx
-                mov bx, ax              \ result to BX
-                add bx, cx              \ then add field offset
-                lodsw                   \ get value to store
-                mov cx, &> recseg&      \ base segment of records array
-                mov dx, ds              \ save the data segment
-                mov ds, cx              \ set to the records segment
-                mov 0 [bx], ax          \ store a word to segment
-                mov ds, dx              \ restore the data segment
-                load_bx
-                ret             end-code
-
 : set-page-records ( n1 -- )    \ adjust the number of page records for file
                 maxpages 4 - 0max totpages > ?exit  \ only if we need space
                                                     \ ***** EXITS HERE *****
@@ -383,7 +351,7 @@ create vedtime  [forth] gettime [target] , ,
 : -pageslen!    ( n1 -- )       \ subtract bytes n1 from PAGESLEN
                 pageslen swap - 0max !> pageslen ;
 
-M: +pageslen!   ( n1 -- )       \ add bytes n1 to PAGESLEN
+: +pageslen!    ( n1 -- )       \ add bytes n1 to PAGESLEN
                 +!> pageslen ;
 
 : swapposition  ( n1 -- )       \ position to record n1 in SWAP file
@@ -565,7 +533,7 @@ create dots ,"         "        \ fill character for blank lines
                 then    ." ³"
                 r> attrib !
                 dup 0=
-        [long]  if      >end
+                if      >end
                         cols #out @ - 1- 0max 8 /mod 0
                         ?do  dots count type loop
                         dots 1+ swap type .lineend
@@ -574,7 +542,7 @@ create dots ,"         "        \ fill character for blank lines
                 listscroll !> coltotal
                 2dup $0D scan 2dup 2>r nip -            \ parse line - CRLF
                 extabs                                  \ expanding tabs??
- [long] if      begin   2dup 9 scan dup                 \ look for tab
+        if      begin   2dup 9 scan dup                 \ look for tab
                 while   2dup 2>r                        \ save remainder
                         nip - adj&clip type             \ output preceeding
                         #out @ 1- listscroll coltotal - +
@@ -734,7 +702,7 @@ create dots ,"         "        \ fill character for blank lines
                                         \ ***** EXITS HERE *****
                 linebuffer count
                 begin   9 scan dup
-        [long]  while   over bl swap c!         \ change to a blank
+                while   over bl swap c!         \ change to a blank
                         1 /string 2dup          \ step past tab
                         linebuffer c@ over -    \ calculate text position
                         tabsize @ mod tabsize @ swap -
@@ -1331,7 +1299,7 @@ create dots ,"         "        \ fill character for blank lines
 
 : past_gotoline ( d1 -- d1 )
                 calculating?
-        [long]  if      24 1 at >hilight2
+                if      24 1 at >hilight2
                         ."  One moment counting lines..  Press: ESC to stop "
                         >hilight veeol
                         begin   -1 !> calccnt
@@ -1347,7 +1315,7 @@ create gotobuf ," 0" 14 allot
 : %goto         ( -- )          \ goto line in gotobuf
                 $2020 gotobuf count 2dup upper + !
                 gotobuf number?
-        [long]  if      1. d- 0. dmax           \ 0ne lower than entered
+                if      1. d- 0. dmax           \ 0ne lower than entered
                         past_gotoline
                         totines 2@ 1. d- dmin 2dup
                         totines 2@ 1. d- d=    \ limited to last line
@@ -1358,7 +1326,7 @@ create gotobuf ," 0" 14 allot
                         then
                         0.0
                         totpages 0
-        [long]          ?do     i >lines@ 0 d+ 2over 2over 1. d+ d<
+                        ?do     i >lines@ 0 d+ 2over 2over 1. d+ d<
                                 if      i >lines@ 0 d-     \ remove lines
                                         2dup curline 2!    \ set cur line
                                         d- drop i gotoline \ go there
@@ -1477,7 +1445,7 @@ create gotobuf ," 0" 14 allot
                 orighndl savehndl hrename drop          \ make it BAK
                 " _TEMP.$$1" ">$ savehndl $>handle      \ temp nameset
                 savehndl orighndl hrename               \ temp to name
-        [long]  if      >hilight
+                if      >hilight
                         16 10 64 15 box&fill
                         ."  The filename specified could not be created!"
                         bcr
@@ -1496,7 +1464,7 @@ create gotobuf ," 0" 14 allot
 
 : ?.full        ( -- )
                 ?full
-        [long]  if      dopage
+                if      dopage
                         savecursor cursor-off
                         >hilight
                         19 4 61 11 box&fill
@@ -1757,7 +1725,7 @@ create gotobuf ," 0" 14 allot
                     !> lastmem
                 9 6 at ." Cutting text pages " page1# u.
                 pageed  page1# =                        \ if on last page
-        [long]  if      page1fill                       \ read the first page
+                if      page1fill                       \ read the first page
                         pages& offseted +               \ write end page
                         pages&
                         page1len offseted - 0max dup>r cmove
@@ -1768,8 +1736,8 @@ create gotobuf ," 0" 14 allot
                         pagessave
                         dtotbytes 2@ offseted 0 d- dtotbytes 2!
                         adjust-pages
-        [long]  else    pagest  page1# =                \ if on first page
-        [long]          if      page1fill               \ read the first page
+                else    pagest  page1# =                \ if on first page
+                        if      page1fill               \ read the first page
                                 dtotbytes 2@ page1len offsetst - 0 d-
                                 dtotbytes 2!
                                 offsetst page1# >bytes!
@@ -1778,7 +1746,7 @@ create gotobuf ," 0" 14 allot
                                 on> updateflg           \ set page update flg
                                 pagessave
                                 adjust-pages
-        [long]          else    dtotbytes 2@ page1# >bytes@ 0 d- dtotbytes 2!
+                        else    dtotbytes 2@ page1# >bytes@ 0 d- dtotbytes 2!
                                 0 page1# >bytes!        \ cut a middle page
                                 totines  2@ page1# >lines@ 0 d- totines 2!
                                 0 page1# >lines!
@@ -1801,7 +1769,7 @@ create gotobuf ," 0" 14 allot
                 if      pageed 1+ pagest        \ copy text
                         ?do     i cutpage
                         loop                    \ loop for all pages
-        [long]  else    pagest !> page1#
+                else    pagest !> page1#
                         pagest !> lastmem
                         page1fill
                         pages& offseted +               \ start
