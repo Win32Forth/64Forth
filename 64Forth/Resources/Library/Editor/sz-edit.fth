@@ -11,7 +11,9 @@
 \   Ctrl-Home / Cmd-Home   start of file
 \   Ctrl-End  / Cmd-End    end of file
 \   PgUp / PgDn     page up / down
-\   mouse click     move cursor to cell (Phase 4a, host key 25)
+\   mouse click     move cursor; select word under click
+\   Cmd-click       range-select from prior click through this word → clipboard
+\   Cmd-X/C/V       cut / copy / paste (paste at word end if caret in a word)
 \   Cmd-E           VIEW word under cursor; Cmd-PgUp returns here
 \   Cmd-PgUp/PgDn   previous/next Hyper hit
 \   Cmd-Left/Right  prev/next occurrence of word under cursor (same file)
@@ -29,11 +31,14 @@ DECIMAL
   6 CONSTANT SZ-RIGHT          \ → arrow (host)
   8 CONSTANT SZ-BS
  10 CONSTANT SZ-LF-KEY
+ 11 CONSTANT SZ-CUT            \ Cmd-X
  13 CONSTANT SZ-ENTER
  14 CONSTANT SZ-DOWN           \ ↓ arrow (host)
+ 15 CONSTANT SZ-PASTE          \ Cmd-V
  16 CONSTANT SZ-UP             \ ↑ arrow (host)
  17 CONSTANT SZ-CTRL-Q
  19 CONSTANT SZ-CTRL-S
+ 22 CONSTANT SZ-COPY           \ Cmd-C
  23 CONSTANT SZ-PGUP
  24 CONSTANT SZ-PGDN
  28 CONSTANT SZ-HOME-FILE      \ Ctrl-Home / Cmd-Home
@@ -351,10 +356,17 @@ VARIABLE SZ-PAGE-N
 VARIABLE SZ-MOUSE-XT
 0 SZ-MOUSE-XT !
 
-\ Facility mouse click → buffer cursor (Phase 4a).
-\ Host delivers key 25 then (SZ-CLICK) yields facility col/row (0-based).
-: SZ-DO-MOUSE  ( -- )
-   (SZ-CLICK) 0= IF  2DROP EXIT  THEN          \ col row
+\ Selection / clipboard state (byte addresses into SZ-TBUF; end exclusive).
+VARIABLE SZ-ANCHOR-BEG                 \ last plain-click range start
+VARIABLE SZ-ANCHOR-END
+VARIABLE SZ-SEL-BEG                    \ active multi-word selection
+VARIABLE SZ-SEL-END
+VARIABLE SZ-SEL-OK                     \ nonzero if SZ-SEL-* is a real range
+VARIABLE SZ-CLICK-EXTEND               \ last click was ⌘-click range-extend (host flag)
+
+\ Host click flag: bit0=valid, bit1=Command (range-extend).  ( -- col row flag )
+\ Place caret from facility col/row (shared by plain and ⌘-clicks).
+: SZ-MOUSE-PLACE  ( col row -- )
    \ Ignore chrome (status / borders / help)
    DUP SZ-TEXT-TOP < IF  2DROP EXIT  THEN
    DUP SZ-TEXT-BOT @ > IF  2DROP EXIT  THEN
@@ -364,16 +376,21 @@ VARIABLE SZ-MOUSE-XT
    SZ-HCOL @ +                                 \ row buf-col
    SWAP                                        \ buf-col row
    SZ-TEXT-TOP -                               \ buf-col text-row (0-based)
-   \ Target 1-based line = line# of SZ-TOP + text-row
    SZ-TOP @ SZ-HOST-LINE-NO +                  \ buf-col line#
-   SZ-GOTO-LINE                                \ buf-col  (GOTO resets PREF/HCOL)
-   \ Place caret on that line at buf-col (clamped to line length)
+   SZ-GOTO-LINE
    SZ-CUR-LINE SZ-PARSE-LINE NIP               \ buf-col len
    MIN 0 MAX
    SZ-CUR-LINE + SZ-CUR !
    SZ-REMEMBER-COL
    SZ-ENSURE-HVISIBLE
-   \ Debug: capture word under new caret for status bar
+;
+
+\ Facility mouse click → buffer cursor (Phase 4a).
+\ Host key 25 then (SZ-CLICK) → col row flag (1=plain, 3=⌘-click range).
+: SZ-DO-MOUSE  ( -- )
+   (SZ-CLICK) DUP 0= IF  DROP 2DROP EXIT  THEN
+   2 AND SZ-CLICK-EXTEND !                     \ ⌘-extend bit
+   SZ-MOUSE-PLACE
    SZ-MOUSE-XT @ ?DUP IF  EXECUTE  THEN
 ;
 
@@ -490,7 +507,158 @@ VARIABLE SZ-WORD-END                   \ exclusive end of word under cursor
    DUP 0= IF  2DROP EXIT  THEN
    >R SZ-SEL-WORD 1+ R> CMOVE
 ;
-' SZ-UPDATE-SEL-WORD SZ-MOUSE-XT !
+
+\ Word or point range at current CUR → ( beg end ).  Point if no word.
+: SZ-RANGE-AT-CUR  ( -- beg end )
+   SZ-WORD-AT-CUR DUP IF
+      2DROP SZ-WORD-BEG @ SZ-WORD-END @
+   ELSE
+      2DROP SZ-CUR @ DUP
+   THEN
+;
+
+\ Show first 16 bytes of [beg,end) in Selected: status.
+: SZ-SHOW-RANGE-SEL  ( beg end -- )
+   2DUP U> IF  SWAP  THEN                  \ beg end
+   OVER - 0 MAX 16 MIN                     \ beg u
+   DUP SZ-SEL-WORD C!
+   DUP IF  >R SZ-SEL-WORD 1+ R@ CMOVE R> DROP  ELSE  2DROP  THEN
+;
+
+\ Internal clip (also synced to host/system pasteboard via (SZ-CLIP!)).
+65536 CONSTANT SZ-CLIP-MAX
+CREATE SZ-CLIP  SZ-CLIP-MAX ALLOT
+VARIABLE SZ-CLIP-U
+0 SZ-CLIP-U !
+
+: SZ-CLIP-STORE  ( beg end -- )
+   2DUP U> IF  SWAP  THEN                  \ beg end
+   OVER - 0 MAX SZ-CLIP-MAX MIN            \ beg u
+   DUP SZ-CLIP-U !
+   DUP IF  >R SZ-CLIP R@ CMOVE R> DROP  ELSE  2DROP  THEN
+   SZ-CLIP SZ-CLIP-U @ (SZ-CLIP!)
+;
+
+: SZ-SET-ANCHOR-FROM-CUR  ( -- )
+   SZ-RANGE-AT-CUR SZ-ANCHOR-END ! SZ-ANCHOR-BEG !
+;
+
+: SZ-PLAIN-CLICK  ( -- )
+   0 SZ-SEL-OK !
+   SZ-SET-ANCHOR-FROM-CUR
+   SZ-UPDATE-SEL-WORD
+;
+
+\ ⌘-click: select from prior anchor through this word; copy to clipboard.
+: SZ-RANGE-CLICK  ( -- )
+   SZ-RANGE-AT-CUR                         \ tb te
+   SZ-ANCHOR-BEG @ SZ-TBUF U< IF           \ no prior plain click
+      2DUP
+   ELSE
+      SZ-ANCHOR-BEG @                      \ tb te ab
+      ROT MIN                              \ te lo
+      SWAP                                 \ lo te
+      SZ-ANCHOR-END @ MAX                  \ lo hi
+      2DUP
+   THEN
+   SZ-SEL-END ! SZ-SEL-BEG !
+   -1 SZ-SEL-OK !
+   SZ-SEL-BEG @ SZ-SEL-END @
+   2DUP SZ-CLIP-STORE
+   SZ-SHOW-RANGE-SEL
+   S" copied" SZ-FIND-SET-STAT
+;
+
+: SZ-AFTER-MOUSE  ( -- )
+   SZ-CLICK-EXTEND @ IF  SZ-RANGE-CLICK  ELSE  SZ-PLAIN-CLICK  THEN
+;
+' SZ-AFTER-MOUSE SZ-MOUSE-XT !
+
+VARIABLE SZ-DR-BEG
+VARIABLE SZ-DR-END
+VARIABLE SZ-DR-N
+
+\ Remove [beg,end); end exclusive. Adjust CUR and TOP.
+: SZ-DELETE-RANGE  ( beg end -- )
+   2DUP U> IF  SWAP  THEN
+   2DUP = IF  2DROP EXIT  THEN
+   OVER SZ-TBUF U< IF  NIP SZ-TBUF SWAP  THEN
+   DUP SZ-TEND U> IF  DROP SZ-TEND  THEN
+   DUP SZ-DR-END !
+   OVER SZ-DR-BEG !
+   SWAP - SZ-DR-N !                        \ n = end - beg
+   SZ-TEND SZ-DR-END @ -                   \ tail
+   DUP 0> IF
+      SZ-DR-END @ SZ-DR-BEG @ ROT MOVE     \ src dest u
+   ELSE  DROP  THEN
+   SZ-DR-N @ NEGATE SZ-TLEN +!
+   SZ-TLEN @ 0< IF  0 SZ-TLEN !  THEN
+   SZ-CUR @ SZ-DR-END @ U< 0= IF
+      SZ-CUR @ SZ-DR-N @ - SZ-CUR !
+   ELSE
+      SZ-CUR @ SZ-DR-BEG @ U< 0= IF  SZ-DR-BEG @ SZ-CUR !  THEN
+   THEN
+   SZ-TOP @ SZ-DR-END @ U< 0= IF
+      SZ-TOP @ SZ-DR-N @ - SZ-TOP !
+   ELSE
+      SZ-TOP @ SZ-DR-BEG @ U< 0= IF  SZ-DR-BEG @ SZ-TOP !  THEN
+   THEN
+   SZ-TOP @ SZ-TBUF U< IF  SZ-TBUF SZ-TOP !  THEN
+   SZ-TOUCH
+;
+
+\ If CUR is inside a word, move to end of that word (paste target).
+: SZ-PASTE-POINT  ( -- )
+   SZ-WORD-AT-CUR DUP IF
+      2DROP SZ-WORD-END @ SZ-CUR !
+   ELSE  2DROP  THEN
+;
+
+\ Insert u bytes from addr at SZ-CUR (raw, may include CRLF).
+: SZ-INSERT-BYTES  ( addr u -- )
+   DUP 0= IF  2DROP EXIT  THEN
+   DUP SZ-OPEN-HOLE 0= IF  2DROP EXIT  THEN
+   >R SZ-CUR @ R@ CMOVE
+   R@ SZ-CUR +!
+   R> DROP
+   SZ-REMEMBER-COL
+   SZ-TOUCH
+;
+
+: SZ-DO-COPY  ( -- )
+   SZ-SEL-OK @ 0= IF
+      \ no multi-select: copy word under cursor if any
+      SZ-RANGE-AT-CUR 2DUP = IF  2DROP S" no sel" SZ-FIND-SET-STAT EXIT  THEN
+      2DUP SZ-SEL-END ! SZ-SEL-BEG !  -1 SZ-SEL-OK !
+   THEN
+   SZ-SEL-BEG @ SZ-SEL-END @
+   2DUP SZ-CLIP-STORE
+   SZ-SHOW-RANGE-SEL
+   S" copied" SZ-FIND-SET-STAT
+;
+
+: SZ-DO-CUT  ( -- )
+   SZ-SEL-OK @ 0= IF
+      SZ-RANGE-AT-CUR 2DUP = IF  2DROP S" no sel" SZ-FIND-SET-STAT EXIT  THEN
+      2DUP SZ-SEL-END ! SZ-SEL-BEG !  -1 SZ-SEL-OK !
+   THEN
+   SZ-SEL-BEG @ SZ-SEL-END @
+   2DUP SZ-CLIP-STORE
+   2DUP SZ-SHOW-RANGE-SEL
+   SZ-DELETE-RANGE
+   0 SZ-SEL-OK !
+   S" cut" SZ-FIND-SET-STAT
+;
+
+: SZ-DO-PASTE  ( -- )
+   SZ-CLIP SZ-CLIP-MAX (SZ-CLIP@)          \ u from host (live pasteboard)
+   DUP 0= IF  DROP S" empty" SZ-FIND-SET-STAT EXIT  THEN
+   SZ-CLIP-MAX MIN DUP SZ-CLIP-U !
+   SZ-PASTE-POINT
+   SZ-CLIP SWAP                            \ c-addr u
+   SZ-INSERT-BYTES
+   S" pasted" SZ-FIND-SET-STAT
+;
 
 \ Cmd-E in editor: VIEW word under cursor (Hyper); stays in this edit session.
 : SZ-DO-VIEW-UNDER  ( -- )
@@ -606,6 +774,9 @@ VARIABLE SZ-WORD-END                   \ exclusive end of word under cursor
    255 AND
    DUP SZ-CTRL-Q = IF  DROP SZ-DO-QUIT EXIT  THEN
    DUP SZ-CTRL-S = IF  DROP SZ-DO-SAVE EXIT  THEN
+   DUP SZ-CUT = IF  DROP SZ-DO-CUT EXIT  THEN
+   DUP SZ-COPY = IF  DROP SZ-DO-COPY EXIT  THEN
+   DUP SZ-PASTE = IF  DROP SZ-DO-PASTE EXIT  THEN
    DUP SZ-VIEW-UNDER = IF  DROP SZ-DO-VIEW-UNDER EXIT  THEN
    DUP SZ-FIND-PREV = IF  DROP SZ-DO-FIND-PREV EXIT  THEN
    DUP SZ-FIND-NEXT = IF  DROP SZ-DO-FIND-NEXT EXIT  THEN

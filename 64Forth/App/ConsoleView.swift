@@ -34,6 +34,10 @@ extension Notification.Name {
     /// SZ-EDITOR: ⌘← / ⌘→ — prev/next occurrence of word under cursor (same file).
     static let editorFindPrev = Notification.Name("SixtyFourForthEditorFindPrev")
     static let editorFindNext = Notification.Name("SixtyFourForthEditorFindNext")
+    /// SZ-EDITOR: ⌘X / ⌘C / ⌘V
+    static let editorCut = Notification.Name("SixtyFourForthEditorCut")
+    static let editorCopy = Notification.Name("SixtyFourForthEditorCopy")
+    static let editorPaste = Notification.Name("SixtyFourForthEditorPaste")
     /// SZ-EDITOR / idle: ⌘PgUp / ⌘PgDn — Hyper prev/next hit.
     static let hyperPrev = Notification.Name("SixtyFourForthHyperPrev")
     static let hyperNext = Notification.Name("SixtyFourForthHyperNext")
@@ -183,6 +187,15 @@ struct ConsoleView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .editorFindNext)) { _ in
                 handleEditorFind(prev: false)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .editorCut)) { _ in
+                _ = kernel.pushEditorClipboardKey("x")
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .editorCopy)) { _ in
+                _ = kernel.pushEditorClipboardKey("c")
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .editorPaste)) { _ in
+                _ = kernel.pushEditorClipboardKey("v")
             }
             .onReceive(NotificationCenter.default.publisher(for: .hyperPrev)) { _ in
                 handleHyperNav(prev: true)

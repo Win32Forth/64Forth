@@ -473,6 +473,8 @@ XAT_XY:
 // Not ANSI DSR — works with the SwiftUI cell grid console.
 .extern _host_facility_xy
 .extern _host_sz_click
+.extern _host_sz_clip_set
+.extern _host_sz_clip_get
 
     BOOT_WORD "AT-XY?", "AT-XY? ( -- col row ) facility cursor position (0-based)", 0, XAT_XY_Q
 XAT_XY_Q:
@@ -520,6 +522,28 @@ XSZ_CLICK:
     mov  x20, x2                   // row
     str  x20, [x22, #-8]!
     mov  x20, x3                   // flag TOS
+    NEXT
+
+// (SZ-CLIP!) ( c-addr u -- )  push bytes to host/system clipboard
+    BOOT_WORD "(SZ-CLIP!)", "(SZ-CLIP!) ( c-addr u -- ) set host clipboard", 0, XSZ_CLIP_STORE
+XSZ_CLIP_STORE:
+    mov  x1, x20                   // u
+    ldr  x0, [x22], #8             // c-addr
+    ldr  x20, [x22], #8
+    SAVE_VM
+    bl   _host_sz_clip_set
+    RESTORE_VM
+    NEXT
+
+// (SZ-CLIP@) ( c-addr max -- u )  copy host clipboard into buffer
+    BOOT_WORD "(SZ-CLIP@)", "(SZ-CLIP@) ( c-addr max -- u ) fetch host clipboard", 0, XSZ_CLIP_FETCH
+XSZ_CLIP_FETCH:
+    mov  x1, x20                   // max
+    ldr  x0, [x22], #8             // c-addr
+    SAVE_VM
+    bl   _host_sz_clip_get         // x0 = length
+    RESTORE_VM
+    mov  x20, x0
     NEXT
 
 // TERMINAL-REFRESH ( -- )

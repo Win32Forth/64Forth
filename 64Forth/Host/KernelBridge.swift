@@ -479,13 +479,26 @@ public func host_facility_xy(
 }
 
 /// (SZ-CLICK) — last mouse click in facility grid (Phase 4a). Clears pending.
-/// Returns 1 if a click was pending; fills col/row (0-based facility cells).
+/// Returns 0 if none; else bit0=1 valid, bit1=1 if Command held (range-select).
+/// Fills col/row (0-based facility cells).
 @_cdecl("host_sz_click")
 public func host_sz_click(
     _ colOut: UnsafeMutablePointer<Int64>?,
     _ rowOut: UnsafeMutablePointer<Int64>?
 ) -> Int32 {
     KernelBridge.shared.takeFacilityClick(colOut: colOut, rowOut: rowOut)
+}
+
+/// (SZ-CLIP!) ( c-addr u -- ) set host/system clipboard from Forth bytes.
+@_cdecl("host_sz_clip_set")
+public func host_sz_clip_set(_ ptr: UnsafeRawPointer?, _ len: Int) {
+    KernelBridge.shared.setEditorClipboard(ptr: ptr, length: len)
+}
+
+/// (SZ-CLIP@) copy host clipboard into buffer; returns length written (≤ max).
+@_cdecl("host_sz_clip_get")
+public func host_sz_clip_get(_ ptr: UnsafeMutableRawPointer?, _ maxLen: Int) -> Int {
+    KernelBridge.shared.getEditorClipboard(into: ptr, maxLength: maxLen)
 }
 
 // MARK: - Bridge
@@ -529,10 +542,15 @@ final class KernelBridge {
     /// Pending facility mouse click (col, row), set from ConsoleTextView.
     private var pendingClickCol = 0
     private var pendingClickRow = 0
+    private var pendingClickExtend = false
     private var pendingClick = false
 
+    /// Editor clipboard mirrored to NSPasteboard (UTF-8 text).
+    private var editorClipboard = Data()
+
     /// Map a UTF-16 index in the console document to facility col/row and queue SZ-MOUSE.
-    func reportFacilityClick(utf16Index: Int) {
+    /// - Parameter extend: ⌘-click → range select (flag bit1 in (SZ-CLICK)).
+    func reportFacilityClick(utf16Index: Int, extend: Bool = false) {
         guard isFacilityTerminalActive, isEvaluating else { return }
         let prefixLen = (facilityPaintPrefix as NSString).length
         guard utf16Index >= prefixLen else { return }
@@ -548,13 +566,14 @@ final class KernelBridge {
         lock.lock()
         pendingClickCol = col
         pendingClickRow = row
+        pendingClickExtend = extend
         pendingClick = true
         lock.unlock()
         // 25 = SZ-MOUSE in sz-edit.fth
         pushKey(25)
     }
 
-    /// Consume pending click for (SZ-CLICK). Returns 1 if valid.
+    /// Consume pending click for (SZ-CLICK). Returns 0, or 1, or 3 (1|2 = ⌘-extend).
     fileprivate func takeFacilityClick(
         colOut: UnsafeMutablePointer<Int64>?,
         rowOut: UnsafeMutablePointer<Int64>?
@@ -568,8 +587,53 @@ final class KernelBridge {
         }
         colOut?.pointee = Int64(pendingClickCol)
         rowOut?.pointee = Int64(pendingClickRow)
+        let extend = pendingClickExtend
         pendingClick = false
-        return 1
+        pendingClickExtend = false
+        return extend ? 3 : 1
+    }
+
+    func setEditorClipboard(ptr: UnsafeRawPointer?, length: Int) {
+        let n = max(0, length)
+        if let ptr, n > 0 {
+            editorClipboard = Data(bytes: ptr, count: n)
+        } else {
+            editorClipboard = Data()
+        }
+        #if os(macOS)
+        let s = String(data: editorClipboard, encoding: .utf8)
+            ?? String(data: editorClipboard, encoding: .isoLatin1)
+            ?? ""
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(s, forType: .string)
+        #endif
+    }
+
+    func getEditorClipboard(into ptr: UnsafeMutableRawPointer?, maxLength: Int) -> Int {
+        #if os(macOS)
+        // Prefer live pasteboard so external Cmd+C works with Cmd+V in editor.
+        if let s = NSPasteboard.general.string(forType: .string) {
+            editorClipboard = Data(s.utf8)
+        }
+        #endif
+        let n = min(max(0, maxLength), editorClipboard.count)
+        if n > 0, let ptr {
+            editorClipboard.copyBytes(to: ptr.assumingMemoryBound(to: UInt8.self), count: n)
+        }
+        return n
+    }
+
+    /// ⌘X / ⌘C / ⌘V while SZ-EDITOR KEY is waiting.
+    @discardableResult
+    func pushEditorClipboardKey(_ which: String) -> Bool {
+        guard isEvaluating, isFacilityTerminalActive else { return false }
+        switch which {
+        case "x": return pushKey(11)  // SZ-CUT
+        case "c": return pushKey(22)  // SZ-COPY
+        case "v": return pushKey(15)  // SZ-PASTE
+        default: return false
+        }
     }
     var facilityCursorCol: Int { FacilityTerminal.shared.cursorCol }
     var facilityCursorRow: Int { FacilityTerminal.shared.cursorRow }
@@ -872,6 +936,7 @@ final class KernelBridge {
             if pgDn { return 27 }
             if home { return 28 }
             if end { return 29 }
+            // ⌘X / ⌘C / ⌘V handled via characters path (not special keys)
         }
         // Plain navigation (no command)
         if !cmd && !opt {
@@ -1022,6 +1087,11 @@ final class KernelBridge {
                     self.pushKey(mods.contains(.shift) ? 20 : 21)
                     return nil
                 }
+                // ⌘X / ⌘C / ⌘V — cut / copy / paste in SZ-EDITOR
+                if active && facilityOn, !mods.contains(.shift),
+                   ch == "x" || ch == "c" || ch == "v" {
+                    if self.pushEditorClipboardKey(ch) { return nil }
+                }
             }
 
             guard active else { return event }
@@ -1046,6 +1116,9 @@ final class KernelBridge {
                         self.requestQuitAppAfterEditorClose()
                         self.pushKey(17)
                         return nil
+                    }
+                    if ch == "x" || ch == "c" || ch == "v" {
+                        if self.pushEditorClipboardKey(ch) { return nil }
                     }
                     switch event.keyCode {
                     case 115: // Home

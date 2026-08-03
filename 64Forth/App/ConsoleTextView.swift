@@ -16,15 +16,32 @@ import AppKit
 
 /// NSTextView that reports mouse clicks in facility/SZ-EDITOR mode (Phase 4a).
 final class ConsoleNSTextView: NSTextView {
-    var onFacilityClick: ((Int) -> Void)?
-
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if KernelBridge.shared.consumeEditorHotKeyIfNeeded(event) { return true }
+        // ⌘X/C/V while SZ-EDITOR is open (menu may not claim them during KEY wait).
+        if KernelBridge.shared.isEvaluating, KernelBridge.shared.isFacilityTerminalActive {
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if mods.contains(.command), !mods.contains(.shift) {
+                let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
+                if ch == "x" || ch == "c" || ch == "v" {
+                    if KernelBridge.shared.pushEditorClipboardKey(ch) { return true }
+                }
+            }
+        }
         return super.performKeyEquivalent(with: event)
     }
 
     override func keyDown(with event: NSEvent) {
         if KernelBridge.shared.consumeEditorHotKeyIfNeeded(event) { return }
+        if KernelBridge.shared.isEvaluating, KernelBridge.shared.isFacilityTerminalActive {
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if mods.contains(.command), !mods.contains(.shift) {
+                let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
+                if ch == "x" || ch == "c" || ch == "v" {
+                    if KernelBridge.shared.pushEditorClipboardKey(ch) { return }
+                }
+            }
+        }
         super.keyDown(with: event)
     }
 
@@ -33,7 +50,9 @@ final class ConsoleNSTextView: NSTextView {
             let pt = convert(event.locationInWindow, from: nil)
             // characterIndexForInsertion(at:) is reliable for monospaced facility paint.
             let idx = characterIndexForInsertion(at: pt)
-            onFacilityClick?(idx)
+            // ⌘-click = range select (not ⌃-click — macOS maps Control-click to context menu).
+            let extend = event.modifierFlags.contains(.command)
+            KernelBridge.shared.reportFacilityClick(utf16Index: idx, extend: extend)
             // Keep focus; do not change the document selection into the paint grid.
             window?.makeFirstResponder(self)
             return
@@ -98,9 +117,6 @@ struct ConsoleTextView: NSViewRepresentable {
         textView.backgroundColor = .textBackgroundColor
         textView.drawsBackground = true
         textView.string = text
-        textView.onFacilityClick = { idx in
-            KernelBridge.shared.reportFacilityClick(utf16Index: idx)
-        }
         let end = (text as NSString).length
         textView.setSelectedRange(NSRange(location: end, length: 0))
 
