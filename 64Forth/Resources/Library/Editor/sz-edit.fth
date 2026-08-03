@@ -219,6 +219,59 @@ VARIABLE SZ-DONE
    SZ-CLAMP-CUR
 ;
 
+\ True if caret can move to a later *line* (not merely EOL on the last line).
+: SZ-CUR-CAN-DOWN?  ( -- flag )
+   SZ-CUR @ SZ-TEND = IF  0 EXIT  THEN
+   SZ-CUR-LINE DUP SZ-NEXT-LINE            \ ls nx
+   2DUP = IF  2DROP 0 EXIT  THEN
+   NIP
+   DUP SZ-TEND = IF
+      SZ-FILE-ENDS-EOL 0= IF  DROP 0 EXIT  THEN
+   THEN
+   DROP -1
+;
+
+\ Start of the last logical line (TEND if file ends with EOL → empty append line).
+: SZ-LAST-LS  ( -- addr )
+   SZ-TLEN @ 0= IF  SZ-TBUF EXIT  THEN
+   SZ-FILE-ENDS-EOL IF  SZ-TEND EXIT  THEN
+   SZ-TEND 1- SZ-LINE-START
+;
+
+\ Wheel only when the file is taller than the text window.
+: SZ-WHEEL-SCROLLABLE?  ( -- flag )
+   SZ-LINE-COUNT SZ-TEXT-ROWS >
+;
+
+\ True if advancing TOP still keeps the last line at/below the bottom row —
+\ i.e. last line is still lower than the bottom, so one more line of scroll is OK.
+\ When last line is already on the bottom row (or higher), do not scroll further:
+\ keep the last line as low on screen as possible.
+: SZ-TOP-CAN-DOWN?  ( -- flag )
+   SZ-WHEEL-SCROLLABLE? 0= IF  0 EXIT  THEN
+   SZ-TOP @ SZ-LAST-LS SZ-LINE-STEPS
+   SZ-TEXT-ROWS 1- >
+;
+
+\ Wheel: move SZ-TOP and SZ-CUR together so the caret stays on the same screen
+\ row while text scrolls under it. No scroll if the file fits in the window.
+\ Stop at BOF; stop scroll-down when the last line sits on the bottom row.
+: SZ-SCROLL-UP  ( -- )
+   SZ-WHEEL-SCROLLABLE? 0= IF  EXIT  THEN
+   SZ-CUR-LINE SZ-TBUF = IF  EXIT  THEN    \ caret already at first line
+   SZ-TOP @ SZ-TBUF = IF  EXIT  THEN       \ view already at start
+   SZ-TOP @ SZ-PREV-LINE SZ-TOP !
+   SZ-GO-UP
+;
+
+: SZ-SCROLL-DOWN  ( -- )
+   SZ-WHEEL-SCROLLABLE? 0= IF  EXIT  THEN
+   SZ-TOP-CAN-DOWN? 0= IF  EXIT  THEN      \ last line already as low as possible
+   SZ-CUR-CAN-DOWN? 0= IF  EXIT  THEN
+   SZ-TOP @ SZ-NEXT-LINE SZ-TOP !
+   SZ-GO-DOWN
+;
+
 : SZ-GO-HOME-LINE  ( -- )
    SZ-CUR-LINE SZ-CUR !
    0 SZ-HCOL !
@@ -1005,10 +1058,9 @@ VARIABLE SZ-DR-N
    SZ-EDITOR-LEAVE
    FACILITY-OFF
    CLS
-   \ Empty the data stack. ANS: DEPTH WHILE consumes the count as flag, then
-   \ DROP removes one real cell. Do NOT use "DEPTH n ?DO DROP" — when depth is
-   \ 0, ?DO's equal-skip path underflows (pops a non-existent cell).
-   BEGIN  DEPTH WHILE  DROP  REPEAT
+   \ Reset data stack without probing DSP. BEGIN DEPTH WHILE DROP can crash in
+   \ DEPTH if a prior underflow left DSP past SP0 (SP0 is also return_stack[0]).
+   CLEARSTACK
    ." SZ-EDITOR: done" CR
    SZ-MODIFIED @ IF  ." warning: buffer still modified" CR  THEN
    SZ-.INFO

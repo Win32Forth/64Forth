@@ -2296,14 +2296,29 @@ XBranch:
 
     BOOT_WORD "0BRANCH", "0BRANCH ( -- ) internal: branch if zero", 0, X0Branch
 X0Branch:
-    cbz x20, _0br_true
-    ldr x20, [x22], #8
-    add x19, x19, #8
+    // Pop under safely: if DSP is already at/above SP0, do not load from
+    // return_stack (SP0 == &return_stack[0] on this layout).
+    adrp x1, data_stack@page
+    add  x1, x1, data_stack@pageoff
+    add  x1, x1, #4096             // SP0
+    cbz  x20, _0br_true
+    cmp  x22, x1
+    b.hs 1f
+    ldr  x20, [x22], #8
+    b    2f
+1:  mov  x20, #0
+    mov  x22, x1
+2:  add  x19, x19, #8
     NEXT
 _0br_true:
-    ldr x20, [x22], #8
-    ldr x0, [x19]
-    add x19, x19, x0
+    cmp  x22, x1
+    b.hs 3f
+    ldr  x20, [x22], #8
+    b    4f
+3:  mov  x20, #0
+    mov  x22, x1
+4:  ldr  x0, [x19]
+    add  x19, x19, x0
     NEXT
 
     BOOT_WORD "LIT", "LIT ( -- n ) internal: literal value", 0, XLit
@@ -6613,27 +6628,61 @@ _gmm_fail:
 //   the result, then push the count with a single store of old TOS.
 //
 //   Algorithm: n = (SP0 - DSP) >> 3;  push old TOS;  TOS = n.
+//
+//   If DSP is outside [data_stack, SP0] (prior underflow/overflow), repair to
+//   empty first. Empty SP0 == &return_stack[0]; an underflewed DSP that DEPTH
+//   pushed through would scribble on the return stack or fault.
 
     BOOT_WORD "DEPTH", "DEPTH ( -- +n ) data stack depth in cells", 0, XDEPTH
 XDEPTH:
-    adrp x0, data_stack@page
-    add  x0, x0, data_stack@pageoff
-    add  x0, x0, #4096             // SP0
+    adrp x1, data_stack@page
+    add  x1, x1, data_stack@pageoff
+    add  x0, x1, #4096             // SP0
+    cmp  x22, x0
+    b.hi 1f                        // DSP > SP0 → underflewed
+    cmp  x22, x1
+    b.lo 1f                        // DSP < base → overflowed
+    b    2f
+1:
+    mov  x22, x0
+    mov  x20, #0
+2:
     sub  x0, x0, x22               // bytes under TOS (before push)
     lsr  x0, x0, #3                // cells = depth
     str  x20, [x22, #-8]!          // flush prior TOS under DSP
     mov  x20, x0                   // result becomes new TOS
     NEXT
 
+// CLEARSTACK ( -- )  reset data stack to empty without reading DSP.
+// Safe after underflow/overflow; preferred over BEGIN DEPTH WHILE DROP when
+// DSP may be corrupt (e.g. editor exit).
+
+    BOOT_WORD "CLEARSTACK", "CLEARSTACK ( -- ) empty the data stack (safe reset)", 0, XCLEARSTACK
+XCLEARSTACK:
+    adrp x22, data_stack@page
+    add  x22, x22, data_stack@pageoff
+    add  x22, x22, #4096
+    mov  x20, #0
+    NEXT
+
 // SP0 ( -- addr )  DSP value when the data stack is empty
 
     BOOT_WORD "SP0", "SP0 ( -- addr ) empty data-stack DSP", 0, XSP0
 XSP0:
-    str x20, [x22, #-8]!
-    adrp x0, data_stack@page
-    add x0, x0, data_stack@pageoff
-    add x0, x0, #4096
-    mov x20, x0
+    adrp x1, data_stack@page
+    add  x1, x1, data_stack@pageoff
+    add  x0, x1, #4096             // SP0
+    cmp  x22, x0
+    b.hi 1f
+    cmp  x22, x1
+    b.lo 1f
+    b    2f
+1:
+    mov  x22, x0
+    mov  x20, #0
+2:
+    str  x20, [x22, #-8]!
+    mov  x20, x0
     NEXT
 
 // SP@ ( -- addr )  current data-stack pointer (under-TOS cells)

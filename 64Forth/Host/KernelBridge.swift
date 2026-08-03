@@ -551,31 +551,56 @@ final class KernelBridge {
     /// Fractional line accumulator for trackpad momentum (facility scroll).
     private var facilityScrollAccum: CGFloat = 0
 
+    /// System Settings → Mouse/Trackpad → “Scroll direction: Natural”.
+    /// `true` = natural (content follows finger); default when the key is unset.
+    private var systemNaturalScrolling: Bool {
+        #if os(macOS)
+        let key = "com.apple.swipescrolldirection"
+        if let v = UserDefaults.standard.object(forKey: key) as? Bool { return v }
+        if let v = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)?[key] as? Bool {
+            return v
+        }
+        return true
+        #else
+        return true
+        #endif
+    }
+
     /// Map scroll-wheel / trackpad into SZ-EDITOR view scroll (keys 9 / 12).
     /// Does not move the caret — only SZ-TOP (see SZ-SCROLL-UP/DOWN).
+    /// Direction follows the system Natural scrolling preference via raw `deltaY`
+    /// plus `systemNaturalScrolling` (not a second invert of `scrollingDeltaY`).
     func reportFacilityScroll(_ event: NSEvent) {
         guard isFacilityTerminalActive, isEvaluating else { return }
         #if os(macOS)
-        var dy = event.scrollingDeltaY
+        // Device-oriented delta (not pre-flipped). Positive = wheel/finger “up”
+        // on the device in the traditional sense.
+        var dy = event.deltaY
         // Line-based mice report ~1 per notch; precise trackpads report points.
         if !event.hasPreciseScrollingDeltas {
             dy *= 16
         }
-        // Natural scrolling: positive scrollingDeltaY → content moves down → later lines.
-        facilityScrollAccum += dy
+        // Natural ON: flip device delta so content follows the finger (same as
+        // AppKit scrollingDeltaY). Natural OFF: keep traditional device sense.
+        if systemNaturalScrolling {
+            dy = -dy
+        }
+        // Positive dy → earlier lines (scroll “up” the file). Flipped once from
+        // an earlier mapping that felt inverted relative to Finder/TextEdit.
+        facilityScrollAccum -= dy
         let lineH: CGFloat = 14
         // Cap lines per event so KEY queue is not flooded by momentum.
         var steps = 0
         let maxSteps = 8
         while facilityScrollAccum >= lineH, steps < maxSteps {
             facilityScrollAccum -= lineH
-            // Scroll view toward end of file (later lines)
+            // View toward end of file (later lines)
             pushKey(12) // SZ-VSCROLL-DN
             steps += 1
         }
         while facilityScrollAccum <= -lineH, steps < maxSteps {
             facilityScrollAccum += lineH
-            // Scroll view toward start of file (earlier lines)
+            // View toward start of file (earlier lines)
             pushKey(9) // SZ-VSCROLL-UP
             steps += 1
         }

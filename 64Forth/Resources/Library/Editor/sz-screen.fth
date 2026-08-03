@@ -81,16 +81,10 @@ VARIABLE SZ-PREF-COL               \ sticky column for Up/Down (like most editor
 : SZ-CUR-LINE-NO  ( -- n )
    SZ-CUR @ SZ-HOST-LINE-NO ;
 
-: SZ-SCROLL-UP  ( -- )
-   SZ-TOP @ SZ-TBUF = IF  EXIT  THEN
-   SZ-TOP @ SZ-PREV-LINE SZ-TOP !
-;
-
-: SZ-SCROLL-DOWN  ( -- )
-   SZ-TOP @ SZ-NEXT-LINE
-   DUP SZ-TEND SZ-U>= IF  DROP EXIT  THEN
-   SZ-TOP !
-;
+\ Wheel scroll stubs — redefined in sz-edit.fth so TOP and CUR move together
+\ (caret stays on the same screen row; clamped at BOF/EOF).
+: SZ-SCROLL-UP    ( -- )  ;
+: SZ-SCROLL-DOWN  ( -- )  ;
 
 \ Keep HCOL coherent with the *current* line and caret.
 \ Critical: after leaving a very long scrolled line, HCOL can exceed the new

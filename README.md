@@ -53,7 +53,7 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 
 ---
 
-## Status (v0.9.0)
+## Status (v1.0.0)
 
 - [x] Project folder and design doc  
 - [x] Kernel sources copied from PickleForth (`_kernel_cold_start` entry, not `_main`)  
@@ -82,8 +82,9 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 - [x] **v0.9.6:** SZ-EDITOR same-file find (⌘←/→, ⌘G/⌘⇧G); status `Selected: "word"`; Hyper ⌘PgUp/Dn; reliable host key delivery (`ForthApplication`)
 - [x] **v0.9.7:** SZ-EDITOR line select (gutter / line-start), multi-line ⌘-click ranges, two-level line clipboard + paste before/after line
 - [x] **v0.9.8:** SZ-EDITOR two-line help (Cmd-E VIEW, etc.); mouse click no longer scrolls target to row 5
+- [x] **v1.0.0:** SZ-EDITOR wheel scroll (system Natural direction, caret stays on row, short-file / EOF clamps); hardened `DEPTH`/`SP0`/`0BRANCH` and `CLEARSTACK`; safer editor exit
 
-Optional later: line-at-a-time INCLUDE via fileid, App Sandbox for store builds, editor dual-buffer.
+Optional later: line-at-a-time INCLUDE via fileid, App Sandbox for store builds, editor dual-buffer; find residual data-stack imbalance that `CLEARSTACK` on editor exit currently covers.
 
 Open `64Forth.xcodeproj` in **full Xcode** (Apple Silicon; not Command Line Tools alone). Build the **64Forth** app target.
 
