@@ -491,9 +491,12 @@ struct ConsoleView: View {
         kernel.pushKey(17)
     }
 
-    /// Phase 5 ⌘E: VIEW the whitespace-delimited token under the console caret.
-    /// No-op if Hyper/editor missing (`HYPER-VIEW-CU` exits quietly) or no token.
+    /// Phase 5 ⌘E: VIEW word under caret (console), or inject editor key if SZ-EDITOR up.
     private func handleViewWordUnderCursor() {
+        if kernel.isEvaluating, kernel.isFacilityTerminalActive {
+            kernel.pushKey(18) // SZ-VIEW-UNDER
+            return
+        }
         guard !kernel.isEvaluating else { return }
         #if os(macOS)
         guard let tv = consoleTextView else { return }

@@ -18,6 +18,43 @@ import AppKit
 final class ConsoleNSTextView: NSTextView {
     var onFacilityClick: ((Int) -> Void)?
 
+    /// ⌘←/→ find prev/next; ⌘PgUp/Dn Hyper — push F-PC codes into KEY while SZ-EDITOR waits.
+    /// Handled here as well as the global keyDown monitor so AppKit line-start/end
+    /// bindings cannot swallow the event without delivering a Forth key.
+    private func pushSzEditorCommandKeys(_ event: NSEvent) -> Bool {
+        guard KernelBridge.shared.isEvaluating, KernelBridge.shared.isFacilityTerminalActive else {
+            return false
+        }
+        let mods = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        guard mods.contains(.command), !mods.contains(.shift) else { return false }
+        switch event.keyCode {
+        case 123: // Left
+            KernelBridge.shared.pushKey(20) // SZ-FIND-PREV
+            return true
+        case 124: // Right
+            KernelBridge.shared.pushKey(21) // SZ-FIND-NEXT
+            return true
+        case 116: // Page Up
+            KernelBridge.shared.pushKey(26) // SZ-HYPER-PREV
+            return true
+        case 121: // Page Down
+            KernelBridge.shared.pushKey(27) // SZ-HYPER-NEXT
+            return true
+        default:
+            return false
+        }
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if pushSzEditorCommandKeys(event) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if pushSzEditorCommandKeys(event) { return }
+        super.keyDown(with: event)
+    }
+
     override func mouseDown(with event: NSEvent) {
         if KernelBridge.shared.isFacilityTerminalActive, KernelBridge.shared.isEvaluating {
             let pt = convert(event.locationInWindow, from: nil)
@@ -298,6 +335,40 @@ struct ConsoleTextView: NSViewRepresentable {
             // is the reliable fallback when the text view eats the event first.
             // -----------------------------------------------------------------
             if KernelBridge.shared.isEvaluating {
+                // Prefer modifiers from the current key event (NSEvent.modifierFlags can
+                // be empty during some doCommandBy deliveries).
+                let rawMods = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+                let mods = rawMods.intersection([.command, .control, .option, .shift])
+                let cmd = mods.contains(.command) && !mods.contains(.shift)
+
+                // ⌘← / ⌘→ → in-buffer find prev/next (same file); host key 20/21
+                // AppKit maps ⌘←/→ to line-start/end selectors — steal them here as fallback.
+                if cmd {
+                    if commandSelector == #selector(NSResponder.moveLeft(_:))
+                        || commandSelector == #selector(NSResponder.moveBackward(_:))
+                        || commandSelector == #selector(NSResponder.moveToBeginningOfLine(_:))
+                        || commandSelector == #selector(NSResponder.moveToLeftEndOfLine(_:)) {
+                        parent.onKeyCharacter(20) // SZ-FIND-PREV
+                        return true
+                    }
+                    if commandSelector == #selector(NSResponder.moveRight(_:))
+                        || commandSelector == #selector(NSResponder.moveForward(_:))
+                        || commandSelector == #selector(NSResponder.moveToEndOfLine(_:))
+                        || commandSelector == #selector(NSResponder.moveToRightEndOfLine(_:)) {
+                        parent.onKeyCharacter(21) // SZ-FIND-NEXT
+                        return true
+                    }
+                    // ⌘PgUp / ⌘PgDn → Hyper prev/next (keys 26/27)
+                    if commandSelector == #selector(NSResponder.pageUp(_:)) {
+                        parent.onKeyCharacter(26) // SZ-HYPER-PREV
+                        return true
+                    }
+                    if commandSelector == #selector(NSResponder.pageDown(_:)) {
+                        parent.onKeyCharacter(27) // SZ-HYPER-NEXT
+                        return true
+                    }
+                }
+
                 // Return / Enter → LF (10); SZ-EDITOR inserts CRLF
                 if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                     parent.onKeyCharacter(10)

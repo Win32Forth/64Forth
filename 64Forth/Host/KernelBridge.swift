@@ -885,10 +885,10 @@ final class KernelBridge {
             let mods = event.modifierFlags.intersection([.control, .option, .shift, .command])
             let facilityOn = FacilityTerminal.shared.isActive
 
-            // Phase 5: Ctrl-Pg* or Cmd-Pg* → HYPER-PREV / HYPER-NEXT
-            // In SZ-EDITOR: inject keys 26/27. At idle console: evaluate.
-            if (mods.contains(.control) || mods.contains(.command))
-                && (event.keyCode == 116 || event.keyCode == 121) {
+            // Phase 5: ⌘PgUp / ⌘PgDn → HYPER-PREV / HYPER-NEXT
+            // Editor: keys 26/27; idle console: evaluate HYPER-PREV/NEXT.
+            if mods.contains(.command), !mods.contains(.shift),
+               event.keyCode == 116 || event.keyCode == 121 {
                 let prev = (event.keyCode == 116)
                 if active && facilityOn {
                     self.pushKey(prev ? 26 : 27)
@@ -900,13 +900,34 @@ final class KernelBridge {
                 }
             }
 
-            // Phase 5: ⌘E → VIEW word under console caret (only if SZ-EDITOR loaded).
-            // ⌘⇧E remains Tools → EDIT… (file panel).
-            if mods.contains(.command), !mods.contains(.shift), !facilityOn {
+            // In-buffer find: ⌘← / ⌘→ → prev/next full word under cursor (same file)
+            if mods.contains(.command), !mods.contains(.shift), active, facilityOn {
+                switch event.keyCode {
+                case 123: // Left arrow
+                    self.pushKey(20) // SZ-FIND-PREV
+                    return nil
+                case 124: // Right arrow
+                    self.pushKey(21) // SZ-FIND-NEXT
+                    return nil
+                default:
+                    break
+                }
+            }
+
+            // Phase 5: ⌘E → VIEW word under caret
+            // - Console (idle): evaluate HYPER-VIEW-CU
+            // - SZ-EDITOR (facility): key 18 → SZ-DO-VIEW-UNDER (same session)
+            if mods.contains(.command), !mods.contains(.shift) {
                 let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
                 if ch == "e" {
-                    self.viewWordUnderConsoleCursor()
-                    return nil
+                    if active && facilityOn {
+                        self.pushKey(18) // SZ-VIEW-UNDER
+                        return nil
+                    }
+                    if !active {
+                        self.viewWordUnderConsoleCursor()
+                        return nil
+                    }
                 }
             }
 
@@ -915,6 +936,7 @@ final class KernelBridge {
             // ⌘S / ⌘W / ⌘Q while facility editor is open.
             // 19 = save, 17 = close editor (S/D if dirty). ⌘Q also marks app-quit-after-close.
             // ⌘Home / ⌘End → start/end of file (Mac-friendly; same as Ctrl-Home/End).
+            // ⌘←/→ and ⌘PgUp/Dn are handled above (find / Hyper).
             if mods.contains(.command) {
                 if facilityOn {
                     let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
@@ -1053,7 +1075,7 @@ final class KernelBridge {
         }
     }
 
-    /// Phase 5: run HYPER-NEXT / HYPER-PREV from idle console (Ctrl-PgDn / Ctrl-PgUp).
+    /// Phase 5: run HYPER-NEXT / HYPER-PREV from idle console (⌘PgDn / ⌘PgUp).
     private func evaluateHyperNav(_ word: String) {
         // Avoid re-entrancy if a long evaluate is already running.
         lock.lock()

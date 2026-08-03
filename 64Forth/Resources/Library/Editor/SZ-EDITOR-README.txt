@@ -42,6 +42,9 @@ Keys while editing (SZ-KEY)
   Ctrl-Home / Ctrl-End  start / end of file  (also Cmd-Home/End, Cmd-Up/Down)
   Enter, BS, Del, printable insert
   Cmd-S / Ctrl-S save   Cmd-W / Ctrl-Q close
+  Cmd-E             VIEW word under cursor (Hyper)
+  Cmd-PgUp / Cmd-PgDn   previous / next Hyper hit
+  Cmd-Left / Cmd-Right  previous / next same-word in this file only
 
 Display
 -------

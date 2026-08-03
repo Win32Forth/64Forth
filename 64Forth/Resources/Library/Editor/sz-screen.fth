@@ -218,7 +218,7 @@ VARIABLE SZ-PAINTED
    SZ-TEXT-BOT @ 2 + SZ-BLANK-ROW
    0 SZ-TEXT-BOT @ 2 + AT-XY
    \ ASCII only (facility is a byte grid; non-ASCII used to blank the whole help row).
-   ." Cmd-S save  Cmd-W close | arrows Ctrl-Home/End Home/End PgUp/Dn BS"
+   ." Cmd-S/W close | Cmd-E VIEW | Cmd-arrows find | Cmd-Pg Hyper | Home/End"
 ;
 
 \ True if SZ-CUR lies on the logical line starting at `ls`.

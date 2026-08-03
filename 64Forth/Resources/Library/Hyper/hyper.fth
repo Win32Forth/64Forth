@@ -275,6 +275,14 @@ CREATE HYPER-HTAB  HYPER-HMAX HYPER-HESZ * ALLOT
 0 VALUE HYPER-EDIT-XT                \ SZ-EDIT-FILE-AT
 0 VALUE HYPER-GOTO-XT                \ SZ-HYPER-GOTO
 0 VALUE HYPER-ACTIVE-XT              \ SZ-EDITOR-ACTIVE variable xt
+0 VALUE HYPER-ORIGIN-XT              \ SZ-HYPER-ORIGIN
+
+\ Jump-return stack (Cmd-E origin): same entry layout as multi-hit table
+ 16 CONSTANT HYPER-JMAX
+CREATE HYPER-JTAB  HYPER-JMAX HYPER-HESZ * ALLOT
+0 VALUE HYPER-JN
+
+: HYPER-JENT  ( i -- addr )  HYPER-HESZ * HYPER-JTAB + ;
 
 : HYPER-BIND-EDITOR  ( -- flag )
    ONLY FORTH ALSO EDITOR
@@ -284,6 +292,8 @@ CREATE HYPER-HTAB  HYPER-HMAX HYPER-HESZ * ALLOT
    HYPER-CMD FIND IF  TO HYPER-GOTO-XT  ELSE  DROP 0 TO HYPER-GOTO-XT  THEN
    S" SZ-EDITOR-ACTIVE" HYPER-CMD HYPER-PLACE
    HYPER-CMD FIND IF  TO HYPER-ACTIVE-XT  ELSE  DROP 0 TO HYPER-ACTIVE-XT  THEN
+   S" SZ-HYPER-ORIGIN" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  TO HYPER-ORIGIN-XT  ELSE  DROP 0 TO HYPER-ORIGIN-XT  THEN
    ONLY FORTH
    HYPER-EDIT-XT 0<> ;
 
@@ -324,7 +334,40 @@ CREATE HYPER-HTAB  HYPER-HMAX HYPER-HESZ * ALLOT
    HYPER-EDITOR-ACTIVE? IF  EXIT  THEN
    HYPER-SHOW-HIT ;
 
-\ No wrap — stop cleanly at ends
+\ Push current editor location before Cmd-E jump (path + line).
+: HYPER-PUSH-ORIGIN  ( -- )
+   HYPER-EDITOR-ACTIVE? 0= IF  EXIT  THEN
+   HYPER-ORIGIN-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
+   HYPER-ORIGIN-XT 0= IF  EXIT  THEN
+   HYPER-JN HYPER-JMAX >= IF  EXIT  THEN
+   HYPER-ORIGIN-XT EXECUTE                   \ a u line
+   DUP 1 < IF  DROP 1  THEN >R               \ R: line  ( a u )
+   HYPER-JN HYPER-JENT >R                    \ R: line ent
+   55 MIN                                    \ a u
+   DUP R@ C!
+   R@ 1+ SWAP CMOVE                          \ copy path chars
+   R@ HYPER-HOFF +                           \ line-cell addr
+   R> DROP                                   \ drop ent; R: line
+   R> SWAP !                                 \ (addr line) → store
+   HYPER-JN 1+ TO HYPER-JN ;
+
+\ Pop origin and goto it. ( -- flag ) true if restored.
+: HYPER-POP-ORIGIN  ( -- flag )
+   HYPER-JN 0= IF  FALSE EXIT  THEN
+   HYPER-JN 1- TO HYPER-JN
+   HYPER-JN HYPER-JENT                       \ ent
+   DUP C@ 55 MIN >R                          \ ent  R: n
+   R@ HYPER-HIT C!
+   1+ HYPER-HIT 1+ R@ CMOVE
+   R> DROP
+   HYPER-JN HYPER-JENT HYPER-HOFF + @ TO HYPER-LINE#
+   HYPER-GOTO-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
+   HYPER-GOTO-XT 0= IF  FALSE EXIT  THEN
+   HYPER-HIT COUNT HYPER-LINE#
+   HYPER-GOTO-XT EXECUTE
+   TRUE ;
+
+\ Cmd-PgDn: next redefine of current name
 : HYPER-NEXT  ( -- )
    HYPER-HN 0= IF  ." HYPER: no hits" CR EXIT  THEN
    HYPER-HI 1+
@@ -337,15 +380,18 @@ CREATE HYPER-HTAB  HYPER-HMAX HYPER-HESZ * ALLOT
    HYPER-SHOW-HIT-SAFE
    HYPER-APPLY-HIT ;
 
+\ Cmd-PgUp: previous redefine, or return to Cmd-E origin
 : HYPER-PREV  ( -- )
-   HYPER-HN 0= IF  ." HYPER: no hits" CR EXIT  THEN
-   HYPER-HI 0= IF
-      HYPER-EDITOR-ACTIVE? 0= IF  ." HYPER: first hit" CR  THEN
+   HYPER-HI 0> IF
+      HYPER-HI 1- HYPER-SELECT
+      HYPER-SHOW-HIT-SAFE
+      HYPER-APPLY-HIT
       EXIT
    THEN
-   HYPER-HI 1- HYPER-SELECT
-   HYPER-SHOW-HIT-SAFE
-   HYPER-APPLY-HIT ;
+   \ On first hit (or no multi-hit): pop jump stack from Cmd-E
+   HYPER-POP-ORIGIN IF  EXIT  THEN
+   HYPER-HN 0= IF  ." HYPER: no hits" CR EXIT  THEN
+   HYPER-EDITOR-ACTIVE? 0= IF  ." HYPER: first hit" CR  THEN ;
 
 : LOCATE  ( "name" -- )
    PARSE-NAME
@@ -358,10 +404,28 @@ CREATE HYPER-HTAB  HYPER-HMAX HYPER-HESZ * ALLOT
    THEN
    HYPER-SHOW-HIT ;
 
-\ c-addr u already a name (for Cmd-E / programmatic VIEW)
-\ (HYPER-FIND) consumes c-addr u (copies into HYPER-SEEK) — do NOT 2DROP after.
+\ VIEW by name string. If SZ-EDITOR is already active, push origin then jump
+\ (Cmd-E); Cmd-PgUp returns via HYPER-POP-ORIGIN. Else open SZ-EDIT-FILE-AT.
+: HYPER-VIEW-NAME  ( c-addr u -- )
+   DUP 0= IF  2DROP EXIT  THEN
+   HYPER-EDITOR? 0= IF  2DROP EXIT  THEN
+   TRUE TO HYPER-VIEWING
+   HYPER-EDITOR-ACTIVE? IF  HYPER-PUSH-ORIGIN  THEN
+   (HYPER-FIND) 0= IF
+      \ undo push if no hit
+      HYPER-JN IF  HYPER-JN 1- TO HYPER-JN  THEN
+      HYPER-EDITOR-ACTIVE? 0= IF
+         HYPER-SEEK COUNT TYPE ."  not in HYPER.NDX" CR
+      THEN
+      EXIT
+   THEN
+   HYPER-SHOW-HIT-SAFE
+   HYPER-APPLY-HIT ;
+
+\ (VIEW) opens a session when not editing; in-editor uses HYPER-VIEW-NAME.
 : (VIEW)  ( c-addr u -- )
    DUP 0= IF  2DROP EXIT  THEN
+   HYPER-EDITOR-ACTIVE? IF  HYPER-VIEW-NAME EXIT  THEN
    TRUE TO HYPER-VIEWING
    (HYPER-FIND) 0= IF
       HYPER-OK 0= IF  ." HYPER: index not loaded" CR
@@ -378,6 +442,10 @@ CREATE HYPER-HTAB  HYPER-HMAX HYPER-HESZ * ALLOT
 
 : SEE-SOURCE  ( "name" -- )  VIEW ;
 
+\ Cmd-E (console or editor): VIEW name if editor present; silent no-op otherwise.
+: HYPER-VIEW-CU  ( c-addr u -- )
+   HYPER-VIEW-NAME ;
+
 \ SEE: prefer VIEW when editor is loaded; else original decompiler.
 ' SEE CONSTANT (SEE-OLD)
 
@@ -389,19 +457,14 @@ CREATE HYPER-HTAB  HYPER-HMAX HYPER-HESZ * ALLOT
       HYPER-EDITOR? IF
          R> DROP 2DROP
          TRUE TO HYPER-VIEWING
-         HYPER-SHOW-HIT
-         HYPER-HIT COUNT HYPER-LINE# HYPER-OPEN-AT
+         HYPER-SHOW-HIT-SAFE
+         HYPER-APPLY-HIT
          EXIT
       THEN
    THEN
    2DROP
    R> >IN !
    (SEE-OLD) EXECUTE ;
-
-\ Cmd-E / host: VIEW name if editor present; silent no-op otherwise.
-: HYPER-VIEW-CU  ( c-addr u -- )
-   HYPER-EDITOR? 0= IF  2DROP EXIT  THEN
-   (VIEW) ;
 
 : HYPER-RELOAD  ( -- )
    HYPER-LOAD IF  ." HYPER: " HYPER-NDX-NAME COUNT TYPE
@@ -422,8 +485,9 @@ CREATE HYPER-HTAB  HYPER-HMAX HYPER-HESZ * ALLOT
    ." LOCATE <name>     print path:line  [n/m] if multiple" CR
    ." VIEW <name>       open in SZ-EDITOR at line" CR
    ." SEE <name>        VIEW if editor loaded, else decompile" CR
-   ." HYPER-NEXT/PREV   next/prev hit  (Ctrl-PgDn / Ctrl-PgUp)" CR
-   ." Cmd-E             VIEW word under console caret (editor required)" CR
+   ." Cmd-PgDn/PgUp     next/prev hit; PgUp also returns from Cmd-E" CR
+   ." Cmd-Left/Right    prev/next occurrence in current editor file" CR
+   ." Cmd-E             VIEW word under caret (console or SZ-EDITOR)" CR
    ." HYPER-REINDEX     rebuild Config/HYPER.NDX, reload" CR
    ." HYPER-RELOAD  .HYPER" CR ;
 

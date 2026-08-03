@@ -1,6 +1,6 @@
 \ sz-edit.fth — SZ-EDITOR interactive loop (Phase 5 navigation)
 \
-\ Keys (Control = ⌃, not Command/Apple ⌘):
+\ Keys:
 \   printable       insert
 \   Enter           CRLF
 \   BS              backspace
@@ -8,12 +8,15 @@
 \   arrows          move (host delivers codes 2/6/14/16)
 \   Home / Ctrl-A   start of line
 \   End  / Ctrl-E   end of line
-\   Ctrl-Home       start of file
-\   Ctrl-End        end of file
+\   Ctrl-Home / Cmd-Home   start of file
+\   Ctrl-End  / Cmd-End    end of file
 \   PgUp / PgDn     page up / down
 \   mouse click     move cursor to cell (Phase 4a, host key 25)
-\   Ctrl-S          save
-\   Ctrl-Q          quit
+\   Cmd-E           VIEW word under cursor; Cmd-PgUp returns here
+\   Cmd-PgUp/PgDn   previous/next Hyper hit
+\   Cmd-Left/Right  prev/next occurrence of word under cursor (same file)
+\   Cmd-S / Ctrl-S  save
+\   Cmd-W / Ctrl-Q  quit
 \
 \ Depends on: sz-host, sz-buffer, sz-screen
 
@@ -33,11 +36,14 @@ DECIMAL
  19 CONSTANT SZ-CTRL-S
  23 CONSTANT SZ-PGUP
  24 CONSTANT SZ-PGDN
- 28 CONSTANT SZ-HOME-FILE      \ Ctrl-Home
- 29 CONSTANT SZ-END-FILE       \ Ctrl-End
+ 28 CONSTANT SZ-HOME-FILE      \ Ctrl-Home / Cmd-Home
+ 29 CONSTANT SZ-END-FILE       \ Ctrl-End / Cmd-End
+ 18 CONSTANT SZ-VIEW-UNDER     \ Cmd-E — VIEW word under cursor (Hyper)
+ 20 CONSTANT SZ-FIND-PREV      \ Cmd-Left  — prev occurrence in this buffer
+ 21 CONSTANT SZ-FIND-NEXT      \ Cmd-Right — next occurrence in this buffer
  25 CONSTANT SZ-MOUSE          \ host mouse click in facility (Phase 4a)
- 26 CONSTANT SZ-HYPER-PREV     \ Ctrl-PgUp — previous HYPER hit
- 27 CONSTANT SZ-HYPER-NEXT     \ Ctrl-PgDn — next HYPER hit
+ 26 CONSTANT SZ-HYPER-PREV     \ Cmd-PgUp — previous HYPER hit
+ 27 CONSTANT SZ-HYPER-NEXT     \ Cmd-PgDn — next HYPER hit
  30 CONSTANT SZ-CMD-OPEN       \ host File→Open while KEY waiting
  31 CONSTANT SZ-CMD-NEW        \ host File→New while KEY waiting
 127 CONSTANT SZ-DEL            \ also delete-forward (legacy)
@@ -384,7 +390,14 @@ VARIABLE SZ-PAGE-N
    TERMINAL-REFRESH
 ;
 
-\ Phase 5: Ctrl-PgUp/PgDn → HYPER-PREV / HYPER-NEXT (if Hyper module loaded).
+\ ( -- a u line ) current file path + 1-based line (for Hyper jump stack)
+: SZ-HYPER-ORIGIN  ( -- c-addr u line )
+   SZ-HAS-NAME? 0= IF  0 0 1 EXIT  THEN
+   SZ-GET-NAME
+   SZ-CUR-LINE-NO
+;
+
+\ Phase 5: Cmd-PgUp/PgDn → HYPER-PREV / HYPER-NEXT (if Hyper module loaded).
 \ ALSO FORTH so FIND sees Hyper words; PREVIOUS restores search order.
 : SZ-RUN-FORTH  ( c-addr u -- )
    ALSO FORTH
@@ -394,10 +407,164 @@ VARIABLE SZ-PAGE-N
 : SZ-DO-HYPER-PREV  ( -- )  S" HYPER-PREV" SZ-RUN-FORTH ;
 : SZ-DO-HYPER-NEXT  ( -- )  S" HYPER-NEXT" SZ-RUN-FORTH ;
 
+CREATE SZ-TOKEN  64 ALLOT
+VARIABLE SZ-WORD-BEG                   \ inclusive start of word under cursor
+VARIABLE SZ-WORD-END                   \ exclusive end of word under cursor
+
+: SZ-BLANK?  ( c -- flag )
+   DUP BL = OVER 10 = OR SWAP 13 = OR ;
+
+\ Clamp address into [SZ-TBUF, SZ-TEND].
+: SZ-CLIP-ADDR  ( addr -- addr' )
+   DUP SZ-TBUF U< IF  DROP SZ-TBUF EXIT  THEN
+   DUP SZ-TEND U> IF  DROP SZ-TEND  THEN ;
+
+\ Character to expand from when caret may be mid-word, on a blank, or at EOL:
+\ prefer non-blank at SZ-CUR; else non-blank immediately before (click past end).
+\ ( -- addr | 0 )
+: SZ-WORD-ANCHOR  ( -- addr|0 )
+   SZ-CUR @ SZ-CLIP-ADDR
+   DUP SZ-TEND SZ-U>= IF
+      DROP
+      SZ-CUR @ SZ-TBUF U> IF
+         SZ-CUR @ 1- DUP C@ SZ-BLANK? IF  DROP 0  THEN
+      ELSE  0  THEN
+      EXIT
+   THEN
+   DUP C@ SZ-BLANK? 0= IF  EXIT  THEN                 \ mid/start of word
+   \ On whitespace: use previous non-blank if any
+   DUP SZ-TBUF = IF  DROP 0 EXIT  THEN
+   1-
+   DUP C@ SZ-BLANK? IF  DROP 0 EXIT  THEN ;
+
+\ Expand anchor to full whitespace-delimited [beg,end) and copy into SZ-TOKEN.
+\ Works when SZ-CUR is anywhere inside the word (not only at its start).
+\ ( -- c-addr u )
+: SZ-WORD-AT-CUR  ( -- c-addr u )
+   0 SZ-TOKEN C!
+   SZ-TBUF SZ-WORD-BEG !
+   SZ-TBUF SZ-WORD-END !
+   SZ-WORD-ANCHOR DUP 0= IF  DROP SZ-TOKEN COUNT EXIT  THEN
+   \ walk left → inclusive start
+   BEGIN
+      DUP SZ-TBUF = IF  TRUE
+      ELSE  DUP 1- C@ SZ-BLANK? IF  TRUE
+      ELSE  1- FALSE  THEN THEN
+   UNTIL                                          \ beg
+   DUP SZ-WORD-BEG !
+   \ walk right → exclusive end
+   BEGIN
+      DUP SZ-TEND SZ-U>= IF  TRUE
+      ELSE  DUP C@ SZ-BLANK? IF  TRUE
+      ELSE  1+ FALSE  THEN THEN
+   UNTIL                                          \ end
+   DUP SZ-WORD-END !
+   SZ-WORD-BEG @ - 63 MIN                         \ len
+   DUP 0= IF  DROP SZ-TOKEN COUNT EXIT  THEN
+   DUP SZ-TOKEN C!
+   SZ-WORD-BEG @  SZ-TOKEN 1+  ROT  CMOVE
+   SZ-TOKEN COUNT ;
+
+\ Cmd-E in editor: VIEW word under cursor (Hyper); stays in this edit session.
+: SZ-DO-VIEW-UNDER  ( -- )
+   SZ-WORD-AT-CUR
+   DUP 0= IF  2DROP EXIT  THEN
+   ALSO FORTH
+   S" HYPER-VIEW-NAME" PAD PLACE
+   PAD FIND IF  EXECUTE  ELSE  DROP 2DROP  THEN
+   PREVIOUS ;
+
+\ Case-insensitive char equal
+: SZ-CH=  ( c1 c2 -- flag )
+   DUP [CHAR] a [CHAR] z 1+ WITHIN IF  32 -  THEN
+   SWAP
+   DUP [CHAR] a [CHAR] z 1+ WITHIN IF  32 -  THEN
+   = ;
+
+\ Match SZ-TOKEN at ha (case-insensitive). ( ha -- flag )
+: SZ-MATCH-AT  ( ha -- flag )
+   SZ-TOKEN C@ 0= IF  DROP FALSE EXIT  THEN
+   >R
+   0
+   BEGIN  DUP SZ-TOKEN C@ < WHILE
+      DUP SZ-TOKEN 1+ + C@              \ i  token[i]
+      OVER R@ + C@                      \ i  tc  hay[i]
+      SZ-CH= 0= IF  DROP R> DROP FALSE EXIT  THEN
+      1+
+   REPEAT
+   DROP R> DROP TRUE ;
+
+\ Whole-word: blanks (or edges) on both sides of [addr, addr+u)
+: SZ-BOUND-OK  ( addr u -- flag )
+   OVER SZ-TBUF = IF  TRUE
+   ELSE  OVER 1- C@ SZ-BLANK?  THEN
+   0= IF  2DROP FALSE EXIT  THEN
+   2DUP +                               \ addr u end
+   DUP SZ-TEND SZ-U>= IF  DROP 2DROP TRUE EXIT  THEN
+   C@ SZ-BLANK? NIP NIP ;
+
+\ ( start -- addr|0 ) next whole-word match of SZ-TOKEN at/after start
+: SZ-SEARCH-FWD  ( start -- addr|0 )
+   SZ-TOKEN C@ 0= IF  DROP 0 EXIT  THEN
+   BEGIN
+      DUP SZ-TOKEN C@ + SZ-TEND U> IF  DROP 0 EXIT  THEN
+      DUP SZ-MATCH-AT IF
+         DUP SZ-TOKEN COUNT SZ-BOUND-OK IF  EXIT  THEN
+      THEN
+      1+
+   AGAIN ;
+
+\ ( limit -- addr|0 ) previous match with start < limit
+: SZ-SEARCH-BWD  ( limit -- addr|0 )
+   SZ-TOKEN C@ 0= IF  DROP 0 EXIT  THEN
+   BEGIN
+      DUP SZ-TBUF = IF  DROP 0 EXIT  THEN
+      1-
+      DUP SZ-MATCH-AT IF
+         DUP SZ-TOKEN COUNT SZ-BOUND-OK IF  EXIT  THEN
+      THEN
+   AGAIN ;
+
+: SZ-FIND-GOTO  ( addr -- )
+   SZ-CUR !
+   SZ-REMEMBER-COL
+   SZ-ENSURE-VISIBLE
+   SZ-MSG-LINE
+   ." find " SZ-TOKEN COUNT TYPE
+   TERMINAL-REFRESH ;
+
+: SZ-FIND-NO-WORD  ( -- )
+   SZ-MSG-LINE ." find: no word under cursor" TERMINAL-REFRESH ;
+
+\ Cmd-Right: next occurrence of full word under cursor (same buffer)
+: SZ-DO-FIND-NEXT  ( -- )
+   SZ-WORD-AT-CUR DUP 0= IF  2DROP SZ-FIND-NO-WORD EXIT  THEN
+   2DROP
+   SZ-WORD-END @                             \ search after current word range
+   SZ-SEARCH-FWD
+   DUP 0= IF
+      DROP SZ-MSG-LINE ." find: no next" TERMINAL-REFRESH EXIT
+   THEN
+   SZ-FIND-GOTO ;
+
+\ Cmd-Left: previous occurrence of full word under cursor (same buffer)
+: SZ-DO-FIND-PREV  ( -- )
+   SZ-WORD-AT-CUR DUP 0= IF  2DROP SZ-FIND-NO-WORD EXIT  THEN
+   2DROP
+   SZ-WORD-BEG @                             \ search before current word range
+   SZ-SEARCH-BWD
+   DUP 0= IF
+      DROP SZ-MSG-LINE ." find: no previous" TERMINAL-REFRESH EXIT
+   THEN
+   SZ-FIND-GOTO ;
+
 : SZ-HANDLE-KEY  ( c -- )
    255 AND
-   DUP SZ-CTRL-Q = IF  DROP SZ-DO-QUIT EXIT  THEN   \ also File→Close / Cmd-W via host
-   DUP SZ-CTRL-S = IF  DROP SZ-DO-SAVE EXIT  THEN   \ also File→Save / Cmd-S via host
+   DUP SZ-CTRL-Q = IF  DROP SZ-DO-QUIT EXIT  THEN
+   DUP SZ-CTRL-S = IF  DROP SZ-DO-SAVE EXIT  THEN
+   DUP SZ-VIEW-UNDER = IF  DROP SZ-DO-VIEW-UNDER EXIT  THEN
+   DUP SZ-FIND-PREV = IF  DROP SZ-DO-FIND-PREV EXIT  THEN
+   DUP SZ-FIND-NEXT = IF  DROP SZ-DO-FIND-NEXT EXIT  THEN
    DUP SZ-MOUSE = IF  DROP SZ-DO-MOUSE EXIT  THEN
    DUP SZ-HYPER-PREV = IF  DROP SZ-DO-HYPER-PREV EXIT  THEN
    DUP SZ-HYPER-NEXT = IF  DROP SZ-DO-HYPER-NEXT EXIT  THEN

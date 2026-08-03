@@ -12,15 +12,18 @@ Commands
   VIEW <name>       Open file in SZ-EDITOR at that line
   SEE <name>        VIEW if SZ-EDITOR loaded, else decompile (kernel SEE)
   SEE-SOURCE        Alias of VIEW
-  HYPER-NEXT        Next hit for last LOCATE/VIEW   (Ctrl-PgDn)
-  HYPER-PREV        Previous hit                    (Ctrl-PgUp)
+  HYPER-NEXT        Next hit for last LOCATE/VIEW   (Cmd-PgDn)
+  HYPER-PREV        Previous hit                    (Cmd-PgUp)
   HYPER-REINDEX     Rebuild Config/HYPER.NDX, reload
   HYPER-RELOAD      Re-read index (Config/HYPER.NDX, else cwd HYPER.NDX)
   .HYPER            Status
   HYPER-HELP        Short help
 
-  Cmd-E             VIEW word under console caret (no-op if editor not loaded)
-  Ctrl-PgDn/PgUp    HYPER-NEXT / HYPER-PREV (console or inside SZ-EDITOR)
+  Cmd-E             VIEW word under caret (console or SZ-EDITOR);
+                    in editor, saves origin so Cmd-PgUp can return
+  Cmd-PgDn          next hit for current name
+  Cmd-PgUp          previous hit, or return to Cmd-E origin
+  Cmd-Left/Right    prev/next same-word occurrence in the open file only
 
 Editor (ALSO EDITOR)
 --------------------

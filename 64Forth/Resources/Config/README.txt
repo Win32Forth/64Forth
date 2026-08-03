@@ -92,4 +92,4 @@ Status
   Phase 3a: HYPER-REINDEX → Config/HYPER.NDX
   Phase 4: CFG SPECS/TYPE + host file list (HYPER.SPECS)
   Phase 4a: mouse click moves SZ-EDITOR cursor
-  Phase 5: multi-hit LOCATE/VIEW, Ctrl-PgUp/Dn, SEE→VIEW, Cmd-E  ← current
+  Phase 5: multi-hit LOCATE/VIEW, Cmd-PgUp/Dn, SEE→VIEW, Cmd-E  ← current
