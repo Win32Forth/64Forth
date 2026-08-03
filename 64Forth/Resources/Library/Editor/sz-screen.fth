@@ -224,7 +224,8 @@ CREATE SZ-FIND-STAT  18 ALLOT
    SZ-HAS-NAME? IF
       SZ-GET-NAME
       \ keep name short: leave room for L/C/size + Selected:
-      DUP 18 > IF  DROP 18  THEN
+      \ show the *tail* of the path (basename side), not the leading dirs
+      DUP 18 > IF  18 - + 18  THEN
       TYPE
    ELSE
       ." untitled"

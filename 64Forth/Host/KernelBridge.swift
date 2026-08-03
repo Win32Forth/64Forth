@@ -595,13 +595,13 @@ final class KernelBridge {
         while facilityScrollAccum >= lineH, steps < maxSteps {
             facilityScrollAccum -= lineH
             // View toward end of file (later lines)
-            pushKey(12) // SZ-VSCROLL-DN
+            pushKey(7) // SZ-VSCROLL-DN (not ASCII 12 — Form Feed)
             steps += 1
         }
         while facilityScrollAccum <= -lineH, steps < maxSteps {
             facilityScrollAccum += lineH
             // View toward start of file (earlier lines)
-            pushKey(9) // SZ-VSCROLL-UP
+            pushKey(3) // SZ-VSCROLL-UP (not ASCII 9 — Tab)
             steps += 1
         }
         if steps >= maxSteps {

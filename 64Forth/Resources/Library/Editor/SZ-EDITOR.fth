@@ -35,7 +35,7 @@ FLOAD sz-edit.fth
 : SZ-BANNER  ( -- )
    CR
    ." === SZ-EDITOR ===" CR
-   ." SZEDIT 'file.fth' or 'pathed/file.fth'" CR
+   ." SZEDIT 'file' or 'pathed/file'  (.fth added if no extension)" CR
    ." Keys: arrows  Home/End  PgUp/Dn  BS Del or typed text" CR
    ." Size: width height SET-EDIT-WINDOW  - default 88 25" CR
    ." Cmd-W closes editor with save prompt if changes" CR
@@ -46,15 +46,22 @@ FLOAD sz-edit.fth
 
 FORTH DEFINITIONS
 ONLY FORTH ALSO EDITOR
+
+: TextEdit  ( 'name' -- )   \ don't hide TextEdit
+    EDIT ;
+
 \ Parse a path and edit. No path → usage / open panel when host supports it.
 \   SZEDIT my.txt
 \   S" /path/to/file" SZ-EDIT-FILE
 \   FROMLIB SZEDIT Editor/SZ-EDITOR-README.txt
-: SZEDIT  ( -- )
+: SZEDIT  ( 'name' -- )
    BL WORD COUNT
    DUP 0= IF  2DROP SZ-HOST-REQUEST-OPEN EXIT  THEN
    SZ-EDIT-FILE
 ;
+
+: EDIT  ( 'name' -- )   \ allow EDIT to invoke SZEDIT
+    SZEDIT ;
 
 ONLY FORTH DEFINITIONS
 

@@ -382,6 +382,15 @@ struct ConsoleTextView: NSViewRepresentable {
                     parent.onKeyCharacter(10)
                     return true
                 }
+                // Tab → ASCII 9; SZ-EDITOR expands to spaces (must not be swallowed)
+                if commandSelector == #selector(NSResponder.insertTab(_:)) {
+                    parent.onKeyCharacter(9)
+                    return true
+                }
+                // Shift-Tab: ignore for now (no outdent yet)
+                if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+                    return true
+                }
                 // Delete (backspace) → BS (8); erase character left of cursor
                 if commandSelector == #selector(NSResponder.deleteBackward(_:)) {
                     parent.onKeyCharacter(8)

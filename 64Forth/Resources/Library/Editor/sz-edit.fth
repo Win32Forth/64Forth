@@ -47,8 +47,10 @@ DECIMAL
  18 CONSTANT SZ-VIEW-UNDER     \ Cmd-E — VIEW word under cursor (Hyper)
  20 CONSTANT SZ-FIND-PREV      \ Cmd-Left  — prev occurrence in this buffer
  21 CONSTANT SZ-FIND-NEXT      \ Cmd-Right — next occurrence in this buffer
-  9 CONSTANT SZ-VSCROLL-UP     \ mouse wheel / trackpad: view earlier lines
- 12 CONSTANT SZ-VSCROLL-DN     \ mouse wheel / trackpad: view later lines
+\ Wheel keys must NOT collide with ASCII Tab (9) or Form Feed (12).
+  3 CONSTANT SZ-VSCROLL-UP     \ mouse wheel / trackpad: view earlier lines
+  7 CONSTANT SZ-VSCROLL-DN     \ mouse wheel / trackpad: view later lines
+  9 CONSTANT SZ-TAB            \ Tab → expand to spaces (SZ-INSERT-TAB)
  25 CONSTANT SZ-MOUSE          \ host mouse click in facility (Phase 4a)
  26 CONSTANT SZ-HYPER-PREV     \ Cmd-PgUp — previous HYPER hit
  27 CONSTANT SZ-HYPER-NEXT     \ Cmd-PgDn — next HYPER hit
@@ -96,6 +98,15 @@ VARIABLE SZ-DONE
    1 SZ-CUR +!
    SZ-CUR-COL SZ-PREF-COL !             \ SZ-PREF-COL lives in sz-screen
    SZ-TOUCH
+;
+
+\ Tab stop every 4 columns (0, 4, 8, …). Insert spaces up to the next stop.
+: SZ-INSERT-TAB  ( -- )
+   4  SZ-CUR-COL 4 MOD -                   \ n = 4 - (col mod 4)
+   BEGIN  DUP WHILE
+      BL SZ-INSERT-CH
+      1-
+   REPEAT  DROP
 ;
 
 \ Insert a line break (LF). Cursor must be clamped so we never write past TEND.
@@ -1046,6 +1057,7 @@ VARIABLE SZ-DR-N
    DUP SZ-DEL = IF  DROP SZ-DELETE-FWD EXIT  THEN
    DUP SZ-ENTER = IF  DROP SZ-INSERT-CRLF EXIT  THEN
    DUP SZ-LF-KEY = IF  DROP SZ-INSERT-CRLF EXIT  THEN
+   DUP SZ-TAB = IF  DROP SZ-INSERT-TAB EXIT  THEN
    DUP BL < IF  DROP EXIT  THEN
    DUP 127 < IF  SZ-INSERT-CH EXIT  THEN
    DROP

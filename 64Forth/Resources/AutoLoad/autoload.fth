@@ -2,6 +2,8 @@
 \ Loaded automatically after kernel_init when present in Resources/AutoLoad/.
 \ During load, session cwd is this AutoLoad folder (nested FLOAD sees siblings).
 
+\ by default, we are loading the editor and the hyper text system as part of
+\ what the user has available when they start using 64Forth
 FROMLIB REQUIRE EDITOR/SZ-EDITOR.fth
 EDITOR 100 50 SET-EDIT-WINDOW FORTH
 FROMLIB REQUIRE HYPER/HYPER.fth

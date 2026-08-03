@@ -116,6 +116,37 @@ CREATE SZ-FNAME  256 ALLOT         \ counted path of current file (0 = untitled)
 : SZ-HAS-NAME?  ( -- flag )
    SZ-FNAME C@ 0<> ;
 
+\ True if the last path component contains a '.' (has an extension).
+: SZ-LEAF-DOT?  ( c-addr u -- flag )
+   DUP 0= IF  2DROP FALSE EXIT  THEN
+   BEGIN  DUP WHILE
+      1-
+      2DUP + C@
+      DUP [CHAR] / = OVER [CHAR] \ = OR IF
+         DROP 2DROP FALSE EXIT              \ separator before any '.'
+      THEN
+      [CHAR] . = IF  2DROP TRUE EXIT  THEN
+   REPEAT
+   2DROP FALSE ;
+
+CREATE SZ-PATH-TMP  260 ALLOT
+
+\ If leaf has no extension, append .fth (same rule as host FLOAD / OPEN-FILE).
+\ Result may be in SZ-PATH-TMP; valid until next call.
+: SZ-ENSURE-FTH  ( c-addr u -- c-addr' u' )
+   2DUP SZ-LEAF-DOT? IF  EXIT  THEN
+   DUP 251 > IF  EXIT  THEN                   \ no room for ".fth"
+   SZ-PATH-TMP PLACE
+   SZ-PATH-TMP COUNT                          \ body u
+   2DUP +                                     \ body u end
+   S" .fth"                                   \ body u end src su
+   >R                                         \ body u end src   R: su
+   SWAP                                       \ body u src end
+   R@ CMOVE                                   \ body u           (src dest u)
+   R> +                                       \ body u'
+   DUP SZ-PATH-TMP C!
+;
+
 \ -----------------------------------------------------------------------------
 \ Line scan — CR / LF / CRLF (pure Forth; TZForth used Swift host scans)
 \ -----------------------------------------------------------------------------
@@ -278,8 +309,10 @@ VARIABLE SZ-ET-CUR
    0
 ;
 
-\ Load and remember name (c-addr u is path)
+\ Load and remember name (c-addr u is path).
+\ Leaf with no extension gets .fth (FLOAD/OPEN-FILE host rule).
 : SZ-LOAD  ( c-addr u -- ior )
+   SZ-ENSURE-FTH
    2DUP SZ-SET-NAME
    SZ-LOAD-FILE
    DUP IF  0 SZ-FNAME C!  THEN     \ clear name on failure
