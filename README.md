@@ -2,7 +2,7 @@
 
 **Public domain.**
 
-**64Forth's Heritage**: When I decided to make yet another Forth system, I went looking for a name for it. I thought of my earlier Forths, like F-PC, and Win32Forth, and thought possibly of Win64Forth. But this Forth is not designed for Windows, so that seemed wrong. I then thought of 64Forth, and went looking for Forth systems on the internet with that name. You will never guess what I found. Yes, you guessed it. 64Forth was the name of my earlier Forth system for the Commodore 64 Computer. In that case, the 64 represented the fact that the Commodore had I believe 64 MB of memory, which was quite a lot in that day. Anyway, I realized that I essentially already had dibs on the 64Forth name, so that is the name I chose for this MacOS M1-M5+ Forth system that is a hybrid of the two previous Forth systems I created this month. I hope you will find 64Forth interesting, at least enough to take a look. It is constructed mostly by Grok with an assembly language kernel, and a Swift code console and extensions, and like TZForth, it has some Libraries built right into the app. **As of v0.9.0** it includes File-Access, file-backed Blocks, Floating-point (`VOCABULARY FP`), Core/Core Ext, String Ext, Locals, **Facility + Facility Ext** (structures, `EKEY>FKEY`, `K-*`), **FacilityTerminal** full-screen `PAGE`/`AT-XY`, **SZ-EDITOR** (FROMLIB + open panel, Cmd-S/W/Q), **Extended Character (UTF-8 XChar)**, **hashed multi-thread wordlists** (`DICT_THREADS`), a green Hayes subset (core through FP/paranoia Excellent), and modular Library **ANSValidate** (~383 passed / 0 failed). Remaining gaps vs full TZForth are mainly store sandbox and further editor polish. The architecture is very interesting: CODE words are assembly labels; macros build traditional headers (NFA, LFA, FFA, CFA, BODY) plus an HFA (Help Field Address). Go Forth and prosper!
+**64Forth's Heritage**: When I decided to make yet another Forth system, I went looking for a name for it. I thought of my earlier Forths, like F-PC, and Win32Forth, and thought possibly of Win64Forth. But this Forth is not designed for Windows, so that seemed wrong. I then thought of 64Forth, and went looking for Forth systems on the internet with that name. You will never guess what I found. Yes, you guessed it. 64Forth was the name of my earlier Forth system for the Commodore 64 Computer. In that case, the 64 represented the fact that the Commodore had I believe 64 MB of memory, which was quite a lot in that day. Anyway, I realized that I essentially already had dibs on the 64Forth name, so that is the name I chose for this MacOS M1-M5+ Forth system that is a hybrid of the two previous Forth systems I created this month. I hope you will find 64Forth interesting, at least enough to take a look. It is constructed mostly by Grok with an assembly language kernel, and a Swift code console and extensions, and like TZForth, it has some Libraries built right into the app. **As of v1.0.0** it includes File-Access, file-backed Blocks, Floating-point (`VOCABULARY FP`), Core/Core Ext, String Ext, Locals, **Facility + Facility Ext** (structures, `EKEY>FKEY`, `K-*`), **FacilityTerminal** full-screen `PAGE`/`AT-XY`, **SZ-EDITOR** (full-screen edit, find, clip, mouse/wheel, Tab indent, `EDIT` entry), **Hypertext** (LOCATE/VIEW, multi-hit ⌘PgUp/Dn, ⌘E, in-app `HYPER-REINDEX`), **Extended Character (UTF-8 XChar)**, **hashed multi-thread wordlists** (`DICT_THREADS`), a green Hayes subset (core through FP/paranoia Excellent), and modular Library **ANSValidate** (~383 passed / 0 failed). Optional later: App Sandbox for store builds, dual-buffer editor, richer reindex TYPE rules. The architecture is very interesting: CODE words are assembly labels; macros build traditional headers (NFA, LFA, FFA, CFA, BODY) plus an HFA (Help Field Address). Go Forth and prosper!
 
 
 **Getting 64Forth to run on your Mac**: All of the latest security changes Apple has made to MacOS, have made it fairly difficult to run apps obtained from outside the Apple App Store, but it is not impossible. Here is how you to it;
@@ -82,11 +82,21 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 - [x] **v0.9.6:** SZ-EDITOR same-file find (⌘←/→, ⌘G/⌘⇧G); status `Selected: "word"`; Hyper ⌘PgUp/Dn; reliable host key delivery (`ForthApplication`)
 - [x] **v0.9.7:** SZ-EDITOR line select (gutter / line-start), multi-line ⌘-click ranges, two-level line clipboard + paste before/after line
 - [x] **v0.9.8:** SZ-EDITOR two-line help (Cmd-E VIEW, etc.); mouse click no longer scrolls target to row 5
-- [x] **v1.0.0:** SZ-EDITOR wheel scroll (system Natural direction, caret stays on row, short-file / EOF clamps); hardened `DEPTH`/`SP0`/`0BRANCH` and `CLEARSTACK`; safer editor exit
+- [x] **v1.0.0:** Hypertext Phases 0–5 complete; SZ-EDITOR production features (find, clip, mouse/wheel, Tab→spaces, `.fth` default path, `EDIT`/`TextEdit`); stack-safe editor exit (`CLEARSTACK`); hardened `DEPTH`/`SP0`/`0BRANCH`
 
-Optional later: line-at-a-time INCLUDE via fileid, App Sandbox for store builds, editor dual-buffer; find residual data-stack imbalance that `CLEARSTACK` on editor exit currently covers.
+### Hypertext + SZ-EDITOR (v1.0.0)
 
-Open `64Forth.xcodeproj` in **full Xcode** (Apple Silicon; not Command Line Tools alone). Build the **64Forth** app target.
+| Area | Done |
+|------|------|
+| **Hyper Phases 0–5** | Index CFG/NDX, offline + in-app reindex, LOCATE/VIEW, multi-hit ⌘PgUp/Dn, ⌘E VIEW, SEE→VIEW, `HYPER-VOC` |
+| **SZ-EDITOR** | Full-screen Facility edit; save/close; find ⌘←/→ ⌘G; cut/copy/paste; mouse + wheel; Tab indent; `EDIT` opens SZ-EDITOR, `TextEdit` keeps system editor |
+| **Autoload** | Loads editor + Hyper, reindexes on startup when configured |
+
+**Docs:** `Resources/Library/Hyper/README.txt`, `Resources/Library/Editor/SZ-EDITOR-README.txt`, `Resources/Config/README.txt`, `Resources/Docs/README.txt`.
+
+Optional later: line-at-a-time INCLUDE via fileid, App Sandbox for store builds, editor dual-buffer, Forth reindex TYPE 1/2/4 (Python builder already fuller), residual data-stack imbalance under exit `CLEARSTACK`.
+
+Open `64Forth.xcodeproj` in **full Xcode** (Apple Silicon; not Command Line Tools alone). Build the **64Forth** app target for a DMG.
 
 ### Quick examples
 
@@ -98,8 +108,11 @@ ALSO FP
 
 FROMLIB FLOAD ANSValidate/ANS-VALIDATE.fth
 
-FROMLIB FLOAD Editor/SZ-EDITOR.fth
-FROMLIB SZEDIT Editor/SZ-EDITOR-README.txt
+\ Editor + Hyper (often already loaded via AutoLoad)
+EDIT myfile              \ SZ-EDITOR; .fth added if no extension
+FROMLIB EDIT TCOM/SZ
+LOCATE DUP
+VIEW SWAP                \ multi-hit: ⌘PgDn / ⌘PgUp
 ```
 
 ### Phase 1 API (assembly ↔ Swift)

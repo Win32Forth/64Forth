@@ -83,13 +83,16 @@ In-app reindex (Phase 3a / 4)
   virtual Config/HYPER.SPECS (Library walk + *EXCLUDE). Offline Python builder
   remains available for CI/full rebuilds.
 
-Status
-------
-  Phase 0: folder + format + fixture
-  Phase 1: builder + full generated NDX
-  Phase 2: VIEW / LOCATE Forth words
-  Phase 3: SZ-GOTO-LINE / editor integration
-  Phase 3a: HYPER-REINDEX → Config/HYPER.NDX
-  Phase 4: CFG SPECS/TYPE + host file list (HYPER.SPECS)
-  Phase 4a: mouse click moves SZ-EDITOR cursor
-  Phase 5: multi-hit LOCATE/VIEW, Cmd-PgUp/Dn, SEE→VIEW, Cmd-E  ← current
+Status (v1.0.0 — complete)
+--------------------------
+  Phase 0: folder + format + fixture                    done
+  Phase 1: builder + full generated NDX                 done
+  Phase 2: VIEW / LOCATE Forth words                    done
+  Phase 3: SZ-GOTO-LINE / editor integration            done
+  Phase 3a: HYPER-REINDEX → Config/HYPER.NDX            done
+  Phase 4: CFG SPECS/TYPE + host file list (HYPER.SPECS) done
+           (in-app reindex: TYPE 0 only; Python builder full)
+  Phase 4a: mouse click moves SZ-EDITOR cursor          done
+  Phase 5: multi-hit LOCATE/VIEW, Cmd-PgUp/Dn, SEE→VIEW, Cmd-E  done
+
+  Optional later: Forth reindex TYPE 1/2/4 parity with tools/build_hyper_index.py

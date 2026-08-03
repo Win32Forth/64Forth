@@ -1,10 +1,12 @@
-64Forth Hyper / VIEW (Phase 2–5)
-================================
+64Forth Hyper / VIEW (Phases 0–5 complete — v1.0.0)
+===================================================
 
 Load
 ----
   FROMLIB FLOAD Editor/SZ-EDITOR.fth   \ required for VIEW
   FROMLIB FLOAD Hyper/hyper.fth
+
+  Often already loaded via AutoLoad (with HYPER-REINDEX on startup).
 
 Vocabulary
 ----------
@@ -63,14 +65,25 @@ In-app reindex (Phase 3a / 4)
     → CREATE-FILE Config/HYPER.NDX, then HYPER-RELOAD
   Quiet:  HYPER-VOC MIN-HYPER-NOISE ON FORTH  then  HYPER-REINDEX
 
-  Limits vs tools/build_hyper_index.py:
+  Limits vs tools/build_hyper_index.py (optional polish):
     - TYPE 0 only in Forth (no TYPE 1/2/4 yet)
     - Kernel .s/.inc: TYPE 0 only on .ascii / .asciz lines
 
-Editor (Phase 4a)
------------------
+Phase status
+------------
+  0–1  format, offline builder, NDX          done
+  2    LOCATE / VIEW                         done
+  3    editor open-at-line                   done
+  3a   in-app HYPER-REINDEX                  done
+  4    CFG SPECS + HYPER.SPECS host list     done
+  4a   mouse click in SZ-EDITOR              done
+  5    multi-hit, ⌘PgUp/Dn, ⌘E, SEE→VIEW    done
+
+Editor (Phase 4a+)
+------------------
   Mouse click in the facility/SZ-EDITOR window moves the buffer cursor
-  to the clicked cell (text body only; chrome ignored).
+  to the clicked cell (text body only; chrome ignored). Wheel scrolls
+  with caret on-row; see Library/Editor/SZ-EDITOR-README.txt.
 
 Offline rebuild (full index, CI / ship Config/)
 -----------------------------------------------
@@ -88,5 +101,5 @@ Path resolution (host)
 
 Files
 -----
-  hyper.fth         LOCATE / VIEW / load
-  hyper-index.fth   HYPER-REINDEX (FLOAD'd from hyper.fth)
+  hyper.fth         LOCATE / VIEW / load (HYPER-VOC)
+  hyper-index.fth   HX-* + HX-DO-REINDEX; HYPER-REINDEX in FORTH

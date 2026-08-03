@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-07-30 — **v0.9.0** (multi-thread wordlists `DICT_THREADS`=16; File-Access multi-result stack fix; Finder folder menus; ANSValidate ~383/0 + stack hygiene; prior 0.8.x editor/validate).
+**Updated:** 2026-08-03 — **v1.0.0** (Hypertext Phases 0–5 complete; SZ-EDITOR find/clip/mouse/wheel/Tab/`EDIT`; stack-safe editor exit; prior 0.9.x multi-thread dict, Hayes/ANSValidate).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
@@ -20,7 +20,8 @@
 | File-Access + Block volumes | TZForth-style host + kernel CODE | `FileAccess.swift`, block file words, Hayes prepare-blocks |
 | XChar | Kernel UTF-8 CODE + high-level words; bulk `emit_buf` for multi-byte TYPE | ANS 18; validate via `ANSValidate/all-in-one.fth` |
 | Facility terminal grid | TZForth-style host | `FacilityTerminal.swift` — `PAGE`/`AT-XY` cell buffer for SZ-EDITOR |
-| SZ-EDITOR | TZForth Library/Editor port | Full-screen facility editor; FROMLIB + open panel; Cmd-S/W/Q |
+| SZ-EDITOR | TZForth Library/Editor port | Full-screen facility editor; `EDIT` entry; find/clip/mouse/wheel; Cmd-S/W/Q |
+| Hypertext | F-PC HYPER lineage | LOCATE/VIEW, multi-hit ⌘PgUp/Dn, ⌘E, `HYPER-REINDEX`, `HYPER-VOC` |
 
 ---
 

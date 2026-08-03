@@ -6,59 +6,68 @@ Location
   Project:  64Forth/Resources/Library/Editor/
   Runtime:  app bundle Contents/Resources/Library/Editor/  (Copy Library)
 
-Status
-------
-  Phases 1–5 load on 64Forth (pure-Forth line scans; no TZForth Swift host
-  primitives required). Open-panel for bare SZEDIT is not wired yet — pass a
-  path. Arrow keys use Facility Ext EKEY → F-PC codes via SZ-KEY.
-  Ctrl-Home / Ctrl-End (or Cmd-Home/End, Cmd-Up/Down) jump to start/end of file.
+Status (v1.0.0)
+---------------
+  Phases 1–5 complete on 64Forth (pure-Forth line scans; FacilityTerminal host).
+  Full-screen edit, save/close, find, selection/clipboard, mouse + wheel, Tab
+  indent, Hyper VIEW integration, EDIT entry word.
 
 How to load
 -----------
   FROMLIB FLOAD Editor/SZ-EDITOR.fth
 
+  Often already loaded via Resources/AutoLoad/autoload.fth.
   Rebuild the app after editing .fth files so the bundle Library is refreshed.
 
 How to edit a file
 ------------------
-  SZEDIT /tmp/notes.txt
+  EDIT /tmp/notes.txt              \ preferred FORTH entry (same as SZEDIT)
+  SZEDIT /tmp/notes.txt            \ legacy name
   S" /tmp/notes.txt" SZ-EDIT-FILE
-  FROMLIB SZEDIT Editor/SZ-EDITOR-README.txt
+  FROMLIB EDIT Editor/SZ-EDITOR-README.txt
+  FROMLIB EDIT TCOM/SZ             \ .fth added if leaf has no extension
   SZ-EDIT-NEW
 
-  Bare SZEDIT (no path) opens a macOS file dialog (like TZForth).
-  FROMLIB SZEDIT  — dialog starts in Resources/Library.
+  Bare EDIT / SZEDIT (no path) opens a macOS file dialog.
+  FROMLIB EDIT  — dialog starts in Resources/Library.
   FROMLIB is also honored by OPEN-FILE for Library-relative paths.
+
+  TextEdit path   \ system text editor (former kernel EDIT)
 
 Vocabulary
 ----------
   Body words live in the EDITOR vocabulary.
-  SZEDIT is defined in FORTH (no ALSO EDITOR needed for the entry point).
+  EDIT and SZEDIT are defined in FORTH (no ALSO EDITOR for the entry point).
   Body / smoke:  ALSO EDITOR  SZ-HOST-SMOKE  SZ-.INFO  PREVIOUS
 
 Keys while editing (SZ-KEY)
 ---------------------------
   Arrows, Home/End, PgUp/PgDn  (Facility Ext K-* mapped to editor codes)
-  Ctrl-Home / Ctrl-End  start / end of file  (also Cmd-Home/End, Cmd-Up/Down)
+  Ctrl-Home / Ctrl-End  start / end of file  (also Cmd-Home/End)
   Enter, BS, Del, printable insert
-  Cmd-S / Ctrl-S save   Cmd-W / Ctrl-Q close
-  Cmd-E             VIEW word under cursor (Hyper)
-  Cmd-PgUp / Cmd-PgDn   previous / next Hyper hit
+  Tab               insert spaces to next 4-column tab stop
+  Cmd-S / Ctrl-S    save
+  Cmd-W / Ctrl-Q    close (S/D if dirty)
+  Cmd-E             VIEW word under cursor (Hyper loaded)
+  Cmd-PgUp / Cmd-PgDn   previous / next Hyper hit (return from Cmd-E)
   Cmd-Left / Cmd-Right  previous / next same-word in this file only
+  Cmd-G / Cmd-Shift-G   find next / prev (same as arrows)
   Mouse click       word under click; gutter/line-start selects whole line
   Cmd-click         extend selection (words, or whole lines if line-anchored)
-  Gutter after copy paste-here placeholder (keeps prior clip); ⌘V pastes prior
-  Cmd-X / Cmd-C / Cmd-V   cut / copy / paste (before/after line if paste-here)
+  Wheel / trackpad  scroll view (caret stays on row; short files locked)
+  Gutter after copy paste-here placeholder; ⌘V pastes prior clip
+  Cmd-X / Cmd-C / Cmd-V   cut / copy / paste
 
 Display
 -------
-  width height SET-EDIT-WINDOW   \ e.g. 100 30 SET-EDIT-WINDOW
+  width height SET-EDIT-WINDOW   \ e.g. 100 50 SET-EDIT-WINDOW
   EDIT-WINDOW                    \ ( -- width height )
+  Status bar shows trailing path segment when the name is long.
 
 Main words
 ----------
   SZ-LOAD  SZ-SAVE  SZ-SAVE-AS  SZ-.INFO
-  SZ-EDIT  SZ-EDIT-FILE  SZ-EDIT-NEW  SZEDIT
+  SZ-EDIT-FILE  SZ-EDIT-NEW  SZEDIT  EDIT
   SZ-GOTO-LINE ( n -- )          1-based line, start of line
   SZ-EDIT-FILE-AT ( c-addr u n -- )  load file, go to line n, edit
   SZ-REDRAW  SZ-VIEW-RESET
@@ -66,8 +75,8 @@ Main words
 Limits
 ------
   Buffer starts at 1 MB (ALLOCATE), grows as needed
-  Default text body 80×20 (+ chrome)
-  No dual file, no search yet
+  Default text body 80×20 (+ chrome); AutoLoad often sets 100×50
+  No dual file buffer yet
 
 Reference
 ---------
