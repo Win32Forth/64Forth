@@ -191,6 +191,13 @@ VARIABLE SZ-PAINTED
    SZ-TEXT-WIDTH @ SZ-PAINTED @ - 0 MAX 0 ?DO  BL EMIT  LOOP
 ;
 
+\ Selected word under cursor (click / find). Counted string, max 16 chars.
+CREATE SZ-SEL-WORD  18 ALLOT
+0 SZ-SEL-WORD C!
+\ Find note shown to the right of Selected: (e.g. no next / no prev).
+CREATE SZ-FIND-STAT  18 ALLOT
+0 SZ-FIND-STAT C!
+
 \ Status must fit on one facility row (no wrap). Long paths used to wrap past
 \ cols, scroll the facility buffer, wipe the status, and shift the caret down.
 : SZ-SHOW-STATUS  ( -- )
@@ -199,19 +206,23 @@ VARIABLE SZ-PAINTED
    ." SZ-EDITOR "
    SZ-HAS-NAME? IF
       SZ-GET-NAME
-      \ keep name short: leave room for " L… C… b/… WxH"
-      DUP 28 > IF  DROP 28  THEN
+      \ keep name short: leave room for L/C/size + Selected:
+      DUP 18 > IF  DROP 18  THEN
       TYPE
    ELSE
       ." untitled"
    THEN
    SZ-MODIFIED @ IF  ." *"  THEN
-   \ Spaces between fields: " L12 C3 1958b/1048576 80x20"
    ."  L" SZ-CUR-LINE-NO 0 .R
    ."  C" SZ-CUR-COL 1+ 0 .R
    ."  " SZ-TLEN @ 0 .R ." b/"
    SZ-TBUF-CAP @ 0 .R
    ."  " SZ-TEXT-WIDTH @ 0 .R ." x" SZ-TEXT-ROWS 0 .R
+   ."  Selected: "
+   [CHAR] " EMIT
+   SZ-SEL-WORD COUNT TYPE
+   [CHAR] " EMIT
+   SZ-FIND-STAT C@ IF  SPACE SZ-FIND-STAT COUNT TYPE  THEN
 ;
 
 : SZ-SHOW-HELP  ( -- )

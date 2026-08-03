@@ -19,6 +19,7 @@
 		B1000012 /* FileAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000112 /* FileAccess.swift */; };
 		B1000013 /* FloatHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000113 /* FloatHost.swift */; };
 		B1000014 /* FacilityTerminal.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000114 /* FacilityTerminal.swift */; };
+		B1000015 /* ForthApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000116 /* ForthApplication.swift */; };
 		FA6AA0DF301916D30007C369 /* 64Forth.jpg in Resources */ = {isa = PBXBuildFile; fileRef = FA6AA0DE301916D30007C369 /* 64Forth.jpg */; };
 /* End PBXBuildFile section */
 
@@ -45,6 +46,7 @@
 		B1000112 /* FileAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileAccess.swift; sourceTree = "<group>"; };
 		B1000113 /* FloatHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatHost.swift; sourceTree = "<group>"; };
 		B1000114 /* FacilityTerminal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FacilityTerminal.swift; sourceTree = "<group>"; };
+		B1000116 /* ForthApplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForthApplication.swift; sourceTree = "<group>"; };
 		FA6AA0DE301916D30007C369 /* 64Forth.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = 64Forth.jpg; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -87,6 +89,7 @@
 			isa = PBXGroup;
 			children = (
 				B1000101 /* SixtyFourForthApp.swift */,
+				B1000116 /* ForthApplication.swift */,
 				B1000102 /* ContentView.swift */,
 				B1000103 /* ConsoleView.swift */,
 				B1000110 /* ConsoleTextView.swift */,
@@ -292,6 +295,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B1000001 /* SixtyFourForthApp.swift in Sources */,
+				B1000015 /* ForthApplication.swift in Sources */,
 				B1000002 /* ContentView.swift in Sources */,
 				B1000003 /* ConsoleView.swift in Sources */,
 				B1000010 /* ConsoleTextView.swift in Sources */,

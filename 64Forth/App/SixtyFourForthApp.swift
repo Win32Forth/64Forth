@@ -72,6 +72,39 @@ struct SixtyFourForthApp: App {
 
                 Divider()
 
+                // Find: ⌘←/→ preferred; ⌘G / ⌘⇧G are reliable letter shortcuts (like ⌘E).
+                Button("Find Previous Word") {
+                    NotificationCenter.default.post(name: .editorFindPrev, object: nil)
+                }
+                .keyboardShortcut(.leftArrow, modifiers: .command)
+
+                Button("Find Next Word") {
+                    NotificationCenter.default.post(name: .editorFindNext, object: nil)
+                }
+                .keyboardShortcut(.rightArrow, modifiers: .command)
+
+                Button("Find Previous Word (G)") {
+                    NotificationCenter.default.post(name: .editorFindPrev, object: nil)
+                }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+
+                Button("Find Next Word (G)") {
+                    NotificationCenter.default.post(name: .editorFindNext, object: nil)
+                }
+                .keyboardShortcut("g", modifiers: .command)
+
+                Button("Hyper Previous Hit") {
+                    NotificationCenter.default.post(name: .hyperPrev, object: nil)
+                }
+                .keyboardShortcut(.pageUp, modifiers: .command)
+
+                Button("Hyper Next Hit") {
+                    NotificationCenter.default.post(name: .hyperNext, object: nil)
+                }
+                .keyboardShortcut(.pageDown, modifiers: .command)
+
+                Divider()
+
                 Button("FLOAD…") {
                     NotificationCenter.default.post(name: .toolsFload, object: nil)
                 }

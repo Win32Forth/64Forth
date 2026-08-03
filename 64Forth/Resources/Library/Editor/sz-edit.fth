@@ -347,6 +347,10 @@ VARIABLE SZ-PAGE-N
 \ Dispatch
 \ -----------------------------------------------------------------------------
 
+\ Optional post-click hook (set after SZ-WORD-AT-CUR is defined).
+VARIABLE SZ-MOUSE-XT
+0 SZ-MOUSE-XT !
+
 \ Facility mouse click → buffer cursor (Phase 4a).
 \ Host delivers key 25 then (SZ-CLICK) yields facility col/row (0-based).
 : SZ-DO-MOUSE  ( -- )
@@ -369,6 +373,8 @@ VARIABLE SZ-PAGE-N
    SZ-CUR-LINE + SZ-CUR !
    SZ-REMEMBER-COL
    SZ-ENSURE-HVISIBLE
+   \ Debug: capture word under new caret for status bar
+   SZ-MOUSE-XT @ ?DUP IF  EXECUTE  THEN
 ;
 
 \ Phase 5: load path + goto line for HYPER multi-hit ( a u line -- )
@@ -465,6 +471,27 @@ VARIABLE SZ-WORD-END                   \ exclusive end of word under cursor
    SZ-WORD-BEG @  SZ-TOKEN 1+  ROT  CMOVE
    SZ-TOKEN COUNT ;
 
+\ Status helpers (SZ-SEL-WORD / SZ-FIND-STAT live in sz-screen — defined first).
+: SZ-FIND-CLEAR-STAT  ( -- )  0 SZ-FIND-STAT C! ;
+
+: SZ-FIND-SET-STAT  ( c-addr u -- )
+   16 MIN
+   DUP SZ-FIND-STAT C!
+   DUP 0= IF  2DROP EXIT  THEN
+   >R SZ-FIND-STAT 1+ R> CMOVE
+;
+
+\ Copy word under SZ-CUR into SZ-SEL-WORD (counted, max 16) for status bar.
+: SZ-UPDATE-SEL-WORD  ( -- )
+   SZ-FIND-CLEAR-STAT
+   SZ-WORD-AT-CUR                              \ a u
+   16 MIN
+   DUP SZ-SEL-WORD C!
+   DUP 0= IF  2DROP EXIT  THEN
+   >R SZ-SEL-WORD 1+ R> CMOVE
+;
+' SZ-UPDATE-SEL-WORD SZ-MOUSE-XT !
+
 \ Cmd-E in editor: VIEW word under cursor (Hyper); stays in this edit session.
 : SZ-DO-VIEW-UNDER  ( -- )
    SZ-WORD-AT-CUR
@@ -494,7 +521,7 @@ VARIABLE SZ-WORD-END                   \ exclusive end of word under cursor
    REPEAT
    DROP R> DROP TRUE ;
 
-\ Whole-word: blanks (or edges) on both sides of [addr, addr+u)
+\ Whole-word: blanks (or buffer edges) on both sides of [addr, addr+u)
 : SZ-BOUND-OK  ( addr u -- flag )
    OVER SZ-TBUF = IF  TRUE
    ELSE  OVER 1- C@ SZ-BLANK?  THEN
@@ -503,14 +530,19 @@ VARIABLE SZ-WORD-END                   \ exclusive end of word under cursor
    DUP SZ-TEND SZ-U>= IF  DROP 2DROP TRUE EXIT  THEN
    C@ SZ-BLANK? NIP NIP ;
 
+\ True if SZ-TOKEN is a whole-word match at ha.
+: SZ-WORD-HIT?  ( ha -- flag )
+   DUP SZ-MATCH-AT 0= IF  DROP FALSE EXIT  THEN
+   SZ-TOKEN C@ SZ-BOUND-OK ;
+
 \ ( start -- addr|0 ) next whole-word match of SZ-TOKEN at/after start
+\ NOTE: bound check must use (ha, token-len), NOT SZ-TOKEN COUNT (that is
+\ the token buffer address in the dictionary — always failed whole-word).
 : SZ-SEARCH-FWD  ( start -- addr|0 )
    SZ-TOKEN C@ 0= IF  DROP 0 EXIT  THEN
    BEGIN
       DUP SZ-TOKEN C@ + SZ-TEND U> IF  DROP 0 EXIT  THEN
-      DUP SZ-MATCH-AT IF
-         DUP SZ-TOKEN COUNT SZ-BOUND-OK IF  EXIT  THEN
-      THEN
+      DUP SZ-WORD-HIT? IF  EXIT  THEN
       1+
    AGAIN ;
 
@@ -520,41 +552,53 @@ VARIABLE SZ-WORD-END                   \ exclusive end of word under cursor
    BEGIN
       DUP SZ-TBUF = IF  DROP 0 EXIT  THEN
       1-
-      DUP SZ-MATCH-AT IF
-         DUP SZ-TOKEN COUNT SZ-BOUND-OK IF  EXIT  THEN
-      THEN
+      DUP SZ-WORD-HIT? IF  EXIT  THEN
    AGAIN ;
+
+\ Status: Selected: "word"  [optional note to the right — SZ-FIND-STAT in sz-screen]
 
 : SZ-FIND-GOTO  ( addr -- )
    SZ-CUR !
    SZ-REMEMBER-COL
    SZ-ENSURE-VISIBLE
-   SZ-MSG-LINE
-   ." find " SZ-TOKEN COUNT TYPE
-   TERMINAL-REFRESH ;
+   SZ-UPDATE-SEL-WORD                       \ also clears find note
+;
 
 : SZ-FIND-NO-WORD  ( -- )
-   SZ-MSG-LINE ." find: no word under cursor" TERMINAL-REFRESH ;
+   0 SZ-SEL-WORD C!
+   S" no word" SZ-FIND-SET-STAT
+;
 
-\ Cmd-Right: next occurrence of full word under cursor (same buffer)
+\ Keep Selected: word; set note to its right (no next / no prev).
+\ ( note-addr note-u -- )
+: SZ-FIND-KEEP-SEL  ( c-addr u -- )
+   2>R
+   SZ-WORD-AT-CUR 16 MIN
+   DUP SZ-SEL-WORD C!
+   DUP IF  >R SZ-SEL-WORD 1+ R> CMOVE  ELSE  2DROP  THEN
+   2R>
+   SZ-FIND-SET-STAT
+;
+
+\ Cmd-Right / ⌘G: next occurrence of full word under cursor (same buffer)
 : SZ-DO-FIND-NEXT  ( -- )
    SZ-WORD-AT-CUR DUP 0= IF  2DROP SZ-FIND-NO-WORD EXIT  THEN
    2DROP
    SZ-WORD-END @                             \ search after current word range
    SZ-SEARCH-FWD
    DUP 0= IF
-      DROP SZ-MSG-LINE ." find: no next" TERMINAL-REFRESH EXIT
+      DROP S" no next" SZ-FIND-KEEP-SEL EXIT
    THEN
    SZ-FIND-GOTO ;
 
-\ Cmd-Left: previous occurrence of full word under cursor (same buffer)
+\ Cmd-Left / ⌘⇧G: previous occurrence of full word under cursor (same buffer)
 : SZ-DO-FIND-PREV  ( -- )
    SZ-WORD-AT-CUR DUP 0= IF  2DROP SZ-FIND-NO-WORD EXIT  THEN
    2DROP
    SZ-WORD-BEG @                             \ search before current word range
    SZ-SEARCH-BWD
    DUP 0= IF
-      DROP SZ-MSG-LINE ." find: no previous" TERMINAL-REFRESH EXIT
+      DROP S" no prev" SZ-FIND-KEEP-SEL EXIT
    THEN
    SZ-FIND-GOTO ;
 

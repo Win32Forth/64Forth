@@ -31,9 +31,15 @@ extension Notification.Name {
     static let fileClose = Notification.Name("SixtyFourForthFileClose")
     /// Phase 5: ⌘E — VIEW word under console caret (if SZ-EDITOR is loaded).
     static let viewWordUnderCursor = Notification.Name("SixtyFourForthViewWordUnderCursor")
+    /// SZ-EDITOR: ⌘← / ⌘→ — prev/next occurrence of word under cursor (same file).
+    static let editorFindPrev = Notification.Name("SixtyFourForthEditorFindPrev")
+    static let editorFindNext = Notification.Name("SixtyFourForthEditorFindNext")
+    /// SZ-EDITOR / idle: ⌘PgUp / ⌘PgDn — Hyper prev/next hit.
+    static let hyperPrev = Notification.Name("SixtyFourForthHyperPrev")
+    static let hyperNext = Notification.Name("SixtyFourForthHyperNext")
 }
 
-private let banner = "=== 64Forth 0.9.5 ===\n"
+private let banner = "=== 64Forth 0.9.6 ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner
@@ -62,6 +68,11 @@ struct ConsoleView: View {
     private let kernel = KernelBridge.shared
 
     var body: some View {
+        // Split modifiers so the type-checker does not time out on one huge chain.
+        applyToolNotifications(to: applyEditorNotifications(to: consoleBase))
+    }
+
+    private var consoleBase: some View {
         ConsoleTextView(
             text: $consoleText,
             isFocused: $isFocused,
@@ -80,100 +91,128 @@ struct ConsoleView: View {
             }
         )
         .focused($isFocused)
-        .onAppear {
-            isFocused = true
-            kernel.onEmit = { chunk in
-                appendEngineOutput(chunk)
-            }
-            // Facility terminal (PAGE/AT-XY): replace console body with grid paint.
-            kernel.onTerminalRefresh = { screen in
-                isProgrammaticConsoleAppend = true
-                consoleText = kernel.facilityPaintPrefix + screen
-                if !consoleText.hasSuffix("\n") {
-                    consoleText += "\n"
-                }
-                markProtectedThroughEndOfText()
-                keepCursorVisible(followPrompt: true)
-                DispatchQueue.main.async {
-                    isProgrammaticConsoleAppend = false
-                    // Reverse-video insert point (TZForth facility cursor).
-                    applyFacilityCursorHighlight()
-                }
-            }
-            // Startup: banner → cwd + blank line → AutoLoad → host prompt.
+        .onAppear(perform: handleConsoleAppear)
+        .onChange(of: consoleText) { oldValue, newValue in
+            handleConsoleTextChange(oldValue: oldValue, newValue: newValue)
+        }
+    }
+
+    private func handleConsoleAppear() {
+        isFocused = true
+        kernel.onEmit = { chunk in
+            appendEngineOutput(chunk)
+        }
+        // Facility terminal (PAGE/AT-XY): replace console body with grid paint.
+        kernel.onTerminalRefresh = { screen in
             isProgrammaticConsoleAppend = true
-            appendEngineOutput("cwd: \(host.logicalCurrentDirectory)\n\n")
+            consoleText = kernel.facilityPaintPrefix + screen
+            if !consoleText.hasSuffix("\n") {
+                consoleText += "\n"
+            }
             markProtectedThroughEndOfText()
+            keepCursorVisible(followPrompt: true)
+            DispatchQueue.main.async {
+                isProgrammaticConsoleAppend = false
+                // Reverse-video insert point (TZForth facility cursor).
+                applyFacilityCursorHighlight()
+            }
+        }
+        // Startup: banner → cwd + blank line → AutoLoad → host prompt.
+        isProgrammaticConsoleAppend = true
+        appendEngineOutput("cwd: \(host.logicalCurrentDirectory)\n\n")
+        markProtectedThroughEndOfText()
+        isProgrammaticConsoleAppend = false
+        keepCursorVisible(followPrompt: true)
+
+        // AutoLoad after first frame so onEmit appends reliably (TZForth pattern).
+        DispatchQueue.main.async {
+            isProgrammaticConsoleAppend = true
+            _ = kernel.runAutoLoadIfPresent()
+            markProtectedThroughEndOfText()
+            appendPrompt()
             isProgrammaticConsoleAppend = false
             keepCursorVisible(followPrompt: true)
+        }
+    }
 
-            // AutoLoad after first frame so onEmit appends reliably (TZForth pattern).
-            DispatchQueue.main.async {
-                isProgrammaticConsoleAppend = true
-                _ = kernel.runAutoLoadIfPresent()
-                markProtectedThroughEndOfText()
-                appendPrompt()
-                isProgrammaticConsoleAppend = false
-                keepCursorVisible(followPrompt: true)
-            }
+    private func handleConsoleTextChange(oldValue: String, newValue: String) {
+        if isRevertingProtectedEdit {
+            isRevertingProtectedEdit = false
+            return
         }
-        .onChange(of: consoleText) { oldValue, newValue in
-            if isRevertingProtectedEdit {
-                isRevertingProtectedEdit = false
-                return
-            }
-            if isProgrammaticConsoleAppend {
-                // During long INCLUDE/Hayes output, follow the end only if the
-                // user is already near the bottom — so they can scroll up and
-                // read earlier lines without fighting auto-scroll.
-                maybeFollowOutputIfNearBottom()
-                return
-            }
-            // Facility PAGE/AT-XY paints replace the whole console body each frame.
-            if kernel.isFacilityTerminalActive {
-                keepCursorVisible()
-                applyFacilityCursorHighlight()
-                return
-            }
-            if newValue.count < protectedLength
-                || (!protectedSnapshot.isEmpty && !newValue.hasPrefix(protectedSnapshot)) {
-                isRevertingProtectedEdit = true
-                consoleText = oldValue
-                return
-            }
-            checkForCommandExecution(newValue)
+        if isProgrammaticConsoleAppend {
+            // During long INCLUDE/Hayes output, follow the end only if the
+            // user is already near the bottom — so they can scroll up and
+            // read earlier lines without fighting auto-scroll.
+            maybeFollowOutputIfNearBottom()
+            return
+        }
+        // Facility PAGE/AT-XY paints replace the whole console body each frame.
+        if kernel.isFacilityTerminalActive {
             keepCursorVisible()
+            applyFacilityCursorHighlight()
+            return
         }
-        .onReceive(NotificationCenter.default.publisher(for: .clearConsole)) { _ in
-            clearConsole()
+        if newValue.count < protectedLength
+            || (!protectedSnapshot.isEmpty && !newValue.hasPrefix(protectedSnapshot)) {
+            isRevertingProtectedEdit = true
+            consoleText = oldValue
+            return
         }
-        .onReceive(NotificationCenter.default.publisher(for: .fileSave)) { _ in
-            handleFileSave()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .fileClose)) { _ in
-            handleFileClose()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .viewWordUnderCursor)) { _ in
-            handleViewWordUnderCursor()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .showLibraryFolder)) { _ in
-            host.revealInFinder(host.libraryURL)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .showAutoloadFolder)) { _ in
-            host.revealInFinder(host.autoLoadURL)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .showDocsFolder)) { _ in
-            host.revealInFinder(host.docsURL)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toolsFload)) { _ in
-            presentFloadPanel()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toolsChdir)) { _ in
-            presentChdirPanel()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toolsEdit)) { _ in
-            presentEditPanel()
-        }
+        checkForCommandExecution(newValue)
+        keepCursorVisible()
+    }
+
+    /// Editor / Hyper menu shortcuts (split from `body` for the type-checker).
+    private func applyEditorNotifications<Content: View>(to content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .clearConsole)) { _ in
+                clearConsole()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fileSave)) { _ in
+                handleFileSave()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fileClose)) { _ in
+                handleFileClose()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .viewWordUnderCursor)) { _ in
+                handleViewWordUnderCursor()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .editorFindPrev)) { _ in
+                handleEditorFind(prev: true)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .editorFindNext)) { _ in
+                handleEditorFind(prev: false)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .hyperPrev)) { _ in
+                handleHyperNav(prev: true)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .hyperNext)) { _ in
+                handleHyperNav(prev: false)
+            }
+    }
+
+    /// Tools menu / folder notifications.
+    private func applyToolNotifications<Content: View>(to content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .showLibraryFolder)) { _ in
+                host.revealInFinder(host.libraryURL)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showAutoloadFolder)) { _ in
+                host.revealInFinder(host.autoLoadURL)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showDocsFolder)) { _ in
+                host.revealInFinder(host.docsURL)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toolsFload)) { _ in
+                presentFloadPanel()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toolsChdir)) { _ in
+                presentChdirPanel()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toolsEdit)) { _ in
+                presentEditPanel()
+            }
     }
 
     // MARK: - Protected region
@@ -489,6 +528,22 @@ struct ConsoleView: View {
             return
         }
         kernel.pushKey(17)
+    }
+
+    /// ⌘← / ⌘→ — same-file find prev/next (menu key-equivalent path; same as ⌘S).
+    private func handleEditorFind(prev: Bool) {
+        guard kernel.isEvaluating, kernel.isFacilityTerminalActive else { return }
+        kernel.pushKey(prev ? 20 : 21) // SZ-FIND-PREV / SZ-FIND-NEXT
+    }
+
+    /// ⌘PgUp / ⌘PgDn — Hyper prev/next (menu key-equivalent when possible).
+    private func handleHyperNav(prev: Bool) {
+        if kernel.isEvaluating, kernel.isFacilityTerminalActive {
+            kernel.pushKey(prev ? 26 : 27) // SZ-HYPER-PREV / SZ-HYPER-NEXT
+            return
+        }
+        guard !kernel.isEvaluating else { return }
+        _ = kernel.evaluate(prev ? "HYPER-PREV" : "HYPER-NEXT")
     }
 
     /// Phase 5 ⌘E: VIEW word under caret (console), or inject editor key if SZ-EDITOR up.

@@ -801,16 +801,114 @@ final class KernelBridge {
     /// Enqueue a raw key for KEY / KEY?. Only accepted while `kernel_eval` is
     /// running — otherwise normal console typing would fill the queue and
     /// WAIT-KEY / KEY? would return leftover command-line characters.
-    func pushKey(_ c: Int32) {
+    ///
+    /// Maps AppKit private-use function-key scalars (U+F700…) down to F-PC codes.
+    /// Raw U+F703 otherwise becomes `255 AND` → 3 and is silently dropped in SZ-HANDLE-KEY.
+    @discardableResult
+    func pushKey(_ c: Int32) -> Bool {
+        let mapped = Self.mapHostKeyCode(c)
         lock.lock()
         guard evaluatingFlag else {
             lock.unlock()
-            return
+            return false
         }
-        keyQueue.append(c)
+        keyQueue.append(mapped)
         lock.unlock()
         keyAvailable.signal()
+        return true
     }
+
+    /// NSEvent function-key characters → classic editor codes (no modifiers).
+    private static func mapHostKeyCode(_ c: Int32) -> Int32 {
+        switch c {
+        case 0xF700: return 16  // up
+        case 0xF701: return 14  // down
+        case 0xF702: return 2   // left
+        case 0xF703: return 6   // right
+        case 0xF704: return 28  // home (doc) — close enough; real home is 1/28 via keyCode
+        case 0xF705: return 29  // end
+        case 0xF72C: return 23  // page up
+        case 0xF72D: return 24  // page down
+        case 0xF728: return 127 // forward delete
+        default: return c
+        }
+    }
+
+    /// Map a keyDown event to an SZ-EDITOR F-PC code while facility is active.
+    /// Handles ⌘←/→ find and ⌘PgUp/Dn Hyper; plain arrows / home / etc.
+    /// - Returns: nil if this event is not a facility editor key we should steal.
+    func facilityEditorKey(from event: NSEvent) -> Int32? {
+        #if os(macOS)
+        guard event.type == .keyDown else { return nil }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let cmd = flags.contains(.command)
+        let shift = flags.contains(.shift)
+        let opt = flags.contains(.option)
+
+        let code = Int(event.keyCode)
+        // Also recognise function-key character values AppKit puts in `characters`.
+        let u: UInt32 = {
+            if let s = event.charactersIgnoringModifiers ?? event.characters,
+               let v = s.unicodeScalars.first {
+                return v.value
+            }
+            return 0
+        }()
+
+        let left = (code == 123) || (u == 0xF702) || (event.specialKey == .leftArrow)
+        let right = (code == 124) || (u == 0xF703) || (event.specialKey == .rightArrow)
+        let up = (code == 126) || (u == 0xF700) || (event.specialKey == .upArrow)
+        let down = (code == 125) || (u == 0xF701) || (event.specialKey == .downArrow)
+        let pgUp = (code == 116) || (u == 0xF72C) || (event.specialKey == .pageUp)
+        let pgDn = (code == 121) || (u == 0xF72D) || (event.specialKey == .pageDown)
+        let home = (code == 115) || (event.specialKey == .home)
+        let end = (code == 119) || (event.specialKey == .end)
+
+        // ⌘← / ⌘→ — in-buffer find (not line ends). Ignore ⌘⇧ (selection).
+        if cmd && !shift && !opt {
+            if left { return 20 }
+            if right { return 21 }
+            if pgUp { return 26 }
+            if pgDn { return 27 }
+            if home { return 28 }
+            if end { return 29 }
+        }
+        // Plain navigation (no command)
+        if !cmd && !opt {
+            if left { return 2 }
+            if right { return 6 }
+            if up { return 16 }
+            if down { return 14 }
+            if pgUp { return 23 }
+            if pgDn { return 24 }
+            if home { return shift ? 28 : 1 }
+            if end { return shift ? 29 : 5 }
+        }
+        #endif
+        return nil
+    }
+
+    /// Consume SZ-EDITOR navigation / find hotkeys before AppKit text-view bindings.
+    /// - Returns: true if the event was handled and must not be dispatched further.
+    @discardableResult
+    func consumeEditorHotKeyIfNeeded(_ event: NSEvent) -> Bool {
+        #if os(macOS)
+        lock.lock()
+        let active = evaluatingFlag
+        lock.unlock()
+        guard active, FacilityTerminal.shared.isActive else { return false }
+        guard let key = facilityEditorKey(from: event) else { return false }
+        // Only steal keys we care about for exclusive handling (find / hyper / nav).
+        // Always steal: find 20/21, hyper 26/27, and all motion when facility is up
+        // so NSTextView never sees them.
+        return pushKey(key)
+        #else
+        return false
+        #endif
+    }
+
+    /// True while `pumpUIForKeyInput` is on the stack (prevents nested nextEvent crashes).
+    private var isPumpingEvents = false
 
     /// Drop any pending KEY bytes (call at start/end of evaluate).
     func clearKeyQueue() {
@@ -825,31 +923,39 @@ final class KernelBridge {
     /// Must run on the main thread (classic modal input loop pattern).
     private func pumpUIForKeyInput(seconds: TimeInterval) {
         if !Thread.isMainThread {
+            // Avoid deadlock if main is already inside this pump.
+            if isPumpingEvents { return }
             DispatchQueue.main.sync {
                 self.pumpUIForKeyInput(seconds: seconds)
             }
             return
         }
+        // Nested nextEvent/sendEvent re-entry has crashed here under key repeat.
+        guard !isPumpingEvents else { return }
+        isPumpingEvents = true
+        defer { isPumpingEvents = false }
+
         let until = Date(timeIntervalSinceNow: seconds)
         while Date() < until {
             #if os(macOS)
-            // Prefer default mode; also try eventTracking for nested tracking.
-            let modes: [RunLoop.Mode] = [.default, .eventTracking, .modalPanel]
             var got = false
-            for mode in modes {
+            autoreleasepool {
+                // Single mode only — multi-mode dequeue loops can re-enter sendEvent unsafely.
                 if let event = NSApp.nextEvent(
                     matching: .any,
-                    until: Date(timeIntervalSinceNow: 0.005),
-                    inMode: mode,
+                    until: Date(timeIntervalSinceNow: 0.003),
+                    inMode: .default,
                     dequeue: true
                 ) {
-                    NSApp.sendEvent(event)
-                    got = true
-                    break
+                    if event.type == .keyDown, self.consumeEditorHotKeyIfNeeded(event) {
+                        got = true
+                    } else {
+                        NSApp.sendEvent(event)
+                        got = true
+                    }
                 }
             }
             #else
-            // iOS: service the run loop so SwiftUI / key handlers can run.
             let r = CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0.005, true)
             let got = (r == .handledSource)
             #endif
@@ -885,41 +991,23 @@ final class KernelBridge {
             let mods = event.modifierFlags.intersection([.control, .option, .shift, .command])
             let facilityOn = FacilityTerminal.shared.isActive
 
-            // Phase 5: ⌘PgUp / ⌘PgDn → HYPER-PREV / HYPER-NEXT
-            // Editor: keys 26/27; idle console: evaluate HYPER-PREV/NEXT.
-            if mods.contains(.command), !mods.contains(.shift),
+            // SZ-EDITOR ⌘←/→ find and ⌘PgUp/Dn Hyper (shared with ForthApplication.sendEvent).
+            if self.consumeEditorHotKeyIfNeeded(event) {
+                return nil
+            }
+
+            // Idle console: ⌘PgUp / ⌘PgDn → evaluate HYPER-PREV / HYPER-NEXT
+            if mods.contains(.command), !mods.contains(.shift), !active,
                event.keyCode == 116 || event.keyCode == 121 {
                 let prev = (event.keyCode == 116)
-                if active && facilityOn {
-                    self.pushKey(prev ? 26 : 27)
-                    return nil
-                }
-                if !active {
-                    self.evaluateHyperNav(prev ? "HYPER-PREV" : "HYPER-NEXT")
-                    return nil
-                }
+                self.evaluateHyperNav(prev ? "HYPER-PREV" : "HYPER-NEXT")
+                return nil
             }
 
-            // In-buffer find: ⌘← / ⌘→ → prev/next full word under cursor (same file)
-            if mods.contains(.command), !mods.contains(.shift), active, facilityOn {
-                switch event.keyCode {
-                case 123: // Left arrow
-                    self.pushKey(20) // SZ-FIND-PREV
-                    return nil
-                case 124: // Right arrow
-                    self.pushKey(21) // SZ-FIND-NEXT
-                    return nil
-                default:
-                    break
-                }
-            }
-
-            // Phase 5: ⌘E → VIEW word under caret
-            // - Console (idle): evaluate HYPER-VIEW-CU
-            // - SZ-EDITOR (facility): key 18 → SZ-DO-VIEW-UNDER (same session)
-            if mods.contains(.command), !mods.contains(.shift) {
+            // Phase 5: ⌘E → VIEW; ⌘G / ⌘⇧G → find next/prev (letter keys, reliable)
+            if mods.contains(.command) {
                 let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
-                if ch == "e" {
+                if ch == "e", !mods.contains(.shift) {
                     if active && facilityOn {
                         self.pushKey(18) // SZ-VIEW-UNDER
                         return nil
@@ -928,6 +1016,11 @@ final class KernelBridge {
                         self.viewWordUnderConsoleCursor()
                         return nil
                     }
+                }
+                if ch == "g", active && facilityOn {
+                    // ⌘G next, ⌘⇧G previous (same as Tools menu)
+                    self.pushKey(mods.contains(.shift) ? 20 : 21)
+                    return nil
                 }
             }
 
@@ -1008,7 +1101,13 @@ final class KernelBridge {
             let chars = event.charactersIgnoringModifiers ?? event.characters
             if let chars, !chars.isEmpty {
                 for scalar in chars.unicodeScalars {
-                    var v = Int32(bitPattern: UInt32(scalar.value))
+                    let raw = Int32(bitPattern: UInt32(scalar.value))
+                    // Private-use function keys (arrows etc.): already handled above when
+                    // facility is on; never push raw U+F70x (255 AND → silent no-op).
+                    if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
+                        continue
+                    }
+                    var v = raw
                     // Normalize Return/Enter to LF (10).
                     if v == 13 { v = 10 }
                     // Mac backspace character is often 127 — map to BS when facility editor active

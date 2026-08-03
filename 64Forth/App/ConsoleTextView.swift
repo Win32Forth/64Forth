@@ -18,40 +18,13 @@ import AppKit
 final class ConsoleNSTextView: NSTextView {
     var onFacilityClick: ((Int) -> Void)?
 
-    /// ⌘←/→ find prev/next; ⌘PgUp/Dn Hyper — push F-PC codes into KEY while SZ-EDITOR waits.
-    /// Handled here as well as the global keyDown monitor so AppKit line-start/end
-    /// bindings cannot swallow the event without delivering a Forth key.
-    private func pushSzEditorCommandKeys(_ event: NSEvent) -> Bool {
-        guard KernelBridge.shared.isEvaluating, KernelBridge.shared.isFacilityTerminalActive else {
-            return false
-        }
-        let mods = event.modifierFlags.intersection([.command, .control, .option, .shift])
-        guard mods.contains(.command), !mods.contains(.shift) else { return false }
-        switch event.keyCode {
-        case 123: // Left
-            KernelBridge.shared.pushKey(20) // SZ-FIND-PREV
-            return true
-        case 124: // Right
-            KernelBridge.shared.pushKey(21) // SZ-FIND-NEXT
-            return true
-        case 116: // Page Up
-            KernelBridge.shared.pushKey(26) // SZ-HYPER-PREV
-            return true
-        case 121: // Page Down
-            KernelBridge.shared.pushKey(27) // SZ-HYPER-NEXT
-            return true
-        default:
-            return false
-        }
-    }
-
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if pushSzEditorCommandKeys(event) { return true }
+        if KernelBridge.shared.consumeEditorHotKeyIfNeeded(event) { return true }
         return super.performKeyEquivalent(with: event)
     }
 
     override func keyDown(with event: NSEvent) {
-        if pushSzEditorCommandKeys(event) { return }
+        if KernelBridge.shared.consumeEditorHotKeyIfNeeded(event) { return }
         super.keyDown(with: event)
     }
 
