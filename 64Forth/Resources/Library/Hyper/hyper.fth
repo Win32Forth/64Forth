@@ -1,10 +1,15 @@
 \ hyper.fth — HYPER.NDX: LOCATE / VIEW
 \
 \ Load: FROMLIB FLOAD Hyper/hyper.fth
-\ Use:  LOCATE DUP
+\ Use:  ALSO HYPER-VOC  LOCATE DUP  PREVIOUS
+\       (or: HYPER-VOC LOCATE DUP FORTH)
+\
+\ All Hyper words live in HYPER-VOC except HYPER-REINDEX (FORTH wrapper).
 
 ANEW HYPER-MODULE
 ONLY FORTH DEFINITIONS
+VOCABULARY HYPER-VOC
+ONLY FORTH ALSO HYPER-VOC DEFINITIONS
 
 0 VALUE HYPER-BUF
 0 VALUE HYPER-LEN
@@ -19,7 +24,8 @@ CREATE HYPER-LINE  256 ALLOT
 CREATE HYPER-SEEK   64 ALLOT
 CREATE HYPER-CMD   512 ALLOT
 
-CREATE HYPER-NDX-NAME  32 ALLOT
+\ Path of the index file last opened or written (counted; room for long abs paths).
+CREATE HYPER-NDX-NAME  256 ALLOT
 S" Config/HYPER.NDX" HYPER-NDX-NAME PLACE
 
 \ Try open path; on success leave fileid and set HYPER-NDX-NAME. flag true = ok.
@@ -488,13 +494,21 @@ CREATE HYPER-JTAB  HYPER-JMAX HYPER-HESZ * ALLOT
    ." Cmd-PgDn/PgUp     next/prev hit; PgUp also returns from Cmd-E" CR
    ." Cmd-Left/Right    prev/next occurrence in current editor file" CR
    ." Cmd-E             VIEW word under caret (console or SZ-EDITOR)" CR
-   ." HYPER-REINDEX     rebuild Config/HYPER.NDX, reload" CR
-   ." HYPER-RELOAD  .HYPER" CR ;
+   ." HYPER-REINDEX     rebuild Config/HYPER.NDX, reload (FORTH)" CR
+   ." HYPER-VOC MIN-HYPER-NOISE ON|OFF  quiet reindex noise" CR
+   ." HYPER-RELOAD  .HYPER   |  HYPER-VOC WORDS  |  ORDER" CR ;
 
-\ Phase 3a in-app indexer (defines HYPER-REINDEX)
+\ Phase 3a/4 indexer (same HYPER-VOC; HYPER-REINDEX → FORTH at end of file)
 FLOAD hyper-index.fth
 
+\ Ensure HYPER-VOC is searchable for init (index file may leave CURRENT=FORTH).
+ONLY FORTH ALSO HYPER-VOC
 HYPER-LOAD DROP
 HYPER-BIND-EDITOR DROP
 
-ONLY FORTH DEFINITIONS
+\ Default session order: FORTH first (WORDS / new defs), then HYPER-VOC so
+\ VIEW LOCATE .HYPER etc. resolve without typing ALSO HYPER-VOC each time.
+\ (FORTH alone replaces order[0] and would drop HYPER-VOC — use SET-ORDER.)
+ONLY FORTH ALSO HYPER-VOC          \ order: HYPER-VOC, FORTH
+GET-ORDER >R SWAP R> SET-ORDER     \ order: FORTH, HYPER-VOC
+FORTH-WORDLIST SET-CURRENT

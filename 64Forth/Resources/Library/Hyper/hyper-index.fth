@@ -9,10 +9,14 @@
 \   - BOOT_WORD → CodeLabel in Kernel/forth.s
 \   - Kernel .s/.inc TYPE 0 only on .ascii / .asciz lines
 \
-\ Use:  HYPER-REINDEX
+\ Use:  HYPER-REINDEX   (FORTH wrapper; HX-DO-REINDEX + helpers in HYPER-VOC)
+\
+\ Caller (hyper.fth) defines into HYPER-VOC; stay on that CURRENT.
 
-ONLY FORTH DEFINITIONS
+ONLY FORTH ALSO HYPER-VOC DEFINITIONS
 
+VARIABLE MIN-HYPER-NOISE
+MIN-HYPER-NOISE OFF
 \ -----------------------------------------------------------------------------
 \ Buffers
 \ -----------------------------------------------------------------------------
@@ -392,7 +396,9 @@ CREATE HX-LTAB  HX-LMAX HX-ESIZE * ALLOT
 : HX-COLLECT-LABELS  ( -- )
    0 TO HX-LN
    S" Kernel/forth.s" HX-COLLECT-LABELS-FILE
-   ." HX: " HX-LN . ." asm labels" CR ;
+   MIN-HYPER-NOISE @ 0=
+   IF   ." HX: " HX-LN . ." asm labels" CR
+   THEN ;
 
 \ -----------------------------------------------------------------------------
 \ BOOT_WORD "name", "help", imm, CodeLabel
@@ -557,7 +563,11 @@ CREATE HX-LTAB  HX-LMAX HX-ESIZE * ALLOT
       0= IF
          DROP R> CLOSE-FILE DROP
          HX-FCNT 0= IF  HX-SCAN-FALLBACK
-         ELSE  ." HX: " HX-FCNT . ." SPECS files" CR  THEN EXIT
+         ELSE
+            MIN-HYPER-NOISE @ 0=
+            IF  ." HX: " HX-FCNT . ." SPECS files" CR
+            THEN
+         THEN EXIT
       THEN
       HX-LINE SWAP HX-SCAN-SPECS-LINE
       HX-FCNT 1+ TO HX-FCNT
@@ -565,10 +575,9 @@ CREATE HX-LTAB  HX-LMAX HX-ESIZE * ALLOT
 
 \ -----------------------------------------------------------------------------
 \ HYPER-REINDEX → Config/HYPER.NDX
+\ Writes the canonical Config/ path and records it in HYPER-NDX-NAME (FORTH;
+\ 256-byte counted path used for load/reload status — no separate HX-NDX-OUT).
 \ -----------------------------------------------------------------------------
-
-CREATE HX-NDX-OUT  32 ALLOT
-S" Config/HYPER.NDX" HX-NDX-OUT PLACE
 
 : HX-WRITE-HEADER  ( -- )
    HX-OUT-CLEAR
@@ -582,17 +591,21 @@ S" Config/HYPER.NDX" HX-NDX-OUT PLACE
    HX-OUT-FLUSH
    HX-OUT-CLEAR HX-OUT-FLUSH ;
 
-: HYPER-REINDEX  ( -- )
-   ." HYPER-REINDEX: writing " HX-NDX-OUT COUNT TYPE ." ..." CR
+\ Body in HYPER-VOC so HX-* / MIN-HYPER-NOISE compile against this wordlist.
+: HX-DO-REINDEX  ( -- )
+   S" Config/HYPER.NDX" HYPER-NDX-NAME PLACE
+   ." HYPER-REINDEX: writing " HYPER-NDX-NAME COUNT TYPE ." ..." CR
    0 TO HX-COUNT
    0 TO HX-FID
    HX-LOAD-CFG
-   ." HX: " HX-PN . ." TYPE 0 prefixes" CR
+   MIN-HYPER-NOISE @ 0=
+   IF   ." HX: " HX-PN . ." TYPE 0 prefixes" CR
+   THEN
    HX-COLLECT-LABELS
-   HX-NDX-OUT COUNT W/O CREATE-FILE
+   HYPER-NDX-NAME COUNT W/O CREATE-FILE
    IF
       DROP
-      ." HYPER-REINDEX: CREATE-FILE failed for Config/HYPER.NDX" CR
+      ." HYPER-REINDEX: CREATE-FILE failed for " HYPER-NDX-NAME COUNT TYPE CR
       EXIT
    THEN
    TO HX-FID
@@ -600,8 +613,16 @@ S" Config/HYPER.NDX" HX-NDX-OUT PLACE
    HX-SCAN-ALL
    HX-FID CLOSE-FILE DROP
    0 TO HX-FID
-   HX-NDX-OUT COUNT HYPER-NDX-NAME PLACE
-   ." HYPER-REINDEX: " HX-COUNT . ." entries" CR
+   MIN-HYPER-NOISE @ 0=
+   IF   ." HYPER-REINDEX: " HX-COUNT . ." entries" CR
+   THEN
    HYPER-RELOAD ;
 
-ONLY FORTH DEFINITIONS
+\ Public entry in FORTH — no ALSO needed at the call site.
+\ Note: FORTH replaces search_order[0] (does not push). Keep HYPER-VOC first
+\ for FIND, and set CURRENT with FORTH-WORDLIST SET-CURRENT instead.
+\ Do NOT end with ONLY FORTH — hyper.fth still needs HYPER-VOC visible for
+\ HYPER-LOAD / HYPER-BIND-EDITOR after this FLOAD returns.
+ONLY FORTH ALSO HYPER-VOC
+FORTH-WORDLIST SET-CURRENT
+: HYPER-REINDEX  ( -- )  ['] HX-DO-REINDEX EXECUTE ;

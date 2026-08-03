@@ -562,10 +562,14 @@ VARIABLE SZ-CLIP-HOLD-U                \ previous solid clip (two-level stack)
 ;
 
 \ Phase 5: Cmd-PgUp/PgDn → HYPER-PREV / HYPER-NEXT (if Hyper module loaded).
-\ ALSO FORTH so FIND sees Hyper words; PREVIOUS restores search order.
+\ Hyper words live in HYPER-VOC. Runtime FIND so Editor can load before Hyper.
+CREATE SZ-RUN-NAME  64 ALLOT
 : SZ-RUN-FORTH  ( c-addr u -- )
-   ALSO FORTH
-   PAD PLACE  PAD FIND IF  EXECUTE  ELSE  DROP  THEN
+   63 MIN SZ-RUN-NAME PLACE
+   S" HYPER-VOC" PAD PLACE
+   PAD FIND 0= IF  DROP EXIT  THEN
+   EXECUTE                              \ push HYPER-VOC
+   SZ-RUN-NAME FIND IF  EXECUTE  ELSE  DROP  THEN
    PREVIOUS ;
 
 : SZ-DO-HYPER-PREV  ( -- )  S" HYPER-PREV" SZ-RUN-FORTH ;
@@ -901,8 +905,10 @@ VARIABLE SZ-DR-N
 \ Cmd-E in editor: VIEW word under cursor (Hyper); stays in this edit session.
 : SZ-DO-VIEW-UNDER  ( -- )
    SZ-WORD-AT-CUR
-   DUP 0= IF  2DROP EXIT  THEN
-   ALSO FORTH
+   DUP 0= IF  2DROP EXIT  THEN                 \ a u
+   S" HYPER-VOC" PAD PLACE
+   PAD FIND 0= IF  DROP 2DROP EXIT  THEN
+   EXECUTE                                     \ push HYPER-VOC; a u remain
    S" HYPER-VIEW-NAME" PAD PLACE
    PAD FIND IF  EXECUTE  ELSE  DROP 2DROP  THEN
    PREVIOUS ;
