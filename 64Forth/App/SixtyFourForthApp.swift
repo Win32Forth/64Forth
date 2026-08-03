@@ -65,6 +65,11 @@ struct SixtyFourForthApp: App {
                 }
                 .keyboardShortcut("k", modifiers: [.command])
 
+                Button("VIEW Word Under Cursor") {
+                    NotificationCenter.default.post(name: .viewWordUnderCursor, object: nil)
+                }
+                .keyboardShortcut("e", modifiers: [.command])
+
                 Divider()
 
                 Button("FLOAD…") {
@@ -80,7 +85,7 @@ struct SixtyFourForthApp: App {
                 Button("EDIT…") {
                     NotificationCenter.default.post(name: .toolsEdit, object: nil)
                 }
-                .keyboardShortcut("e", modifiers: [.command, .shift])
+                // No ⌘E / ⌘⇧E — ⌘E is VIEW word under cursor (Phase 5)
 
                 Divider()
 

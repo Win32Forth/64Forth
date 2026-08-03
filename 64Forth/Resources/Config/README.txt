@@ -91,4 +91,5 @@ Status
   Phase 3: SZ-GOTO-LINE / editor integration
   Phase 3a: HYPER-REINDEX → Config/HYPER.NDX
   Phase 4: CFG SPECS/TYPE + host file list (HYPER.SPECS)
-  Phase 4a: mouse click moves SZ-EDITOR cursor  ← current
+  Phase 4a: mouse click moves SZ-EDITOR cursor
+  Phase 5: multi-hit LOCATE/VIEW, Ctrl-PgUp/Dn, SEE→VIEW, Cmd-E  ← current

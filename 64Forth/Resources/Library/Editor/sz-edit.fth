@@ -36,6 +36,8 @@ DECIMAL
  28 CONSTANT SZ-HOME-FILE      \ Ctrl-Home
  29 CONSTANT SZ-END-FILE       \ Ctrl-End
  25 CONSTANT SZ-MOUSE          \ host mouse click in facility (Phase 4a)
+ 26 CONSTANT SZ-HYPER-PREV     \ Ctrl-PgUp — previous HYPER hit
+ 27 CONSTANT SZ-HYPER-NEXT     \ Ctrl-PgDn — next HYPER hit
  30 CONSTANT SZ-CMD-OPEN       \ host File→Open while KEY waiting
  31 CONSTANT SZ-CMD-NEW        \ host File→New while KEY waiting
 127 CONSTANT SZ-DEL            \ also delete-forward (legacy)
@@ -316,12 +318,21 @@ VARIABLE SZ-PAGE-N
 
 \ Move cursor to 1-based line n (clamped). Start of that line; scroll so
 \ the line is near the top of the view (SZ-VIEW-CONTEXT rows down).
+\ Stop at EOF if n is past the last line (no DO — safer nested in KEY loop).
 : SZ-GOTO-LINE  ( n -- )
    DUP 1 < IF  DROP 1  THEN
-   SZ-TBUF SWAP                    \ addr n
-   1 DO                            \ n-1 times NEXT-LINE (n=1 → no move)
-      SZ-NEXT-LINE
-   LOOP
+   >R                               \ R: target 1-based line
+   SZ-TBUF 1                        \ addr cur-line#
+   BEGIN
+      DUP R@ <
+   WHILE
+      OVER SZ-TEND SZ-U>= IF
+         DROP R> DROP
+         SZ-CUR !  SZ-REVEAL-NEAR-TOP EXIT
+      THEN
+      SWAP SZ-NEXT-LINE SWAP 1+
+   REPEAT
+   DROP R> DROP
    SZ-CUR !
    SZ-REVEAL-NEAR-TOP
 ;
@@ -354,11 +365,42 @@ VARIABLE SZ-PAGE-N
    SZ-ENSURE-HVISIBLE
 ;
 
+\ Phase 5: load path + goto line for HYPER multi-hit ( a u line -- )
+\ Do not reference Hyper words here (editor loads before Hyper).
+: SZ-HYPER-GOTO  ( c-addr u line -- )
+   >R                                 \ R: line  ( a u )
+   2DUP SZ-LOAD IF
+      R> DROP
+      SZ-MSG-LINE
+      ." hyper: cannot open "
+      TYPE
+      TERMINAL-REFRESH
+      EXIT
+   THEN
+   2DROP
+   R@ SZ-GOTO-LINE
+   SZ-MSG-LINE
+   ." hyper " SZ-GET-NAME TYPE ." :" R> 0 .R
+   TERMINAL-REFRESH
+;
+
+\ Phase 5: Ctrl-PgUp/PgDn → HYPER-PREV / HYPER-NEXT (if Hyper module loaded).
+\ ALSO FORTH so FIND sees Hyper words; PREVIOUS restores search order.
+: SZ-RUN-FORTH  ( c-addr u -- )
+   ALSO FORTH
+   PAD PLACE  PAD FIND IF  EXECUTE  ELSE  DROP  THEN
+   PREVIOUS ;
+
+: SZ-DO-HYPER-PREV  ( -- )  S" HYPER-PREV" SZ-RUN-FORTH ;
+: SZ-DO-HYPER-NEXT  ( -- )  S" HYPER-NEXT" SZ-RUN-FORTH ;
+
 : SZ-HANDLE-KEY  ( c -- )
    255 AND
    DUP SZ-CTRL-Q = IF  DROP SZ-DO-QUIT EXIT  THEN   \ also File→Close / Cmd-W via host
    DUP SZ-CTRL-S = IF  DROP SZ-DO-SAVE EXIT  THEN   \ also File→Save / Cmd-S via host
    DUP SZ-MOUSE = IF  DROP SZ-DO-MOUSE EXIT  THEN
+   DUP SZ-HYPER-PREV = IF  DROP SZ-DO-HYPER-PREV EXIT  THEN
+   DUP SZ-HYPER-NEXT = IF  DROP SZ-DO-HYPER-NEXT EXIT  THEN
    DUP SZ-CMD-OPEN = IF  DROP SZ-DO-MENU-OPEN EXIT  THEN
    DUP SZ-CMD-NEW = IF  DROP SZ-DO-MENU-NEW EXIT  THEN
    DUP SZ-LEFT = IF  DROP SZ-GO-LEFT EXIT  THEN

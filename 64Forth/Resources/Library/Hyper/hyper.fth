@@ -56,13 +56,17 @@ S" Config/HYPER.NDX" HYPER-NDX-NAME PLACE
    R@ CHAR+ SWAP CMOVE             \ ( src dest+1 u ) → CMOVE
    R> DROP ;
 
+\ ( a1 u1 a2 u2 -- flag )  case-insensitive; always consumes all four args.
 : HYPER-NAME=  ( a1 u1 a2 u2 -- flag )
-   ROT OVER <> IF  2DROP DROP FALSE EXIT  THEN
-   DUP 64 > IF  2DROP DROP FALSE EXIT  THEN
+   ROT OVER <> IF  2DROP 2DROP FALSE EXIT  THEN   \ len mismatch
+   DUP 64 > IF  2DROP 2DROP FALSE EXIT  THEN
    BEGIN  DUP WHILE
-      1- >R
-      DUP C@ HYPER-UPC >R
-      OVER C@ HYPER-UPC R> <> IF  R> DROP 2DROP FALSE EXIT  THEN
+      1- >R                             \ R: remaining-1  ( a1 a2 )
+      DUP C@ HYPER-UPC >R               \ R: rem ch2
+      OVER C@ HYPER-UPC R> <> IF        \ chars differ
+         R> DROP                        \ drop rem
+         2DROP FALSE EXIT               \ drop a1 a2
+      THEN
       1+ SWAP 1+ SWAP
       R>
    REPEAT
@@ -169,10 +173,6 @@ S" Config/HYPER.NDX" HYPER-NDX-NAME PLACE
 : HYPER-SET-CUR  ( a u -- )
    HYPER-CUR HYPER-PLACE ;
 
-: HYPER-SET-HIT  ( n -- )
-   TO HYPER-LINE#
-   HYPER-CUR COUNT HYPER-HIT HYPER-PLACE ;
-
 : HYPER->LINE  ( a u -- n true | false )
    HYPER-SKIP-BL
    DUP 0= IF  2DROP FALSE EXIT  THEN
@@ -186,91 +186,222 @@ S" Config/HYPER.NDX" HYPER-NDX-NAME PLACE
    REPEAT
    2DROP R> TRUE ;
 
-: (HYPER-FIND-SEEK)  ( -- flag )
-   HYPER-ENSURE 0= IF  FALSE EXIT  THEN
+\ -----------------------------------------------------------------------------
+\ Multi-hit table (Phase 5)
+\ Entry layout (64 bytes): byte0 = path count, bytes1..55 = path, cell @56 = line
+\ -----------------------------------------------------------------------------
+
+ 56 CONSTANT HYPER-HOFF            \ offset of line cell within entry
+ 64 CONSTANT HYPER-HESZ
+ 32 CONSTANT HYPER-HMAX
+
+CREATE HYPER-HTAB  HYPER-HMAX HYPER-HESZ * ALLOT
+0 VALUE HYPER-HN
+0 VALUE HYPER-HI
+0 VALUE HYPER-VIEWING
+
+: HYPER-HENT  ( i -- addr )  HYPER-HESZ * HYPER-HTAB + ;
+
+: HYPER-CLEAR-HITS  ( -- )
+   0 TO HYPER-HN  0 TO HYPER-HI
+   0 HYPER-HIT C!  0 TO HYPER-LINE# ;
+
+\ Store HYPER-CUR path + line into next table slot. ( line -- )
+: HYPER-STORE-HIT  ( line -- )
+   HYPER-HN HYPER-HMAX >= IF  DROP EXIT  THEN
+   HYPER-HN HYPER-HENT >R                \ R: ent  ( line )
+   HYPER-CUR COUNT 55 MIN                \ line a u
+   DUP R@ C!                             \ count at ent
+   R@ 1+ SWAP CMOVE                      \ copy chars; leaves ( line )
+   R@ HYPER-HOFF + !                     \ line → ent+56
+   R> DROP
+   HYPER-HN 1+ TO HYPER-HN ;
+
+\ Copy hit i into HYPER-HIT / HYPER-LINE#. ( i -- )
+: HYPER-SELECT  ( i -- )
+   DUP 0< IF  DROP EXIT  THEN
+   DUP HYPER-HN >= IF  DROP EXIT  THEN
+   TO HYPER-HI
+   HYPER-HI HYPER-HENT                   \ ent
+   DUP C@ 55 MIN >R                      \ ent  R: n
+   R@ HYPER-HIT C!
+   1+ HYPER-HIT 1+ R@ CMOVE              \ src dest u
+   R> DROP
+   HYPER-HI HYPER-HENT HYPER-HOFF + @ TO HYPER-LINE# ;
+
+: HYPER-SHOW-HIT  ( -- )
+   HYPER-HIT COUNT TYPE [CHAR] : EMIT HYPER-LINE# .
+   HYPER-HN 1 > IF
+      ."  [" HYPER-HI 1+ 0 .R [CHAR] / EMIT HYPER-HN 0 .R ." ]"
+   THEN
+   CR ;
+
+\ ( a u -- ) try one NDX body line; stack-clean
+: (HYPER-TRY-LINE)  ( a u -- )
+   HYPER-FIRST-WORD                      \ wa wu ra ru
+   2SWAP                                 \ ra ru wa wu
+   DUP HYPER-SEEK C@ <> IF  2DROP 2DROP EXIT  THEN
+   HYPER-SEEK COUNT HYPER-NAME=          \ ra ru flag
+   IF  HYPER->LINE IF  HYPER-STORE-HIT  THEN
+   ELSE  2DROP  THEN ;
+
+: (HYPER-COLLECT)  ( -- n )
+   HYPER-ENSURE 0= IF  0 EXIT  THEN
+   HYPER-CLEAR-HITS
    0 TO HYPER-POS
    0 HYPER-CUR C!
-   0 HYPER-HIT C!
-   0 TO HYPER-LINE#
    BEGIN  HYPER-EOF? 0= WHILE
       HYPER-READ-LINE
-      DUP 0= IF
-         2DROP
-      ELSE  OVER C@ [CHAR] # = IF
-         2DROP
+      DUP 0= IF  2DROP
+      ELSE  OVER C@ [CHAR] # = IF  2DROP
       ELSE  OVER C@ 64 = IF
          DUP 1 < IF  2DROP
-         ELSE
-            HYPER-SKIP1 HYPER-SKIP-BL
+         ELSE  HYPER-SKIP1 HYPER-SKIP-BL
             DUP 0= IF  2DROP  ELSE  HYPER-SET-CUR  THEN
          THEN
-      ELSE
-         HYPER-FIRST-WORD
-         2SWAP
-         DUP HYPER-SEEK C@ <> IF
-            2DROP 2DROP
-         ELSE
-            HYPER-SEEK COUNT HYPER-NAME= IF
-               HYPER->LINE IF
-                  HYPER-SET-HIT TRUE EXIT
-               THEN
-            ELSE
-               2DROP
-            THEN
-         THEN
+      ELSE  (HYPER-TRY-LINE)
       THEN THEN THEN
    REPEAT
-   FALSE ;
+   HYPER-HN ;
 
 : (HYPER-FIND)  ( c-addr u -- flag )
    63 MIN HYPER-SEEK HYPER-PLACE
-   (HYPER-FIND-SEEK) ;
+   (HYPER-COLLECT) 0= IF  FALSE EXIT  THEN
+   0 HYPER-SELECT
+   TRUE ;
+
+\ Cached XTs (avoid ALSO/PREVIOUS/FIND every time — search order got stuck
+\ after editor exit and FIND missed SZ-EDIT-FILE-AT).
+0 VALUE HYPER-EDIT-XT                \ SZ-EDIT-FILE-AT
+0 VALUE HYPER-GOTO-XT                \ SZ-HYPER-GOTO
+0 VALUE HYPER-ACTIVE-XT              \ SZ-EDITOR-ACTIVE variable xt
+
+: HYPER-BIND-EDITOR  ( -- flag )
+   ONLY FORTH ALSO EDITOR
+   S" SZ-EDIT-FILE-AT" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  TO HYPER-EDIT-XT  ELSE  DROP 0 TO HYPER-EDIT-XT  THEN
+   S" SZ-HYPER-GOTO" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  TO HYPER-GOTO-XT  ELSE  DROP 0 TO HYPER-GOTO-XT  THEN
+   S" SZ-EDITOR-ACTIVE" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  TO HYPER-ACTIVE-XT  ELSE  DROP 0 TO HYPER-ACTIVE-XT  THEN
+   ONLY FORTH
+   HYPER-EDIT-XT 0<> ;
+
+: HYPER-EDITOR?  ( -- flag )
+   HYPER-EDIT-XT IF  TRUE EXIT  THEN
+   HYPER-BIND-EDITOR ;
+
+: HYPER-EDITOR-ACTIVE?  ( -- flag )
+   HYPER-ACTIVE-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
+   HYPER-ACTIVE-XT IF  HYPER-ACTIVE-XT EXECUTE @  ELSE  FALSE  THEN ;
+
+\ ( c-addr u line -- ) open in SZ-EDITOR; rebinds if needed
+: HYPER-OPEN-AT  ( c-addr u line -- )
+   HYPER-EDIT-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
+   HYPER-EDIT-XT 0= IF
+      DROP 2DROP
+      ." VIEW: load SZ-EDITOR first" CR
+      ."   FROMLIB FLOAD Editor/SZ-EDITOR.fth" CR
+      EXIT
+   THEN
+   HYPER-EDIT-XT EXECUTE ;
+
+\ In-editor: SZ-HYPER-GOTO ( a u line )
+: HYPER-APPLY-HIT  ( -- )
+   HYPER-HN 0= IF  EXIT  THEN
+   HYPER-EDITOR-ACTIVE? IF
+      HYPER-GOTO-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
+      HYPER-GOTO-XT 0= IF  EXIT  THEN
+      HYPER-HIT COUNT HYPER-LINE#
+      HYPER-GOTO-XT EXECUTE
+   ELSE
+      HYPER-VIEWING IF
+         HYPER-HIT COUNT HYPER-LINE# HYPER-OPEN-AT
+      THEN
+   THEN ;
+
+: HYPER-SHOW-HIT-SAFE  ( -- )
+   HYPER-EDITOR-ACTIVE? IF  EXIT  THEN
+   HYPER-SHOW-HIT ;
+
+\ No wrap — stop cleanly at ends
+: HYPER-NEXT  ( -- )
+   HYPER-HN 0= IF  ." HYPER: no hits" CR EXIT  THEN
+   HYPER-HI 1+
+   DUP HYPER-HN >= IF
+      DROP
+      HYPER-EDITOR-ACTIVE? 0= IF  ." HYPER: last hit [" HYPER-HN . ." ]" CR  THEN
+      EXIT
+   THEN
+   HYPER-SELECT
+   HYPER-SHOW-HIT-SAFE
+   HYPER-APPLY-HIT ;
+
+: HYPER-PREV  ( -- )
+   HYPER-HN 0= IF  ." HYPER: no hits" CR EXIT  THEN
+   HYPER-HI 0= IF
+      HYPER-EDITOR-ACTIVE? 0= IF  ." HYPER: first hit" CR  THEN
+      EXIT
+   THEN
+   HYPER-HI 1- HYPER-SELECT
+   HYPER-SHOW-HIT-SAFE
+   HYPER-APPLY-HIT ;
 
 : LOCATE  ( "name" -- )
    PARSE-NAME
    DUP 0= IF  2DROP ." LOCATE needs a name" CR EXIT  THEN
+   FALSE TO HYPER-VIEWING
    (HYPER-FIND) 0= IF
       HYPER-OK 0= IF  ." HYPER: index not loaded" CR
       ELSE  HYPER-SEEK COUNT TYPE ."  not in HYPER.NDX" CR  THEN
       EXIT
    THEN
-   HYPER-HIT COUNT TYPE [CHAR] : EMIT HYPER-LINE# . CR ;
+   HYPER-SHOW-HIT ;
 
-\ FIND leaves ( xt 1|−1 ) or ( c-addr 0 ). IF consumes the flag only —
-\ do NOT DROP the xt (that was the XEXECUTE crash: line# used as CFA).
-VARIABLE HYPER-XT
-
-: HYPER-OPEN-AT  ( c-addr u line -- )
-   >R 2>R
-   ALSO EDITOR
-   S" SZ-EDIT-FILE-AT" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND
-   PREVIOUS
-   IF                              \ stack: xt   (1/−1 already consumed by IF)
-      HYPER-XT !
-      2R> R>                       \ a u line
-      HYPER-XT @ EXECUTE
-   ELSE                            \ stack: c-addr (failed FIND)
-      DROP
-      R> DROP
-      2R>
-      ." VIEW: load SZ-EDITOR first:" CR
-      ."   FROMLIB FLOAD Editor/SZ-EDITOR.fth" CR
-      ." Path: " TYPE CR
-   THEN ;
+\ c-addr u already a name (for Cmd-E / programmatic VIEW)
+\ (HYPER-FIND) consumes c-addr u (copies into HYPER-SEEK) — do NOT 2DROP after.
+: (VIEW)  ( c-addr u -- )
+   DUP 0= IF  2DROP EXIT  THEN
+   TRUE TO HYPER-VIEWING
+   (HYPER-FIND) 0= IF
+      HYPER-OK 0= IF  ." HYPER: index not loaded" CR
+      ELSE  HYPER-SEEK COUNT TYPE ."  not in HYPER.NDX" CR  THEN
+      EXIT
+   THEN
+   HYPER-SHOW-HIT
+   HYPER-HIT COUNT HYPER-LINE# HYPER-OPEN-AT ;
 
 : VIEW  ( "name" -- )
    PARSE-NAME
    DUP 0= IF  2DROP ." VIEW needs a name" CR EXIT  THEN
-   (HYPER-FIND) 0= IF
-      HYPER-OK 0= IF  ." HYPER: index not loaded" CR
-      ELSE  HYPER-SEEK COUNT TYPE ."  not in HYPER.NDX" CR  THEN
-      EXIT
-   THEN
-   HYPER-HIT COUNT TYPE [CHAR] : EMIT HYPER-LINE# . CR
-   HYPER-HIT COUNT HYPER-LINE# HYPER-OPEN-AT ;
+   (VIEW) ;
 
 : SEE-SOURCE  ( "name" -- )  VIEW ;
+
+\ SEE: prefer VIEW when editor is loaded; else original decompiler.
+' SEE CONSTANT (SEE-OLD)
+
+: SEE  ( "name" -- )
+   >IN @ >R
+   PARSE-NAME
+   DUP 0= IF  R> DROP 2DROP ." SEE needs a name" CR EXIT  THEN
+   2DUP (HYPER-FIND) IF
+      HYPER-EDITOR? IF
+         R> DROP 2DROP
+         TRUE TO HYPER-VIEWING
+         HYPER-SHOW-HIT
+         HYPER-HIT COUNT HYPER-LINE# HYPER-OPEN-AT
+         EXIT
+      THEN
+   THEN
+   2DROP
+   R> >IN !
+   (SEE-OLD) EXECUTE ;
+
+\ Cmd-E / host: VIEW name if editor present; silent no-op otherwise.
+: HYPER-VIEW-CU  ( c-addr u -- )
+   HYPER-EDITOR? 0= IF  2DROP EXIT  THEN
+   (VIEW) ;
 
 : HYPER-RELOAD  ( -- )
    HYPER-LOAD IF  ." HYPER: " HYPER-NDX-NAME COUNT TYPE
@@ -280,12 +411,19 @@ VARIABLE HYPER-XT
 : .HYPER  ( -- )
    CR ." HYPER " HYPER-NDX-NAME COUNT TYPE
    HYPER-OK IF  ."  " HYPER-LEN . ." bytes" CR
-   ELSE  ."  not loaded" CR  THEN ;
+   ELSE  ."  not loaded" CR  THEN
+   HYPER-HN IF
+      ."   hits " HYPER-HN . ."  current " HYPER-HI 1+ . CR
+      HYPER-SHOW-HIT
+   THEN ;
 
 : HYPER-HELP  ( -- )
    CR
-   ." LOCATE <name>     print path:line" CR
-   ." VIEW <name>       open in SZ-EDITOR at line (load editor first)" CR
+   ." LOCATE <name>     print path:line  [n/m] if multiple" CR
+   ." VIEW <name>       open in SZ-EDITOR at line" CR
+   ." SEE <name>        VIEW if editor loaded, else decompile" CR
+   ." HYPER-NEXT/PREV   next/prev hit  (Ctrl-PgDn / Ctrl-PgUp)" CR
+   ." Cmd-E             VIEW word under console caret (editor required)" CR
    ." HYPER-REINDEX     rebuild Config/HYPER.NDX, reload" CR
    ." HYPER-RELOAD  .HYPER" CR ;
 
@@ -293,5 +431,6 @@ VARIABLE HYPER-XT
 FLOAD hyper-index.fth
 
 HYPER-LOAD DROP
+HYPER-BIND-EDITOR DROP
 
 ONLY FORTH DEFINITIONS

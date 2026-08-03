@@ -29,9 +29,11 @@ extension Notification.Name {
     /// File → Close (⌘W) while SZ-EDITOR is active → inject quit-editor key (17).
     /// Must not quit the app; ⌘Q does that.
     static let fileClose = Notification.Name("SixtyFourForthFileClose")
+    /// Phase 5: ⌘E — VIEW word under console caret (if SZ-EDITOR is loaded).
+    static let viewWordUnderCursor = Notification.Name("SixtyFourForthViewWordUnderCursor")
 }
 
-private let banner = "=== 64Forth 0.9.4 ===\n"
+private let banner = "=== 64Forth 0.9.5 ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner
@@ -150,6 +152,9 @@ struct ConsoleView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .fileClose)) { _ in
             handleFileClose()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .viewWordUnderCursor)) { _ in
+            handleViewWordUnderCursor()
         }
         .onReceive(NotificationCenter.default.publisher(for: .showLibraryFolder)) { _ in
             host.revealInFinder(host.libraryURL)
@@ -484,6 +489,43 @@ struct ConsoleView: View {
             return
         }
         kernel.pushKey(17)
+    }
+
+    /// Phase 5 ⌘E: VIEW the whitespace-delimited token under the console caret.
+    /// No-op if Hyper/editor missing (`HYPER-VIEW-CU` exits quietly) or no token.
+    private func handleViewWordUnderCursor() {
+        guard !kernel.isEvaluating else { return }
+        #if os(macOS)
+        guard let tv = consoleTextView else { return }
+        let ns = tv.string as NSString
+        var idx = tv.selectedRange().location
+        if idx > ns.length { idx = ns.length }
+        guard let word = Self.forthToken(at: idx, in: ns), !word.isEmpty else { return }
+        let escaped = word
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        _ = kernel.evaluate("S\" \(escaped)\" HYPER-VIEW-CU")
+        #endif
+    }
+
+    /// Whitespace-delimited token containing UTF-16 index `idx` (Forth-ish name).
+    private static func forthToken(at idx: Int, in ns: NSString) -> String? {
+        guard ns.length > 0 else { return nil }
+        var i = min(max(0, idx), ns.length)
+        func isSep(_ c: unichar) -> Bool {
+            c == 32 || c == 9 || c == 10 || c == 13
+        }
+        if i > 0 && i < ns.length && isSep(ns.character(at: i)) {
+            i -= 1
+        }
+        if i >= ns.length { i = ns.length - 1 }
+        if isSep(ns.character(at: i)) { return nil }
+        var lo = i
+        var hi = i + 1
+        while lo > 0 && !isSep(ns.character(at: lo - 1)) { lo -= 1 }
+        while hi < ns.length && !isSep(ns.character(at: hi)) { hi += 1 }
+        let token = ns.substring(with: NSRange(location: lo, length: hi - lo))
+        return token.isEmpty ? nil : token
     }
 
     /// TZForth-style reverse-video cell at the Facility cursor (editor insert point).

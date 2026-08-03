@@ -882,9 +882,35 @@ final class KernelBridge {
             self.lock.lock()
             let active = self.evaluatingFlag
             self.lock.unlock()
-            guard active else { return event }
             let mods = event.modifierFlags.intersection([.control, .option, .shift, .command])
             let facilityOn = FacilityTerminal.shared.isActive
+
+            // Phase 5: Ctrl-Pg* or Cmd-Pg* → HYPER-PREV / HYPER-NEXT
+            // In SZ-EDITOR: inject keys 26/27. At idle console: evaluate.
+            if (mods.contains(.control) || mods.contains(.command))
+                && (event.keyCode == 116 || event.keyCode == 121) {
+                let prev = (event.keyCode == 116)
+                if active && facilityOn {
+                    self.pushKey(prev ? 26 : 27)
+                    return nil
+                }
+                if !active {
+                    self.evaluateHyperNav(prev ? "HYPER-PREV" : "HYPER-NEXT")
+                    return nil
+                }
+            }
+
+            // Phase 5: ⌘E → VIEW word under console caret (only if SZ-EDITOR loaded).
+            // ⌘⇧E remains Tools → EDIT… (file panel).
+            if mods.contains(.command), !mods.contains(.shift), !facilityOn {
+                let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
+                if ch == "e" {
+                    self.viewWordUnderConsoleCursor()
+                    return nil
+                }
+            }
+
+            guard active else { return event }
 
             // ⌘S / ⌘W / ⌘Q while facility editor is open.
             // 19 = save, 17 = close editor (S/D if dirty). ⌘Q also marks app-quit-after-close.
@@ -1025,6 +1051,23 @@ final class KernelBridge {
         case FacilityFKey.delete: return 127
         default: return nil
         }
+    }
+
+    /// Phase 5: run HYPER-NEXT / HYPER-PREV from idle console (Ctrl-PgDn / Ctrl-PgUp).
+    private func evaluateHyperNav(_ word: String) {
+        // Avoid re-entrancy if a long evaluate is already running.
+        lock.lock()
+        let busy = evaluatingFlag
+        lock.unlock()
+        guard !busy else { return }
+        DispatchQueue.main.async { [weak self] in
+            _ = self?.evaluate(word)
+        }
+    }
+
+    /// Phase 5: ⌘E — ask ConsoleView to VIEW the Forth token under the caret.
+    private func viewWordUnderConsoleCursor() {
+        NotificationCenter.default.post(name: .viewWordUnderCursor, object: nil)
     }
 
     /// Clear the sticky multi-line paste stop (call before a paste batch if needed).

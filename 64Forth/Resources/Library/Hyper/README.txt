@@ -1,4 +1,4 @@
-64Forth Hyper / VIEW (Phase 2–4)
+64Forth Hyper / VIEW (Phase 2–5)
 ================================
 
 Load
@@ -8,13 +8,19 @@ Load
 
 Commands
 --------
-  LOCATE <name>     Print defining path:line from HYPER.NDX
+  LOCATE <name>     Print defining path:line  (shows [n/m] if multiple hits)
   VIEW <name>       Open file in SZ-EDITOR at that line
+  SEE <name>        VIEW if SZ-EDITOR loaded, else decompile (kernel SEE)
   SEE-SOURCE        Alias of VIEW
+  HYPER-NEXT        Next hit for last LOCATE/VIEW   (Ctrl-PgDn)
+  HYPER-PREV        Previous hit                    (Ctrl-PgUp)
   HYPER-REINDEX     Rebuild Config/HYPER.NDX, reload
   HYPER-RELOAD      Re-read index (Config/HYPER.NDX, else cwd HYPER.NDX)
   .HYPER            Status
   HYPER-HELP        Short help
+
+  Cmd-E             VIEW word under console caret (no-op if editor not loaded)
+  Ctrl-PgDn/PgUp    HYPER-NEXT / HYPER-PREV (console or inside SZ-EDITOR)
 
 Editor (ALSO EDITOR)
 --------------------

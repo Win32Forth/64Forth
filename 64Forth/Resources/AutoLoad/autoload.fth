@@ -3,6 +3,7 @@
 \ During load, session cwd is this AutoLoad folder (nested FLOAD sees siblings).
 
 FROMLIB REQUIRE EDITOR/SZ-EDITOR.fth
+EDITOR 100 50 SET-EDIT-WINDOW FORTH
 FROMLIB REQUIRE HYPER/HYPER.fth
 HYPER-REINDEX
 
