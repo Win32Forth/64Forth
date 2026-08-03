@@ -146,33 +146,32 @@ $0D CONSTANT SZ-CH-CR
    THEN
    DUP C@ SZ-CH-LF = IF  1+  THEN ;
 
-\ ( addr -- addr' )  start of line containing addr (EOL bytes belong to that line)
+\ ( addr -- addr' )  start of line containing addr.
+\ A line starts at TBUF or immediately after a previous line's EOL.
+\ Consecutive LFs are separate empty lines (e.g. 0a 0a → starts at 0 and 1).
+\ TEND after a final EOL is a new empty line (append point), start = TEND.
+\ TEND with no trailing EOL is the end of the last content line.
 : SZ-HOST-LINE-START  ( addr -- addr' )
    SZ-HOST-CLAMP
    DUP SZ-TBUF = IF  EXIT  THEN
-   DUP SZ-TEND U< IF
-      DUP C@ SZ-CH-LF = IF
-         DUP SZ-TBUF U> IF  DUP 1- C@ SZ-CH-CR = IF  1-  THEN  THEN
-         DUP SZ-TBUF = IF  EXIT  THEN
-         1-
-      ELSE DUP C@ SZ-CH-CR = IF
-         DUP SZ-TBUF = IF  EXIT  THEN
-         1-
-      ELSE
-         1-
-      THEN THEN
-   ELSE
-      1-
-   THEN
-   DUP SZ-TBUF U> IF
-      DUP C@ SZ-CH-LF = IF  DUP 1- C@ SZ-CH-CR = IF  1-  THEN  THEN
+   DUP SZ-TEND = IF
+      \ Empty line only if last stored byte is EOL; else end of last content line
+      DUP SZ-TBUF U> IF
+         DUP 1- C@ SZ-CH-LF = IF  EXIT  THEN
+         DUP 1- C@ SZ-CH-CR = IF  EXIT  THEN
+      THEN
+      1-                                   \ onto last content byte
    THEN
    BEGIN
       DUP SZ-TBUF = IF  EXIT  THEN
-      DUP C@ SZ-CH-LF = IF  1+ EXIT  THEN
-      DUP C@ SZ-CH-CR = IF
-         DUP 1+ SZ-TEND U< IF  DUP 1+ C@ SZ-CH-LF = IF  2 + EXIT  THEN  THEN
-         1+ EXIT
+      DUP 1- C@
+      DUP SZ-CH-LF = IF  DROP EXIT  THEN   \ after LF → line start
+      DUP SZ-CH-CR = IF
+         DROP
+         \ prev=CR: if addr is LF (CRLF), step to CR and keep walking
+         DUP C@ SZ-CH-LF = IF  1-  ELSE  EXIT  THEN
+      ELSE
+         DROP
       THEN
       1-
    AGAIN ;
@@ -187,23 +186,26 @@ $0D CONSTANT SZ-CH-CR
    DUP SZ-TEND SZ-U>= IF  DROP SZ-TEND EXIT  THEN
    SZ-HOST-NEXT-EOL SZ-HOST-SKIP-EOL ;
 
-\ ( addr -- n )  1-based line number of byte addr
+\ ( addr -- n )  1-based line number of byte addr.
+\ Uses a VARIABLE (not >R) so it is safe inside DO/LOOP (R holds loop params).
+VARIABLE SZ-LN-TGT
 : SZ-HOST-LINE-NO  ( addr -- n )
-   SZ-HOST-CLAMP >R
-   1 SZ-TBUF                        ( n p )  ( R: target )
+   SZ-HOST-CLAMP SZ-LN-TGT !
+   1 SZ-TBUF                        ( n p )
    BEGIN
-      DUP R@ U<
+      DUP SZ-LN-TGT @ U<
    WHILE
       DUP C@ SZ-CH-CR = IF
-         1+ SWAP 1+ SWAP            \ n++ ; p++
-         DUP R@ U< IF  DUP C@ SZ-CH-LF = IF  1+  THEN  THEN
+         1+ SWAP 1+ SWAP
+         DUP SZ-LN-TGT @ U< IF  DUP C@ SZ-CH-LF = IF  1+  THEN  THEN
       ELSE DUP C@ SZ-CH-LF = IF
          1+ SWAP 1+ SWAP
       ELSE
          1+
       THEN THEN
    REPEAT
-   DROP R> DROP ;
+   DROP                              ( n )
+;
 
 \ ( from-ls to-ls -- n )  line steps from from to to (0 if to at/before from)
 : SZ-HOST-LINE-STEPS  ( from to -- n )
@@ -246,7 +248,11 @@ VARIABLE SZ-ET-CUR
 : SZ-PREV-LINE    ( ls -- ls' )  SZ-HOST-PREV-LINE ;
 : SZ-LINE-COUNT   ( -- n )
    SZ-TLEN @ 0= IF  0 EXIT  THEN
-   SZ-TEND 1- SZ-HOST-LINE-NO ;
+   SZ-TEND 1- SZ-HOST-LINE-NO
+   \ Trailing EOL means there is an empty line at TEND (append line)
+   SZ-TEND 1- C@ SZ-CH-LF =
+   SZ-TEND 1- C@ SZ-CH-CR = OR IF  1+  THEN
+;
 
 \ -----------------------------------------------------------------------------
 \ Load / save

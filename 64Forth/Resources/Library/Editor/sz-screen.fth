@@ -144,17 +144,38 @@ VARIABLE SZ-PREF-COL               \ sticky column for Up/Down (like most editor
    LOOP
 ;
 
-\ ( n row -- )  right-justified 1-based line number in gutter; n=0 blanks gutter.
+\ Emit n spaces (no DO — safe inside REDRAW's DO/LOOP).
+: SZ-SPACES1  ( n -- )
+   BEGIN  DUP 0> WHILE  1- BL EMIT  REPEAT  DROP
+;
+
+CREATE SZ-GUT-DIG  8 ALLOT
+VARIABLE SZ-GUT-N
+VARIABLE SZ-GUT-U
+
+\ ( n row -- )  right-justified line number; n=0 blanks the gutter.
+\ /MOD is ( n d -- rem quot ). Store rem as ASCII digit; continue with quot.
 : SZ-SHOW-GUTTER  ( n row -- )
    SZ-LN-COL SWAP AT-XY
-   DUP 0= IF
-      DROP  SZ-LN-WIDTH 0 DO  BL EMIT  LOOP  EXIT
-   THEN
-   BASE @ SZ-SAVE-BASE !  DECIMAL
-   0 <# #S #>                       ( c-addr u )
-   SZ-LN-WIDTH OVER - 0 MAX 0 ?DO  BL EMIT  LOOP
-   TYPE
-   SZ-SAVE-BASE @ BASE !
+   DUP 0= IF  DROP SZ-LN-WIDTH SZ-SPACES1 EXIT  THEN
+   0 SZ-GUT-N !
+   BEGIN  DUP WHILE
+      10 /MOD                               \ rem quot
+      SWAP [CHAR] 0 +                       \ quot digit
+      SZ-GUT-N @ 8 < IF
+         SZ-GUT-DIG SZ-GUT-N @ + C!
+         1 SZ-GUT-N +!
+      ELSE  DROP  THEN
+   REPEAT
+   DROP
+   \ digits LSD-first; emit MSD-first
+   SZ-LN-WIDTH SZ-GUT-N @ - 0 MAX SZ-SPACES1
+   SZ-GUT-N @
+   BEGIN  DUP WHILE
+      1-
+      DUP SZ-GUT-DIG + C@ EMIT
+   REPEAT
+   DROP
 ;
 
 \ Map buffer byte to a single-column glyph (TAB/controls must not reach the host;
@@ -233,7 +254,7 @@ CREATE SZ-FIND-STAT  18 ALLOT
    SZ-TEXT-BOT @ 2 + SZ-BLANK-ROW
    SZ-TEXT-BOT @ 3 + SZ-BLANK-ROW
    0 SZ-TEXT-BOT @ 2 + AT-XY
-   ." Cmd-E VIEW word | Cmd-PgUp/Dn Hyper | Cmd-G/arrows find | arrows move"
+   ." Cmd-E VIEW word | Cmd-PgUp/Dn Hyper | Cmd-G/arrows find | wheel scroll"
    0 SZ-TEXT-BOT @ 3 + AT-XY
    ." Cmd-X/C/V cut/copy/paste | gutter=line | Cmd-click range | Cmd-S/W save/close"
 ;
@@ -243,11 +264,12 @@ CREATE SZ-FIND-STAT  18 ALLOT
 VARIABLE SZ-TMP-CUR
 : SZ-CUR-ON-LINE  ( ls -- flag )
    SZ-CUR @ SZ-TMP-CUR !
-   DUP SZ-NEXT-LINE                     ( ls nx )
-   OVER SZ-TMP-CUR @ U> IF  2DROP 0 EXIT  THEN   \ cur < ls
-   DUP SZ-TMP-CUR @ U> IF  2DROP -1 EXIT  THEN   \ cur < nx
-   \ nx <= cur: still on line if both at TEND
-   DUP SZ-TEND =  SZ-TMP-CUR @ SZ-TEND =  AND IF  2DROP -1 EXIT  THEN
+   DUP SZ-TMP-CUR @ U> IF  DROP 0 EXIT  THEN    \ ls > cur
+   DUP SZ-NEXT-LINE                             ( ls nx )
+   \ cur < nx → clearly on this line
+   DUP SZ-TMP-CUR @ U> IF  2DROP -1 EXIT  THEN
+   \ nx <= cur: still on line only if both at TEND (append on last line)
+   OVER SZ-TEND =  SZ-TMP-CUR @ SZ-TEND =  AND IF  2DROP -1 EXIT  THEN
    2DROP 0
 ;
 
@@ -279,29 +301,52 @@ VARIABLE SZ-HAVE-AT
    THEN
 ;
 
+VARIABLE SZ-DID-EMPTY-TEND             \ painted empty append line at TEND once
+
+\ True if buffer ends with EOL (there is an empty line at TEND).
+: SZ-ENDS-WITH-EOL  ( -- flag )
+   SZ-TEND SZ-TBUF U> IF
+      SZ-TEND 1- C@ SZ-CH-LF =
+      SZ-TEND 1- C@ SZ-CH-CR = OR
+   ELSE  0  THEN
+;
+
+VARIABLE SZ-PAINT-ROW                  \ current facility row while painting
+
 : SZ-REDRAW  ( -- )
    SZ-ENSURE-VISIBLE
    0 SZ-HAVE-AT !
+   0 SZ-DID-EMPTY-TEND !
    PAGE
    SZ-SHOW-STATUS
    SZ-DRAW-FRAME
-   \ Line numbers must use a VARIABLE — R@ inside DO is the loop index, not our
-   \ counter (old R> 1+ >R produced 2,4,6… and broke the DO frame).
    SZ-TOP @ SZ-LINE-NO SZ-DRAW-LNO !
-   SZ-TOP @
-   SZ-TEXT-BOT @ 1+ SZ-TEXT-TOP DO
-      DUP SZ-TEND SZ-U>= IF
-         \ past EOF — blank gutter; still allow cursor on empty TEND line
-         0 I SZ-SHOW-GUTTER
-         DUP I SZ-NOTE-CUR
-      ELSE
-         SZ-DRAW-LNO @ I SZ-SHOW-GUTTER
-         DUP I SZ-SHOW-LINE
-         DUP I SZ-NOTE-CUR
+   SZ-TOP @                               \ addr of first visible line
+   SZ-TEXT-TOP SZ-PAINT-ROW !
+   BEGIN
+      SZ-PAINT-ROW @ SZ-TEXT-BOT @ > 0=
+   WHILE
+      DUP SZ-TEND U< IF
+         SZ-DRAW-LNO @ SZ-PAINT-ROW @ SZ-SHOW-GUTTER
+         DUP SZ-PAINT-ROW @ SZ-SHOW-LINE
+         DUP SZ-PAINT-ROW @ SZ-NOTE-CUR
          SZ-NEXT-LINE
          1 SZ-DRAW-LNO +!
+      ELSE
+         SZ-DID-EMPTY-TEND @ 0=
+         SZ-ENDS-WITH-EOL AND IF
+            SZ-DRAW-LNO @ SZ-PAINT-ROW @ SZ-SHOW-GUTTER
+            SZ-PAINT-ROW @ SZ-CLEAR-TEXT-ROW
+            DUP SZ-PAINT-ROW @ SZ-NOTE-CUR
+            1 SZ-DRAW-LNO +!
+            -1 SZ-DID-EMPTY-TEND !
+         ELSE
+            0 SZ-PAINT-ROW @ SZ-SHOW-GUTTER
+            SZ-PAINT-ROW @ SZ-CLEAR-TEXT-ROW
+         THEN
       THEN
-   LOOP
+      1 SZ-PAINT-ROW +!
+   REPEAT
    DROP
    SZ-SHOW-HELP
    SZ-PLACE-CURSOR

@@ -14,6 +14,17 @@ import SwiftUI
 import AppKit
 
 
+/// Scroll view that feeds trackpad/mouse wheel into SZ-EDITOR (not the NSTextView string).
+final class ConsoleNSScrollView: NSScrollView {
+    override func scrollWheel(with event: NSEvent) {
+        if KernelBridge.shared.isFacilityTerminalActive, KernelBridge.shared.isEvaluating {
+            KernelBridge.shared.reportFacilityScroll(event)
+            return
+        }
+        super.scrollWheel(with: event)
+    }
+}
+
 /// NSTextView that reports mouse clicks in facility/SZ-EDITOR mode (Phase 4a).
 final class ConsoleNSTextView: NSTextView {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -43,6 +54,14 @@ final class ConsoleNSTextView: NSTextView {
             }
         }
         super.keyDown(with: event)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        if KernelBridge.shared.isFacilityTerminalActive, KernelBridge.shared.isEvaluating {
+            KernelBridge.shared.reportFacilityScroll(event)
+            return
+        }
+        super.scrollWheel(with: event)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -82,7 +101,7 @@ struct ConsoleTextView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+        let scrollView = ConsoleNSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true

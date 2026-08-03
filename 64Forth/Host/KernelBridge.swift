@@ -548,6 +548,43 @@ final class KernelBridge {
     /// Editor clipboard mirrored to NSPasteboard (UTF-8 text).
     private var editorClipboard = Data()
 
+    /// Fractional line accumulator for trackpad momentum (facility scroll).
+    private var facilityScrollAccum: CGFloat = 0
+
+    /// Map scroll-wheel / trackpad into SZ-EDITOR view scroll (keys 9 / 12).
+    /// Does not move the caret — only SZ-TOP (see SZ-SCROLL-UP/DOWN).
+    func reportFacilityScroll(_ event: NSEvent) {
+        guard isFacilityTerminalActive, isEvaluating else { return }
+        #if os(macOS)
+        var dy = event.scrollingDeltaY
+        // Line-based mice report ~1 per notch; precise trackpads report points.
+        if !event.hasPreciseScrollingDeltas {
+            dy *= 16
+        }
+        // Natural scrolling: positive scrollingDeltaY → content moves down → later lines.
+        facilityScrollAccum += dy
+        let lineH: CGFloat = 14
+        // Cap lines per event so KEY queue is not flooded by momentum.
+        var steps = 0
+        let maxSteps = 8
+        while facilityScrollAccum >= lineH, steps < maxSteps {
+            facilityScrollAccum -= lineH
+            // Scroll view toward end of file (later lines)
+            pushKey(12) // SZ-VSCROLL-DN
+            steps += 1
+        }
+        while facilityScrollAccum <= -lineH, steps < maxSteps {
+            facilityScrollAccum += lineH
+            // Scroll view toward start of file (earlier lines)
+            pushKey(9) // SZ-VSCROLL-UP
+            steps += 1
+        }
+        if steps >= maxSteps {
+            facilityScrollAccum = 0
+        }
+        #endif
+    }
+
     /// Map a UTF-16 index in the console document to facility col/row and queue SZ-MOUSE.
     /// - Parameter extend: ⌘-click → range select (flag bit1 in (SZ-CLICK)).
     func reportFacilityClick(utf16Index: Int, extend: Bool = false) {

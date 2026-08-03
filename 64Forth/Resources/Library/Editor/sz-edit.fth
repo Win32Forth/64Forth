@@ -47,6 +47,8 @@ DECIMAL
  18 CONSTANT SZ-VIEW-UNDER     \ Cmd-E — VIEW word under cursor (Hyper)
  20 CONSTANT SZ-FIND-PREV      \ Cmd-Left  — prev occurrence in this buffer
  21 CONSTANT SZ-FIND-NEXT      \ Cmd-Right — next occurrence in this buffer
+  9 CONSTANT SZ-VSCROLL-UP     \ mouse wheel / trackpad: view earlier lines
+ 12 CONSTANT SZ-VSCROLL-DN     \ mouse wheel / trackpad: view later lines
  25 CONSTANT SZ-MOUSE          \ host mouse click in facility (Phase 4a)
  26 CONSTANT SZ-HYPER-PREV     \ Cmd-PgUp — previous HYPER hit
  27 CONSTANT SZ-HYPER-NEXT     \ Cmd-PgDn — next HYPER hit
@@ -60,13 +62,20 @@ VARIABLE SZ-DONE
 \ Insert / delete at SZ-CUR
 \ -----------------------------------------------------------------------------
 
+\ Keep SZ-CUR inside [SZ-TBUF, SZ-TEND] (past-TEND corrupts on insert).
+: SZ-CLAMP-CUR  ( -- )
+   SZ-CUR @ SZ-TBUF U< IF  SZ-TBUF SZ-CUR !  THEN
+   SZ-CUR @ SZ-TEND U> IF  SZ-TEND SZ-CUR !  THEN
+;
+
 \ Open a gap of u bytes at SZ-CUR (MOVE is src dest u).
 : SZ-OPEN-HOLE  ( u -- flag )
    DUP 0= IF  DROP -1 EXIT  THEN
+   SZ-CLAMP-CUR
    \ Grow capacity if needed (1 MB initial; doubles / expands for paste-sized inserts).
    DUP SZ-TLEN @ + SZ-ENSURE-CAP 0= IF  DROP 0 EXIT  THEN
    >R                                   \ R: gap size
-   SZ-TEND SZ-CUR @ -                   \ n = bytes after cursor
+   SZ-TEND SZ-CUR @ -                   \ n = bytes after cursor (never negative now)
    DUP 0> IF
       SZ-CUR @                          ( n src )
       SZ-CUR @ R@ +                     ( n src dest )
@@ -89,11 +98,13 @@ VARIABLE SZ-DONE
    SZ-TOUCH
 ;
 
+\ Insert a line break (LF). Cursor must be clamped so we never write past TEND.
+\ After insert, CUR sits at the start of the new empty line.
 : SZ-INSERT-CRLF  ( -- )
-   2 SZ-OPEN-HOLE 0= IF  EXIT  THEN
-   SZ-CH-CR SZ-CUR @ C!
-   SZ-CH-LF SZ-CUR @ 1+ C!
-   2 SZ-CUR +!
+   SZ-CLAMP-CUR
+   1 SZ-OPEN-HOLE 0= IF  EXIT  THEN
+   SZ-CH-LF SZ-CUR @ C!
+   1 SZ-CUR +!
    0 SZ-PREF-COL !
    0 SZ-HCOL !
    SZ-TOUCH
@@ -154,9 +165,12 @@ VARIABLE SZ-DONE
 ;
 
 : SZ-GO-RIGHT  ( -- )
-   \ Do not walk past end-of-line into the next line with plain Right
-   SZ-CUR @ SZ-CUR-LINE SZ-PARSE-LINE +  ( cur eol-addr )
-   < IF  1 SZ-CUR +!  THEN
+   \ Advance within the line, including the append point at true EOL (TEND
+   \ when the last line has no trailing newline). Do not wrap to next line.
+   SZ-CUR @
+   SZ-CUR-LINE SZ-PARSE-LINE +              ( cur eol )
+   OVER U> IF  DROP 1 SZ-CUR +!  ELSE  2DROP  THEN
+   SZ-CLAMP-CUR
    SZ-REMEMBER-COL
 ;
 
@@ -170,11 +184,39 @@ VARIABLE SZ-DONE
    SZ-CUR !
 ;
 
+\ True if buffer ends with an EOL byte (empty append line exists at TEND).
+: SZ-FILE-ENDS-EOL  ( -- flag )
+   SZ-TEND SZ-TBUF U> IF
+      SZ-TEND 1- C@ SZ-CH-LF =
+      SZ-TEND 1- C@ SZ-CH-CR = OR
+   ELSE  0  THEN
+;
+
+\ Down one line. Never invents phantom lines past EOF.
 : SZ-GO-DOWN  ( -- )
-   SZ-CUR-LINE SZ-NEXT-LINE
-   DUP SZ-TEND SZ-U>= IF  DROP EXIT  THEN
+   SZ-CUR @ SZ-TEND = IF  EXIT  THEN       \ already at absolute end
+   SZ-CUR-LINE DUP SZ-NEXT-LINE            \ ls nx
+   2DUP = IF                               \ cannot advance
+      2DROP
+      SZ-CUR-LINE SZ-PARSE-LINE + SZ-CUR !
+      SZ-CLAMP-CUR SZ-REMEMBER-COL EXIT
+   THEN
+   NIP                                     \ nx
+   DUP SZ-TEND = IF
+      SZ-FILE-ENDS-EOL 0= IF
+         \ nx is only the append point of this line, not a new line
+         DROP
+         SZ-CUR-LINE SZ-PARSE-LINE + SZ-CUR !
+         SZ-CLAMP-CUR SZ-REMEMBER-COL EXIT
+      THEN
+      \ Real empty line after final EOL
+      SZ-CUR !
+      0 SZ-PREF-COL !
+      SZ-CLAMP-CUR EXIT
+   THEN
    DUP SZ-PARSE-LINE NIP SZ-PREF-COL @ MIN +
    SZ-CUR !
+   SZ-CLAMP-CUR
 ;
 
 : SZ-GO-HOME-LINE  ( -- )
@@ -241,7 +283,8 @@ VARIABLE SZ-PAGE-N
       TERMINAL-REFRESH
       EXIT
    THEN
-   SZ-SAVE IF
+   SZ-SAVE                       ( ior )
+   IF
       SZ-MSG-LINE
       ." SAVE failed"
       TERMINAL-REFRESH
@@ -380,6 +423,9 @@ VARIABLE SZ-CLIP-HOLD-U                \ previous solid clip (two-level stack)
 \ Host click flag: bit0=valid, bit1=Command (range-extend).
 \ Place caret without scrolling (line is already on-screen under the pointer).
 \ zone: 0=body  1=gutter/line-start  2=after last char on line
+\
+\ Critical: never set CUR to line-start + screen-col when past end-of-line —
+\ that walked past SZ-TEND into heap and RETURN wrote garbage into the file.
 : SZ-MOUSE-PLACE  ( col row -- )
    0 SZ-CLICK-ZONE !
    DUP SZ-TEXT-TOP < IF  2DROP EXIT  THEN
@@ -396,6 +442,7 @@ VARIABLE SZ-CLIP-HOLD-U                \ previous solid clip (two-level stack)
       1 SZ-CLICK-ZONE !
       R@ SZ-GOTO-LINE-RAW                      \ no scroll — keep view still
       SZ-CUR-LINE SZ-CUR !
+      SZ-CLAMP-CUR
       SZ-REMEMBER-COL SZ-ENSURE-HVISIBLE
       R> DROP EXIT
    THEN
@@ -403,16 +450,25 @@ VARIABLE SZ-CLIP-HOLD-U                \ previous solid clip (two-level stack)
    SZ-TEXT-LEFT - SZ-HCOL @ +                  \ row buf-col
    NIP                                         \ buf-col
    R@ SZ-GOTO-LINE-RAW                         \ no scroll under mouse
+   \ If click row is below last real line, GOTO left us at TEND — stay there.
+   SZ-CUR @ SZ-TEND = IF
+      DROP                                     \ buf-col
+      2 SZ-CLICK-ZONE !
+      SZ-CLAMP-CUR
+      SZ-REMEMBER-COL SZ-ENSURE-HVISIBLE
+      R> DROP EXIT
+   THEN
    SZ-CUR-LINE SZ-PARSE-LINE NIP               \ buf-col llen
-   2DUP < 0= IF                                \ buf-col >= llen → after EOL
-      DROP                                     \ llen
-      SZ-CUR-LINE + SZ-CUR !
+   2DUP < 0= IF                                \ buf-col >= llen → end of *content*
+      NIP                                      \ llen only (never add screen col!)
+      SZ-CUR-LINE + SZ-CUR !                   \ true EOL, not "far right on screen"
       2 SZ-CLICK-ZONE !
    ELSE
       OVER 0= IF  1 SZ-CLICK-ZONE !  THEN      \ col 0 → line mode
       MIN 0 MAX
       SZ-CUR-LINE + SZ-CUR !
    THEN
+   SZ-CLAMP-CUR
    SZ-REMEMBER-COL SZ-ENSURE-HVISIBLE
    R> DROP
 ;
@@ -910,6 +966,8 @@ VARIABLE SZ-DR-N
    DUP SZ-FIND-PREV = IF  DROP SZ-DO-FIND-PREV EXIT  THEN
    DUP SZ-FIND-NEXT = IF  DROP SZ-DO-FIND-NEXT EXIT  THEN
    DUP SZ-MOUSE = IF  DROP SZ-DO-MOUSE EXIT  THEN
+   DUP SZ-VSCROLL-UP = IF  DROP SZ-SCROLL-UP EXIT  THEN
+   DUP SZ-VSCROLL-DN = IF  DROP SZ-SCROLL-DOWN EXIT  THEN
    DUP SZ-HYPER-PREV = IF  DROP SZ-DO-HYPER-PREV EXIT  THEN
    DUP SZ-HYPER-NEXT = IF  DROP SZ-DO-HYPER-NEXT EXIT  THEN
    DUP SZ-CMD-OPEN = IF  DROP SZ-DO-MENU-OPEN EXIT  THEN
@@ -947,7 +1005,10 @@ VARIABLE SZ-DR-N
    SZ-EDITOR-LEAVE
    FACILITY-OFF
    CLS
-   BEGIN DEPTH WHILE DROP REPEAT
+   \ Empty the data stack. ANS: DEPTH WHILE consumes the count as flag, then
+   \ DROP removes one real cell. Do NOT use "DEPTH n ?DO DROP" — when depth is
+   \ 0, ?DO's equal-skip path underflows (pops a non-existent cell).
+   BEGIN  DEPTH WHILE  DROP  REPEAT
    ." SZ-EDITOR: done" CR
    SZ-MODIFIED @ IF  ." warning: buffer still modified" CR  THEN
    SZ-.INFO

@@ -37,12 +37,12 @@ FLOAD sz-edit.fth
    ." === SZ-EDITOR ===" CR
    ." SZEDIT 'file.fth' or 'pathed/file.fth'" CR
    ." Keys: arrows  Home/End  PgUp/Dn  BS Del or typed text" CR
-   ." Size: width height SET-EDIT-WINDOW  - default 80 20" CR
+   ." Size: width height SET-EDIT-WINDOW  - default 88 25" CR
    ." Cmd-W closes editor with save prompt if changes" CR
    CR
 ;
 
-SZ-BANNER
+\ SZ-BANNER
 
 FORTH DEFINITIONS
 ONLY FORTH ALSO EDITOR
