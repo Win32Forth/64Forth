@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-08-03 — **v1.0.0** (Hypertext Phases 0–5 complete; SZ-EDITOR find/clip/mouse/wheel/Tab/`EDIT`; stack-safe editor exit; prior 0.9.x multi-thread dict, Hayes/ANSValidate).
+**Updated:** 2026-08-03 — **v1.0.1** (kernel sources in `Library/Sources/` for release VIEW; v1.0.0 Hyper Phases 0–5 + SZ-EDITOR; prior 0.9.x).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 

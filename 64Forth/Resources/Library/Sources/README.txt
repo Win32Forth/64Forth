@@ -18,3 +18,6 @@ line numbers stay accurate.
 
 Do not treat this folder as the edit-source-of-truth for the kernel — edit
 64Forth/Kernel/ then rebuild.
+
+Swift host sources (App/, Host/) are not copied here: Hyper indexes Forth and
+kernel assembly definitions only. Library/**/*.fth is already in the bundle.

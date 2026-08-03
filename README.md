@@ -53,7 +53,7 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 
 ---
 
-## Status (v1.0.0)
+## Status (v1.0.1)
 
 - [x] Project folder and design doc  
 - [x] Kernel sources copied from PickleForth (`_kernel_cold_start` entry, not `_main`)  
@@ -83,8 +83,9 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 - [x] **v0.9.7:** SZ-EDITOR line select (gutter / line-start), multi-line ⌘-click ranges, two-level line clipboard + paste before/after line
 - [x] **v0.9.8:** SZ-EDITOR two-line help (Cmd-E VIEW, etc.); mouse click no longer scrolls target to row 5
 - [x] **v1.0.0:** Hypertext Phases 0–5 complete; SZ-EDITOR production features (find, clip, mouse/wheel, Tab→spaces, `.fth` default path, `EDIT`/`TextEdit`); stack-safe editor exit (`CLEARSTACK`); hardened `DEPTH`/`SP0`/`0BRANCH`
+- [x] **v1.0.1:** Kernel assembly shipped as `Library/Sources/` so release VIEW/LOCATE works without a developer tree
 
-### Hypertext + SZ-EDITOR (v1.0.0)
+### Hypertext + SZ-EDITOR (v1.0.1)
 
 | Area | Done |
 |------|------|
