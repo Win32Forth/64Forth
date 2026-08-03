@@ -81,12 +81,26 @@ final class FileAccess {
     }
 
     /// Writable location for create/write (avoid read-only app bundle).
+    ///
+    /// - Paths outside the app bundle (Documents, source tree, App Support) are kept.
+    /// - Paths under `Contents/Resources` are mirrored into
+    ///   `Application Support/64Forth/<relative>` so `Config/HYPER.NDX` becomes
+    ///   `…/64Forth/Config/HYPER.NDX` (not a flat filename dump).
     func writableURL(for preferred: URL) -> URL {
+        let preferred = preferred.standardizedFileURL
         let path = preferred.path
-        if let res = Bundle.main.resourceURL?.path, path.hasPrefix(res) {
-            return applicationSupportDir().appendingPathComponent(preferred.lastPathComponent)
+        let bundlePath = Bundle.main.bundlePath
+
+        if let res = Bundle.main.resourceURL?.standardizedFileURL.path, path.hasPrefix(res) {
+            var rel = String(path.dropFirst(res.count))
+            while rel.hasPrefix("/") { rel.removeFirst() }
+            if rel.isEmpty {
+                return applicationSupportDir().appendingPathComponent(preferred.lastPathComponent)
+            }
+            return applicationSupportDir().appendingPathComponent(rel)
         }
-        if path.hasPrefix(Bundle.main.bundlePath) {
+        if path.hasPrefix(bundlePath) {
+            // Other bundle content (not Resources) — keep leaf only
             return applicationSupportDir().appendingPathComponent(preferred.lastPathComponent)
         }
         return preferred

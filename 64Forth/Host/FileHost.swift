@@ -188,14 +188,22 @@ final class FileHost {
         return nil
     }
 
-    /// `Resources/Config/HYPER.NDX` if present (Phase 0 fixture / Phase 1 full index).
+    /// `Config/HYPER.NDX` if present (reindex overlay, source tree, or bundle).
     var hyperNdxURL: URL? {
+        let fm = FileManager.default
+        let overlay = FileAccess.shared.applicationSupportDir()
+            .appendingPathComponent("Config/HYPER.NDX")
+        if fm.fileExists(atPath: overlay.path) { return overlay }
+        if let tree = sourceTreeURL {
+            let u = tree.appendingPathComponent("Resources/Config/HYPER.NDX")
+            if fm.fileExists(atPath: u.path) { return u }
+        }
         if let u = Bundle.main.url(forResource: "HYPER", withExtension: "NDX", subdirectory: "Config") {
-            if FileManager.default.fileExists(atPath: u.path) { return u }
+            if fm.fileExists(atPath: u.path) { return u }
         }
         if let dir = configURL {
             let u = dir.appendingPathComponent("HYPER.NDX")
-            if FileManager.default.fileExists(atPath: u.path) { return u }
+            if fm.fileExists(atPath: u.path) { return u }
         }
         return nil
     }
@@ -255,16 +263,29 @@ final class FileHost {
 
         if n == "Config" || n.hasPrefix("Config/") {
             let rest = n == "Config" ? "" : String(n.dropFirst("Config/".count))
+            // 1) Application Support overlay (writable HYPER-REINDEX when bundle is RO)
+            let overlayBase = FileAccess.shared.applicationSupportDir()
+                .appendingPathComponent("Config", isDirectory: true)
+            if !rest.isEmpty {
+                let overlay = overlayBase.appendingPathComponent(rest).standardizedFileURL
+                if fm.fileExists(atPath: overlay.path) { return overlay }
+            }
+            // 2) Developer source tree — always when present (writable Config for reindex)
+            if let tree = sourceTreeURL {
+                let base = tree.appendingPathComponent("Resources/Config", isDirectory: true)
+                let u = rest.isEmpty ? base : base.appendingPathComponent(rest)
+                return u.standardizedFileURL
+            }
+            // 3) Bundled Resources/Config (read; writes redirected via writableURL)
             if let cfg = configURL {
                 let u = rest.isEmpty ? cfg : cfg.appendingPathComponent(rest)
                 return u.standardizedFileURL
             }
-            if let tree = sourceTreeURL {
-                let base = tree.appendingPathComponent("Resources/Config", isDirectory: true)
-                let u = rest.isEmpty ? base : base.appendingPathComponent(rest)
-                if fm.fileExists(atPath: u.path) { return u.standardizedFileURL }
+            // 4) Overlay path even if missing (CREATE-FILE / first reindex)
+            if !rest.isEmpty {
+                return overlayBase.appendingPathComponent(rest).standardizedFileURL
             }
-            return nil
+            return overlayBase.standardizedFileURL
         }
 
         if n.hasPrefix("Kernel/") {

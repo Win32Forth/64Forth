@@ -45,8 +45,9 @@ HYPER.NDX format (v1 text)
         Library/Editor/sz-edit.fth
     (Library/* is rewritten from Resources/Library/* at build time.)
   - Lookup is case-insensitive (matches 64Forth FIND).
-  - CODE words from BOOT_WORD are resolved to their X* implementation line
-    in Kernel/forth.s when that label exists.
+  - CODE words: BOOT_WORD lines live next to their assembly in Kernel/forth.s
+    (table rows still form a contiguous boot catalog via __DATA,__bootword).
+    Offline/Forth indexers may also resolve CodeLabel → label line.
   - Multiple hits for one name may appear (redefines across files).
 
 Resolution roots (runtime — Phase 2 VIEW)
@@ -67,9 +68,23 @@ Tools menu
 ----------
   Tools → Show Config Folder — open this directory in Finder.
 
+In-app reindex (Phase 3a)
+-------------------------
+  From the 64Forth REPL:
+
+    FROMLIB FLOAD Hyper/hyper.fth
+    HYPER-REINDEX
+
+  Writes Config/HYPER.NDX via the host Config/ root (like FROMLIB → Library/):
+    - Xcode / HYPER_ROOT: developer tree Resources/Config/HYPER.NDX
+    - Shipped app: Application Support/64Forth/Config/HYPER.NDX (bundle is RO)
+
+  Offline Python builder remains available for full SPECS rebuilds.
+
 Status
 ------
   Phase 0: folder + format + fixture
-  Phase 1: builder + full generated NDX  ← current
-  Phase 2: VIEW / LOCATE Forth words (not yet)
-  Phase 3: SZ-GOTO-LINE / editor key (not yet)
+  Phase 1: builder + full generated NDX
+  Phase 2: VIEW / LOCATE Forth words
+  Phase 3: SZ-GOTO-LINE / editor integration
+  Phase 3a: HYPER-REINDEX (Forth, cwd output)  ← current

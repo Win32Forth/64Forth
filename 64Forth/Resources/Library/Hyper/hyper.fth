@@ -22,6 +22,19 @@ CREATE HYPER-CMD   512 ALLOT
 CREATE HYPER-NDX-NAME  32 ALLOT
 S" Config/HYPER.NDX" HYPER-NDX-NAME PLACE
 
+\ Try open path; on success leave fileid and set HYPER-NDX-NAME. flag true = ok.
+: HYPER-TRY-OPEN  ( c-addr u -- fileid true | false )
+   2DUP R/O OPEN-FILE
+   IF  DROP 2DROP FALSE EXIT  THEN     \ ior: fail
+   >R                                  \ R: fid  ( c-addr u )
+   HYPER-NDX-NAME PLACE
+   R> TRUE ;
+
+\ Config/HYPER.NDX first (HYPER-REINDEX + shipped index), else cwd HYPER.NDX.
+: HYPER-OPEN-NDX  ( -- fileid true | false )
+   S" Config/HYPER.NDX" HYPER-TRY-OPEN DUP IF  EXIT  THEN  DROP
+   S" HYPER.NDX" HYPER-TRY-OPEN ;
+
 : HYPER-UPC  ( c -- c' )
    DUP [CHAR] a [CHAR] z 1+ WITHIN IF  32 -  THEN ;
 
@@ -62,11 +75,11 @@ S" Config/HYPER.NDX" HYPER-NDX-NAME PLACE
    0 HYPER-CUR C!  0 HYPER-HIT C!
    0 TO HYPER-LINE# ;
 
+\ Prefer Config/HYPER.NDX, else cwd HYPER.NDX.
 : HYPER-LOAD  ( -- flag )
    HYPER-FREE
-   HYPER-NDX-NAME COUNT R/O OPEN-FILE
-   IF  DROP FALSE EXIT  THEN
-   >R
+   HYPER-OPEN-NDX 0= IF  FALSE EXIT  THEN
+   >R                                  \ R: fid
    R@ FILE-SIZE
    IF  2DROP R> CLOSE-FILE DROP FALSE EXIT  THEN
    IF  DROP R> CLOSE-FILE DROP FALSE EXIT  THEN
@@ -86,15 +99,6 @@ S" Config/HYPER.NDX" HYPER-NDX-NAME PLACE
 
 : HYPER-ENSURE  ( -- flag )
    HYPER-OK IF  TRUE EXIT  THEN  HYPER-LOAD ;
-
-: HYPER-RELOAD  ( -- )
-   HYPER-LOAD IF  ." HYPER: " HYPER-LEN . ." bytes" CR
-   ELSE  ." HYPER: cannot open index" CR  THEN ;
-
-: .HYPER  ( -- )
-   CR ." HYPER " HYPER-NDX-NAME COUNT TYPE
-   HYPER-OK IF  ."  " HYPER-LEN . ." bytes" CR
-   ELSE  ."  not loaded" CR  THEN ;
 
 : HYPER-EOF?  ( -- flag )  HYPER-POS HYPER-LEN U< 0= ;
 
@@ -269,7 +273,8 @@ VARIABLE HYPER-XT
 : SEE-SOURCE  ( "name" -- )  VIEW ;
 
 : HYPER-RELOAD  ( -- )
-   HYPER-LOAD IF  ." HYPER: " HYPER-LEN . ." bytes" CR
+   HYPER-LOAD IF  ." HYPER: " HYPER-NDX-NAME COUNT TYPE
+      ."  " HYPER-LEN . ." bytes" CR
    ELSE  ." HYPER: cannot open index" CR  THEN ;
 
 : .HYPER  ( -- )
@@ -279,9 +284,13 @@ VARIABLE HYPER-XT
 
 : HYPER-HELP  ( -- )
    CR
-   ." LOCATE <name>   print path:line" CR
-   ." VIEW <name>     open in SZ-EDITOR at line (load editor first)" CR
+   ." LOCATE <name>     print path:line" CR
+   ." VIEW <name>       open in SZ-EDITOR at line (load editor first)" CR
+   ." HYPER-REINDEX     rebuild Config/HYPER.NDX, reload" CR
    ." HYPER-RELOAD  .HYPER" CR ;
+
+\ Phase 3a in-app indexer (defines HYPER-REINDEX)
+FLOAD hyper-index.fth
 
 HYPER-LOAD DROP
 

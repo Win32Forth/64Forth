@@ -143,6 +143,9 @@
 // ============================================================================
 
 .text
+
+// Boot word macro + boot_word_table (rows co-located at CODE sites)
+.include "boot_words.inc"
 .align 4
 
 // ============================================================================
@@ -448,6 +451,8 @@ _kernel_set_facility_op:
 
 // Facility terminal CODE words (host FacilityTerminal grid; not ANSI CSI).
 // PAGE ( -- )
+
+    BOOT_WORD "PAGE", "PAGE ( -- ) clear facility terminal and home cursor", 0, XPAGE
 XPAGE:
     mov  x0, #1
     mov  x1, #0
@@ -455,6 +460,8 @@ XPAGE:
     b    _facility_op_go
 
 // AT-XY ( u1 u2 -- )  col u1, row u2 (ANS 0-based)
+
+    BOOT_WORD "AT-XY", "AT-XY ( u1 u2 -- ) facility cursor to column u1 row u2 (0-based)", 0, XAT_XY
 XAT_XY:
     mov  x2, x20                   // row
     ldr  x1, [x22], #8             // col
@@ -465,6 +472,8 @@ XAT_XY:
 // AT-XY? ( -- col row )  facility cursor, 0-based (host FacilityTerminal)
 // Not ANSI DSR — works with the SwiftUI cell grid console.
 .extern _host_facility_xy
+
+    BOOT_WORD "AT-XY?", "AT-XY? ( -- col row ) facility cursor position (0-based)", 0, XAT_XY_Q
 XAT_XY_Q:
     stp  x29, x30, [sp, #-16]!
     mov  x29, sp
@@ -487,6 +496,8 @@ XAT_XY_Q:
     NEXT
 
 // TERMINAL-REFRESH ( -- )
+
+    BOOT_WORD "TERMINAL-REFRESH", "TERMINAL-REFRESH ( -- ) paint facility terminal to host console", 0, XTERM_REFRESH
 XTERM_REFRESH:
     mov  x0, #3
     mov  x1, #0
@@ -494,6 +505,8 @@ XTERM_REFRESH:
     b    _facility_op_go
 
 // FACILITY-OFF ( -- )
+
+    BOOT_WORD "FACILITY-OFF", "FACILITY-OFF ( -- ) leave facility terminal mode", 0, XFACILITY_OFF
 XFACILITY_OFF:
     mov  x0, #4
     mov  x1, #0
@@ -501,6 +514,8 @@ XFACILITY_OFF:
     b    _facility_op_go
 
 // (FACILITY-SIZE) ( cols rows -- )  resize grid (SZ-EDITOR SET-EDIT-WINDOW)
+
+    BOOT_WORD "(FACILITY-SIZE)", "(FACILITY-SIZE) ( cols rows -- ) resize facility terminal grid", 0, XFACILITY_SIZE
 XFACILITY_SIZE:
     mov  x2, x20                   // rows
     ldr  x1, [x22], #8             // cols
@@ -529,6 +544,8 @@ _kernel_take_sz_editor_open:
     ret
 
 // (SZ-OPEN-REQ) ( -- )  set flag for host open panel after evaluate
+
+    BOOT_WORD "(SZ-OPEN-REQ)", "(SZ-OPEN-REQ) ( -- ) request SZ-EDITOR open panel after this evaluate", 0, XSZ_OPEN_REQ
 XSZ_OPEN_REQ:
     adrp x0, sz_editor_open_flag@page
     add  x0, x0, sz_editor_open_flag@pageoff
@@ -537,6 +554,8 @@ XSZ_OPEN_REQ:
     NEXT
 
 // (SZ-CLR-APP-QUIT) ( -- )  cancel pending quit-app after editor close (user cancelled S/D)
+
+    BOOT_WORD "(SZ-CLR-APP-QUIT)", "(SZ-CLR-APP-QUIT) ( -- ) cancel pending app quit after editor close", 0, XSZ_CLR_APP_QUIT
 XSZ_CLR_APP_QUIT:
     adrp x0, sz_app_quit_flag@page
     add  x0, x0, sz_app_quit_flag@pageoff
@@ -1008,6 +1027,7 @@ DOCOL:
     add x19, x21, #8               // IP = body (CFA+8)
     NEXT
 
+    BOOT_WORD "EXIT", "EXIT ( -- ) return from colon definition", 0, DOEXIT
 DOEXIT:
     // Pop locals frame if this EXIT matches the frame's return depth
     bl _local_frame_try_exit
@@ -1459,32 +1479,40 @@ _zcmp:
 // ============================================================================
 // Note: no per-primitive stack checks (performance). The outer interpreter
 // validates the data stack between words via _check_stack.
+
+    BOOT_WORD "DUP", "DUP ( n -- n n ) duplicate top", 0, XDUP
 XDUP:
     str x20, [x22, #-8]!
     NEXT
 
 // ?DUP ( x -- x x | 0 ) duplicate TOS if nonzero
+
+    BOOT_WORD "?DUP", "?DUP ( n -- n n | 0 ) dup if non-zero", 0, XQDUP
 XQDUP:
     cbz x20, _qdup_done
     str x20, [x22, #-8]!
 _qdup_done:
     NEXT
 
+    BOOT_WORD "DROP", "DROP ( n -- ) discard top", 0, XDROP
 XDROP:
     ldr x20, [x22], #8
     NEXT
 
+    BOOT_WORD "SWAP", "SWAP ( a b -- b a ) swap top two", 0, XSWAP
 XSWAP:
     ldr x0, [x22]
     str x20, [x22]
     mov x20, x0
     NEXT
 
+    BOOT_WORD "OVER", "OVER ( a b -- a b a ) copy second", 0, XOVER
 XOVER:
     str x20, [x22, #-8]!
     ldr x20, [x22, #8]
     NEXT
 
+    BOOT_WORD "ROT", "ROT ( a b c -- b c a ) rotate top three", 0, XROT
 XROT:
     ldr x0, [x22]
     ldr x1, [x22, #8]
@@ -1493,16 +1521,20 @@ XROT:
     mov x20, x1
     NEXT
 
+    BOOT_WORD "NIP", "NIP ( a b -- b ) nip", 0, XNIP
 XNIP:
     ldr x0, [x22], #8
     NEXT
 
 // TUCK ( x1 x2 -- x2 x1 x2 )  copy TOS under second
 // Was broken: overwrote the new under cell with x1 → (x1 x1 x2).
+
+    BOOT_WORD "TUCK", "TUCK ( a b -- b a b ) tuck", 0, XTUCK
 XTUCK:
     str x20, [x22, #-8]!           // push TOS under; stack becomes x2, x1, x2
     NEXT
 
+    BOOT_WORD "PICK", "PICK ( n -- n ) pick", 0, XPICK
 XPICK:
     lsl x0, x20, #3
     ldr x0, [x22, x0]
@@ -1511,6 +1543,8 @@ XPICK:
 
 // ROLL ( xu xu-1 ... x0 u -- xu-1 ... x0 xu )
 // u=0 no-op; u=1 SWAP; u=2 ROT.
+
+    BOOT_WORD "ROLL", "ROLL ( n -- ) roll", 0, XROLL
 XROLL:
     mov x1, x20                    // u
     ldr x20, [x22], #8             // pop u; TOS = x0
@@ -1535,17 +1569,20 @@ XROLL:
 _roll_done:
     NEXT
 
+    BOOT_WORD ">R", ">R ( n -- ) ( R: -- n ) to return stack", 0, XTOR
 XTOR:
     str x20, [x23, #-8]!
     ldr x20, [x22], #8
     NEXT
 
+    BOOT_WORD "R>", "R> ( -- n ) ( R: n -- ) from return stack", 0, XRTO
 XRTO:
     DPUSH
     ldr x0, [x23], #8
     mov x20, x0
     NEXT
 
+    BOOT_WORD "R@", "R@ ( -- n ) ( R: n -- n ) copy top of return stack", 0, XRFETCH
 XRFETCH:
     DPUSH
     ldr x0, [x23]
@@ -1553,6 +1590,8 @@ XRFETCH:
     NEXT
 
 // 2>R ( x1 x2 -- ) ( R: -- x1 x2 )  must be CODE (colon would clobber IP)
+
+    BOOT_WORD "2>R", "2>R ( n1 n2 -- ) (R: -- ) two to return stack", 0, X2TOR
 X2TOR:
     ldr x0, [x22], #8              // x1
     str x0, [x23, #-8]!            // R: x1
@@ -1561,6 +1600,8 @@ X2TOR:
     NEXT
 
 // 2R> ( -- x1 x2 ) ( R: x1 x2 -- )
+
+    BOOT_WORD "2R>", "2R> ( -- n1 n2 ) (R: -- ) two from return stack", 0, X2RTO
 X2RTO:
     str x20, [x22, #-8]!
     ldr x0, [x23], #8              // x2
@@ -1570,6 +1611,8 @@ X2RTO:
     NEXT
 
 // 2R@ ( -- x1 x2 ) ( R: x1 x2 -- x1 x2 )
+
+    BOOT_WORD "2R@", "2R@ ( -- n1 n2 ) (R: -- ) copy two from return stack", 0, X2RFETCH
 X2RFETCH:
     str x20, [x22, #-8]!
     ldr x0, [x23]                  // x2
@@ -1581,32 +1624,39 @@ X2RFETCH:
 // ============================================================================
 // Arithmetic
 // ============================================================================
+
+    BOOT_WORD "+", "+ ( n1 n2 -- n ) addition", 0, XPLUS
 XPLUS:
     ldr x0, [x22], #8
     add x20, x20, x0
     NEXT
 
+    BOOT_WORD "-", "- ( n1 n2 -- n ) subtraction", 0, XMINUS
 XMINUS:
     ldr x0, [x22], #8
     sub x20, x0, x20
     NEXT
 
+    BOOT_WORD "*", "* ( n1 n2 -- n ) multiplication", 0, XSTAR
 XSTAR:
     ldr x0, [x22], #8
     mul x20, x20, x0
     NEXT
 
+    BOOT_WORD "/", "/ ( n1 n2 -- quot ) division (quotient)", 0, XSLASH
 XSLASH:
     ldr x0, [x22], #8
     sdiv x20, x0, x20
     NEXT
 
+    BOOT_WORD "MOD", "MOD ( n1 n2 -- rem ) modulo", 0, XMOD
 XMOD:
     ldr x0, [x22], #8
     sdiv x1, x0, x20
     msub x20, x1, x20, x0
     NEXT
 
+    BOOT_WORD "/MOD", "/MOD ( n1 n2 -- rem quot ) remainder and quotient", 0, XSLMOD
 XSLMOD:
     ldr x0, [x22], #8
     sdiv x1, x0, x20
@@ -1615,29 +1665,35 @@ XSLMOD:
     mov x20, x1
     NEXT
 
+    BOOT_WORD "1+", "1+ ( n -- n+1 ) increment", 0, XONEPLUS
 XONEPLUS:
     add x20, x20, #1
     NEXT
 
+    BOOT_WORD "1-", "1- ( n -- n-1 ) decrement", 0, XONEMINUS
 XONEMINUS:
     sub x20, x20, #1
     NEXT
 
+    BOOT_WORD "NEGATE", "NEGATE ( n -- -n ) negate", 0, XNEGATE
 XNEGATE:
     neg x20, x20
     NEXT
 
+    BOOT_WORD "ABS", "ABS ( n -- u ) absolute value", 0, XABS
 XABS:
     cmp x20, #0
     csneg x20, x20, x20, ge
     NEXT
 
+    BOOT_WORD "MIN", "MIN ( n1 n2 -- min ) minimum", 0, XMIN
 XMIN:
     ldr x0, [x22], #8
     cmp x0, x20
     csel x20, x0, x20, lt
     NEXT
 
+    BOOT_WORD "MAX", "MAX ( n1 n2 -- max ) maximum", 0, XMAX
 XMAX:
     ldr x0, [x22], #8
     cmp x0, x20
@@ -1647,30 +1703,37 @@ XMAX:
 // ============================================================================
 // Logic / Bitwise
 // ============================================================================
+
+    BOOT_WORD "AND", "AND ( n1 n2 -- n ) bitwise and", 0, XAND
 XAND:
     ldr x0, [x22], #8
     and x20, x20, x0
     NEXT
 
+    BOOT_WORD "OR", "OR ( n1 n2 -- n ) bitwise or", 0, XORR
 XORR:
     ldr x0, [x22], #8
     orr x20, x20, x0
     NEXT
 
+    BOOT_WORD "XOR", "XOR ( n1 n2 -- n ) bitwise xor", 0, XXOR
 XXOR:
     ldr x0, [x22], #8
     eor x20, x20, x0
     NEXT
 
+    BOOT_WORD "INVERT", "INVERT ( n -- ~n ) bitwise invert", 0, XINVERT
 XINVERT:
     mvn x20, x20
     NEXT
 
+    BOOT_WORD "LSHIFT", "LSHIFT ( n bits -- n ) logical left shift", 0, XLSHIFT
 XLSHIFT:
     ldr x0, [x22], #8
     lsl x20, x0, x20
     NEXT
 
+    BOOT_WORD "RSHIFT", "RSHIFT ( n bits -- n ) logical right shift", 0, XRSHIFT
 XRSHIFT:
     ldr x0, [x22], #8
     lsr x20, x0, x20
@@ -1680,30 +1743,36 @@ XRSHIFT:
 // Comparison
 // ============================================================================
 // Comparisons return standard Forth flags: 0 (false) or -1 (true)
+
+    BOOT_WORD "=", "= ( n1 n2 -- flag ) equal", 0, XEQUAL
 XEQUAL:
     ldr x0, [x22], #8
     cmp x0, x20
     csetm x20, eq
     NEXT
 
+    BOOT_WORD "<>", "<> ( n1 n2 -- flag ) not equal", 0, XNEQUAL
 XNEQUAL:
     ldr x0, [x22], #8
     cmp x0, x20
     csetm x20, ne
     NEXT
 
+    BOOT_WORD "<", "< ( n1 n2 -- flag ) less than", 0, XLESS
 XLESS:
     ldr x0, [x22], #8
     cmp x0, x20
     csetm x20, lt
     NEXT
 
+    BOOT_WORD ">", "> ( n1 n2 -- flag ) greater than", 0, XGREATER
 XGREATER:
     ldr x0, [x22], #8
     cmp x0, x20
     csetm x20, gt
     NEXT
 
+    BOOT_WORD "U<", "U< ( u1 u2 -- flag ) unsigned less", 0, XULESS
 XULESS:
     ldr x0, [x22], #8
     cmp x0, x20
@@ -1711,29 +1780,37 @@ XULESS:
     NEXT
 
 // U> ( u1 u2 -- flag )  unsigned greater
+
+    BOOT_WORD "U>", "U> ( u1 u2 -- flag ) unsigned greater", 0, XUGREATER
 XUGREATER:
     ldr x0, [x22], #8              // u1
     cmp x0, x20
     csetm x20, hi
     NEXT
 
+    BOOT_WORD "0=", "0= ( n -- flag ) zero?", 0, XZEQUAL
 XZEQUAL:
     cmp x20, #0
     csetm x20, eq
     NEXT
 
+    BOOT_WORD "0<", "0< ( n -- flag ) negative?", 0, XZLESS
 XZLESS:
     cmp x20, #0
     csetm x20, lt
     NEXT
 
 // 0<> ( x -- flag )
+
+    BOOT_WORD "0<>", "0<> ( x -- flag ) not zero?", 0, XZNOTEQUAL
 XZNOTEQUAL:
     cmp x20, #0
     csetm x20, ne
     NEXT
 
 // 0> ( n -- flag )
+
+    BOOT_WORD "0>", "0> ( n -- flag ) positive?", 0, XZGREATER
 XZGREATER:
     cmp x20, #0
     csetm x20, gt
@@ -1741,6 +1818,8 @@ XZGREATER:
 
 // WITHIN ( n1|u1 n2|u2 n3|u3 -- flag )
 // ANS: n2 <= n1 < n3, using unsigned wrap: (n1-n2) U< (n3-n2)
+
+    BOOT_WORD "WITHIN", "WITHIN ( n1|u1 n2|u2 n3|u3 -- flag ) n2<=n1<n3 (unsigned wrap)", 0, XWITHIN
 XWITHIN:
     ldr x2, [x22], #8              // n2
     ldr x1, [x22], #8              // n1
@@ -1752,11 +1831,14 @@ XWITHIN:
     NEXT
 
 // TRUE is all-bits-set (-1) per standard Forth
+
+    BOOT_WORD "TRUE", "TRUE ( -- -1 ) true flag", 0, XTRUE
 XTRUE:
     DPUSH
     mov x20, #-1
     NEXT
 
+    BOOT_WORD "FALSE", "FALSE ( -- 0 ) false flag", 0, XFALSE
 XFALSE:
     DPUSH
     mov x20, #0
@@ -1765,28 +1847,36 @@ XFALSE:
 // ============================================================================
 // Memory
 // ============================================================================
+
+    BOOT_WORD "@", "@ ( addr -- n ) fetch cell", 0, XFETCH
 XFETCH:
     ldr x20, [x20]
     NEXT
 
 // ! ( x addr -- ) store x at addr  [TOS=addr, second=x]
+
+    BOOT_WORD "!", "! ( n addr -- ) store cell", 0, XSTORE
 XSTORE:
     ldr x0, [x22], #8      // x0 = value
     str x0, [x20]          // *addr = value
     ldr x20, [x22], #8
     NEXT
 
+    BOOT_WORD "C@", "C@ ( addr -- byte ) fetch byte", 0, XCFETCH
 XCFETCH:
     ldrb w20, [x20]
     NEXT
 
 // C! ( char addr -- ) store char at addr
+
+    BOOT_WORD "C!", "C! ( byte addr -- ) store byte", 0, XCSTORE
 XCSTORE:
     ldr x0, [x22], #8      // x0 = char
     strb w0, [x20]         // *addr = char
     ldr x20, [x22], #8
     NEXT
 
+    BOOT_WORD "+!", "+! ( n addr -- ) add to memory", 0, XPLUSSTORE
 XPLUSSTORE:
     ldr x0, [x22], #8
     ldr x1, [x20]
@@ -1795,11 +1885,13 @@ XPLUSSTORE:
     ldr x20, [x22], #8
     NEXT
 
+    BOOT_WORD "CELL", "CELL ( -- n ) address unit size in bytes (8)", 0, XCELL
 XCELL:
     DPUSH
     mov x20, #8
     NEXT
 
+    BOOT_WORD "CELLS", "CELLS ( n -- n ) cells to address units", 0, XCELLS
 XCELLS:
     lsl x20, x20, #3
     NEXT
@@ -1814,6 +1906,8 @@ XBL:
 // ============================================================================
 // Helpers (_putchar etc.) only touch x0-x18/x29/x30; Darwin svc preserves
 // x19-x28. We still SAVE_VM around bl so a future helper cannot clobber the VM.
+
+    BOOT_WORD "EMIT", "EMIT ( c -- ) emit character", 0, XEMIT
 XEMIT:
     mov x0, x20
     ldr x20, [x22], #8
@@ -1825,6 +1919,8 @@ XEMIT:
 // KEY ( -- char )  Core: next character. Skips Facility function-key events
 // (tag 2 << 24) so ACCEPT / KEY loops do not see arrow/F-key codes. Character
 // events (tag 1 << 24) are reduced to the code point in the low bits.
+
+    BOOT_WORD "KEY", "KEY ( -- c ) wait for and return next character (skips K-* function-key events)", 0, XKEY
 XKEY:
 1:
     SAVE_VM
@@ -1846,6 +1942,8 @@ XKEY:
     NEXT
 
 // KEY? ( -- flag )  true if a character is available (does not read it)
+
+    BOOT_WORD "KEY?", "KEY? ( -- flag ) true if a key is available (does not consume)", 0, XKEYQ
 XKEYQ:
     SAVE_VM
     adrp x1, key_q_hook@page
@@ -1869,6 +1967,8 @@ XKEYQ:
 //   plain 0..255           character (KEY-compatible)
 //   (1<<24)|cp             character event (EKEY>CHAR)
 //   (2<<24)|k-id           function-key event (EKEY>FKEY / K-*)
+
+    BOOT_WORD "EKEY", "EKEY ( -- u ) next key event (chars or tagged function keys for EKEY>FKEY)", 0, XEKEY
 XEKEY:
     SAVE_VM
     bl   _getchar
@@ -1876,6 +1976,7 @@ XEKEY:
     DPUSH
     NEXT
 
+    BOOT_WORD "CR", "CR ( -- ) carriage return / newline", 0, XCR
 XCR:
     SAVE_VM
     mov x0, #10
@@ -1883,6 +1984,7 @@ XCR:
     RESTORE_VM
     NEXT
 
+    BOOT_WORD ".", ". ( n -- ) print number (with space)", 0, XDOT
 XDOT:
     mov x0, x20
     ldr x20, [x22], #8
@@ -1893,6 +1995,7 @@ XDOT:
     RESTORE_VM
     NEXT
 
+    BOOT_WORD "U.", "U. ( u -- ) print unsigned", 0, XUDOT
 XUDOT:
     mov x0, x20
     ldr x20, [x22], #8
@@ -1901,6 +2004,7 @@ XUDOT:
     RESTORE_VM
     NEXT
 
+    BOOT_WORD ".S", ".S ( -- ) print data stack contents", 0, XDOTS
 XDOTS:
     SAVE_VM
     bl _print_dots
@@ -1909,6 +2013,8 @@ XDOTS:
 
 // .( ( -- ) IMMEDIATE — parse until ')' and TYPE (Core Ext). Boot CODE so AutoLoad
 // works even if high-level forth_init aborts before the colon definition of .(.
+
+    BOOT_WORD ".(", ".( ( -- ) print text until ) immediately (immediate)", 1, XDOTPAREN
 XDOTPAREN:
     mov  w7, #41                   // ')'
     stp  x29, x30, [sp, #-16]!
@@ -1922,6 +2028,8 @@ XDOTPAREN:
     b    XTYPE
 
 // TYPE ( addr u -- ) write u bytes at addr to stdout (host emit hook when set)
+
+    BOOT_WORD "TYPE", "TYPE ( addr len -- ) type string", 0, XTYPE
 XTYPE:
     mov x2, x20            // x2 = u (length)
     ldr x1, [x22], #8      // x1 = addr
@@ -1937,6 +2045,8 @@ _type_done:
 
 // XC!+ ( xchar xc-addr1 -- xc-addr2 )  UTF-8 store + advance (ANS 18.6.1)
 // CODE so multi-byte encoding cannot be broken by high-level stack mistakes.
+
+    BOOT_WORD "XC!+", "XC!+ ( xchar xc-addr1 -- xc-addr2 ) store UTF-8 xchar, advance", 0, XXC_STORE_PLUS
 XXC_STORE_PLUS:
     mov  x0, x20                   // addr
     ldr  x1, [x22], #8             // xchar
@@ -1999,6 +2109,8 @@ _xcsp_1:
     NEXT
 
 // XC@+ ( xc-addr1 -- xc-addr2 xchar )  UTF-8 fetch + advance
+
+    BOOT_WORD "XC@+", "XC@+ ( xc-addr1 -- xc-addr2 xchar ) fetch UTF-8 xchar, advance", 0, XXC_FETCH_PLUS
 XXC_FETCH_PLUS:
     mov  x0, x20                   // addr
     ldrb w1, [x0], #1              // lead; addr++
@@ -2055,6 +2167,8 @@ _xcfp_1:
     NEXT
 
 // XEMIT ( xchar -- ) encode UTF-8 into a temp and TYPE via bulk emit
+
+    BOOT_WORD "XEMIT", "XEMIT ( xchar -- ) emit UTF-8 xchar to console", 0, XXCHAR_EMIT
 XXCHAR_EMIT:
     // encode into xchar_emit_buf (4 bytes max)
     mov  x1, x20                   // xchar
@@ -2122,11 +2236,14 @@ XXCHAR_EMIT:
 // ============================================================================
 // Control Flow
 // ============================================================================
+
+    BOOT_WORD "BRANCH", "BRANCH ( -- ) internal: unconditional branch", 0, XBranch
 XBranch:
     ldr x0, [x19]
     add x19, x19, x0
     NEXT
 
+    BOOT_WORD "0BRANCH", "0BRANCH ( -- ) internal: branch if zero", 0, X0Branch
 X0Branch:
     cbz x20, _0br_true
     ldr x20, [x22], #8
@@ -2138,6 +2255,7 @@ _0br_true:
     add x19, x19, x0
     NEXT
 
+    BOOT_WORD "LIT", "LIT ( -- n ) internal: literal value", 0, XLit
 XLit:
     str x20, [x22, #-8]!
     ldr x20, [x19], #8
@@ -2148,6 +2266,8 @@ XLit:
 // ============================================================================
 
 // DP ( -- a-addr )  address of the dictionary pointer cell (ANS-style)
+
+    BOOT_WORD "DP", "DP ( -- addr ) dictionary pointer variable address (HERE is DP @)", 0, XDP
 XDP:
     str x20, [x22, #-8]!
     adrp x0, here_ptr@page
@@ -2156,6 +2276,8 @@ XDP:
     NEXT
 
 // HERE ( -- addr ) push current dictionary pointer (also : HERE DP @ ;)
+
+    BOOT_WORD "HERE", "HERE ( -- addr ) current dictionary pointer (value)", 0, XHERE
 XHERE:
     DPUSH
     adrp x0, here_ptr@page
@@ -2165,6 +2287,8 @@ XHERE:
 
 // ALLOT ( n -- ) advance HERE by n bytes
 // Bounds-check against logical dict end (user_dict_size_cell); grow via GROWMEMORYMB.
+
+    BOOT_WORD "ALLOT", "ALLOT ( n -- ) allocate n bytes in dictionary", 0, XALLOT
 XALLOT:
     mov x0, x20                    // n
     ldr x20, [x22], #8
@@ -2199,6 +2323,8 @@ _allot_fail:
     b    _error_abandon
 
 // , ( x -- ) compile cell at HERE
+
+    BOOT_WORD ",", ", ( n -- ) compile a cell", 0, XCOMMA
 XCOMMA:
     mov x0, x20
     ldr x20, [x22], #8
@@ -2207,6 +2333,8 @@ XCOMMA:
 
 // FIND ( c-addr -- c-addr 0 | xt 1 | xt -1 )  ANS Core
 // c-addr is a counted string. 1 = immediate, -1 = non-immediate.
+
+    BOOT_WORD "FIND", "FIND ( c-addr -- c-addr 0 | xt 1 | xt -1 ) find word from counted string (from WORD)", 0, XFIND
 XFIND:
     mov x2, x20                 // c-addr (counted)
     ldrb w1, [x2]               // u = count
@@ -2235,6 +2363,8 @@ _xfind_not:
 // Stack in:  ... PREV  c-addr  u  wid(TOS)
 // miss out:  ... PREV  0
 // hit out:   ... PREV  xt  flag   (flag 1=immediate, -1=normal)
+
+    BOOT_WORD "SEARCH-WORDLIST", "SEARCH-WORDLIST ( c-addr u wid -- 0 | xt 1 | xt -1 ) find in one wordlist", 0, XSEARCH_WORDLIST
 XSEARCH_WORDLIST:
     mov  x9, x20                   // wid
     ldr  x8, [x22], #8             // u
@@ -2296,6 +2426,8 @@ _swl_zero:
     NEXT
 
 // ' ( "name" -- xt )  xt = CFA
+
+    BOOT_WORD "'", "' ( \"<spaces>name\" -- xt ) find name, return xt", 0, XTICK
 XTICK:
     bl _next_word
     cbz x1, _tick_fail
@@ -2323,6 +2455,8 @@ _tick_fail:
 // TOS-cache: when only xt is on the stack (DSP at SP0), do not pop under —
 // leave TOS as 0. Required for NAME>COMPILE EXECUTE on immediate words when
 // the rest of the stack is empty (Hayes toolstest).
+
+    BOOT_WORD "EXECUTE", "EXECUTE ( xt -- ) execute the word with the given xt", 0, XEXECUTE
 XEXECUTE:
     mov x21, x20                   // W = CFA
     adrp x0, data_stack@page
@@ -2339,6 +2473,8 @@ XEXECUTE:
 // LITERAL ( x -- ) immediate: compile LIT + value
 // Use C stack for temp — never the Forth return stack (x23), which may hold
 // DOCOL frames when LITERAL runs inside an immediate colon word (e.g. ELSE).
+
+    BOOT_WORD "LITERAL", "LITERAL ( x -- ) compile literal x (immediate)", 1, XLITERAL
 XLITERAL:
     stp x29, x30, [sp, #-16]!
     str x20, [sp, #-16]!           // save literal value
@@ -2355,6 +2491,8 @@ XLITERAL:
     NEXT
 
 // IMMEDIATE ( -- ) mark last defined word as immediate (last_cfa from _header_build)
+
+    BOOT_WORD "IMMEDIATE", "IMMEDIATE ( -- ) mark latest word as immediate", 0, XIMMEDIATE
 XIMMEDIATE:
     adrp x0, last_cfa@page
     add  x0, x0, last_cfa@pageoff
@@ -2370,6 +2508,8 @@ XIMMEDIATE:
 
 // SETDOC ( c-addr u -- )  pending help for next : / CREATE / :NONAME
 // Skips leading blanks so DOC" text" works with a space after DOC".
+
+    BOOT_WORD "SETDOC", "SETDOC ( c-addr u -- ) pending help for next defining word", 0, XSETDOC
 XSETDOC:
     mov x1, x20                    // u
     ldr x0, [x22], #8              // c-addr
@@ -2395,6 +2535,8 @@ XSETDOC:
     NEXT
 
 // : ( "name" -- ) start colon definition
+
+    BOOT_WORD ":", ": ( 'name' -- ) start colon definition", 0, XCOLON
 XCOLON:
     adrp x0, noname_xt@page
     add x0, x0, noname_xt@pageoff
@@ -2441,6 +2583,8 @@ _colon_fail:
 
 // :NONAME
 // :NONAME ( -- ) start nameless colon definition; ; leaves xt
+
+    BOOT_WORD ":NONAME", ":NONAME ( C: -- colon-sys ) ( -- xt ) start anonymous colon definition; ; leaves xt", 0, XNONAME
 XNONAME:
     // empty name + pending/empty help + DOCOL
     stp x29, x30, [sp, #-16]!
@@ -2463,6 +2607,8 @@ XNONAME:
     NEXT
 
 // ; ( -- ) immediate: end colon definition; after :NONAME leaves xt
+
+    BOOT_WORD ";", "; ( -- ) end colon definition (immediate)", 1, XSEMI
 XSEMI:
     // Compile EXIT entry address
     adrp x0, cfa_exit@page
@@ -2487,6 +2633,8 @@ _semi_done:
     NEXT
 
 // CREATE ( "name" -- ) header with DOVAR; does_ip at CFA+8, PFA at CFA+16
+
+    BOOT_WORD "CREATE", "CREATE ( 'name' -- ) create word that pushes its data field (for DOES>)", 0, XCREATE
 XCREATE:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -2532,6 +2680,8 @@ _create_fail:
 // ============================================================================
 // Interpreter Words
 // ============================================================================
+
+    BOOT_WORD "STATE", "STATE ( -- addr ) compilation state variable", 0, XSTATE
 XSTATE:
     DPUSH
     adrp x0, state_var@page
@@ -2539,6 +2689,7 @@ XSTATE:
     mov x20, x0
     NEXT
 
+    BOOT_WORD "BASE", "BASE ( -- addr ) current numeric base variable", 0, XBASE
 XBASE:
     DPUSH
     adrp x0, base_var@page
@@ -2547,6 +2698,8 @@ XBASE:
     NEXT
 
 // BLK / SCR / BLOCK-FILE — system variables for the Block word set
+
+    BOOT_WORD "BLK", "BLK ( -- addr ) block number variable (0 = not from block)", 0, XBLK
 XBLK:
     DPUSH
     adrp x0, blk_var@page
@@ -2554,6 +2707,7 @@ XBLK:
     mov x20, x0
     NEXT
 
+    BOOT_WORD "SCR", "SCR ( -- addr ) last listed block number variable", 0, XSCR
 XSCR:
     DPUSH
     adrp x0, scr_var@page
@@ -2561,6 +2715,7 @@ XSCR:
     mov x20, x0
     NEXT
 
+    BOOT_WORD "BLOCK-FILE", "BLOCK-FILE ( -- addr ) current block volume fileid variable (0 = none)", 0, XBLOCK_FILE
 XBLOCK_FILE:
     DPUSH
     adrp x0, block_file_var@page
@@ -2568,6 +2723,7 @@ XBLOCK_FILE:
     mov x20, x0
     NEXT
 
+    BOOT_WORD "(BLOCK-BUF)", "(BLOCK-BUF) ( -- addr ) address of the 1K system block buffer", 0, XBLOCK_BUF
 XBLOCK_BUF:
     DPUSH
     adrp x0, block_buf@page
@@ -2575,6 +2731,7 @@ XBLOCK_BUF:
     mov x20, x0
     NEXT
 
+    BOOT_WORD "(BLOCK-NR)", "(BLOCK-NR) ( -- addr ) block number currently cached in buffer", 0, XBLOCK_NR
 XBLOCK_NR:
     DPUSH
     adrp x0, block_nr@page
@@ -2582,6 +2739,7 @@ XBLOCK_NR:
     mov x20, x0
     NEXT
 
+    BOOT_WORD "(BLOCK-UPD)", "(BLOCK-UPD) ( -- addr ) nonzero if block buffer is dirty", 0, XBLOCK_UPD
 XBLOCK_UPD:
     DPUSH
     adrp x0, block_upd@page
@@ -2589,6 +2747,7 @@ XBLOCK_UPD:
     mov x20, x0
     NEXT
 
+    BOOT_WORD "]", "] ( -- ) enter compile mode", 0, XRBRA
 XRBRA:
     adrp x0, state_var@page
     add x0, x0, state_var@pageoff
@@ -2596,16 +2755,21 @@ XRBRA:
     str x1, [x0]
     NEXT
 
+    BOOT_WORD "[", "[ ( -- ) enter interpret mode (immediate)", 1, XLBRA
 XLBRA:
     adrp x0, state_var@page
     add x0, x0, state_var@pageoff
     str xzr, [x0]
     NEXT
 
+    BOOT_WORD "BYE", "BYE ( -- ) exit Forth to the host", 0, XBYE
 XBYE:
     b _quit_exit
 
 // FROMLIB / FROM-LIBRARY ( -- )  arm host path resolve to Resources/Library
+
+    BOOT_WORD "FROMLIB", "FROMLIB ( -- ) next FLOAD/INCLUDE/REQUIRE/EDIT/CHDIR/DIR uses Resources/Library", 0, XFROMLIB
+    BOOT_WORD "FROM-LIBRARY", "FROM-LIBRARY ( -- ) synonym for FROMLIB", 0, XFROMLIB
 XFROMLIB:
     adrp x0, fromlib_hook@page
     add  x0, x0, fromlib_hook@pageoff
@@ -2618,6 +2782,8 @@ XFROMLIB:
     NEXT
 
 // CHDIR ( -- )  optional name: change cwd; bare → host folder picker (TZForth-style)
+
+    BOOT_WORD "CHDIR", "CHDIR ( -- ) path|dialog change working directory", 0, XCHDIR
 XCHDIR:
     bl _next_word                  // x0=scratch, x1=len (0 if bare)
     // Preserve bare/named in x25 before SAVE_VM (x1 is not VM-saved)
@@ -2642,6 +2808,8 @@ XCHDIR:
     NEXT
 
 // PWD ( -- )  print logical cwd via host
+
+    BOOT_WORD "PWD", "PWD ( -- ) print logical current directory", 0, XPWD
 XPWD:
     adrp x0, pwd_hook@page
     add  x0, x0, pwd_hook@pageoff
@@ -2654,6 +2822,8 @@ XPWD:
     NEXT
 
 // DIR ( -- )  optional path/filespec; bare lists cwd (FROMLIB → Library)
+
+    BOOT_WORD "DIR", "DIR ( -- ) path|filespec list directory (* ? wildcards; FROMLIB ok)", 0, XDIR
 XDIR:
     bl _next_word
     mov  x25, x1
@@ -2679,6 +2849,8 @@ XDIR:
 // EDIT ( -- ) name|dialog  open in system text editor (TZForth-style)
 // Bare → open panel; named (or "quoted path") → resolve, open, chdir to folder.
 // FROMLIB EDIT resolves under Library without permanently changing session cwd.
+
+    BOOT_WORD "EDIT", "EDIT ( -- ) name|dialog open in system editor; updates cwd (FROMLIB ok)", 0, XEDIT
 XEDIT:
     bl   _next_filespec            // x25=len (0 = bare); word_scratch if named
     SAVE_VM
@@ -2719,11 +2891,15 @@ XEDIT:
 .equ INCL_NAME, 256
 
 // INCLUDE / FLOAD ( "filename" | bare | "quoted path" -- )  always load
+
+    BOOT_WORD "INCLUDE", "INCLUDE ( -- ) name|dialog load and interpret file", 0, XINCLUDE
 XINCLUDE:
     bl   _next_filespec            // x25=len; word_scratch filled (0 = bare)
     b    _include_with_len
 
 // INCLUDED ( c-addr u -- )  always load from string
+
+    BOOT_WORD "INCLUDED", "INCLUDED ( c-addr u -- ) load and interpret named file (always)", 0, XINCLUDED
 XINCLUDED:
     mov  x1, x20                   // u
     ldr  x0, [x22], #8             // c-addr
@@ -2732,6 +2908,8 @@ XINCLUDED:
     b    _include_with_len
 
 // REQUIRED ( c-addr u -- )  load once
+
+    BOOT_WORD "REQUIRED", "REQUIRED ( c-addr u -- ) INCLUDED if file-spec not yet loaded", 0, XREQUIRED
 XREQUIRED:
     mov  x1, x20
     ldr  x0, [x22], #8
@@ -2774,6 +2952,8 @@ _require_skip:
     NEXT
 
 // .INCLUDED ( -- ) list registry
+
+    BOOT_WORD ".INCLUDED", ".INCLUDED ( -- ) list files registered by INCLUDE/REQUIRED", 0, XDOT_INCLUDED
 XDOT_INCLUDED:
     SAVE_VM
     adrp x0, str_included_hdr@page
@@ -3285,6 +3465,8 @@ _included_register_pending:
 
 // LAST ( -- xt ) CFA of most recently defined word (_header_build / last_cfa).
 // Use this instead of LATEST @ when DICT_THREADS > 1 (new words are not always heads[0]).
+
+    BOOT_WORD "LAST", "LAST ( -- xt ) CFA of most recently defined word (all threads)", 0, XLAST
 XLAST:
     str  x20, [x22, #-8]!
     adrp x0, last_cfa@page
@@ -3293,6 +3475,8 @@ XLAST:
     NEXT
 
 // LATEST ( -- addr ) push address of latest_var (FORTH wordlist head array)
+
+    BOOT_WORD "LATEST", "LATEST ( -- addr ) FORTH wordlist head array (heads[0] base)", 0, XLATEST
 XLATEST:
     DPUSH
     adrp x0, latest_var@page
@@ -3301,6 +3485,8 @@ XLATEST:
     NEXT
 
 // CURRENT ( -- addr ) variable: compilation wordlist wid
+
+    BOOT_WORD "CURRENT", "CURRENT ( -- addr ) compilation wordlist variable", 0, XCURRENT
 XCURRENT:
     DPUSH
     adrp x0, current_var@page
@@ -3309,6 +3495,8 @@ XCURRENT:
     NEXT
 
 // WORDLIST ( -- wid ) allot DICT_THREADS head cells (all 0); wid = base
+
+    BOOT_WORD "WORDLIST", "WORDLIST ( -- wid ) create empty word list", 0, XWORDLIST
 XWORDLIST:
     adrp x0, here_ptr@page
     add  x0, x0, here_ptr@pageoff
@@ -3328,6 +3516,8 @@ XWORDLIST:
     NEXT
 
 // FORTH-WORDLIST ( -- wid )
+
+    BOOT_WORD "FORTH-WORDLIST", "FORTH-WORDLIST ( -- wid ) main FORTH word list", 0, XFORTH_WORDLIST
 XFORTH_WORDLIST:
     DPUSH
     adrp x0, latest_var@page
@@ -3336,6 +3526,8 @@ XFORTH_WORDLIST:
     NEXT
 
 // GET-CURRENT ( -- wid )
+
+    BOOT_WORD "GET-CURRENT", "GET-CURRENT ( -- wid )", 0, XGET_CURRENT
 XGET_CURRENT:
     DPUSH
     adrp x0, current_var@page
@@ -3344,6 +3536,8 @@ XGET_CURRENT:
     NEXT
 
 // SET-CURRENT ( wid -- )
+
+    BOOT_WORD "SET-CURRENT", "SET-CURRENT ( wid -- )", 0, XSET_CURRENT
 XSET_CURRENT:
     adrp x0, current_var@page
     add  x0, x0, current_var@pageoff
@@ -3352,6 +3546,8 @@ XSET_CURRENT:
     NEXT
 
 // GET-ORDER ( -- widn ... wid1 n )
+
+    BOOT_WORD "GET-ORDER", "GET-ORDER ( -- widn ... wid1 n )", 0, XGET_ORDER
 XGET_ORDER:
     adrp x0, search_order_n@page
     add  x0, x0, search_order_n@pageoff
@@ -3373,6 +3569,8 @@ XGET_ORDER:
     NEXT
 
 // SET-ORDER ( widn ... wid1 n -- )  n=-1 → ONLY
+
+    BOOT_WORD "SET-ORDER", "SET-ORDER ( widn ... wid1 n -- )", 0, XSET_ORDER
 XSET_ORDER:
     mov  x1, x20                   // n
     ldr  x20, [x22], #8
@@ -3402,6 +3600,8 @@ XSET_ORDER:
     NEXT
 
 // PUSH-ORDER ( wid -- ) prepend to search order
+
+    BOOT_WORD "PUSH-ORDER", "PUSH-ORDER ( wid -- ) prepend wid to search order", 0, XPUSH_ORDER
 XPUSH_ORDER:
     adrp x0, search_order_n@page
     add  x0, x0, search_order_n@pageoff
@@ -3428,6 +3628,8 @@ XPUSH_ORDER:
     NEXT
 
 // DEFINITIONS ( -- ) CURRENT = search_order[0]
+
+    BOOT_WORD "DEFINITIONS", "DEFINITIONS ( -- ) CURRENT = first in search order", 0, XDEFINITIONS
 XDEFINITIONS:
     adrp x0, search_order_n@page
     add  x0, x0, search_order_n@pageoff
@@ -3443,6 +3645,8 @@ XDEFINITIONS:
     NEXT
 
 // ONLY ( -- ) search order = (FORTH-WORDLIST)
+
+    BOOT_WORD "ONLY", "ONLY ( -- ) search order = FORTH only", 0, XONLY
 XONLY:
     adrp x0, latest_var@page
     add  x0, x0, latest_var@pageoff
@@ -3456,6 +3660,8 @@ XONLY:
     NEXT
 
 // ALSO ( -- ) duplicate first search-order entry
+
+    BOOT_WORD "ALSO", "ALSO ( -- ) duplicate first search-order entry", 0, XALSO
 XALSO:
     adrp x0, search_order_n@page
     add  x0, x0, search_order_n@pageoff
@@ -3483,6 +3689,8 @@ XALSO:
     NEXT
 
 // PREVIOUS ( -- ) drop first search-order entry
+
+    BOOT_WORD "PREVIOUS", "PREVIOUS ( -- ) drop first search-order entry", 0, XPREVIOUS
 XPREVIOUS:
     adrp x0, search_order_n@page
     add  x0, x0, search_order_n@pageoff
@@ -3507,6 +3715,8 @@ XPREVIOUS:
     NEXT
 
 // FORTH ( -- ) search_order[0] = FORTH-WORDLIST
+
+    BOOT_WORD "FORTH", "FORTH ( -- ) set first search-order entry to FORTH", 0, XFORTH
 XFORTH:
     adrp x0, latest_var@page
     add  x0, x0, latest_var@pageoff
@@ -3523,6 +3733,8 @@ XFORTH:
     NEXT
 
 // ORDER ( -- ) print search order and CURRENT (resolve VOCABULARY names)
+
+    BOOT_WORD "ORDER", "ORDER ( -- ) print search order and CURRENT", 0, XORDER
 XORDER:
     SAVE_VM
     adrp x0, str_search_order@page
@@ -3641,6 +3853,8 @@ _print_wid_name:
 // and every VOCABULARY wordlist head found in the FORTH chain.
 //
 // Must SAVE_VM + forget_cut BSS: must not keep cut in x19 (IP for CODE words).
+
+    BOOT_WORD "FORGET", "FORGET ( 'name' -- ) remove user name and all newer words; system words protected", 0, XFORGET
 XFORGET:
     SAVE_VM
     bl   _next_word
@@ -3801,6 +4015,8 @@ _prune_wid:
 
 // ALLOCATE ( u -- a-addr ior )  libc malloc; ior 0 ok, -1 fail
 // Host hook optional (same stack result). Never leave a null a-addr with ior 0.
+
+    BOOT_WORD "ALLOCATE", "ALLOCATE ( u -- a-addr ior ) allocate u bytes", 0, XALLOCATE
 XALLOCATE:
     adrp x0, host_tmp0@page
     add  x0, x0, host_tmp0@pageoff
@@ -3838,6 +4054,8 @@ XALLOCATE:
     NEXT
 
 // FREE ( a-addr -- ior )
+
+    BOOT_WORD "FREE", "FREE ( a-addr -- ior ) free ALLOCATE block", 0, XFREE
 XFREE:
     adrp x0, host_tmp0@page
     add  x0, x0, host_tmp0@pageoff
@@ -3855,6 +4073,8 @@ XFREE:
 
 // RESIZE ( a-addr1 u -- a-addr2 ior )  ANS Memory-Allocation
 // a-addr1 may be 0 (like ALLOCATE). ior 0 ok, -1 fail (a-addr2 = a-addr1 on fail).
+
+    BOOT_WORD "RESIZE", "RESIZE ( a-addr1 u -- a-addr2 ior ) resize ALLOCATE block", 0, XRESIZE
 XRESIZE:
     // TOS = u, under = a-addr1
     mov  x1, x20                   // u
@@ -3895,6 +4115,8 @@ XRESIZE:
 
 // N>R ( xn ... x1 n -- ) ( R: -- xn ... x1 n )
 // Move n data cells + count onto the return stack (order restored by NR>).
+
+    BOOT_WORD "N>R", "N>R ( xn ... x1 n -- ) ( R: -- xn ... x1 n ) move n items + count to return stack", 0, XNTOR
 XNTOR:
     mov  x5, x20                   // n
     mov  x1, x5
@@ -3910,6 +4132,8 @@ XNTOR:
     NEXT
 
 // NR> ( -- xn ... x1 n ) ( R: xn ... x1 n -- )
+
+    BOOT_WORD "NR>", "NR> ( -- xn ... x1 n ) ( R: xn ... x1 n -- ) restore n items + count from return stack", 0, XNRFROM
 XNRFROM:
     ldr  x5, [x23], #8             // n
     str  x20, [x22, #-8]!          // flush TOS
@@ -3926,10 +4150,14 @@ XNRFROM:
 
 // CS-PICK ( i*x u -- i*x x_u )  control-flow stack pick; 0 = top
 // When CS is the data stack and each CS item is one cell, same as PICK.
+
+    BOOT_WORD "CS-PICK", "CS-PICK ( i*x u -- i*x x_u ) copy uth control-flow stack item (0=top)", 0, XCSPICK
 XCSPICK:
     b    XPICK
 
 // CS-ROLL ( i*x u -- j*x )  control-flow stack roll; same as ROLL for 1-cell items
+
+    BOOT_WORD "CS-ROLL", "CS-ROLL ( xu ... x0 u -- xu-1 ... x0 xu ) rotate uth CS item to top", 0, XCSROLL
 XCSROLL:
     b    XROLL
 
@@ -3939,6 +4167,8 @@ XCSROLL:
 // nt = CFA (xt); matches NAME>STRING / NFA layout.
 // R stack (top first while visiting): next, xt, thread, wid, saved_IP
 // Continuation uses tw_continue_cell so CODE/colon visitors return via NEXT.
+
+    BOOT_WORD "TRAVERSE-WORDLIST", "TRAVERSE-WORDLIST ( i*x xt wid -- j*x ) visit each name in wid", 0, XTRAVERSE_WORDLIST
 XTRAVERSE_WORDLIST:
     mov  x5, x20                   // wid
     ldr  x6, [x22], #8             // xt (visitor)
@@ -4009,6 +4239,8 @@ _tw_done:
 
 // NAME>INTERPRET ( nt -- xt | 0 )
 // nt is CFA; return same xt (all words have interpretation semantics here).
+
+    BOOT_WORD "NAME>INTERPRET", "NAME>INTERPRET ( nt -- xt | 0 ) interpretation xt for name token", 0, XNAME_INTERPRET
 XNAME_INTERPRET:
     // x20 = nt already
     NEXT
@@ -4017,6 +4249,8 @@ XNAME_INTERPRET:
 // x xt EXECUTE performs compilation semantics of nt.
 // Non-immediate: x = nt, xt = COMPILE, (or , which is equivalent).
 // Immediate:     x = nt, xt = EXECUTE.
+
+    BOOT_WORD "NAME>COMPILE", "NAME>COMPILE ( nt -- x xt ) compilation semantics pair for name token", 0, XNAME_COMPILE
 XNAME_COMPILE:
     mov  x5, x20                   // nt
     ldr  x0, [x5, #-8]             // FLAGS
@@ -4043,6 +4277,8 @@ XNAME_COMPILE:
     NEXT
 
 // BI-MUL ( a b r -- )
+
+    BOOT_WORD "BI-MUL", "BI-MUL ( a b r -- ) BIG-INTEGER host multiply", 0, XBIMUL
 XBIMUL:
     adrp x3, host_tmp0@page
     add  x3, x3, host_tmp0@pageoff
@@ -4069,6 +4305,8 @@ XBIMUL:
     NEXT
 
 // BI-DIVMOD ( num den quot rem work -- )
+
+    BOOT_WORD "BI-DIVMOD", "BI-DIVMOD ( num den quot rem work -- ) BIG-INTEGER host divmod", 0, XBIDIVMOD
 XBIDIVMOD:
     // TOS = work (ignored)
     ldr  x3, [x22], #8             // rem
@@ -4099,6 +4337,8 @@ XBIDIVMOD:
     NEXT
 
 // BI-ISQRT ( a r quot rem work t1 t2 -- )
+
+    BOOT_WORD "BI-ISQRT", "BI-ISQRT ( a r quot rem work t1 t2 -- ) BIG-INTEGER host isqrt", 0, XBIISQRT
 XBIISQRT:
     // TOS = t2; discard t2,t1,work,rem,quot; keep a,r
     ldr  x0, [x22], #8             // t1
@@ -4135,6 +4375,8 @@ XBIISQRT:
 .equ LOCAL_FRAME_MAX, 16
 
 // (LOCAL-INIT) ( nLocals nInit reverse -- )
+
+    BOOT_WORD "(LOCAL-INIT)", "(LOCAL-INIT) ( n nInit rev -- ) create locals frame", 0, XLOCAL_INIT
 XLOCAL_INIT:
     // TOS = reverse, then nInit, nLocals
     mov  x2, x20                   // reverse
@@ -4208,6 +4450,8 @@ XLOCAL_INIT:
 // Bugfix: an extra "pop under" dropped one stack cell per local fetch, so
 // sequences like  bi BI-DATA  bi BI-CAP CELLS ERASE  lost the address and
 // C!/ERASE faulted (bi-test after BI-CLEAR / any {: bi :} word using ERASE).
+
+    BOOT_WORD "(LOCAL@)", "(LOCAL@) ( idx -- x ) fetch local", 0, XLOCAL_AT
 XLOCAL_AT:
     mov  x0, x20                   // idx (TOS)
     adrp x1, local_frame_depth@page
@@ -4234,6 +4478,8 @@ XLOCAL_AT:
     NEXT
 
 // (LOCAL!) ( x idx -- )
+
+    BOOT_WORD "(LOCAL!)", "(LOCAL!) ( x idx -- ) store local", 0, XLOCAL_STORE
 XLOCAL_STORE:
     mov  x0, x20                   // idx
     ldr  x1, [x22], #8             // x
@@ -4262,6 +4508,8 @@ XLOCAL_STORE:
 // u <> 0: declare a local named by c-addr u (first named gets TOS at run-time).
 // u = 0:  "last local" — compile (LOCAL-INIT) for the sequence.
 // Init order is reverse=0 (first declared ← TOS), unlike {: which uses reverse=1.
+
+    BOOT_WORD "(LOCAL)", "(LOCAL) ( c-addr u -- ) declare local or end locals (compile only)", 0, XLOCAL_PAREN
 XLOCAL_PAREN:
     // compile-only
     adrp x0, state_var@page
@@ -4318,6 +4566,8 @@ _lparen_last:
 
 // {:  immediate — parse args | vals -- outs :} then compile (LOCAL-INIT)
 // MUST NOT clobber x19 (IP) / x20-x24 (VM). Phase lives in local_brace_phase.
+
+    BOOT_WORD "{:", "{: ( -- ) declare locals {: args | vals -- outs :} (immediate)", 1, XLOCAL_BRACE
 XLOCAL_BRACE:
     // compile-only
     adrp x0, state_var@page
@@ -4401,6 +4651,8 @@ _lb_done:
     NEXT
 
 // TO immediate — local store if name is local; else VALUE store
+
+    BOOT_WORD "TO", "TO ( x 'name' -- ) store to VALUE or local (immediate)", 1, XTO_IMM
 XTO_IMM:
     bl   _next_word
     cbz  x1, 9f
@@ -4672,6 +4924,7 @@ _local_frame_try_exit:
 // ============================================================================
 .equ WORDS_MAX, 1024
 
+    BOOT_WORD "WORDS", "WORDS ( ['filter'] -- ) list first search-order wordlist, sorted", 0, XWORDS
 XWORDS:
     SAVE_VM
     // Optional filter: parse next word (empty at EOL → no filter)
@@ -4950,6 +5203,8 @@ XWORDS:
 
 // DICT-THREADS ( -- n )  number of hash chains per wordlist (DICT_THREADS).
 // High-level .THREADS is defined in forth_init (SEE-able).
+
+    BOOT_WORD "DICT-THREADS", "DICT-THREADS ( -- n ) number of hash threads per wordlist", 0, XDICT_THREADS
 XDICT_THREADS:
     str  x20, [x22, #-8]!
     mov  x20, #DICT_THREADS
@@ -5087,6 +5342,8 @@ _words_filter_match:
     ret
 
 // ['] ( "name" -- entry ) compile-only: find word and push entry address
+
+    BOOT_WORD "[']", "['] ( -- xt ) compile xt of next name", 1, XBRACKET_TICK
 XBRACKET_TICK:
     // Check if in compile mode
     adrp x0, state_var@page
@@ -5148,6 +5405,8 @@ _bracket_tick_fail:
     b    _undefined_word
 
 // LIT-ADDR ( -- addr ) push dict_lit entry address
+
+    BOOT_WORD "LIT-ADDR", "LIT-ADDR ( -- xt ) address/xt of LIT (for SEE)", 0, XLIT_ADDR
 XLIT_ADDR:
     DPUSH
     adrp x0, cfa_lit@page
@@ -5157,6 +5416,8 @@ XLIT_ADDR:
     NEXT
 
 // 0BRANCH-ADDR ( -- addr ) push dict_0branch entry address
+
+    BOOT_WORD "0BRANCH-ADDR", "0BRANCH-ADDR ( -- xt ) xt of 0BRANCH (for SEE)", 0, X0BRANCH_ADDR
 X0BRANCH_ADDR:
     DPUSH
     adrp x0, cfa_0branch@page
@@ -5166,6 +5427,8 @@ X0BRANCH_ADDR:
     NEXT
 
 // BRANCH-ADDR ( -- addr ) push dict_branch entry address
+
+    BOOT_WORD "BRANCH-ADDR", "BRANCH-ADDR ( -- xt ) xt of BRANCH (for SEE)", 0, XBRANCH_ADDR
 XBRANCH_ADDR:
     DPUSH
     adrp x0, cfa_branch@page
@@ -5175,6 +5438,8 @@ XBRANCH_ADDR:
     NEXT
 
 // EXIT-ADDR ( -- addr ) push dict_exit entry address
+
+    BOOT_WORD "EXIT-ADDR", "EXIT-ADDR ( -- xt ) xt of EXIT (for SEE)", 0, XEXIT_ADDR
 XEXIT_ADDR:
     DPUSH
     adrp x0, cfa_exit@page
@@ -5184,6 +5449,8 @@ XEXIT_ADDR:
     NEXT
 
 // SLIT-ADDR ( -- xt ) xt of (S") — for SEE without embedding quotes in forth_init
+
+    BOOT_WORD "SLIT-ADDR", "SLIT-ADDR ( -- xt ) xt of (S\") runtime (for SEE)", 0, XSLIT_ADDR
 XSLIT_ADDR:
     DPUSH
     adrp x0, cfa_slit@page
@@ -5193,6 +5460,8 @@ XSLIT_ADDR:
     NEXT
 
 // DOCON-ADDR ( -- addr ) address of DOCON code (for CONSTANT)
+
+    BOOT_WORD "DOCON-ADDR", "DOCON-ADDR ( -- addr ) address of DOCON code", 0, XDOCON_ADDR
 XDOCON_ADDR:
     DPUSH
     adrp x0, DOCON@page
@@ -5201,6 +5470,8 @@ XDOCON_ADDR:
     NEXT
 
 // DOCOL-ADDR ( -- addr ) address of DOCOL code (colon entry; for DOCOL? / SEE)
+
+    BOOT_WORD "DOCOL-ADDR", "DOCOL-ADDR ( -- addr ) address of DOCOL code (colon definitions)", 0, XDOCOL_ADDR
 XDOCOL_ADDR:
     DPUSH
     adrp x0, DOCOL@page
@@ -5213,6 +5484,8 @@ XDOCOL_ADDR:
 // ============================================================================
 
 // (DO) ( limit index -- )  R: -- limit index
+
+    BOOT_WORD "(DO)", "(DO) ( limit start -- ) internal runtime for DO (setup rstack)", 0, XDO_RT
 XDO_RT:
     ldr x0, [x22], #8              // limit
     str x0, [x23, #-8]!            // R: limit
@@ -5222,6 +5495,8 @@ XDO_RT:
 
 // (?DO) ( limit index -- )  R: -- limit index | skip loop if equal
 // Inline after xt: forward branch offset (like BRANCH) used when index==limit.
+
+    BOOT_WORD "(?DO)", "(?DO) ( limit start -- ) internal runtime for ?DO", 0, XQDO_RT
 XQDO_RT:
     ldr x0, [x22], #8              // limit
     cmp x20, x0
@@ -5239,6 +5514,8 @@ _qdo_skip:
 
 // (LOOP) ( -- )  increment index; branch by offset if not done
 // LEAVE sets index=limit so first cmp exits.
+
+    BOOT_WORD "(LOOP)", "(LOOP) ( -- ) internal runtime for LOOP", 0, XLOOP_RT
 XLOOP_RT:
     ldr x0, [x23], #8              // index
     ldr x1, [x23], #8              // limit
@@ -5257,6 +5534,8 @@ _loop_done:
     NEXT
 
 // (+LOOP) ( n -- )
+
+    BOOT_WORD "(+LOOP)", "(+LOOP) ( n -- ) internal runtime for +LOOP", 0, XPLUSLOOP_RT
 XPLUSLOOP_RT:
     ldr x0, [x23], #8              // index
     ldr x1, [x23], #8              // limit
@@ -5290,29 +5569,39 @@ _pl_done:
     NEXT
 
 // I ( -- n )  current loop index
+
+    BOOT_WORD "I", "I ( -- n ) current DO loop index", 0, XI
 XI:
     str x20, [x22, #-8]!
     ldr x20, [x23]
     NEXT
 
 // J ( -- n )  outer loop index
+
+    BOOT_WORD "J", "J ( -- n ) outer DO loop index (for nested loops)", 0, XJ
 XJ:
     str x20, [x22, #-8]!
     ldr x20, [x23, #16]            // skip inner index+limit
     NEXT
 
 // UNLOOP ( -- )  R: limit index --
+
+    BOOT_WORD "UNLOOP", "UNLOOP ( -- ) discard current DO loop params from rstack", 0, XUNLOOP
 XUNLOOP:
     add x23, x23, #16
     NEXT
 
 // LEAVE ( -- )  set index=limit so LOOP/+LOOP exit
+
+    BOOT_WORD "LEAVE", "LEAVE ( -- ) exit current DO loop (branch to after LOOP)", 0, XLEAVE
 XLEAVE:
     ldr x0, [x23, #8]              // limit
     str x0, [x23]                  // index = limit
     NEXT
 
 // (DOES>) ( -- ) runtime of DOES>: patch last CREATE'd word, then EXIT defining word
+
+    BOOT_WORD "(DOES>)", "(DOES>) ( -- ) internal: patch latest CREATE word for DOES> and return from parent", 0, XDOES_RT
 XDOES_RT:
     adrp x0, last_cfa@page
     add  x0, x0, last_cfa@pageoff
@@ -5327,6 +5616,8 @@ XDOES_RT:
     NEXT
 
 // DOES> ( -- ) IMMEDIATE  compile (DOES>)
+
+    BOOT_WORD "DOES>", "DOES> ( -- ) modify last CREATE'd word to execute the following code with data addr on stack (immediate)", 1, XDOES
 XDOES:
     adrp x0, cfa_does_rt@page
     add x0, x0, cfa_does_rt@pageoff
@@ -5338,6 +5629,8 @@ XDOES:
 // Pictured numeric output support
 // ============================================================================
 // PAD ( -- c-addr )
+
+    BOOT_WORD "PAD", "PAD ( -- addr ) transient user scratch (1024 bytes); not used by system parsers", 0, XPAD
 XPAD:
     str x20, [x22, #-8]!
     adrp x0, pad_buffer@page
@@ -5347,6 +5640,8 @@ XPAD:
 
 // MS@ ( -- u )  wall-clock milliseconds since Unix epoch
 // Uses libc gettimeofday (stable on Darwin); not ANS MS (which is a delay).
+
+    BOOT_WORD "MS@", "MS@ ( -- u ) wall-clock milliseconds since epoch", 0, XMSFETCH
 XMSFETCH:
     SAVE_VM
     sub sp, sp, #16                // struct timeval { tv_sec, tv_usec }
@@ -5367,6 +5662,8 @@ XMSFETCH:
 
 // TIME&DATE ( -- sec min hour day month year )
 // Host hook if set: void hook(int64_t out[6]); else 0 0 0 1 1 1970.
+
+    BOOT_WORD "TIME&DATE", "TIME&DATE ( -- sec min hour day month year ) local wall time", 0, XTIME_DATE
 XTIME_DATE:
     SAVE_VM
     adrp x1, time_date_hook@page
@@ -5425,18 +5722,26 @@ XTIME_DATE:
 .equ FOP_FLUSH, 15
 
 // R/O W/O R/W BIN — fam constants
+
+    BOOT_WORD "R/O", "R/O ( -- fam ) read-only file access method", 0, XR_O
 XR_O:
     DPUSH
     mov x20, #1
     NEXT
+
+    BOOT_WORD "W/O", "W/O ( -- fam ) write-only file access method", 0, XW_O
 XW_O:
     DPUSH
     mov x20, #2
     NEXT
+
+    BOOT_WORD "R/W", "R/W ( -- fam ) read/write file access method", 0, XR_W
 XR_W:
     DPUSH
     mov x20, #4
     NEXT
+
+    BOOT_WORD "BIN", "BIN ( fam1 -- fam2 ) add binary to file access method", 0, XBIN
 XBIN:
     orr x20, x20, #8
     NEXT
@@ -5498,6 +5803,8 @@ _file_op_call:
     ret
 
 // OPEN-FILE ( c-addr u fam -- fileid ior )
+
+    BOOT_WORD "OPEN-FILE", "OPEN-FILE ( c-addr u fam -- fileid ior )", 0, XOPEN_FILE
 XOPEN_FILE:
     mov  x3, x20                   // fam -> c
     ldr  x2, [x22], #8             // u -> b
@@ -5518,6 +5825,8 @@ XOPEN_FILE:
     NEXT
 
 // CREATE-FILE ( c-addr u fam -- fileid ior )
+
+    BOOT_WORD "CREATE-FILE", "CREATE-FILE ( c-addr u fam -- fileid ior )", 0, XCREATE_FILE
 XCREATE_FILE:
     mov  x3, x20
     ldr  x2, [x22], #8
@@ -5535,6 +5844,8 @@ XCREATE_FILE:
     NEXT
 
 // CLOSE-FILE ( fileid -- ior )
+
+    BOOT_WORD "CLOSE-FILE", "CLOSE-FILE ( fileid -- ior )", 0, XCLOSE_FILE
 XCLOSE_FILE:
     mov  x1, x20
     mov  x0, #FOP_CLOSE
@@ -5549,6 +5860,8 @@ XCLOSE_FILE:
     NEXT
 
 // READ-FILE ( c-addr u1 fileid -- u2 ior )
+
+    BOOT_WORD "READ-FILE", "READ-FILE ( c-addr u1 fileid -- u2 ior )", 0, XREAD_FILE
 XREAD_FILE:
     mov  x1, x20                   // fileid
     ldr  x2, [x22], #8             // u1
@@ -5566,6 +5879,8 @@ XREAD_FILE:
     NEXT
 
 // WRITE-FILE ( c-addr u fileid -- ior )
+
+    BOOT_WORD "WRITE-FILE", "WRITE-FILE ( c-addr u fileid -- ior )", 0, XWRITE_FILE
 XWRITE_FILE:
     mov  x1, x20
     ldr  x2, [x22], #8
@@ -5580,6 +5895,8 @@ XWRITE_FILE:
     NEXT
 
 // READ-LINE ( c-addr u1 fileid -- u2 flag ior )
+
+    BOOT_WORD "READ-LINE", "READ-LINE ( c-addr u1 fileid -- u2 flag ior )", 0, XREAD_LINE
 XREAD_LINE:
     mov  x1, x20
     ldr  x2, [x22], #8
@@ -5598,6 +5915,8 @@ XREAD_LINE:
     NEXT
 
 // WRITE-LINE ( c-addr u fileid -- ior )
+
+    BOOT_WORD "WRITE-LINE", "WRITE-LINE ( c-addr u fileid -- ior )", 0, XWRITE_LINE
 XWRITE_LINE:
     mov  x1, x20
     ldr  x2, [x22], #8
@@ -5612,6 +5931,8 @@ XWRITE_LINE:
     NEXT
 
 // FILE-POSITION ( fileid -- ud ior )
+
+    BOOT_WORD "FILE-POSITION", "FILE-POSITION ( fileid -- ud ior )", 0, XFILE_POSITION
 XFILE_POSITION:
     mov  x1, x20
     FILE_POP_UNDER
@@ -5630,6 +5951,8 @@ XFILE_POSITION:
     NEXT
 
 // FILE-SIZE ( fileid -- ud ior )
+
+    BOOT_WORD "FILE-SIZE", "FILE-SIZE ( fileid -- ud ior )", 0, XFILE_SIZE
 XFILE_SIZE:
     mov  x1, x20
     FILE_POP_UNDER
@@ -5648,6 +5971,8 @@ XFILE_SIZE:
     NEXT
 
 // REPOSITION-FILE ( ud fileid -- ior )
+
+    BOOT_WORD "REPOSITION-FILE", "REPOSITION-FILE ( ud fileid -- ior )", 0, XREPOSITION_FILE
 XREPOSITION_FILE:
     mov  x1, x20                   // fileid
     ldr  x3, [x22], #8             // hi
@@ -5662,6 +5987,8 @@ XREPOSITION_FILE:
     NEXT
 
 // RESIZE-FILE ( ud fileid -- ior )
+
+    BOOT_WORD "RESIZE-FILE", "RESIZE-FILE ( ud fileid -- ior )", 0, XRESIZE_FILE
 XRESIZE_FILE:
     mov  x1, x20
     ldr  x3, [x22], #8
@@ -5676,6 +6003,8 @@ XRESIZE_FILE:
     NEXT
 
 // DELETE-FILE ( c-addr u -- ior )
+
+    BOOT_WORD "DELETE-FILE", "DELETE-FILE ( c-addr u -- ior )", 0, XDELETE_FILE
 XDELETE_FILE:
     mov  x2, x20                   // u
     ldr  x5, [x22], #8             // c-addr
@@ -5690,6 +6019,8 @@ XDELETE_FILE:
     NEXT
 
 // RENAME-FILE ( c-addr1 u1 c-addr2 u2 -- ior )
+
+    BOOT_WORD "RENAME-FILE", "RENAME-FILE ( c-addr1 u1 c-addr2 u2 -- ior )", 0, XRENAME_FILE
 XRENAME_FILE:
     mov  x4, x20                   // u2 = d
     ldr  x3, [x22], #8             // c-addr2 as integer ptr = c
@@ -5704,6 +6035,8 @@ XRENAME_FILE:
     NEXT
 
 // FILE-STATUS ( c-addr u -- x ior )
+
+    BOOT_WORD "FILE-STATUS", "FILE-STATUS ( c-addr u -- x ior )", 0, XFILE_STATUS
 XFILE_STATUS:
     mov  x2, x20
     ldr  x5, [x22], #8
@@ -5721,6 +6054,8 @@ XFILE_STATUS:
     NEXT
 
 // FLUSH-FILE ( fileid -- ior )
+
+    BOOT_WORD "FLUSH-FILE", "FLUSH-FILE ( fileid -- ior )", 0, XFLUSH_FILE
 XFLUSH_FILE:
     mov  x1, x20
     mov  x0, #FOP_FLUSH
@@ -5738,6 +6073,8 @@ XFLUSH_FILE:
 // Floating-point (host F-stack; public words in FP vocabulary)
 // ============================================================================
 // FLIT ( -- ) ( F: -- r )  inline IEEE-64 bits at IP
+
+    BOOT_WORD "FLIT", "FLIT ( -- ) ( F: -- r ) runtime: push inline IEEE bits as float", 0, XFLIT
 XFLIT:
     ldr  x1, [x19], #8             // bits
     mov  x0, #101                  // FOP_FPUSH_BITS
@@ -5751,6 +6088,8 @@ XFLIT:
     NEXT
 
 // FLIT-ADDR ( -- xt )
+
+    BOOT_WORD "FLIT-ADDR", "FLIT-ADDR ( -- xt ) xt of FLIT (for FLITERAL)", 0, XFLIT_ADDR
 XFLIT_ADDR:
     DPUSH
     adrp x0, cfa_flit@page
@@ -5759,6 +6098,8 @@ XFLIT_ADDR:
     NEXT
 
 // (F-OP) ( i*x op -- j*x )  host multiplex; op selects stack args / results
+
+    BOOT_WORD "(F-OP)", "(F-OP) ( i*x op -- j*x ) float host multiplex (internal)", 0, XFLOAT_OP
 XFLOAT_OP:
     mov  x9, x20                   // op
     ldr  x20, [x22], #8            // prior TOS
@@ -6024,6 +6365,8 @@ _bln_done:
 
 // MS ( u -- )  Facility: wait at least u milliseconds (yields via nanosleep).
 // Busy-wait on MS@ freezes the SwiftUI main thread; always sleep in the OS.
+
+    BOOT_WORD "MS", "MS ( u -- ) wait at least u milliseconds (OS sleep; yields)", 0, XMS
 XMS:
     mov x0, x20                    // ms
     ldr x20, [x22], #8
@@ -6076,6 +6419,8 @@ _ms_done:
 // raises the logical limit once per session without relocating CFAs (max 64 MiB).
 .equ USER_DICT_DEFAULT, 1048576    // 1 MiB
 .equ USER_DICT_MAX, 67108864       // 64 MiB reserved / hard cap
+
+    BOOT_WORD "UNUSED", "UNUSED ( -- u ) bytes remaining in dictionary (HERE to dictionary limit)", 0, XUNUSED
 XUNUSED:
     adrp x0, here_ptr@page
     add x0, x0, here_ptr@pageoff
@@ -6096,6 +6441,8 @@ XUNUSED:
 
 // REDEF-WARNING ( -- addr )  VARIABLE-like; non-zero = warn on redefine
 // Defaults to 0 at cold start; set TRUE (-1) when entering the user REPL.
+
+    BOOT_WORD "REDEF-WARNING", "REDEF-WARNING ( -- addr ) variable; nonzero warns on redefine", 0, XREDEF_WARNING
 XREDEF_WARNING:
     str x20, [x22, #-8]!
     adrp x0, redef_warn@page
@@ -6105,6 +6452,8 @@ XREDEF_WARNING:
 
 // FILE-ECHO ( -- addr )  VARIABLE-like; non-zero = echo INCLUDE/FLOAD lines
 // Defaults to 0 (OFF). Use: FILE-ECHO ON   or   FILE-ECHO OFF
+
+    BOOT_WORD "FILE-ECHO", "FILE-ECHO ( -- addr ) variable controlling loaded-source echo (FLOAD, INCLUDE, …; use with ON/OFF)", 0, XFILE_ECHO
 XFILE_ECHO:
     str x20, [x22, #-8]!
     adrp x0, file_echo@page
@@ -6113,6 +6462,8 @@ XFILE_ECHO:
     NEXT
 
 // USER-DICT ( -- addr )  start of growable user dictionary (FORGET fence)
+
+    BOOT_WORD "USER-DICT", "USER-DICT ( -- addr ) base of user dictionary", 0, XUSER_DICT
 XUSER_DICT:
     str x20, [x22, #-8]!
     adrp x0, user_dict_area@page
@@ -6122,6 +6473,8 @@ XUSER_DICT:
 
 // GROWMEMORYMB ( n -- )  TZForth extension: set logical dictionary size to n MiB.
 // Once per session; cannot shrink; 1 ≤ n ≤ 64. Base address never moves (CFA-stable).
+
+    BOOT_WORD "GROWMEMORYMB", "GROWMEMORYMB ( n -- ) grow user dictionary to n MiB (once/session; no shrink; max 64)", 0, XGROWMEMORYMB
 XGROWMEMORYMB:
     mov  x0, x20                   // n (MB)
     ldr  x20, [x22], #8
@@ -6209,6 +6562,8 @@ _gmm_fail:
 //   the result, then push the count with a single store of old TOS.
 //
 //   Algorithm: n = (SP0 - DSP) >> 3;  push old TOS;  TOS = n.
+
+    BOOT_WORD "DEPTH", "DEPTH ( -- +n ) data stack depth in cells", 0, XDEPTH
 XDEPTH:
     adrp x0, data_stack@page
     add  x0, x0, data_stack@pageoff
@@ -6220,6 +6575,8 @@ XDEPTH:
     NEXT
 
 // SP0 ( -- addr )  DSP value when the data stack is empty
+
+    BOOT_WORD "SP0", "SP0 ( -- addr ) empty data-stack DSP", 0, XSP0
 XSP0:
     str x20, [x22, #-8]!
     adrp x0, data_stack@page
@@ -6230,6 +6587,8 @@ XSP0:
 
 // SP@ ( -- addr )  current data-stack pointer (under-TOS cells)
 // Capture DSP before pushing the result (push would lower x22 by one cell).
+
+    BOOT_WORD "SP@", "SP@ ( -- addr ) current DSP under TOS", 0, XSPFETCH
 XSPFETCH:
     mov x0, x22
     str x20, [x22, #-8]!
@@ -6238,12 +6597,16 @@ XSPFETCH:
 
 // SP! ( addr -- )  set data-stack pointer (DSP). TOS becomes 0 (empty cache).
 // Classic empty: SP0 SP!   (same as clearing the data stack)
+
+    BOOT_WORD "SP!", "SP! ( n -- ) set data stack pointer (updates both cell and internal)", 0, XSPSTORE
 XSPSTORE:
     mov x22, x20
     mov x20, #0
     NEXT
 
 // SPACES ( n -- )  emit n spaces (n<=0: no-op)
+
+    BOOT_WORD "SPACES", "SPACES ( n -- ) emit n spaces", 0, XSPACES
 XSPACES:
     mov x1, x20
     ldr x20, [x22], #8
@@ -6262,6 +6625,8 @@ _spaces_done:
     NEXT
 
 // C, ( char -- )  store char at HERE, advance HERE by 1
+
+    BOOT_WORD "C,", "C, ( b -- ) compile a byte", 0, XCCOMMA
 XCCOMMA:
     mov w0, w20
     ldr x20, [x22], #8
@@ -6287,22 +6652,30 @@ XCCOMMA:
     b    _error_abandon
 
 // S>D ( n -- d )  sign-extend single to double; hi cell is TOS
+
+    BOOT_WORD "S>D", "S>D ( n -- d ) sign extend single to double", 0, XSTOD
 XSTOD:
     str x20, [x22, #-8]!           // lo = n under
     asr x20, x20, #63              // hi = 0 or -1
     NEXT
 
 // 2* ( x1 -- x2 )  x2 = x1 shifted left 1 (×2)
+
+    BOOT_WORD "2*", "2* ( x1 -- x2 ) shift left one bit (multiply by two)", 0, XTWOSTAR
 XTWOSTAR:
     lsl x20, x20, #1
     NEXT
 
 // 2/ ( x1 -- x2 )  arithmetic shift right 1
+
+    BOOT_WORD "2/", "2/ ( x1 -- x2 ) arithmetic shift right one bit (divide by two)", 0, XTWOSLASH
 XTWOSLASH:
     asr x20, x20, #1
     NEXT
 
 // 2@ ( a-addr -- x1 x2 )  x1 at a-addr (lo), x2 at a-addr+cell (hi/TOS)
+
+    BOOT_WORD "2@", "2@ ( addr -- n1 n2 ) fetch two cells", 0, XTWOFETCH
 XTWOFETCH:
     mov x0, x20
     ldr x1, [x0]                   // lo
@@ -6311,6 +6684,8 @@ XTWOFETCH:
     NEXT
 
 // 2! ( x1 x2 a-addr -- )  store x1 at a-addr, x2 at a-addr+cell
+
+    BOOT_WORD "2!", "2! ( n1 n2 addr -- ) store two cells", 0, XTWOSTORE
 XTWOSTORE:
     mov x0, x20                    // a-addr
     ldr x2, [x22], #8              // x2 (more significant)
@@ -6326,6 +6701,8 @@ XTWOSTORE:
 // ============================================================================
 
 // UM* ( u1 u2 -- ud )  unsigned multiply → double
+
+    BOOT_WORD "UM*", "UM* ( u1 u2 -- ud ) unsigned double multiply", 0, XUMSTAR
 XUMSTAR:
     mov x1, x20                    // u2
     ldr x0, [x22], #8              // u1
@@ -6335,6 +6712,8 @@ XUMSTAR:
     NEXT
 
 // M* ( n1 n2 -- d )  signed multiply → double
+
+    BOOT_WORD "M*", "M* ( n1 n2 -- d ) signed double multiply (low high)", 0, XMSTAR
 XMSTAR:
     mov x1, x20
     ldr x0, [x22], #8
@@ -6348,6 +6727,8 @@ XMSTAR:
 // ============================================================================
 
 // D+ ( d1 d2 -- d3 )
+
+    BOOT_WORD "D+", "D+ ( d1 d2 -- d3 ) double add", 0, XDPLUS
 XDPLUS:
     // TOS=hi2; under: lo2, hi1, lo1
     ldr x3, [x22], #8              // lo2
@@ -6360,6 +6741,8 @@ XDPLUS:
     NEXT
 
 // D- ( d1 d2 -- d3 )
+
+    BOOT_WORD "D-", "D- ( d1 d2 -- d3 ) double subtract", 0, XDMINUS
 XDMINUS:
     ldr x3, [x22], #8              // lo2
     ldr x2, [x22], #8              // hi1
@@ -6371,6 +6754,8 @@ XDMINUS:
     NEXT
 
 // DNEGATE ( d1 -- d2 )
+
+    BOOT_WORD "DNEGATE", "DNEGATE ( d1 -- d2 ) negate double", 0, XDNEGATE
 XDNEGATE:
     ldr x1, [x22]                  // lo
     mov x0, xzr
@@ -6380,6 +6765,8 @@ XDNEGATE:
     NEXT
 
 // DABS ( d -- ud )
+
+    BOOT_WORD "DABS", "DABS ( d -- ud ) absolute value of double", 0, XDABS
 XDABS:
     tbnz x20, #63, 1f
     NEXT
@@ -6393,6 +6780,8 @@ XDABS:
     NEXT
 
 // D2* ( xd1 -- xd2 )
+
+    BOOT_WORD "D2*", "D2* ( xd1 -- xd2 ) shift double left 1", 0, XD2STAR
 XD2STAR:
     ldr x1, [x22]
     lsl x20, x20, #1
@@ -6402,6 +6791,8 @@ XD2STAR:
     NEXT
 
 // D2/ ( xd1 -- xd2 )  arithmetic shift right
+
+    BOOT_WORD "D2/", "D2/ ( xd1 -- xd2 ) arithmetic shift double right 1", 0, XD2SLASH
 XD2SLASH:
     ldr x1, [x22]
     extr x1, x20, x1, #1           // lo = (hi:lo) >> 1
@@ -6410,6 +6801,8 @@ XD2SLASH:
     NEXT
 
 // D0= ( xd -- flag )
+
+    BOOT_WORD "D0=", "D0= ( xd -- flag ) double equal zero?", 0, XD0EQUAL
 XD0EQUAL:
     ldr x1, [x22], #8
     orr x1, x1, x20
@@ -6418,6 +6811,8 @@ XD0EQUAL:
     NEXT
 
 // D0< ( d -- flag )
+
+    BOOT_WORD "D0<", "D0< ( d -- flag ) double negative?", 0, XD0LESS
 XD0LESS:
     cmp x20, #0
     csetm x20, lt
@@ -6425,6 +6820,8 @@ XD0LESS:
     NEXT
 
 // D= ( xd1 xd2 -- flag )
+
+    BOOT_WORD "D=", "D= ( xd1 xd2 -- flag ) double equal?", 0, XDEQUAL
 XDEQUAL:
     ldr x3, [x22], #8              // lo2
     ldr x2, [x22], #8              // hi1
@@ -6435,6 +6832,8 @@ XDEQUAL:
     NEXT
 
 // D< ( d1 d2 -- flag ) signed
+
+    BOOT_WORD "D<", "D< ( d1 d2 -- flag ) signed double less", 0, XDLESS
 XDLESS:
     ldr x3, [x22], #8              // lo2
     ldr x2, [x22], #8              // hi1
@@ -6451,6 +6850,8 @@ XDLESS:
     NEXT
 
 // DU< ( ud1 ud2 -- flag ) unsigned
+
+    BOOT_WORD "DU<", "DU< ( ud1 ud2 -- flag ) unsigned double less", 0, XDULESS
 XDULESS:
     ldr x3, [x22], #8              // lo2
     ldr x2, [x22], #8              // hi1
@@ -6467,6 +6868,8 @@ XDULESS:
     NEXT
 
 // DMIN ( d1 d2 -- d3 ) — if d1 < d2 keep d1 else d2
+
+    BOOT_WORD "DMIN", "DMIN ( d1 d2 -- d3 ) minimum of two doubles", 0, XDMIN
 XDMIN:
     // stack under TOS: lo2, hi1, lo1
     ldr x3, [x22]                  // lo2
@@ -6489,6 +6892,8 @@ _dmin_d1:
     NEXT
 
 // DMAX ( d1 d2 -- d3 )
+
+    BOOT_WORD "DMAX", "DMAX ( d1 d2 -- d3 ) maximum of two doubles", 0, XDMAX
 XDMAX:
     ldr x3, [x22]
     ldr x2, [x22, #8]
@@ -6508,11 +6913,15 @@ _dmax_d1:
     NEXT
 
 // D>S ( d -- n )  convert double to single (discard high; lo is result)
+
+    BOOT_WORD "D>S", "D>S ( d -- n ) double to single", 0, XDTOS
 XDTOS:
     ldr x20, [x22], #8             // lo → TOS, drop hi
     NEXT
 
 // M+ ( d1 n -- d2 )  d2 = d1 + S>D n
+
+    BOOT_WORD "M+", "M+ ( d1|ud1 n -- d2|ud2 ) add single to double", 0, XMPLUS
 XMPLUS:
     // TOS=n; under: hi, lo
     ldr x2, [x22], #8              // hi
@@ -6526,6 +6935,8 @@ XMPLUS:
 
 // 2ROT ( x1 x2 x3 x4 x5 x6 -- x3 x4 x5 x6 x1 x2 )
 // rotate three cell-pairs left
+
+    BOOT_WORD "2ROT", "2ROT ( x1 x2 x3 x4 x5 x6 -- x3 x4 x5 x6 x1 x2 ) rotate three pairs", 0, XTWOROT
 XTWOROT:
     // TOS=x6; stack: x5,x4,x3,x2,x1
     ldr x5, [x22], #8
@@ -6543,6 +6954,8 @@ XTWOROT:
     NEXT
 
 // COMPARE ( c-addr1 u1 c-addr2 u2 -- n )  n = -1/0/1
+
+    BOOT_WORD "COMPARE", "COMPARE ( c-addr1 u1 c-addr2 u2 -- n ) string compare -1/0/1", 0, XCOMPARE
 XCOMPARE:
     // TOS=u2; under: ca2, u1, ca1
     mov x3, x20                    // u2
@@ -6579,6 +6992,8 @@ XCOMPARE:
 
 // SEARCH ( c-addr1 u1 c-addr2 u2 -- c-addr3 u3 flag )
 // flag true: c-addr3/u3 is remainder of haystack at match; false: original ca1 u1
+
+    BOOT_WORD "SEARCH", "SEARCH ( c-addr1 u1 c-addr2 u2 -- c-addr3 u3 flag ) find substring", 0, XSEARCH
 XSEARCH:
     mov x3, x20                    // u2 needle len
     ldr x2, [x22], #8              // ca2 needle
@@ -6667,6 +7082,8 @@ _udm_ovf:
     ret
 
 // UM/MOD ( ud u1 -- u2 u3 )  urem uquot ; ud = ulo under, uhi TOS before u1
+
+    BOOT_WORD "UM/MOD", "UM/MOD ( ud u -- rem quot ) unsigned divmod", 0, XUMMOD
 XUMMOD:
     mov x2, x20                    // u1 divisor
     ldr x1, [x22], #8              // uhi
@@ -6683,6 +7100,8 @@ XUMMOD:
 
 // SM/REM ( d1 n1 -- n2 n3 )  symmetric (toward 0) rem, quot
 // d1 = dlo under, dhi TOS before n1
+
+    BOOT_WORD "SM/REM", "SM/REM ( d n -- rem quot ) symmetric divmod", 0, XSMREM
 XSMREM:
     mov x5, x20                    // n1 (signed divisor)
     ldr x4, [x22], #8              // dhi
@@ -6732,6 +7151,8 @@ XSMREM:
 
 // FM/MOD ( d1 n1 -- n2 n3 )  floored rem, quot
 // Like SM/REM then if rem!=0 and rem/divisor different signs: q--, r+=divisor
+
+    BOOT_WORD "FM/MOD", "FM/MOD ( d n -- rem quot ) floored divmod", 0, XFMMOD
 XFMMOD:
     mov x5, x20
     ldr x4, [x22], #8
@@ -6786,6 +7207,8 @@ XFMMOD:
 // True if needle appears in haystack (ASCII case-insensitive).
 // Empty needle => true.
 // Stack: x20=ned-u, [DSP]=ned-a, [DSP+8]=hay-u, [DSP+16]=hay-a
+
+    BOOT_WORD "CONTAINS", "CONTAINS ( hay-a hay-u ned-a ned-u -- flag ) case-insensitive substring", 0, XCONTAINS
 XCONTAINS:
     mov x4, x20                    // ned-u
     ldr x3, [x22], #8              // ned-a
@@ -6838,6 +7261,8 @@ _cont_no:
 
 // EVALUATE ( c-addr u -- )  nest SOURCE and interpret the string
 // Saves BLK in the source frame (see _push_source); does not change BLK.
+
+    BOOT_WORD "EVALUATE", "EVALUATE ( i*x c-addr u -- j*x ) interpret the string as Forth source", 0, XEVALUATE
 XEVALUATE:
     mov x1, x20                    // u
     ldr x0, [x22], #8              // c-addr
@@ -6856,6 +7281,8 @@ XEVALUATE:
 // (LOAD-ENTER) ( u -- u )
 // Nested LOAD helper: push SOURCE frame (saves outer BLK), then set BLK = u.
 // Must run before BLOCK so the outer BLK is what _pop_source restores.
+
+    BOOT_WORD "(LOAD-ENTER)", "(LOAD-ENTER) ( u -- u ) push SOURCE + set BLK for LOAD", 0, XLOAD_ENTER
 XLOAD_ENTER:
     stp x20, x30, [sp, #-16]!
     bl  _push_source
@@ -6869,6 +7296,8 @@ XLOAD_ENTER:
 // Install block buffer as SOURCE (SOURCE-ID -1) and interpret it.
 // When SOURCE ends, _pop_source restores outer SOURCE and BLK.
 // Like EVALUATE: does not return into the colon definition that called it.
+
+    BOOT_WORD "(LOAD-RUN)", "(LOAD-RUN) ( c-addr u -- ) interpret buffer as nested SOURCE for LOAD", 0, XLOAD_RUN
 XLOAD_RUN:
     mov  x1, x20                   // u
     ldr  x0, [x22], #8             // c-addr
@@ -6883,6 +7312,8 @@ XLOAD_RUN:
 // CATCH ( i*x xt -- j*x 0 | i*x n )
 // R-stack frame (top first): saved_IP, saved_DSP, saved_TOS, prev_handler
 // handler points at saved_IP.
+
+    BOOT_WORD "CATCH", "CATCH ( xt -- n ) execute xt; push 0 or throw code", 0, XCATCH
 XCATCH:
     mov x5, x20                    // xt
     ldr x20, [x22], #8             // pop xt → prior TOS
@@ -6907,6 +7338,8 @@ XCATCH:
     br x1
 
 // Normal completion of CATCH'd xt
+
+    BOOT_WORD "(CATCH-OK)", "(CATCH-OK) ( -- 0 ) CATCH success path", 0, XCATCH_OK
 XCATCH_OK:
     adrp x7, throw_handler@page
     add x7, x7, throw_handler@pageoff
@@ -6923,6 +7356,8 @@ _cok_push0:
     NEXT
 
 // THROW ( k -- )  0 THROW is a no-op drop; nonzero restores CATCH frame
+
+    BOOT_WORD "THROW", "THROW ( n -- ) raise exception n (0 is no-op)", 0, XTHROW
 XTHROW:
     cbz x20, _throw_zero
     mov x5, x20                    // k
@@ -6975,12 +7410,16 @@ _throw_abort:
 // QUIT ( -- )  ANS outer interpreter entry (CODE — not a colon trampoline).
 // Empty return stack, interpret state, existing prompt/line/interpret loop.
 // Does not empty the data stack (ANS); ABORT clears the data stack first.
+
+    BOOT_WORD "QUIT", "QUIT ( -- ) empty return stack, set interpret state, return to outer interpreter", 0, XQUIT
 XQUIT:
     b _do_quit
 
 // PARSE-NAME ( -- c-addr u )  ANS Core Ext
 // Skip leading spaces/tabs; parse to next space/tab/newline/end.
 // Result points into SOURCE (transient across next parse).
+
+    BOOT_WORD "PARSE-NAME", "PARSE-NAME ( -- c-addr u ) parse name from input (skip leading blanks, BL-delimited)", 0, XPARSE_NAME
 XPARSE_NAME:
     bl _cursor_load
     mov x2, x0
@@ -7063,6 +7502,8 @@ _pn_empty:
 // PARSE ( char "ccc<char>" -- c-addr u )
 // From >IN to delimiter or end of SOURCE; consumes delimiter if found.
 // Does not skip leading delimiters (ANS PARSE).
+
+    BOOT_WORD "PARSE", "PARSE ( xchar -- c-addr u ) parse text delimited by xchar in SOURCE (UTF-8; updates >IN)", 0, XPARSE
 XPARSE:
     mov w7, w20                     // delimiter
     bl _cursor_load
@@ -7099,6 +7540,8 @@ _parse_push:
 // Skip leading delimiters, parse until delimiter, store counted string
 // in word_scratch (transient). Space delimiter also skips TAB/CR/LF
 // (Unix LF, classic Mac CR, Windows CRLF).
+
+    BOOT_WORD "WORD", "WORD ( char -- addr ) parse input up to delimiter char, return addr of counted string (trailing NUL)", 0, XWORD
 XWORD:
     mov w7, w20                     // delimiter
     bl _cursor_load
@@ -7210,6 +7653,8 @@ _word_empty:
 // (classic screen width), not a newline (blocks are space-filled, no \n).
 // Line end: LF, CR, or CR of CRLF (then skip the LF too).
 // Note: _source_end clobbers x0/x1 — keep cursor in x10.
+
+    BOOT_WORD "\\", "\\ ( -- ) comment to end of line (immediate)", 1, XBACKSLASH
 XBACKSLASH:
     adrp x0, blk_var@page
     add  x0, x0, blk_var@pageoff
@@ -7272,6 +7717,8 @@ _bs_block:
 //   When SOURCE-ID == 0 (console), also set repl_batch_stop so the host can
 //   drop remaining lines of a multi-line paste (see ConsoleView).
 //   Case-insensitive FIND: `\s` (Hayes) matches this name.
+
+    BOOT_WORD "\\S", "\\S ( -- ) stop rest of FLOAD/INCLUDE file or multi-line console paste (immediate; also \\s)", 1, XBACKSLASH_S
 XBACKSLASH_S:
     // Pin >IN and word_cursor at end of current SOURCE (ignore rest of line/file)
     adrp x0, source_len@page
@@ -7300,6 +7747,8 @@ XBACKSLASH_S:
     NEXT
 
 // ( ( -- ) IMMEDIATE  paren comment; discard until ')'
+
+    BOOT_WORD "(", "( -- ) comment until ) (immediate)", 1, XPAREN
 XPAREN:
     bl _cursor_load
     mov x10, x0                     // cursor
@@ -7322,6 +7771,8 @@ _par_done:
     NEXT
 
 // SOURCE ( -- c-addr u )  ANS
+
+    BOOT_WORD "SOURCE", "SOURCE ( -- c-addr u ) current input source buffer and length", 0, XSOURCE
 XSOURCE:
     str x20, [x22, #-8]!
     adrp x0, source_addr@page
@@ -7335,6 +7786,8 @@ XSOURCE:
 
 // SOURCE-ID ( -- 0 | -1 | fileid )  ANS
 // 0 = user input device, -1 = EVALUATE string, >0 = file-ish INCLUDE buffer
+
+    BOOT_WORD "SOURCE-ID", "SOURCE-ID ( -- id ) input source id (-1 terminal, 0 evaluate, 1 file)", 0, XSOURCE_ID
 XSOURCE_ID:
     str x20, [x22, #-8]!
     adrp x0, source_id_var@page
@@ -7346,6 +7799,8 @@ XSOURCE_ID:
 // Terminal (SOURCE-ID 0): read a line into input_buffer, true (false on EOF).
 // Block source (BLK nonzero): advance to next block, true (Hayes blocktest).
 // EVALUATE string / INCLUDE file without BLK: false.
+
+    BOOT_WORD "REFILL", "REFILL ( -- flag ) attempt to refill the input buffer; flag true if successful", 0, XREFILL
 XREFILL:
     adrp x0, blk_var@page
     add  x0, x0, blk_var@pageoff
@@ -7405,6 +7860,8 @@ _refill_false:
 // ACCEPT ( c-addr +n1 -- +n2 )  ANS
 // Receive a string of at most +n1 characters into c-addr; return count.
 // Uses the line editor when stdin is a TTY.
+
+    BOOT_WORD "ACCEPT", "ACCEPT ( c-addr +n1 -- +n2 ) read up to n1 chars from input into buffer", 0, XACCEPT
 XACCEPT:
     // ( c-addr +n1 )  TOS=+n1
     mov x1, x20                    // +n1
@@ -7447,6 +7904,8 @@ XACCEPT:
 // >NUMBER ( ud1 c-addr1 u1 -- ud2 c-addr2 u2 )  ANS
 // Convert digits from string in BASE into double ud1; leave rest of string.
 // ud is lo under, hi TOS (same as S>D). Character set: 0-9A-Z (case-insensitive).
+
+    BOOT_WORD ">NUMBER", ">NUMBER ( ud1 c-addr1 u1 -- ud2 c-addr2 u2 ) convert string digits to number accumulating in ud", 0, XTONUMBER
 XTONUMBER:
     // stack: ( udlo udhi c-addr u )  TOS=u
     mov x4, x20                    // u
@@ -7513,6 +7972,8 @@ _tn_done:
 // Honesty: answers mean "names/features present in this build", not a formal
 // ANS System certificate. CORE/CORE-EXT/FLOORED use kind 1 (value+true).
 .equ ENV_COUNT, 31
+
+    BOOT_WORD "ENVIRONMENT?", "ENVIRONMENT? ( c-addr u -- false | i*x true ) query environment string", 0, XENVIRONMENT_Q
 XENVIRONMENT_Q:
     mov x1, x20                    // u
     ldr x0, [x22], #8              // c-addr
@@ -7591,6 +8052,8 @@ _env_no:
     NEXT
 
 // >IN ( -- a-addr )  ANS variable
+
+    BOOT_WORD ">IN", ">IN ( -- addr ) current input pointer variable ( >IN @ for offset)", 0, XTOIN
 XTOIN:
     str x20, [x22, #-8]!
     adrp x0, to_in_var@page
@@ -7600,6 +8063,8 @@ XTOIN:
 
 // (S") ( -- c-addr u )  runtime for compiled S" / ."
 // In-line layout at IP:  cell len, then len bytes, then pad to 8.
+
+    BOOT_WORD "(S\")", "(S\") ( -- c-addr u ) runtime for S\" / .\"", 0, XSLIT
 XSLIT:
     ldr x0, [x19], #8               // length
     str x20, [x22, #-8]!
@@ -7616,6 +8081,8 @@ XSLIT:
 // String starts at current >IN.  The text interpreter's WORD already consumed
 // the single blank after the word name S"; any further spaces are content
 // (e.g. S"  hi" → one leading space in the string).  Do not skip blanks here.
+
+    BOOT_WORD "S\"", "S\" ( -- c-addr u ) compile/interpret \"-delimited string (leaves addr u)", 1, XSQUOTE
 XSQUOTE:
     // --- parse to " (no leading-blank skip) ---
     adrp x0, source_addr@page
@@ -7700,6 +8167,8 @@ _sq_al:
 
 // (C") ( -- c-addr )  runtime: counted string inline at IP
 // Layout: len byte, chars, pad to 8-byte boundary.
+
+    BOOT_WORD "(C\")", "(C\") ( -- c-addr ) runtime for C\"", 0, XCSTR
 XCSTR:
     str x20, [x22, #-8]!
     mov x20, x19                   // c-addr of counted string
@@ -7713,6 +8182,8 @@ XCSTR:
 // C" ( -- c-addr ) IMMEDIATE  ANS counted string
 // Interpret: counted copy in PAD. Compile: (C") + counted bytes + align.
 // Same as S": do not skip leading blanks (WORD already took the name blank).
+
+    BOOT_WORD "C\"", "C\" ( -- c-addr ) compile \"-delimited counted string (run-time: addr of length byte)", 1, XCQUOTE
 XCQUOTE:
     // Parse to " (same style as S")
     adrp x0, source_addr@page
@@ -7810,6 +8281,8 @@ _cq_comp:
 // Escapes: \a \b \e \f \l \m \n \q \r \t \v \z \" \\ \xHH
 // Interpret: expand into slit_esc_buf. Compile: (S") + expanded bytes.
 // No leading-blank skip (same rule as S" / .").
+
+    BOOT_WORD "S\\\"", "S\\\" ( -- ) compile escaped \"-delimited string (leaves c-addr u at run-time)", 1, XSESCAPE
 XSESCAPE:
     adrp x0, source_addr@page
     add x0, x0, source_addr@pageoff
@@ -8013,6 +8486,8 @@ _se_comp:
 // SAVE-INPUT ( -- xn ... x1 n )
 // Saves SOURCE addr, len, >IN, SOURCE-ID, BLK; n=5.
 // BLK is required so RESTORE can re-fetch a block after REFILL overwrote the buffer.
+
+    BOOT_WORD "SAVE-INPUT", "SAVE-INPUT ( -- x1 ... xn n ) save current input source state for RESTORE-INPUT", 0, XSAVE_INPUT
 XSAVE_INPUT:
     str x20, [x22, #-8]!
     adrp x0, source_addr@page
@@ -8041,6 +8516,8 @@ XSAVE_INPUT:
 // RESTORE-INPUT ( xn ... x1 n -- flag )
 // flag true (-1) = cannot restore; false (0) = ok.
 // Accepts n=5 (addr len >in id blk) or legacy n=4 (addr len >in id).
+
+    BOOT_WORD "RESTORE-INPUT", "RESTORE-INPUT ( x1 ... xn n -- flag ) restore input source; flag true if failed", 0, XRESTORE_INPUT
 XRESTORE_INPUT:
     cmp x20, #5
     b.eq _ri_n5
@@ -8121,6 +8598,8 @@ _ri_fail:
 
 // ." ( -- ) IMMEDIATE
 // Same parse rule as S": WORD ate the blank after ."; further spaces are text.
+
+    BOOT_WORD ".\"", ".\" ( -- ) print text until \" (immediate)", 1, XDOTQ
 XDOTQ:
     // Reuse S" logic by calling the same parse, then TYPE or compile TYPE
     // Implement by branching into shared structure via stack trick:
@@ -11625,9 +12104,6 @@ local_frame_n:      .skip LOCAL_FRAME_MAX * 8
 local_frames:       .skip LOCAL_FRAME_MAX * LOCAL_MAX * 8
 str_store_name:     .asciz "!"
 
-// Boot catalog (structured records + name strings)
-.include "boot_words.inc"
-
 // ============================================================================
 // User dictionary space (grows upward)
 // Physical reserve: USER_DICT_MAX (64 MiB BSS, demand-zero — not all resident).
@@ -11641,3 +12117,6 @@ grow_memory_used:
     .quad 0                        // GROWMEMORYMB once per process
 user_dict_area:
     .skip USER_DICT_MAX
+
+// Boot table sentinel + boot helper strings
+.include "boot_words_end.inc"

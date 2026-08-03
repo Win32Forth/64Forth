@@ -18,3 +18,7 @@ build_hyper_index.py
 
   SPECS paths in HYPER.CFG are relative to --src-root (default: ./64Forth).
   BOOT_WORD entries are mapped to Kernel/forth.s code labels when present.
+
+  In-app alternative (Phase 3a): HYPER-REINDEX writes Config/HYPER.NDX
+  (source tree under Xcode, or App Support overlay when the bundle is RO).
+  Use the Python builder for full SPECS globs / CI if desired.

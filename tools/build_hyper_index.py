@@ -434,13 +434,14 @@ def scan_file(
     forth = _is_forth_source(path)
 
     for lineno, raw in enumerate(lines, 1):
-        # --- BOOT_WORD catalog / co-located rows (real code lines only) ---
+        # --- BOOT_WORD (co-located next to CODE in forth.s; may still resolve to label) ---
         if "BOOT_WORD" in raw and not _is_asm_noise_line(raw):
             if re.match(r"^\s*BOOT_WORD\b", raw):
                 parsed = parse_boot_word_line(raw)
                 if parsed:
                     name, code = parsed
                     if is_plausible_name(name):
+                        # Prefer the CodeLabel line (usually the next line after BOOT_WORD)
                         if code in labels:
                             p, ln = labels[code]
                             entries.append(Entry(name, p, ln))
