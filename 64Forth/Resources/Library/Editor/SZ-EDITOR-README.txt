@@ -52,6 +52,8 @@ Main words
 ----------
   SZ-LOAD  SZ-SAVE  SZ-SAVE-AS  SZ-.INFO
   SZ-EDIT  SZ-EDIT-FILE  SZ-EDIT-NEW  SZEDIT
+  SZ-GOTO-LINE ( n -- )          1-based line, start of line
+  SZ-EDIT-FILE-AT ( c-addr u n -- )  load file, go to line n, edit
   SZ-REDRAW  SZ-VIEW-RESET
 
 Limits

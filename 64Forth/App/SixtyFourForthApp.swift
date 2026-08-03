@@ -93,6 +93,9 @@ struct SixtyFourForthApp: App {
                 Button("Show Docs Folder") {
                     FileHost.shared.revealInFinder(FileHost.shared.docsURL)
                 }
+                Button("Show Config Folder") {
+                    FileHost.shared.revealInFinder(FileHost.shared.configURL)
+                }
             }
         }
     }

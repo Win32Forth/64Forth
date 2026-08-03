@@ -317,9 +317,9 @@ VARIABLE SZ-PAGE-N
    DROP
 ;
 
-: SZ-EDIT-LOOP  ( -- )
+\ Core interactive loop; does not reset cursor (caller sets SZ-CUR / view).
+: (SZ-EDIT-LOOP)  ( -- )
    0 SZ-DONE !
-   SZ-VIEW-RESET
    SZ-EDITOR-ENTER
    BEGIN
       SZ-DONE @ 0=
@@ -330,11 +330,48 @@ VARIABLE SZ-PAGE-N
    SZ-EDITOR-LEAVE
    FACILITY-OFF
    CLS
-   \ Drop any stray data-stack junk left by key handlers before console I/O
    BEGIN DEPTH WHILE DROP REPEAT
    ." SZ-EDITOR: done" CR
    SZ-MODIFIED @ IF  ." warning: buffer still modified" CR  THEN
    SZ-.INFO
+;
+
+: SZ-EDIT-LOOP  ( -- )
+   SZ-VIEW-RESET
+   (SZ-EDIT-LOOP)
+;
+
+\ Lines of context above the target when opening at a line (VIEW / goto).
+5 CONSTANT SZ-VIEW-CONTEXT
+
+\ Set SZ-TOP so the cursor line sits ~SZ-VIEW-CONTEXT rows below the top
+\ of the text window (not jammed against the bottom).
+: SZ-REVEAL-NEAR-TOP  ( -- )
+   SZ-CUR @ SZ-LINE-START
+   SZ-VIEW-CONTEXT
+   BEGIN  DUP WHILE
+      OVER SZ-TBUF = IF
+         DROP 0
+      ELSE
+         SWAP SZ-PREV-LINE SWAP 1-
+      THEN
+   REPEAT
+   DROP
+   SZ-TOP !
+   0 SZ-HCOL !
+   0 SZ-PREF-COL !
+;
+
+\ Move cursor to 1-based line n (clamped). Start of that line; scroll so
+\ the line is near the top of the view (SZ-VIEW-CONTEXT rows down).
+: SZ-GOTO-LINE  ( n -- )
+   DUP 1 < IF  DROP 1  THEN
+   SZ-TBUF SWAP                    \ addr n
+   1 DO                            \ n-1 times NEXT-LINE (n=1 → no move)
+      SZ-NEXT-LINE
+   LOOP
+   SZ-CUR !
+   SZ-REVEAL-NEAR-TOP
 ;
 
 : SZ-EDIT-FILE  ( c-addr u -- )
@@ -345,6 +382,19 @@ VARIABLE SZ-PAGE-N
    THEN
    2DROP
    SZ-EDIT-LOOP
+;
+
+\ Load path and open editor on 1-based line (for VIEW / hypertext).
+: SZ-EDIT-FILE-AT  ( c-addr u line -- )
+   >R
+   2DUP SZ-LOAD IF
+      R> DROP
+      ." SZ-EDIT-FILE-AT: load failed: " TYPE CR
+      EXIT
+   THEN
+   2DROP
+   R> SZ-GOTO-LINE
+   (SZ-EDIT-LOOP)
 ;
 
 \ Empty untitled buffer and enter the editor (File → New / ⌘N).

@@ -173,6 +173,129 @@ final class FileHost {
         return nil
     }
 
+    /// Hypertext / prefs: `Resources/Config` (HYPER.NDX, HYPER.CFG, …).
+    var configURL: URL? {
+        if let root = resourcesURL {
+            let dir = root.appendingPathComponent("Config", isDirectory: true)
+            if FileManager.default.fileExists(atPath: dir.path) { return dir }
+        }
+        if let u = Bundle.main.url(forResource: "Config", withExtension: nil) {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: u.path, isDirectory: &isDir), isDir.boolValue {
+                return u
+            }
+        }
+        return nil
+    }
+
+    /// `Resources/Config/HYPER.NDX` if present (Phase 0 fixture / Phase 1 full index).
+    var hyperNdxURL: URL? {
+        if let u = Bundle.main.url(forResource: "HYPER", withExtension: "NDX", subdirectory: "Config") {
+            if FileManager.default.fileExists(atPath: u.path) { return u }
+        }
+        if let dir = configURL {
+            let u = dir.appendingPathComponent("HYPER.NDX")
+            if FileManager.default.fileExists(atPath: u.path) { return u }
+        }
+        return nil
+    }
+
+    /// Developer tree root (`…/64Forth` with `Kernel/` + `Resources/`). Used by VIEW
+    /// to open `Kernel/…` sources that are not shipped inside the app bundle.
+    private var sourceTreeURLCache: URL?
+    private var sourceTreeURLResolved = false
+
+    var sourceTreeURL: URL? {
+        if sourceTreeURLResolved { return sourceTreeURLCache }
+        sourceTreeURLResolved = true
+        let envKeys = ["HYPER_ROOT", "SIXTYFOURFORTH_SRC", "SIXTYFOURFORTH_ROOT"]
+        for key in envKeys {
+            if let s = ProcessInfo.processInfo.environment[key], !s.isEmpty {
+                let u = URL(fileURLWithPath: s, isDirectory: true).standardizedFileURL
+                if Self.looksLikeSourceTree(u) {
+                    sourceTreeURLCache = u
+                    return u
+                }
+                // Allow env pointing at repo root that contains 64Forth/
+                let nested = u.appendingPathComponent("64Forth", isDirectory: true)
+                if Self.looksLikeSourceTree(nested) {
+                    sourceTreeURLCache = nested
+                    return nested
+                }
+            }
+        }
+        // Compile-time location of this file: …/64Forth/Host/FileHost.swift → …/64Forth
+        let thisFile = URL(fileURLWithPath: #filePath)
+        let hostDir = thisFile.deletingLastPathComponent()
+        let sixtyFour = hostDir.deletingLastPathComponent()
+        if Self.looksLikeSourceTree(sixtyFour) {
+            sourceTreeURLCache = sixtyFour
+            return sixtyFour
+        }
+        sourceTreeURLCache = nil
+        return nil
+    }
+
+    private static func looksLikeSourceTree(_ u: URL) -> Bool {
+        let fm = FileManager.default
+        let kernel = u.appendingPathComponent("Kernel/forth.s")
+        let resLib = u.appendingPathComponent("Resources/Library", isDirectory: true)
+        return fm.fileExists(atPath: kernel.path) && fm.fileExists(atPath: resLib.path)
+    }
+
+    /// Resolve a HYPER.NDX-style relative path (`Kernel/…`, `Library/…`, `Config/…`).
+    /// Returns nil if the path is not a hyper-style prefix (caller uses normal resolve).
+    func resolveHyperStylePath(_ name: String) -> URL? {
+        var n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\", with: "/")
+        while n.hasPrefix("./") { n = String(n.dropFirst(2)) }
+        guard !n.isEmpty else { return nil }
+
+        let fm = FileManager.default
+
+        if n == "Config" || n.hasPrefix("Config/") {
+            let rest = n == "Config" ? "" : String(n.dropFirst("Config/".count))
+            if let cfg = configURL {
+                let u = rest.isEmpty ? cfg : cfg.appendingPathComponent(rest)
+                return u.standardizedFileURL
+            }
+            if let tree = sourceTreeURL {
+                let base = tree.appendingPathComponent("Resources/Config", isDirectory: true)
+                let u = rest.isEmpty ? base : base.appendingPathComponent(rest)
+                if fm.fileExists(atPath: u.path) { return u.standardizedFileURL }
+            }
+            return nil
+        }
+
+        if n.hasPrefix("Kernel/") {
+            if let tree = sourceTreeURL {
+                let u = tree.appendingPathComponent(n).standardizedFileURL
+                return u
+            }
+            return nil
+        }
+
+        if n.hasPrefix("Library/") {
+            let rest = String(n.dropFirst("Library/".count))
+            // Prefer bundle Library (same files the app ships)
+            if let lib = libraryURL {
+                let u = lib.appendingPathComponent(rest).standardizedFileURL
+                if fm.fileExists(atPath: u.path) { return u }
+            }
+            // Fall back to developer tree Resources/Library
+            if let tree = sourceTreeURL {
+                let u = tree
+                    .appendingPathComponent("Resources/Library", isDirectory: true)
+                    .appendingPathComponent(rest)
+                    .standardizedFileURL
+                return u
+            }
+            return libraryURL?.appendingPathComponent(rest).standardizedFileURL
+        }
+
+        return nil
+    }
+
     func resourceRootsDescription() -> String {
         var lines: [String] = []
         lines.append("Resources: \(resourcesURL?.path ?? "(not bundled — run the .app from Xcode)")")
@@ -184,6 +307,17 @@ final class FileHost {
             lines.append("autoload:  (none — pure REPL)")
         }
         lines.append("Docs:      \(docsURL?.path ?? "—")")
+        lines.append("Config:    \(configURL?.path ?? "—")")
+        if let ndx = hyperNdxURL {
+            lines.append("HYPER.NDX: \(ndx.lastPathComponent)")
+        } else {
+            lines.append("HYPER.NDX: (none)")
+        }
+        if let src = sourceTreeURL {
+            lines.append("SrcTree:   \(src.path)")
+        } else {
+            lines.append("SrcTree:   — (set HYPER_ROOT for Kernel VIEW)")
+        }
         lines.append("cwd:       \(logicalCurrentDirectory)")
         return lines.joined(separator: "\n") + "\n"
     }
@@ -214,11 +348,12 @@ final class FileHost {
         return trimmed + ".fth"
     }
 
-    /// Resolve a load name for FLOAD/INCLUDE/REQUIRE.
+    /// Resolve a load name for FLOAD/INCLUDE/REQUIRE/EDIT/OPEN-FILE.
+    /// - Absolute / ~ → as-is
+    /// - `Kernel/` `Library/` `Config/` → hyper-style roots (VIEW / NDX)
     /// - Relative + FROMLIB armed → under Resources/Library (flag cleared; path base only —
     ///   nested relatives use the loaded file's directory via loadCwdStack in pinFileContents)
     /// - Relative → logicalCurrentDirectory
-    /// - Absolute / ~ → as-is
     func resolveLoadPath(_ name: String, switchCwdForFromLib: Bool = true) -> URL? {
         var n = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if n.isEmpty { return nil }
@@ -229,6 +364,11 @@ final class FileHost {
 
         if n.hasPrefix("/") {
             return URL(fileURLWithPath: n)
+        }
+
+        // HYPER.NDX paths (and Config/HYPER.NDX open) before .fth normalization.
+        if let hyper = resolveHyperStylePath(n) {
+            return hyper
         }
 
         n = normalizeSourceSpec(n)

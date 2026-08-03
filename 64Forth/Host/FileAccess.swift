@@ -57,6 +57,7 @@ final class FileAccess {
     /// Resolve a Forth path string relative to FileHost logical cwd.
     /// Honors **FROMLIB** when armed (same as FLOAD/INCLUDE): relative paths under
     /// `Resources/Library`, then clear the flag so one-shot arming matches TZForth.
+    /// Also honors HYPER.NDX-style `Kernel/` `Library/` `Config/` prefixes (VIEW).
     func resolvePath(_ name: String) -> URL {
         var n = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if n.hasPrefix("~") {
@@ -64,6 +65,9 @@ final class FileAccess {
         }
         if n.hasPrefix("/") {
             return URL(fileURLWithPath: n).standardizedFileURL
+        }
+        if let hyper = FileHost.shared.resolveHyperStylePath(n) {
+            return hyper
         }
         // FROMLIB SZEDIT Editor/foo.txt  →  OPEN-FILE under bundle Library
         if FileHost.shared.fromLibraryArmed, let lib = FileHost.shared.libraryURL {
