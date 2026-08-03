@@ -208,8 +208,8 @@ final class FileHost {
         return nil
     }
 
-    /// Developer tree root (`…/64Forth` with `Kernel/` + `Resources/`). Used by VIEW
-    /// to open `Kernel/…` sources that are not shipped inside the app bundle.
+    /// Developer tree root (`…/64Forth` with `Kernel/` + `Resources/`). Optional:
+    /// release builds ship assembly under `Library/Sources/` for VIEW without a tree.
     private var sourceTreeURLCache: URL?
     private var sourceTreeURLResolved = false
 
@@ -251,6 +251,11 @@ final class FileHost {
         return fm.fileExists(atPath: kernel.path) && fm.fileExists(atPath: resLib.path)
     }
 
+    /// Shipped kernel sources in the app bundle (`Library/Sources/forth.s`, …).
+    var librarySourcesURL: URL? {
+        libraryURL?.appendingPathComponent("Sources", isDirectory: true)
+    }
+
     /// Resolve a HYPER.NDX-style relative path (`Kernel/…`, `Library/…`, `Config/…`).
     /// Returns nil if the path is not a hyper-style prefix (caller uses normal resolve).
     func resolveHyperStylePath(_ name: String) -> URL? {
@@ -288,10 +293,18 @@ final class FileHost {
             return overlayBase.standardizedFileURL
         }
 
+        // Kernel/… in older NDX → Library/Sources/… in the bundle (release VIEW).
+        // Prefer shipped Sources; fall back to developer tree Kernel/.
         if n.hasPrefix("Kernel/") {
+            let leaf = String(n.dropFirst("Kernel/".count))
+            if let src = librarySourcesURL {
+                let u = src.appendingPathComponent(leaf).standardizedFileURL
+                if fm.fileExists(atPath: u.path) { return u }
+            }
             if let tree = sourceTreeURL {
                 let u = tree.appendingPathComponent(n).standardizedFileURL
-                return u
+                if fm.fileExists(atPath: u.path) { return u }
+                return u // allow create-style probes / clearer errors
             }
             return nil
         }
@@ -346,9 +359,11 @@ final class FileHost {
         }
         if specs.isEmpty {
             specs = [
-                "Kernel/forth.s",
-                "Kernel/boot_words.inc",
-                "Kernel/colon_words.inc",
+                "Resources/Library/Sources/forth.s",
+                "Resources/Library/Sources/boot_words.inc",
+                "Resources/Library/Sources/boot_words_end.inc",
+                "Resources/Library/Sources/colon_words.inc",
+                "Resources/Library/Sources/kernel_api.h",
                 "Resources/Library/**/*.fth",
                 "Resources/Library/**/*.FTH",
             ]
@@ -410,8 +425,18 @@ final class FileHost {
             for root in roots {
                 let u = root.appendingPathComponent(s).standardizedFileURL
                 if fm.fileExists(atPath: u.path) { return [u] }
+                // Bundle resourcesURL is already …/Contents/Resources
+                if s.hasPrefix("Resources/Library/"), let lib = libraryURL {
+                    let rest = String(s.dropFirst("Resources/Library/".count))
+                    let u2 = lib.appendingPathComponent(rest).standardizedFileURL
+                    if fm.fileExists(atPath: u2.path) { return [u2] }
+                }
+                if s.hasPrefix("Library/"), let lib = libraryURL {
+                    let rest = String(s.dropFirst("Library/".count))
+                    let u2 = lib.appendingPathComponent(rest).standardizedFileURL
+                    if fm.fileExists(atPath: u2.path) { return [u2] }
+                }
             }
-            // Kernel/… without tree: fail soft
             return []
         }
 
@@ -505,7 +530,12 @@ final class FileHost {
         if let src = sourceTreeURL {
             lines.append("SrcTree:   \(src.path)")
         } else {
-            lines.append("SrcTree:   — (set HYPER_ROOT for Kernel VIEW)")
+            lines.append("SrcTree:   — (optional; Kernel VIEW uses Library/Sources)")
+        }
+        if let ks = librarySourcesURL, FileManager.default.fileExists(atPath: ks.appendingPathComponent("forth.s").path) {
+            lines.append("Sources:   \(ks.path)")
+        } else {
+            lines.append("Sources:   — (Library/Sources not in bundle)")
         }
         lines.append("cwd:       \(logicalCurrentDirectory)")
         return lines.joined(separator: "\n") + "\n"

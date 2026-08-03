@@ -6,8 +6,8 @@
 \   - TYPE 0 prefixes from Config/HYPER.CFG (fallback defaults)
 \   - SPECS expanded by host via virtual Config/HYPER.SPECS
 \   - *EXCLUDE applied by host when building the SPECS list
-\   - BOOT_WORD → CodeLabel in Kernel/forth.s
-\   - Kernel .s/.inc TYPE 0 only on .ascii / .asciz lines
+\   - BOOT_WORD → CodeLabel in Library/Sources/forth.s
+\   - Sources .s/.inc TYPE 0 only on .ascii / .asciz lines
 \
 \ Use:  HYPER-REINDEX   (FORTH wrapper; HX-DO-REINDEX + helpers in HYPER-VOC)
 \
@@ -97,14 +97,14 @@ CREATE HX-LTAB  HX-LMAX HX-ESIZE * ALLOT
    HX-PATH COUNT HX-OUT-S
    HX-OUT-FLUSH ;
 
-\ name u line → @ Kernel/forth.s + entry, then restore current @ path
+\ name u line → @ Library/Sources/forth.s + entry, then restore current @ path
 : HX-EMIT-CODE  ( c-addr u line -- )
    >R
    DUP 0= IF  R> DROP 2DROP EXIT  THEN
    DUP 63 > IF  R> DROP 2DROP EXIT  THEN
    HX-OUT-CLEAR
    [CHAR] @ HX-OUT-CH  BL HX-OUT-CH
-   S" Kernel/forth.s" HX-OUT-S
+   S" Library/Sources/forth.s" HX-OUT-S
    HX-OUT-FLUSH
    HX-OUT-CLEAR
    HX-OUT-S
@@ -395,7 +395,7 @@ CREATE HX-LTAB  HX-LMAX HX-ESIZE * ALLOT
 
 : HX-COLLECT-LABELS  ( -- )
    0 TO HX-LN
-   S" Kernel/forth.s" HX-COLLECT-LABELS-FILE
+   S" Library/Sources/forth.s" HX-COLLECT-LABELS-FILE
    MIN-HYPER-NOISE @ 0=
    IF   ." HX: " HX-LN . ." asm labels" CR
    THEN ;
@@ -526,9 +526,9 @@ CREATE HX-LTAB  HX-LMAX HX-ESIZE * ALLOT
 \ -----------------------------------------------------------------------------
 
 : HX-SCAN-FALLBACK  ( -- )
-   S" Kernel/forth.s"            HX-SCAN-FILE
-   S" Kernel/colon_words.inc"    HX-SCAN-FILE
-   S" Kernel/boot_words.inc"     HX-SCAN-FILE
+   S" Library/Sources/forth.s"       HX-SCAN-FILE
+   S" Library/Sources/colon_words.inc" HX-SCAN-FILE
+   S" Library/Sources/boot_words.inc"  HX-SCAN-FILE
    S" Library/Hyper/hyper.fth"   HX-SCAN-FILE
    S" Library/Hyper/hyper-index.fth" HX-SCAN-FILE
    S" Library/Editor/sz-edit.fth" HX-SCAN-FILE

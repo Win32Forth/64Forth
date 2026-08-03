@@ -61,7 +61,7 @@ In-app reindex (Phase 3a / 4)
   HYPER-REINDEX   (FORTH; implementation helpers in HYPER-VOC)
     → TYPE 0 from Config/HYPER.CFG
     → SPECS/*EXCLUDE via host (OPEN Config/HYPER.SPECS = expanded list)
-    → BOOT_WORD → CodeLabel in Kernel/forth.s
+    → BOOT_WORD → CodeLabel in Library/Sources/forth.s
     → CREATE-FILE Config/HYPER.NDX, then HYPER-RELOAD
   Quiet:  HYPER-VOC MIN-HYPER-NOISE ON FORTH  then  HYPER-REINDEX
 
@@ -92,12 +92,13 @@ Offline rebuild (full index, CI / ship Config/)
 
 Path resolution (host)
 ----------------------
-  Config/…   → Resources/Config
-  Library/…  → Resources/Library
-  Kernel/…   → developer source tree (HYPER_ROOT or Xcode #filePath)
+  Config/…              → Resources/Config
+  Library/…             → Resources/Library (bundle)
+  Library/Sources/…     → shipped kernel sources (release VIEW of assembly)
+  Kernel/…              → Library/Sources/… if present, else developer tree
 
-  LOCATE works without the tree; VIEW of Kernel/… needs SrcTree so OPEN-FILE
-  can read the sources.
+  Kernel sources are copied into Library/Sources on each Xcode build so a
+  DMG can VIEW forth.s without HYPER_ROOT / a checkout.
 
 Files
 -----

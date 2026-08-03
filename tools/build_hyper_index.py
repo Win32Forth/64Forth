@@ -13,8 +13,9 @@ Default --src-root is <repo>/64Forth (the app sources tree).
 SPECS paths in the CFG are relative to --src-root.
 
 NDX path rewriting (for VIEW / FROMLIB-style roots):
-  Resources/Library/foo.fth  →  Library/foo.fth
-  Kernel/foo.s               →  Kernel/foo.s  (unchanged)
+  Resources/Library/foo.fth           →  Library/foo.fth
+  Resources/Library/Sources/forth.s   →  Library/Sources/forth.s  (shipped kernel)
+  Kernel/foo.s                        →  Kernel/foo.s  (legacy; prefer Sources/)
 """
 
 from __future__ import annotations

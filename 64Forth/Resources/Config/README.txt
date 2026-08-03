@@ -54,9 +54,9 @@ Resolution roots (runtime — Phase 2 VIEW)
 -----------------------------------------
   1. Load index from:  Contents/Resources/Config/HYPER.NDX
   2. Open source path by resolving against:
-       - Developer checkout (64Forth/…) when running from Xcode, and/or
-       - Bundle Resources for Library/* shipped with the app, and/or
-       - A user-configured source root (future HYPER-ROOT)
+       - Bundle Resources/Library/* (includes Library/Sources/ kernel files)
+       - Developer checkout (64Forth/…) when present / HYPER_ROOT
+       - Application Support overlay for writable Config/
 
 HYPER.CFG (summary)
 -------------------

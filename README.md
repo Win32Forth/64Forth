@@ -88,7 +88,7 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 
 | Area | Done |
 |------|------|
-| **Hyper Phases 0–5** | Index CFG/NDX, offline + in-app reindex, LOCATE/VIEW, multi-hit ⌘PgUp/Dn, ⌘E VIEW, SEE→VIEW, `HYPER-VOC` |
+| **Hyper Phases 0–5** | Index CFG/NDX, offline + in-app reindex, LOCATE/VIEW, multi-hit ⌘PgUp/Dn, ⌘E VIEW, SEE→VIEW, `HYPER-VOC`; kernel sources shipped as `Library/Sources/` for release VIEW |
 | **SZ-EDITOR** | Full-screen Facility edit; save/close; find ⌘←/→ ⌘G; cut/copy/paste; mouse + wheel; Tab indent; `EDIT` opens SZ-EDITOR, `TextEdit` keeps system editor |
 | **Autoload** | Loads editor + Hyper, reindexes on startup when configured |
 
