@@ -11,9 +11,10 @@
 \   Ctrl-Home / Cmd-Home   start of file
 \   Ctrl-End  / Cmd-End    end of file
 \   PgUp / PgDn     page up / down
-\   mouse click     move cursor; select word under click
-\   Cmd-click       range-select from prior click through this word → clipboard
-\   Cmd-X/C/V       cut / copy / paste (paste at word end if caret in a word)
+\   mouse click     word under click; gutter/col0 = whole line
+\   Cmd-click       extend word or multi-line range → clipboard
+\   gutter after copy  paste-here (keeps prior clip); ⌘V pastes prior
+\   Cmd-X/C/V       cut / copy / paste (before/after line if paste-here)
 \   Cmd-E           VIEW word under cursor; Cmd-PgUp returns here
 \   Cmd-PgUp/PgDn   previous/next Hyper hit
 \   Cmd-Left/Right  prev/next occurrence of word under cursor (same file)
@@ -359,30 +360,55 @@ VARIABLE SZ-MOUSE-XT
 \ Selection / clipboard state (byte addresses into SZ-TBUF; end exclusive).
 VARIABLE SZ-ANCHOR-BEG                 \ last plain-click range start
 VARIABLE SZ-ANCHOR-END
-VARIABLE SZ-SEL-BEG                    \ active multi-word selection
+VARIABLE SZ-SEL-BEG                    \ active selection
 VARIABLE SZ-SEL-END
 VARIABLE SZ-SEL-OK                     \ nonzero if SZ-SEL-* is a real range
 VARIABLE SZ-CLICK-EXTEND               \ last click was ⌘-click range-extend (host flag)
+VARIABLE SZ-CLICK-ZONE                 \ 0=body 1=gutter/before-line 2=after-eol
+VARIABLE SZ-ANCHOR-LINE                \ nonzero if anchor is whole-line based
+VARIABLE SZ-PASTE-WHERE                \ 0=normal 1=before-line 2=after-line
+VARIABLE SZ-PASTE-LS                  \ line-start for before/after paste
+VARIABLE SZ-PLACEHOLD                  \ nonzero: last click was paste placeholder only
+VARIABLE SZ-CLIP-HOLD-U                \ previous solid clip (two-level stack)
 
-\ Host click flag: bit0=valid, bit1=Command (range-extend).  ( -- col row flag )
-\ Place caret from facility col/row (shared by plain and ⌘-clicks).
+\ Host click flag: bit0=valid, bit1=Command (range-extend).
+\ Place caret; set SZ-CLICK-ZONE. Allows gutter (line#) clicks.
+\ zone: 0=body  1=gutter/line-start  2=after last char on line
 : SZ-MOUSE-PLACE  ( col row -- )
-   \ Ignore chrome (status / borders / help)
+   0 SZ-CLICK-ZONE !
    DUP SZ-TEXT-TOP < IF  2DROP EXIT  THEN
    DUP SZ-TEXT-BOT @ > IF  2DROP EXIT  THEN
    SWAP                                        \ row col
-   DUP SZ-TEXT-LEFT < IF  2DROP EXIT  THEN
-   SZ-TEXT-LEFT -                              \ row text-col
-   SZ-HCOL @ +                                 \ row buf-col
-   SWAP                                        \ buf-col row
-   SZ-TEXT-TOP -                               \ buf-col text-row (0-based)
-   SZ-TOP @ SZ-HOST-LINE-NO +                  \ buf-col line#
-   SZ-GOTO-LINE
-   SZ-CUR-LINE SZ-PARSE-LINE NIP               \ buf-col len
-   MIN 0 MAX
-   SZ-CUR-LINE + SZ-CUR !
-   SZ-REMEMBER-COL
-   SZ-ENSURE-HVISIBLE
+   DUP 0< IF  2DROP EXIT  THEN
+   \ 1-based line# under SZ-TOP for this screen row
+   OVER SZ-TEXT-TOP -                          \ row col text-row
+   SZ-TOP @ SZ-HOST-LINE-NO +                  \ row col line#
+   >R                                          \ row col  R: line
+   \ Gutter / line# / '|' → whole-line / paste-before
+   DUP SZ-TEXT-LEFT < IF
+      2DROP
+      1 SZ-CLICK-ZONE !
+      R@ SZ-GOTO-LINE
+      SZ-CUR-LINE SZ-CUR !
+      SZ-REMEMBER-COL SZ-ENSURE-HVISIBLE
+      R> DROP EXIT
+   THEN
+   \ Text body column
+   SZ-TEXT-LEFT - SZ-HCOL @ +                  \ row buf-col
+   NIP                                         \ buf-col
+   R@ SZ-GOTO-LINE
+   SZ-CUR-LINE SZ-PARSE-LINE NIP               \ buf-col llen
+   2DUP < 0= IF                                \ buf-col >= llen → after EOL
+      DROP                                     \ llen
+      SZ-CUR-LINE + SZ-CUR !
+      2 SZ-CLICK-ZONE !
+   ELSE
+      OVER 0= IF  1 SZ-CLICK-ZONE !  THEN      \ col 0 → line mode
+      MIN 0 MAX
+      SZ-CUR-LINE + SZ-CUR !
+   THEN
+   SZ-REMEMBER-COL SZ-ENSURE-HVISIBLE
+   R> DROP
 ;
 
 \ Facility mouse click → buffer cursor (Phase 4a).
@@ -526,47 +552,127 @@ VARIABLE SZ-WORD-END                   \ exclusive end of word under cursor
 ;
 
 \ Internal clip (also synced to host/system pasteboard via (SZ-CLIP!)).
+\ Two-level: SZ-CLIP = current solid; SZ-CLIP-HOLD = previous solid.
 65536 CONSTANT SZ-CLIP-MAX
 CREATE SZ-CLIP  SZ-CLIP-MAX ALLOT
+CREATE SZ-CLIP-HOLD  SZ-CLIP-MAX ALLOT
 VARIABLE SZ-CLIP-U
+VARIABLE SZ-CLIP-HOLD-U
 0 SZ-CLIP-U !
+0 SZ-CLIP-HOLD-U !
 
+\ Whole line containing CUR: [line-start, next-line-start)
+: SZ-LINE-RANGE-AT-CUR  ( -- beg end )
+   SZ-CUR-LINE DUP SZ-NEXT-LINE
+;
+
+\ Push current solid clip down; store [beg,end) as new solid + host pasteboard.
 : SZ-CLIP-STORE  ( beg end -- )
+   \ demote current solid → hold
+   SZ-CLIP-U @ IF
+      SZ-CLIP SZ-CLIP-HOLD SZ-CLIP-U @ CMOVE
+      SZ-CLIP-U @ SZ-CLIP-HOLD-U !
+   THEN
    2DUP U> IF  SWAP  THEN                  \ beg end
    OVER - 0 MAX SZ-CLIP-MAX MIN            \ beg u
    DUP SZ-CLIP-U !
    DUP IF  >R SZ-CLIP R@ CMOVE R> DROP  ELSE  2DROP  THEN
    SZ-CLIP SZ-CLIP-U @ (SZ-CLIP!)
+   0 SZ-PLACEHOLD !
+   0 SZ-PASTE-WHERE !
+;
+
+: SZ-SET-SEL  ( beg end -- )
+   2DUP U> IF  SWAP  THEN
+   2DUP SZ-SEL-END ! SZ-SEL-BEG !
+   -1 SZ-SEL-OK !
+   2DUP SZ-CLIP-STORE
+   SZ-SHOW-RANGE-SEL
 ;
 
 : SZ-SET-ANCHOR-FROM-CUR  ( -- )
    SZ-RANGE-AT-CUR SZ-ANCHOR-END ! SZ-ANCHOR-BEG !
+   0 SZ-ANCHOR-LINE !
+;
+
+: SZ-SET-LINE-ANCHOR  ( -- )
+   SZ-LINE-RANGE-AT-CUR SZ-ANCHOR-END ! SZ-ANCHOR-BEG !
+   -1 SZ-ANCHOR-LINE !
+;
+
+\ Placeholder click: keep solid clip; only mark paste target + preview Selected.
+: SZ-PLACEHOLDER-CLICK  ( -- )
+   -1 SZ-PLACEHOLD !
+   SZ-LINE-RANGE-AT-CUR                    \ beg end
+   2DUP SZ-SHOW-RANGE-SEL
+   SZ-CLICK-ZONE @ 2 = IF
+      2 SZ-PASTE-WHERE !                   \ after this line
+      NIP SZ-PASTE-LS !                  \ end = next line start = after
+   ELSE
+      1 SZ-PASTE-WHERE !                   \ before this line
+      DROP SZ-PASTE-LS !                  \ beg
+   THEN
+   S" paste here" SZ-FIND-SET-STAT
+;
+
+\ Solid whole-line select + copy.
+: SZ-LINE-SELECT  ( -- )
+   SZ-LINE-RANGE-AT-CUR
+   SZ-SET-SEL
+   SZ-SET-LINE-ANCHOR
+   S" line" SZ-FIND-SET-STAT
 ;
 
 : SZ-PLAIN-CLICK  ( -- )
+   \ Gutter / line-start: line select, or placeholder if solid clip already set
+   SZ-CLICK-ZONE @ 1 = IF
+      SZ-CLIP-U @ IF  SZ-PLACEHOLDER-CLICK  ELSE  SZ-LINE-SELECT  THEN
+      EXIT
+   THEN
+   \ After EOL with existing solid clip → placeholder paste-after
+   SZ-CLICK-ZONE @ 2 = SZ-CLIP-U @ AND IF
+      SZ-PLACEHOLDER-CLICK EXIT
+   THEN
+   \ Body: word select
    0 SZ-SEL-OK !
+   0 SZ-PLACEHOLD !
+   0 SZ-PASTE-WHERE !
    SZ-SET-ANCHOR-FROM-CUR
    SZ-UPDATE-SEL-WORD
 ;
 
-\ ⌘-click: select from prior anchor through this word; copy to clipboard.
+\ ⌘-click: extend prior anchor through this click (words or whole lines).
 : SZ-RANGE-CLICK  ( -- )
-   SZ-RANGE-AT-CUR                         \ tb te
-   SZ-ANCHOR-BEG @ SZ-TBUF U< IF           \ no prior plain click
-      2DUP
+   SZ-ANCHOR-LINE @ SZ-CLICK-ZONE @ 0= 0= OR IF
+      \ line-based extend (anchor was line, or this click is line/after zone)
+      SZ-LINE-RANGE-AT-CUR                  \ tb te
+      SZ-ANCHOR-BEG @ SZ-TBUF U< IF
+         2DUP
+      ELSE
+         SZ-ANCHOR-BEG @                    \ tb te ab
+         ROT MIN                            \ te lo
+         SWAP                               \ lo te
+         SZ-ANCHOR-END @ MAX                \ lo hi
+         2DUP
+      THEN
+      SZ-SET-SEL
+      SZ-SET-LINE-ANCHOR
+      S" lines" SZ-FIND-SET-STAT
    ELSE
-      SZ-ANCHOR-BEG @                      \ tb te ab
-      ROT MIN                              \ te lo
-      SWAP                                 \ lo te
-      SZ-ANCHOR-END @ MAX                  \ lo hi
-      2DUP
+      \ word-based extend
+      SZ-RANGE-AT-CUR                       \ tb te
+      SZ-ANCHOR-BEG @ SZ-TBUF U< IF
+         2DUP
+      ELSE
+         SZ-ANCHOR-BEG @
+         ROT MIN SWAP
+         SZ-ANCHOR-END @ MAX
+         2DUP
+      THEN
+      SZ-SET-SEL
+      SZ-SET-ANCHOR-FROM-CUR
+      S" copied" SZ-FIND-SET-STAT
    THEN
-   SZ-SEL-END ! SZ-SEL-BEG !
-   -1 SZ-SEL-OK !
-   SZ-SEL-BEG @ SZ-SEL-END @
-   2DUP SZ-CLIP-STORE
-   SZ-SHOW-RANGE-SEL
-   S" copied" SZ-FIND-SET-STAT
 ;
 
 : SZ-AFTER-MOUSE  ( -- )
@@ -651,11 +757,28 @@ VARIABLE SZ-DR-N
 ;
 
 : SZ-DO-PASTE  ( -- )
-   SZ-CLIP SZ-CLIP-MAX (SZ-CLIP@)          \ u from host (live pasteboard)
-   DUP 0= IF  DROP S" empty" SZ-FIND-SET-STAT EXIT  THEN
-   SZ-CLIP-MAX MIN DUP SZ-CLIP-U !
-   SZ-PASTE-POINT
-   SZ-CLIP SWAP                            \ c-addr u
+   \ Prefer solid editor clip; host pasteboard fills SZ-CLIP if empty.
+   SZ-CLIP-U @ 0= IF
+      SZ-CLIP SZ-CLIP-MAX (SZ-CLIP@)
+      DUP 0= IF  DROP S" empty" SZ-FIND-SET-STAT EXIT  THEN
+      SZ-CLIP-MAX MIN SZ-CLIP-U !
+   THEN
+   SZ-CLIP-U @ 0= IF  S" empty" SZ-FIND-SET-STAT EXIT  THEN
+   \ Placeholder click: discard ephemeral line selection; paste solid clip
+   SZ-PLACEHOLD @ IF
+      0 SZ-PLACEHOLD !
+      SZ-PASTE-WHERE @ 1 = IF
+         SZ-PASTE-LS @ SZ-CUR !
+      ELSE SZ-PASTE-WHERE @ 2 = IF
+         SZ-PASTE-LS @ SZ-CUR !
+      ELSE
+         SZ-PASTE-POINT
+      THEN THEN
+   ELSE
+      SZ-PASTE-POINT
+   THEN
+   0 SZ-PASTE-WHERE !
+   SZ-CLIP SZ-CLIP-U @
    SZ-INSERT-BYTES
    S" pasted" SZ-FIND-SET-STAT
 ;

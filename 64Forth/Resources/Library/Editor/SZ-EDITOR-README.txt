@@ -45,9 +45,10 @@ Keys while editing (SZ-KEY)
   Cmd-E             VIEW word under cursor (Hyper)
   Cmd-PgUp / Cmd-PgDn   previous / next Hyper hit
   Cmd-Left / Cmd-Right  previous / next same-word in this file only
-  Mouse click       place caret; Selected: word under click
-  Cmd-click         select from last click through this word → clipboard
-  Cmd-X / Cmd-C / Cmd-V   cut / copy / paste (paste at end of word if in one)
+  Mouse click       word under click; gutter/line-start selects whole line
+  Cmd-click         extend selection (words, or whole lines if line-anchored)
+  Gutter after copy paste-here placeholder (keeps prior clip); ⌘V pastes prior
+  Cmd-X / Cmd-C / Cmd-V   cut / copy / paste (before/after line if paste-here)
 
 Display
 -------

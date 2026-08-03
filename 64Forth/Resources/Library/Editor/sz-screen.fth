@@ -229,7 +229,7 @@ CREATE SZ-FIND-STAT  18 ALLOT
    SZ-TEXT-BOT @ 2 + SZ-BLANK-ROW
    0 SZ-TEXT-BOT @ 2 + AT-XY
    \ ASCII only (facility is a byte grid; non-ASCII used to blank the whole help row).
-   ." Cmd-S/W/X/C/V | Cmd-E VIEW | find arrows/G | Cmd-click sel | Home/End"
+   ." Cmd-X/C/V paste | gutter=line | Cmd-click range | find G/arrows"
 ;
 
 \ True if SZ-CUR lies on the logical line starting at `ls`.
