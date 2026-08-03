@@ -43,7 +43,7 @@ extension Notification.Name {
     static let hyperNext = Notification.Name("SixtyFourForthHyperNext")
 }
 
-private let banner = "=== 64Forth 0.9.7 ===\n"
+private let banner = "=== 64Forth 0.9.8 ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner

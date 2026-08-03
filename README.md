@@ -81,6 +81,7 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 - [x] **v0.9.0:** Multi-thread wordlists (`DICT_THREADS` = 16, hash in `_header_build`/FIND); `.THREADS` / `.VOCABULARIES`; `LAST` for `IMMEDIATE`/`ALIAS`/`RECURSE`/`MARKER`; prompt `ok(n)>` with data-stack depth; File-Access multi-result stack fix (`FILE_POP_UNDER`); Tools → Show Library/AutoLoad/Docs opens Finder via `NSWorkspace.open`; ANSValidate ~383/0 + stack hygiene; Hayes fail banners clearer  
 - [x] **v0.9.6:** SZ-EDITOR same-file find (⌘←/→, ⌘G/⌘⇧G); status `Selected: "word"`; Hyper ⌘PgUp/Dn; reliable host key delivery (`ForthApplication`)
 - [x] **v0.9.7:** SZ-EDITOR line select (gutter / line-start), multi-line ⌘-click ranges, two-level line clipboard + paste before/after line
+- [x] **v0.9.8:** SZ-EDITOR two-line help (Cmd-E VIEW, etc.); mouse click no longer scrolls target to row 5
 
 Optional later: line-at-a-time INCLUDE via fileid, App Sandbox for store builds, editor dual-buffer.
 

@@ -11,12 +11,12 @@
 
 import Foundation
 
-/// Character-cell facility terminal (default 88×24 for SZ-EDITOR chrome around 80×20).
+/// Character-cell facility terminal (default 88×25 for SZ-EDITOR chrome around 80×20 + 2 help rows).
 final class FacilityTerminal {
     static let shared = FacilityTerminal()
 
     static let defaultCols = 88
-    static let defaultRows = 24
+    static let defaultRows = 25
 
     private(set) var cols: Int = defaultCols
     private(set) var rows: Int = defaultRows

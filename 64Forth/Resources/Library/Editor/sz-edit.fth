@@ -228,6 +228,7 @@ VARIABLE SZ-PAGE-N
 \ Save / quit
 \ -----------------------------------------------------------------------------
 
+\ Temporary message on first help row (restored on next full redraw).
 : SZ-MSG-LINE  ( -- )
    SZ-TEXT-BOT @ 2 + SZ-BLANK-ROW
    0 SZ-TEXT-BOT @ 2 + AT-XY
@@ -307,7 +308,8 @@ VARIABLE SZ-PAGE-N
 \ Goto line (must precede SZ-DO-MOUSE / VIEW helpers)
 \ -----------------------------------------------------------------------------
 
-\ Lines of context above the target when opening at a line (VIEW / goto).
+\ Lines of context above the target when opening at a line (VIEW / Hyper only).
+\ Not used for mouse clicks — scrolling under the pointer breaks selection.
 5 CONSTANT SZ-VIEW-CONTEXT
 
 \ Set SZ-TOP so the cursor line sits ~SZ-VIEW-CONTEXT rows below the top
@@ -328,10 +330,9 @@ VARIABLE SZ-PAGE-N
    0 SZ-PREF-COL !
 ;
 
-\ Move cursor to 1-based line n (clamped). Start of that line; scroll so
-\ the line is near the top of the view (SZ-VIEW-CONTEXT rows down).
-\ Stop at EOF if n is past the last line (no DO — safer nested in KEY loop).
-: SZ-GOTO-LINE  ( n -- )
+\ Move cursor to start of 1-based line n (clamped). Does not scroll.
+\ Stop at EOF if n is past the last line.
+: SZ-GOTO-LINE-RAW  ( n -- )
    DUP 1 < IF  DROP 1  THEN
    >R                               \ R: target 1-based line
    SZ-TBUF 1                        \ addr cur-line#
@@ -340,12 +341,17 @@ VARIABLE SZ-PAGE-N
    WHILE
       OVER SZ-TEND SZ-U>= IF
          DROP R> DROP
-         SZ-CUR !  SZ-REVEAL-NEAR-TOP EXIT
+         SZ-CUR ! EXIT
       THEN
       SWAP SZ-NEXT-LINE SWAP 1+
    REPEAT
    DROP R> DROP
    SZ-CUR !
+;
+
+\ VIEW / Hyper: go to line and scroll it near the top of the window.
+: SZ-GOTO-LINE  ( n -- )
+   SZ-GOTO-LINE-RAW
    SZ-REVEAL-NEAR-TOP
 ;
 
@@ -372,7 +378,7 @@ VARIABLE SZ-PLACEHOLD                  \ nonzero: last click was paste placehold
 VARIABLE SZ-CLIP-HOLD-U                \ previous solid clip (two-level stack)
 
 \ Host click flag: bit0=valid, bit1=Command (range-extend).
-\ Place caret; set SZ-CLICK-ZONE. Allows gutter (line#) clicks.
+\ Place caret without scrolling (line is already on-screen under the pointer).
 \ zone: 0=body  1=gutter/line-start  2=after last char on line
 : SZ-MOUSE-PLACE  ( col row -- )
    0 SZ-CLICK-ZONE !
@@ -388,7 +394,7 @@ VARIABLE SZ-CLIP-HOLD-U                \ previous solid clip (two-level stack)
    DUP SZ-TEXT-LEFT < IF
       2DROP
       1 SZ-CLICK-ZONE !
-      R@ SZ-GOTO-LINE
+      R@ SZ-GOTO-LINE-RAW                      \ no scroll — keep view still
       SZ-CUR-LINE SZ-CUR !
       SZ-REMEMBER-COL SZ-ENSURE-HVISIBLE
       R> DROP EXIT
@@ -396,7 +402,7 @@ VARIABLE SZ-CLIP-HOLD-U                \ previous solid clip (two-level stack)
    \ Text body column
    SZ-TEXT-LEFT - SZ-HCOL @ +                  \ row buf-col
    NIP                                         \ buf-col
-   R@ SZ-GOTO-LINE
+   R@ SZ-GOTO-LINE-RAW                         \ no scroll under mouse
    SZ-CUR-LINE SZ-PARSE-LINE NIP               \ buf-col llen
    2DUP < 0= IF                                \ buf-col >= llen → after EOL
       DROP                                     \ llen

@@ -8,9 +8,11 @@
 \   row 1              top border  +----...----+
 \   rows 2..(1+H)      text        |NNNNN|body (W cols)...|
 \   row (2+H)          bottom border
-\   row (3+H)          help
+\   row (3+H)          help line 1
+\   row (4+H)          help line 2
 \
 \ Text body is SZ-TEXT-WIDTH columns (default 80). Gutter/frame are extra.
+\ Facility rows = H + 5 (status, 2 borders, 2 help).
 \ User:  width height SET-EDIT-WINDOW   (persists via settings)
 \ Query: EDIT-WINDOW  ( -- width height )
 \
@@ -225,11 +227,15 @@ CREATE SZ-FIND-STAT  18 ALLOT
    SZ-FIND-STAT C@ IF  SPACE SZ-FIND-STAT COUNT TYPE  THEN
 ;
 
+\ Two help rows below the bottom border (TEXT-BOT+2 and TEXT-BOT+3).
+\ ASCII only — facility is a byte grid.
 : SZ-SHOW-HELP  ( -- )
    SZ-TEXT-BOT @ 2 + SZ-BLANK-ROW
+   SZ-TEXT-BOT @ 3 + SZ-BLANK-ROW
    0 SZ-TEXT-BOT @ 2 + AT-XY
-   \ ASCII only (facility is a byte grid; non-ASCII used to blank the whole help row).
-   ." Cmd-X/C/V paste | gutter=line | Cmd-click range | find G/arrows"
+   ." Cmd-E VIEW word | Cmd-PgUp/Dn Hyper | Cmd-G/arrows find | arrows move"
+   0 SZ-TEXT-BOT @ 3 + AT-XY
+   ." Cmd-X/C/V cut/copy/paste | gutter=line | Cmd-click range | Cmd-S/W save/close"
 ;
 
 \ True if SZ-CUR lies on the logical line starting at `ls`.
@@ -320,9 +326,9 @@ EDIT-WINDOW SZ-APPLY-EDIT-WINDOW
 : SET-EDIT-WINDOW  ( width height -- )
    SZ-WIN-H !  SZ-WIN-W !
    SZ-WIN-W @  SZ-WIN-H @  SZ-APPLY-EDIT-WINDOW
-   \ Facility chrome: width+8 cols, height+4 rows (status, borders, help)
-   SZ-WIN-W @ 8 +  SZ-WIN-H @ 4 +  (FACILITY-SIZE)
+   \ Facility chrome: width+8 cols, height+5 rows (status, borders, 2 help)
+   SZ-WIN-W @ 8 +  SZ-WIN-H @ 5 +  (FACILITY-SIZE)
 ;
 
 \ Apply current window size to facility grid at load
-SZ-WIN-W @ 8 +  SZ-WIN-H @ 4 +  (FACILITY-SIZE)
+SZ-WIN-W @ 8 +  SZ-WIN-H @ 5 +  (FACILITY-SIZE)
