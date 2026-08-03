@@ -1,11 +1,13 @@
-\ hyper-index.fth — Phase 3a: in-app HYPER.NDX builder (Forth)
+\ hyper-index.fth — Phase 3a/4: in-app HYPER.NDX builder (Forth)
 \
-\ Loaded from hyper.fth. Writes HYPER.NDX to session cwd (Documents).
+\ Loaded from hyper.fth. Writes Config/HYPER.NDX.
 \
-\ - Fixed SPECS (Kernel + Library; no Hayes/ANS/Benchmarks)
-\ - TYPE 0 prefixes on Forth sources
-\ - BOOT_WORD → resolve CodeLabel to Kernel/forth.s (same idea as Python)
-\ - Kernel .s/.inc TYPE 0 only on .ascii / .asciz lines
+\ Phase 4:
+\   - TYPE 0 prefixes from Config/HYPER.CFG (fallback defaults)
+\   - SPECS expanded by host via virtual Config/HYPER.SPECS
+\   - *EXCLUDE applied by host when building the SPECS list
+\   - BOOT_WORD → CodeLabel in Kernel/forth.s
+\   - Kernel .s/.inc TYPE 0 only on .ascii / .asciz lines
 \
 \ Use:  HYPER-REINDEX
 
@@ -33,6 +35,12 @@ CREATE HX-PATH   128 ALLOT
 0 VALUE HX-MA
 0 VALUE HX-MU
 0 VALUE HX-TMP
+
+\ TYPE 0 prefix table (from HYPER.CFG)
+16 CONSTANT HX-PMAX
+64 CONSTANT HX-PSZ
+CREATE HX-PTAB  HX-PMAX HX-PSZ * ALLOT
+0 VALUE HX-PN
 
 \ Label entry: count + name[31] + line cell at offset 32
 40 CONSTANT HX-ESIZE
@@ -227,19 +235,88 @@ CREATE HX-LTAB  HX-LMAX HX-ESIZE * ALLOT
 
 : HX-PREF  ( c-addr u -- )  TO HX-PU  TO HX-PA  HX-SCAN-PREF ;
 
+: HX-PENT  ( i -- addr )  HX-PSZ * HX-PTAB + ;
+
+: HX-ADD-PREF  ( c-addr u -- )
+   HX-PN HX-PMAX >= IF  2DROP EXIT  THEN
+   63 MIN HX-PN HX-PENT PLACE
+   HX-PN 1+ TO HX-PN ;
+
+: HX-DEFAULT-PREFS  ( -- )
+   0 TO HX-PN
+   S" : "          HX-ADD-PREF
+   S" CODE "       HX-ADD-PREF
+   S" CREATE "     HX-ADD-PREF
+   S" CONSTANT "   HX-ADD-PREF
+   S" VALUE "      HX-ADD-PREF
+   S" 2VALUE "     HX-ADD-PREF
+   S" DEFER "      HX-ADD-PREF
+   S" VARIABLE "   HX-ADD-PREF
+   S" VOCABULARY " HX-ADD-PREF
+   S" BUFFER: "    HX-ADD-PREF
+   S" SYNONYM "    HX-ADD-PREF
+   S" ALIAS "      HX-ADD-PREF ;
+
 : HX-ALL-PREFS  ( -- )
-   S" : "          HX-PREF
-   S" CODE "       HX-PREF
-   S" CREATE "     HX-PREF
-   S" CONSTANT "   HX-PREF
-   S" VALUE "      HX-PREF
-   S" 2VALUE "     HX-PREF
-   S" DEFER "      HX-PREF
-   S" VARIABLE "   HX-PREF
-   S" VOCABULARY " HX-PREF
-   S" BUFFER: "    HX-PREF
-   S" SYNONYM "    HX-PREF
-   S" ALIAS "      HX-PREF ;
+   HX-PN 0= IF  HX-DEFAULT-PREFS  THEN
+   0
+   BEGIN  DUP HX-PN < WHILE
+      DUP HX-PENT COUNT HX-PREF
+      1+
+   REPEAT
+   DROP ;
+
+\ -----------------------------------------------------------------------------
+\ Load TYPE 0 "…" from Config/HYPER.CFG
+\ -----------------------------------------------------------------------------
+
+\ Parse TYPE 0 "prefix"  — kind 0 only; BOOT_WORD handled separately.
+: HX-CFG-TYPE-LINE  ( a u -- )
+   HX-SKIP-BL
+   DUP 4 < IF  2DROP EXIT  THEN
+   OVER 4 S" TYPE" COMPARE IF  2DROP EXIT  THEN
+   4 /STRING HX-SKIP-BL
+   DUP 0= IF  2DROP EXIT  THEN
+   OVER C@ [CHAR] 0 <> IF  2DROP EXIT  THEN
+   HX-SKIP1 HX-SKIP-BL
+   DUP 0= IF  2DROP EXIT  THEN
+   OVER C@ [CHAR] " <> IF  2DROP EXIT  THEN
+   HX-SKIP1
+   0
+   BEGIN  1 PICK OVER > WHILE
+      2 PICK OVER + C@ [CHAR] " = IF
+         >R OVER R@                  \ a u a wlen
+         DUP 9 >= IF
+            OVER 9 S" BOOT_WORD" COMPARE 0= IF
+               2DROP R> DROP 2DROP EXIT
+            THEN
+         THEN
+         HX-ADD-PREF
+         R> DROP 2DROP EXIT
+      THEN  1+
+   REPEAT
+   DROP 2DROP ;
+
+: HX-LOAD-CFG  ( -- )
+   0 TO HX-PN
+   S" Config/HYPER.CFG" R/O OPEN-FILE
+   IF  DROP HX-DEFAULT-PREFS ." HX: no HYPER.CFG — default TYPE 0" CR EXIT  THEN
+   >R
+   BEGIN
+      HX-LINE 500 R@ READ-LINE
+      IF  DROP DROP R> CLOSE-FILE DROP
+          HX-PN 0= IF  HX-DEFAULT-PREFS  THEN EXIT  THEN
+      0= IF  DROP R> CLOSE-FILE DROP
+          HX-PN 0= IF  HX-DEFAULT-PREFS  THEN EXIT  THEN
+      HX-LINE SWAP
+      DUP 0= IF  2DROP
+      ELSE  OVER C@ [CHAR] # = IF  2DROP
+      ELSE  OVER C@ [CHAR] ; = IF  2DROP R> CLOSE-FILE DROP
+          HX-PN 0= IF  HX-DEFAULT-PREFS  THEN EXIT
+      ELSE
+         HX-CFG-TYPE-LINE
+      THEN THEN THEN
+   AGAIN ;
 
 \ -----------------------------------------------------------------------------
 \ Labels from Kernel/forth.s
@@ -439,46 +516,55 @@ CREATE HX-LTAB  HX-LMAX HX-ESIZE * ALLOT
    AGAIN ;
 
 \ -----------------------------------------------------------------------------
-\ SPECS
+\ SPECS — host expands Config/HYPER.CFG into virtual Config/HYPER.SPECS
 \ -----------------------------------------------------------------------------
 
+: HX-SCAN-FALLBACK  ( -- )
+   S" Kernel/forth.s"            HX-SCAN-FILE
+   S" Kernel/colon_words.inc"    HX-SCAN-FILE
+   S" Kernel/boot_words.inc"     HX-SCAN-FILE
+   S" Library/Hyper/hyper.fth"   HX-SCAN-FILE
+   S" Library/Hyper/hyper-index.fth" HX-SCAN-FILE
+   S" Library/Editor/sz-edit.fth" HX-SCAN-FILE
+   S" Library/Editor/sz-buffer.fth" HX-SCAN-FILE
+   S" Library/Editor/sz-screen.fth" HX-SCAN-FILE
+   S" Library/Editor/sz-host.fth" HX-SCAN-FILE
+   S" Library/Editor/SZ-EDITOR.fth" HX-SCAN-FILE ;
+
+\ One SPECS path line (skip blanks / # comments)
+: HX-SCAN-SPECS-LINE  ( a u -- )
+   HX-SKIP-BL
+   DUP 0= IF  2DROP EXIT  THEN
+   OVER C@ [CHAR] # = IF  2DROP EXIT  THEN
+   HX-SCAN-FILE ;
+
+0 VALUE HX-FCNT
+
 : HX-SCAN-ALL  ( -- )
-   S" Kernel/boot_words.inc"                 HX-SCAN-FILE
-   S" Kernel/colon_words.inc"                HX-SCAN-FILE
-   S" Kernel/forth.s"                        HX-SCAN-FILE
-   S" Library/BigInteger/bi-test.fth"        HX-SCAN-FILE
-   S" Library/BigInteger/bi-vocab-smoke.fth" HX-SCAN-FILE
-   S" Library/BigInteger/big-int.fth"        HX-SCAN-FILE
-   S" Library/Editor/sz-buffer.fth"          HX-SCAN-FILE
-   S" Library/Editor/sz-edit.fth"            HX-SCAN-FILE
-   S" Library/Editor/SZ-EDITOR.fth"          HX-SCAN-FILE
-   S" Library/Editor/sz-host.fth"            HX-SCAN-FILE
-   S" Library/Editor/sz-screen.fth"          HX-SCAN-FILE
-   S" Library/Hyper/hyper.fth"               HX-SCAN-FILE
-   S" Library/Hyper/hyper-index.fth"         HX-SCAN-FILE
-   S" Library/PI/pi-chudnovsky.fth"          HX-SCAN-FILE
-   S" Library/PI/pi-test.fth"                HX-SCAN-FILE
-   S" Library/smoke-load.fth"                HX-SCAN-FILE
-   S" Library/TCOM/ALLSPECS.FTH"             HX-SCAN-FILE
-   S" Library/TCOM/FPCTOOLS.fth"             HX-SCAN-FILE
-   S" Library/TCOM/GLOBAL.FTH"               HX-SCAN-FILE
-   S" Library/TCOM/HYPER.FTH"                HX-SCAN-FILE
-   S" Library/TCOM/LEDIT.FTH"                HX-SCAN-FILE
-   S" Library/TCOM/LOOK.FTH"                 HX-SCAN-FILE
-   S" Library/TCOM/MIDNIGHT.FTH"             HX-SCAN-FILE
-   S" Library/TCOM/SZ.FTH"                   HX-SCAN-FILE
-   S" Library/TCOM/VED.FTH"                  HX-SCAN-FILE
-   S" Library/TCOM/ZIM.FTH"                  HX-SCAN-FILE
-   S" Library/TCOM/ZLIST.FTH"                HX-SCAN-FILE
-   S" Library/xchar-smoke.fth"               HX-SCAN-FILE ;
+   S" Config/HYPER.SPECS" R/O OPEN-FILE
+   IF
+      DROP ." HX: HYPER.SPECS unavailable — fallback list" CR
+      HX-SCAN-FALLBACK EXIT
+   THEN
+   >R                               \ R: fid
+   0 TO HX-FCNT
+   BEGIN
+      HX-LINE 500 R@ READ-LINE      \ u2 flag ior
+      IF
+         DROP DROP R> CLOSE-FILE DROP
+         HX-FCNT 0= IF  HX-SCAN-FALLBACK  THEN EXIT
+      THEN
+      0= IF
+         DROP R> CLOSE-FILE DROP
+         HX-FCNT 0= IF  HX-SCAN-FALLBACK
+         ELSE  ." HX: " HX-FCNT . ." SPECS files" CR  THEN EXIT
+      THEN
+      HX-LINE SWAP HX-SCAN-SPECS-LINE
+      HX-FCNT 1+ TO HX-FCNT
+   AGAIN ;
 
 \ -----------------------------------------------------------------------------
 \ HYPER-REINDEX → Config/HYPER.NDX
-\
-\ Path uses the same hyper-style root as FROMLIB does for Library/:
-\   Config/…  → Resources/Config (source tree when running from Xcode),
-\               else Application Support/64Forth/Config/ (writable overlay).
-\ Host CREATE-FILE maps read-only bundle paths to the overlay automatically.
 \ -----------------------------------------------------------------------------
 
 CREATE HX-NDX-OUT  32 ALLOT
@@ -486,13 +572,13 @@ S" Config/HYPER.NDX" HX-NDX-OUT PLACE
 
 : HX-WRITE-HEADER  ( -- )
    HX-OUT-CLEAR
-   S" # 64Forth hyper index — generated by HYPER-REINDEX (Forth)" HX-OUT-S
+   S" # 64Forth hyper index — generated by HYPER-REINDEX (Forth Phase 4)" HX-OUT-S
    HX-OUT-FLUSH
    HX-OUT-CLEAR
    S" # Format: @ path, then NAME linenumber" HX-OUT-S
    HX-OUT-FLUSH
    HX-OUT-CLEAR
-   S" # BOOT_WORD → Kernel/forth.s CODE label when present" HX-OUT-S
+   S" # SPECS from HYPER.CFG via host HYPER.SPECS; TYPE 0 from CFG" HX-OUT-S
    HX-OUT-FLUSH
    HX-OUT-CLEAR HX-OUT-FLUSH ;
 
@@ -500,12 +586,13 @@ S" Config/HYPER.NDX" HX-NDX-OUT PLACE
    ." HYPER-REINDEX: writing " HX-NDX-OUT COUNT TYPE ." ..." CR
    0 TO HX-COUNT
    0 TO HX-FID
+   HX-LOAD-CFG
+   ." HX: " HX-PN . ." TYPE 0 prefixes" CR
    HX-COLLECT-LABELS
    HX-NDX-OUT COUNT W/O CREATE-FILE
    IF
       DROP
       ." HYPER-REINDEX: CREATE-FILE failed for Config/HYPER.NDX" CR
-      ."   (host should map Config/ to source tree or App Support)" CR
       EXIT
    THEN
    TO HX-FID

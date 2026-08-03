@@ -80,6 +80,17 @@ final class FileAccess {
             .standardizedFileURL
     }
 
+    /// Phase 4 virtual file: host expands HYPER.CFG SPECS when OPEN-FILE reads this.
+    private static func isHyperSpecsPath(_ path: String) -> Bool {
+        let n = path
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\", with: "/")
+            .lowercased()
+        return n == "hyper.specs"
+            || n.hasSuffix("/hyper.specs")
+            || n.hasSuffix("config/hyper.specs")
+    }
+
     /// Writable location for create/write (avoid read-only app bundle).
     ///
     /// - Paths outside the app bundle (Documents, source tree, App Support) are kept.
@@ -143,6 +154,21 @@ final class FileAccess {
         }
 
         var data = Data()
+        // Phase 4: virtual Config/HYPER.SPECS — host expands HYPER.CFG SPECS on every open.
+        if !create && Self.isHyperSpecsPath(path) {
+            data = FileHost.shared.hyperSpecsFileData()
+            let id = nextId
+            nextId += 1
+            files[id] = ForthFileEntry(
+                path: url.path,
+                data: data,
+                position: 0,
+                fam: fam,
+                isOpen: true,
+                writeDirty: false
+            )
+            return (Int64(id), Self.iorOK)
+        }
         if create {
             // Truncate / create empty — parent dir must exist (e.g. Application Support/64Forth).
             guard ensureParentDirectory(of: url) else { return (0, Self.iorErr) }

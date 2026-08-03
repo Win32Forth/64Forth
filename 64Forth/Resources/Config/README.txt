@@ -68,8 +68,8 @@ Tools menu
 ----------
   Tools → Show Config Folder — open this directory in Finder.
 
-In-app reindex (Phase 3a)
--------------------------
+In-app reindex (Phase 3a / 4)
+-----------------------------
   From the 64Forth REPL:
 
     FROMLIB FLOAD Hyper/hyper.fth
@@ -79,7 +79,9 @@ In-app reindex (Phase 3a)
     - Xcode / HYPER_ROOT: developer tree Resources/Config/HYPER.NDX
     - Shipped app: Application Support/64Forth/Config/HYPER.NDX (bundle is RO)
 
-  Offline Python builder remains available for full SPECS rebuilds.
+  Phase 4: reads Config/HYPER.CFG (TYPE 0 prefixes); host expands SPECS into
+  virtual Config/HYPER.SPECS (Library walk + *EXCLUDE). Offline Python builder
+  remains available for CI/full rebuilds.
 
 Status
 ------
@@ -87,4 +89,6 @@ Status
   Phase 1: builder + full generated NDX
   Phase 2: VIEW / LOCATE Forth words
   Phase 3: SZ-GOTO-LINE / editor integration
-  Phase 3a: HYPER-REINDEX (Forth, cwd output)  ← current
+  Phase 3a: HYPER-REINDEX → Config/HYPER.NDX
+  Phase 4: CFG SPECS/TYPE + host file list (HYPER.SPECS)
+  Phase 4a: mouse click moves SZ-EDITOR cursor  ← current

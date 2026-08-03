@@ -6,7 +6,7 @@
 .section __DATA,__bootword,regular
 .quad 0, 0, 0, 0
 
-.equ BOOT_WORD_COUNT, 265
+.equ BOOT_WORD_COUNT, 266
 
 // Empty help used by : / CREATE / :NONAME
 .section __TEXT,__cstring,cstring_literals

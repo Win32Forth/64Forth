@@ -34,13 +34,11 @@ FLOAD sz-edit.fth
 
 : SZ-BANNER  ( -- )
    CR
-   ." === SZ-EDITOR TZForth port ===" CR
-   ." Phases 1-5: edit + navigation + framed screen" CR
-   ." File menu: Cmd-S Save  Cmd-W Close editor  or  SZEDIT file" CR
-   ." Keys: arrows  Home/End  PgUp/Dn  BS Del  type  Ctrl-Q close" CR
-   ." Dirty close/quit: Modified! Save or Discard? S/D  (other=cancel)" CR
+   ." === SZ-EDITOR ===" CR
+   ." SZEDIT 'file.fth' or 'pathed/file.fth'" CR
+   ." Keys: arrows  Home/End  PgUp/Dn  BS Del or typed text" CR
    ." Size: width height SET-EDIT-WINDOW  - default 80 20" CR
-   ." Cmd-W closes editor   Cmd-Q quits app after editor close" CR
+   ." Cmd-W closes editor with save prompt if changes" CR
    CR
 ;
 

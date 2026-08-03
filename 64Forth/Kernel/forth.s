@@ -472,6 +472,7 @@ XAT_XY:
 // AT-XY? ( -- col row )  facility cursor, 0-based (host FacilityTerminal)
 // Not ANSI DSR — works with the SwiftUI cell grid console.
 .extern _host_facility_xy
+.extern _host_sz_click
 
     BOOT_WORD "AT-XY?", "AT-XY? ( -- col row ) facility cursor position (0-based)", 0, XAT_XY_Q
 XAT_XY_Q:
@@ -493,6 +494,32 @@ XAT_XY_Q:
     mov  x20, x1                   // col under
     str  x20, [x22, #-8]!
     mov  x20, x2                   // row TOS
+    NEXT
+
+// (SZ-CLICK) ( -- col row flag )  last facility mouse click (Phase 4a); clears pending
+    BOOT_WORD "(SZ-CLICK)", "(SZ-CLICK) ( -- col row flag ) facility mouse click if any", 0, XSZ_CLICK
+XSZ_CLICK:
+    stp  x29, x30, [sp, #-16]!
+    mov  x29, sp
+    sub  sp, sp, #16
+    add  x0, sp, #0
+    add  x1, sp, #8
+    str  xzr, [sp]
+    str  xzr, [sp, #8]
+    SAVE_VM
+    bl   _host_sz_click            // x0 = flag
+    RESTORE_VM
+    mov  x3, x0                    // flag
+    ldr  x1, [sp]
+    ldr  x2, [sp, #8]
+    add  sp, sp, #16
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    mov  x20, x1                   // col
+    str  x20, [x22, #-8]!
+    mov  x20, x2                   // row
+    str  x20, [x22, #-8]!
+    mov  x20, x3                   // flag TOS
     NEXT
 
 // TERMINAL-REFRESH ( -- )

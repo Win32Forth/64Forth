@@ -14,6 +14,24 @@ import SwiftUI
 import AppKit
 
 
+/// NSTextView that reports mouse clicks in facility/SZ-EDITOR mode (Phase 4a).
+final class ConsoleNSTextView: NSTextView {
+    var onFacilityClick: ((Int) -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        if KernelBridge.shared.isFacilityTerminalActive, KernelBridge.shared.isEvaluating {
+            let pt = convert(event.locationInWindow, from: nil)
+            // characterIndexForInsertion(at:) is reliable for monospaced facility paint.
+            let idx = characterIndexForInsertion(at: pt)
+            onFacilityClick?(idx)
+            // Keep focus; do not change the document selection into the paint grid.
+            window?.makeFirstResponder(self)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+}
+
 /// AppKit console editor. SwiftUI `TextEditor` does not protect a prefix or
 /// reliably scroll to the insertion point after programmatic appends.
 struct ConsoleTextView: NSViewRepresentable {
@@ -43,7 +61,7 @@ struct ConsoleTextView: NSViewRepresentable {
         scrollView.drawsBackground = true
         scrollView.backgroundColor = .textBackgroundColor
 
-        let textView = NSTextView()
+        let textView = ConsoleNSTextView()
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
@@ -70,6 +88,9 @@ struct ConsoleTextView: NSViewRepresentable {
         textView.backgroundColor = .textBackgroundColor
         textView.drawsBackground = true
         textView.string = text
+        textView.onFacilityClick = { idx in
+            KernelBridge.shared.reportFacilityClick(utf16Index: idx)
+        }
         let end = (text as NSString).length
         textView.setSelectedRange(NSRange(location: end, length: 0))
 

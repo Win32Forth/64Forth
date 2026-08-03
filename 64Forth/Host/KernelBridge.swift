@@ -478,6 +478,16 @@ public func host_facility_xy(
     rowOut?.pointee = Int64(term.cursorRow)
 }
 
+/// (SZ-CLICK) — last mouse click in facility grid (Phase 4a). Clears pending.
+/// Returns 1 if a click was pending; fills col/row (0-based facility cells).
+@_cdecl("host_sz_click")
+public func host_sz_click(
+    _ colOut: UnsafeMutablePointer<Int64>?,
+    _ rowOut: UnsafeMutablePointer<Int64>?
+) -> Int32 {
+    KernelBridge.shared.takeFacilityClick(colOut: colOut, rowOut: rowOut)
+}
+
 // MARK: - Bridge
 
 final class KernelBridge {
@@ -515,6 +525,52 @@ final class KernelBridge {
     var isFacilityTerminalActive: Bool { FacilityTerminal.shared.isActive }
 
     var facilityCols: Int { FacilityTerminal.shared.cols }
+
+    /// Pending facility mouse click (col, row), set from ConsoleTextView.
+    private var pendingClickCol = 0
+    private var pendingClickRow = 0
+    private var pendingClick = false
+
+    /// Map a UTF-16 index in the console document to facility col/row and queue SZ-MOUSE.
+    func reportFacilityClick(utf16Index: Int) {
+        guard isFacilityTerminalActive, isEvaluating else { return }
+        let prefixLen = (facilityPaintPrefix as NSString).length
+        guard utf16Index >= prefixLen else { return }
+        let local = utf16Index - prefixLen
+        let cols = max(1, facilityCols)
+        let stride = cols + 1 // row body + '\n'
+        guard stride > 0 else { return }
+        let row = local / stride
+        let col = local % stride
+        guard col < cols else { return } // click on the newline gap
+        let rows = FacilityTerminal.shared.rows
+        guard row >= 0, row < rows else { return }
+        lock.lock()
+        pendingClickCol = col
+        pendingClickRow = row
+        pendingClick = true
+        lock.unlock()
+        // 25 = SZ-MOUSE in sz-edit.fth
+        pushKey(25)
+    }
+
+    /// Consume pending click for (SZ-CLICK). Returns 1 if valid.
+    fileprivate func takeFacilityClick(
+        colOut: UnsafeMutablePointer<Int64>?,
+        rowOut: UnsafeMutablePointer<Int64>?
+    ) -> Int32 {
+        lock.lock()
+        defer { lock.unlock() }
+        guard pendingClick else {
+            colOut?.pointee = 0
+            rowOut?.pointee = 0
+            return 0
+        }
+        colOut?.pointee = Int64(pendingClickCol)
+        rowOut?.pointee = Int64(pendingClickRow)
+        pendingClick = false
+        return 1
+    }
     var facilityCursorCol: Int { FacilityTerminal.shared.cursorCol }
     var facilityCursorRow: Int { FacilityTerminal.shared.cursorRow }
 

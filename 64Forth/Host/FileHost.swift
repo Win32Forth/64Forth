@@ -317,6 +317,174 @@ final class FileHost {
         return nil
     }
 
+    // MARK: - HYPER.SPECS (Phase 4 reindex file list)
+
+    /// Expand `Config/HYPER.CFG` SPECS into NDX-style paths (`Kernel/…`, `Library/…`).
+    /// Used when Forth opens `Config/HYPER.SPECS` (virtual file) during HYPER-REINDEX.
+    func buildHyperSourceList() -> [String] {
+        let fm = FileManager.default
+        var specs: [String] = []
+        var excludes: [String] = []
+
+        if let cfgText = readHyperCfgText() {
+            for raw in cfgText.split(whereSeparator: \.isNewline) {
+                let line = String(raw)
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
+                if trimmed == ";" { break }
+                let upper = trimmed.uppercased()
+                if upper.hasPrefix("*EXCLUDE") {
+                    let rest = trimmed.dropFirst(8).trimmingCharacters(in: .whitespaces)
+                    if !rest.isEmpty { excludes.append(rest) }
+                    continue
+                }
+                if upper.hasPrefix("SPECS") {
+                    let rest = trimmed.dropFirst(5).trimmingCharacters(in: .whitespaces)
+                    if !rest.isEmpty { specs.append(rest) }
+                }
+            }
+        }
+        if specs.isEmpty {
+            specs = [
+                "Kernel/forth.s",
+                "Kernel/boot_words.inc",
+                "Kernel/colon_words.inc",
+                "Resources/Library/**/*.fth",
+                "Resources/Library/**/*.FTH",
+            ]
+        }
+        if excludes.isEmpty {
+            excludes = ["HayesTest", "ANSValidate", "Benchmarks", "HYPER.NDX"]
+        }
+
+        var out: [String] = []
+        var seen = Set<String>()
+        for spec in specs {
+            for path in expandHyperSpec(spec) {
+                let ndx = ndxStylePath(path)
+                if excludes.contains(where: { ndx.localizedCaseInsensitiveContains($0) }) {
+                    continue
+                }
+                if seen.insert(ndx).inserted {
+                    out.append(ndx)
+                }
+            }
+        }
+        return out
+    }
+
+    /// UTF-8 body for the virtual `Config/HYPER.SPECS` file.
+    func hyperSpecsFileData() -> Data {
+        let body = buildHyperSourceList().joined(separator: "\n") + "\n"
+        return Data(body.utf8)
+    }
+
+    private func readHyperCfgText() -> String? {
+        if let u = resolveHyperStylePath("Config/HYPER.CFG"),
+           let t = try? String(contentsOf: u, encoding: .utf8) {
+            return t
+        }
+        if let tree = sourceTreeURL {
+            let u = tree.appendingPathComponent("Resources/Config/HYPER.CFG")
+            if let t = try? String(contentsOf: u, encoding: .utf8) { return t }
+        }
+        if let cfg = configURL {
+            let u = cfg.appendingPathComponent("HYPER.CFG")
+            if let t = try? String(contentsOf: u, encoding: .utf8) { return t }
+        }
+        return nil
+    }
+
+    /// Expand one SPECS pattern relative to source tree or bundle roots.
+    private func expandHyperSpec(_ spec: String) -> [URL] {
+        let fm = FileManager.default
+        let s = spec.replacingOccurrences(of: "\\", with: "/")
+        var roots: [URL] = []
+        if let tree = sourceTreeURL { roots.append(tree) }
+        if let res = resourcesURL, !roots.contains(where: { $0.path == res.path }) {
+            roots.append(res)
+        }
+
+        // Non-glob: direct file under each root
+        if !s.contains("*") && !s.contains("?") {
+            for root in roots {
+                let u = root.appendingPathComponent(s).standardizedFileURL
+                if fm.fileExists(atPath: u.path) { return [u] }
+            }
+            // Kernel/… without tree: fail soft
+            return []
+        }
+
+        // Resources/Library/**/*.fth  or  Library/**/*.fth
+        var results: [URL] = []
+        for root in roots {
+            let libBase: URL
+            if s.hasPrefix("Resources/Library/") || s.hasPrefix("Library/") {
+                if let tree = sourceTreeURL, root.path == tree.path {
+                    libBase = tree.appendingPathComponent("Resources/Library", isDirectory: true)
+                } else if let lib = libraryURL {
+                    libBase = lib
+                } else {
+                    continue
+                }
+            } else {
+                // Other globs: under root
+                libBase = root
+            }
+            let ext: String?
+            if s.lowercased().hasSuffix(".fth") { ext = "fth" }
+            else if s.lowercased().hasSuffix(".fs") { ext = "fs" }
+            else { ext = nil }
+
+            if let en = fm.enumerator(
+                at: libBase,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            ) {
+                for case let fileURL as URL in en {
+                    var isDir: ObjCBool = false
+                    if fm.fileExists(atPath: fileURL.path, isDirectory: &isDir), isDir.boolValue {
+                        continue
+                    }
+                    let name = fileURL.lastPathComponent
+                    if let ext {
+                        if name.lowercased().hasSuffix(".\(ext)") {
+                            results.append(fileURL.standardizedFileURL)
+                        }
+                    } else {
+                        results.append(fileURL.standardizedFileURL)
+                    }
+                }
+            }
+        }
+        return results.sorted { $0.path.lowercased() < $1.path.lowercased() }
+    }
+
+    /// Disk path → HYPER.NDX path (`Library/…` not `Resources/Library/…`).
+    private func ndxStylePath(_ url: URL) -> String {
+        let path = url.standardizedFileURL.path
+        if let tree = sourceTreeURL {
+            let prefix = tree.path
+            if path.hasPrefix(prefix) {
+                var rel = String(path.dropFirst(prefix.count))
+                while rel.hasPrefix("/") { rel.removeFirst() }
+                if rel.hasPrefix("Resources/Library/") {
+                    return "Library/" + String(rel.dropFirst("Resources/Library/".count))
+                }
+                return rel.replacingOccurrences(of: "\\", with: "/")
+            }
+        }
+        if let lib = libraryURL {
+            let prefix = lib.path
+            if path.hasPrefix(prefix) {
+                var rel = String(path.dropFirst(prefix.count))
+                while rel.hasPrefix("/") { rel.removeFirst() }
+                return "Library/" + rel.replacingOccurrences(of: "\\", with: "/")
+            }
+        }
+        return url.lastPathComponent
+    }
+
     func resourceRootsDescription() -> String {
         var lines: [String] = []
         lines.append("Resources: \(resourcesURL?.path ?? "(not bundled — run the .app from Xcode)")")

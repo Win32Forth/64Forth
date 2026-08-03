@@ -11,6 +11,7 @@
 \   Ctrl-Home       start of file
 \   Ctrl-End        end of file
 \   PgUp / PgDn     page up / down
+\   mouse click     move cursor to cell (Phase 4a, host key 25)
 \   Ctrl-S          save
 \   Ctrl-Q          quit
 \
@@ -34,6 +35,7 @@ DECIMAL
  24 CONSTANT SZ-PGDN
  28 CONSTANT SZ-HOME-FILE      \ Ctrl-Home
  29 CONSTANT SZ-END-FILE       \ Ctrl-End
+ 25 CONSTANT SZ-MOUSE          \ host mouse click in facility (Phase 4a)
  30 CONSTANT SZ-CMD-OPEN       \ host File→Open while KEY waiting
  31 CONSTANT SZ-CMD-NEW        \ host File→New while KEY waiting
 127 CONSTANT SZ-DEL            \ also delete-forward (legacy)
@@ -288,13 +290,75 @@ VARIABLE SZ-PAGE-N
 ;
 
 \ -----------------------------------------------------------------------------
+\ Goto line (must precede SZ-DO-MOUSE / VIEW helpers)
+\ -----------------------------------------------------------------------------
+
+\ Lines of context above the target when opening at a line (VIEW / goto).
+5 CONSTANT SZ-VIEW-CONTEXT
+
+\ Set SZ-TOP so the cursor line sits ~SZ-VIEW-CONTEXT rows below the top
+\ of the text window (not jammed against the bottom).
+: SZ-REVEAL-NEAR-TOP  ( -- )
+   SZ-CUR @ SZ-LINE-START
+   SZ-VIEW-CONTEXT
+   BEGIN  DUP WHILE
+      OVER SZ-TBUF = IF
+         DROP 0
+      ELSE
+         SWAP SZ-PREV-LINE SWAP 1-
+      THEN
+   REPEAT
+   DROP
+   SZ-TOP !
+   0 SZ-HCOL !
+   0 SZ-PREF-COL !
+;
+
+\ Move cursor to 1-based line n (clamped). Start of that line; scroll so
+\ the line is near the top of the view (SZ-VIEW-CONTEXT rows down).
+: SZ-GOTO-LINE  ( n -- )
+   DUP 1 < IF  DROP 1  THEN
+   SZ-TBUF SWAP                    \ addr n
+   1 DO                            \ n-1 times NEXT-LINE (n=1 → no move)
+      SZ-NEXT-LINE
+   LOOP
+   SZ-CUR !
+   SZ-REVEAL-NEAR-TOP
+;
+
+\ -----------------------------------------------------------------------------
 \ Dispatch
 \ -----------------------------------------------------------------------------
+
+\ Facility mouse click → buffer cursor (Phase 4a).
+\ Host delivers key 25 then (SZ-CLICK) yields facility col/row (0-based).
+: SZ-DO-MOUSE  ( -- )
+   (SZ-CLICK) 0= IF  2DROP EXIT  THEN          \ col row
+   \ Ignore chrome (status / borders / help)
+   DUP SZ-TEXT-TOP < IF  2DROP EXIT  THEN
+   DUP SZ-TEXT-BOT @ > IF  2DROP EXIT  THEN
+   SWAP                                        \ row col
+   DUP SZ-TEXT-LEFT < IF  2DROP EXIT  THEN
+   SZ-TEXT-LEFT -                              \ row text-col
+   SZ-HCOL @ +                                 \ row buf-col
+   SWAP                                        \ buf-col row
+   SZ-TEXT-TOP -                               \ buf-col text-row (0-based)
+   \ Target 1-based line = line# of SZ-TOP + text-row
+   SZ-TOP @ SZ-HOST-LINE-NO +                  \ buf-col line#
+   SZ-GOTO-LINE                                \ buf-col  (GOTO resets PREF/HCOL)
+   \ Place caret on that line at buf-col (clamped to line length)
+   SZ-CUR-LINE SZ-PARSE-LINE NIP               \ buf-col len
+   MIN 0 MAX
+   SZ-CUR-LINE + SZ-CUR !
+   SZ-REMEMBER-COL
+   SZ-ENSURE-HVISIBLE
+;
 
 : SZ-HANDLE-KEY  ( c -- )
    255 AND
    DUP SZ-CTRL-Q = IF  DROP SZ-DO-QUIT EXIT  THEN   \ also File→Close / Cmd-W via host
    DUP SZ-CTRL-S = IF  DROP SZ-DO-SAVE EXIT  THEN   \ also File→Save / Cmd-S via host
+   DUP SZ-MOUSE = IF  DROP SZ-DO-MOUSE EXIT  THEN
    DUP SZ-CMD-OPEN = IF  DROP SZ-DO-MENU-OPEN EXIT  THEN
    DUP SZ-CMD-NEW = IF  DROP SZ-DO-MENU-NEW EXIT  THEN
    DUP SZ-LEFT = IF  DROP SZ-GO-LEFT EXIT  THEN
@@ -339,39 +403,6 @@ VARIABLE SZ-PAGE-N
 : SZ-EDIT-LOOP  ( -- )
    SZ-VIEW-RESET
    (SZ-EDIT-LOOP)
-;
-
-\ Lines of context above the target when opening at a line (VIEW / goto).
-5 CONSTANT SZ-VIEW-CONTEXT
-
-\ Set SZ-TOP so the cursor line sits ~SZ-VIEW-CONTEXT rows below the top
-\ of the text window (not jammed against the bottom).
-: SZ-REVEAL-NEAR-TOP  ( -- )
-   SZ-CUR @ SZ-LINE-START
-   SZ-VIEW-CONTEXT
-   BEGIN  DUP WHILE
-      OVER SZ-TBUF = IF
-         DROP 0
-      ELSE
-         SWAP SZ-PREV-LINE SWAP 1-
-      THEN
-   REPEAT
-   DROP
-   SZ-TOP !
-   0 SZ-HCOL !
-   0 SZ-PREF-COL !
-;
-
-\ Move cursor to 1-based line n (clamped). Start of that line; scroll so
-\ the line is near the top of the view (SZ-VIEW-CONTEXT rows down).
-: SZ-GOTO-LINE  ( n -- )
-   DUP 1 < IF  DROP 1  THEN
-   SZ-TBUF SWAP                    \ addr n
-   1 DO                            \ n-1 times NEXT-LINE (n=1 → no move)
-      SZ-NEXT-LINE
-   LOOP
-   SZ-CUR !
-   SZ-REVEAL-NEAR-TOP
 ;
 
 : SZ-EDIT-FILE  ( c-addr u -- )

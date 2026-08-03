@@ -1,5 +1,5 @@
-64Forth Hyper / VIEW (Phase 2–3a)
-=================================
+64Forth Hyper / VIEW (Phase 2–4)
+================================
 
 Load
 ----
@@ -31,17 +31,22 @@ Index load order
     - Developer source tree Resources/Config (Xcode / HYPER_ROOT)
     - Bundled Resources/Config (reads; writes mirrored to App Support)
 
-In-app reindex (Phase 3a)
--------------------------
+In-app reindex (Phase 3a / 4)
+-----------------------------
   HYPER-REINDEX
-    → scans fixed Kernel/ + Library/ SPECS (no DIR walk yet)
-    → TYPE 0 prefixes + BOOT_WORD → X* labels in Kernel/forth.s
+    → TYPE 0 from Config/HYPER.CFG
+    → SPECS/*EXCLUDE via host (OPEN Config/HYPER.SPECS = expanded list)
+    → BOOT_WORD → CodeLabel in Kernel/forth.s
     → CREATE-FILE Config/HYPER.NDX, then HYPER-RELOAD
 
   Limits vs tools/build_hyper_index.py:
-    - Fixed file list (HayesTest / ANSValidate / Benchmarks omitted)
-    - BOOT_WORD resolves CodeLabel → Kernel/forth.s (e.g. DUP → XDUP:)
+    - TYPE 0 only in Forth (no TYPE 1/2/4 yet)
     - Kernel .s/.inc: TYPE 0 only on .ascii / .asciz lines
+
+Editor (Phase 4a)
+-----------------
+  Mouse click in the facility/SZ-EDITOR window moves the buffer cursor
+  to the clicked cell (text body only; chrome ignored).
 
 Offline rebuild (full index, CI / ship Config/)
 -----------------------------------------------
