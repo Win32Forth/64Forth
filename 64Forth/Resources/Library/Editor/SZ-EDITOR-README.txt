@@ -6,7 +6,7 @@ Location
   Project:  64Forth/Resources/Library/Editor/
   Runtime:  app bundle Contents/Resources/Library/Editor/  (Copy Library)
 
-Status (v1.0.0)
+Status (v1.0.2)
 ---------------
   Phases 1–5 complete on 64Forth (pure-Forth line scans; FacilityTerminal host).
   Full-screen edit, save/close, find, selection/clipboard, mouse + wheel, Tab
@@ -51,9 +51,11 @@ Keys while editing (SZ-KEY)
   Cmd-E             VIEW word under cursor (Hyper loaded)
   Cmd-PgUp / Cmd-PgDn   previous / next Hyper hit (return from Cmd-E)
   Cmd-Left / Cmd-Right  previous / next same-word in this file only
+                        (.s/.inc/.asm: identifier rules so labels work —
+                        XROT: and bl XROT match; Forth files stay blank-delimited)
   Cmd-G / Cmd-Shift-G   find next / prev (same as arrows)
   Mouse click       word under click; gutter/line-start selects whole line
-  Cmd-click         extend selection (words, or whole lines if line-anchored)
+  Cmd-click         VIEW word under click (same as click + Cmd-E; needs Hyper)
   Wheel / trackpad  scroll view (caret stays on row; short files locked)
   Gutter after copy paste-here placeholder; ⌘V pastes prior clip
   Cmd-X / Cmd-C / Cmd-V   cut / copy / paste

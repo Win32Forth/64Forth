@@ -27,6 +27,9 @@ final class ConsoleNSScrollView: NSScrollView {
 
 /// NSTextView that reports mouse clicks in facility/SZ-EDITOR mode (Phase 4a).
 final class ConsoleNSTextView: NSTextView {
+    /// Console (non-facility) ⌘-click → VIEW word at UTF-16 index.
+    var onCommandClickAtUTF16: ((Int) -> Void)?
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if KernelBridge.shared.consumeEditorHotKeyIfNeeded(event) { return true }
         // ⌘X/C/V while SZ-EDITOR is open (menu may not claim them during KEY wait).
@@ -65,17 +68,25 @@ final class ConsoleNSTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        let pt = convert(event.locationInWindow, from: nil)
+        let idx = characterIndexForInsertion(at: pt)
+        let cmd = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
+
         if KernelBridge.shared.isFacilityTerminalActive, KernelBridge.shared.isEvaluating {
-            let pt = convert(event.locationInWindow, from: nil)
-            // characterIndexForInsertion(at:) is reliable for monospaced facility paint.
-            let idx = characterIndexForInsertion(at: pt)
-            // ⌘-click = range select (not ⌃-click — macOS maps Control-click to context menu).
-            let extend = event.modifierFlags.contains(.command)
-            KernelBridge.shared.reportFacilityClick(utf16Index: idx, extend: extend)
+            // ⌘-click = VIEW word (SZ-EDITOR); plain click places caret.
+            KernelBridge.shared.reportFacilityClick(utf16Index: idx, extend: cmd)
             // Keep focus; do not change the document selection into the paint grid.
             window?.makeFirstResponder(self)
             return
         }
+
+        // Console REPL: ⌘-click → VIEW word under click (same as ⌘E on that token).
+        if cmd, !KernelBridge.shared.isEvaluating {
+            onCommandClickAtUTF16?(idx)
+            window?.makeFirstResponder(self)
+            return
+        }
+
         super.mouseDown(with: event)
     }
 }
@@ -94,6 +105,8 @@ struct ConsoleTextView: NSViewRepresentable {
     var onHistoryDown: () -> Void = {}
     /// Raw key bytes for kernel KEY while evaluate is waiting (Latin-1 / UTF-8 bytes).
     var onKeyCharacter: (Int32) -> Void = { _ in }
+    /// Console ⌘-click at UTF-16 index → VIEW that token (Hyper).
+    var onCommandClickUTF16: (Int) -> Void = { _ in }
     var onTextViewReady: (NSTextView) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -138,6 +151,10 @@ struct ConsoleTextView: NSViewRepresentable {
         textView.string = text
         let end = (text as NSString).length
         textView.setSelectedRange(NSRange(location: end, length: 0))
+        let coord = context.coordinator
+        textView.onCommandClickAtUTF16 = { [weak coord] idx in
+            coord?.parent.onCommandClickUTF16(idx)
+        }
 
         context.coordinator.textView = textView
         onTextViewReady(textView)
@@ -147,6 +164,12 @@ struct ConsoleTextView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
         context.coordinator.parent = self
+        if let ctv = textView as? ConsoleNSTextView {
+            let coord = context.coordinator
+            ctv.onCommandClickAtUTF16 = { [weak coord] idx in
+                coord?.parent.onCommandClickUTF16(idx)
+            }
+        }
 
         var shouldScroll = false
         let needsPinCaret = context.coordinator.lastHandledPinCaretRequest != pinCaretRequest

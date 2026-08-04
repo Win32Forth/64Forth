@@ -136,7 +136,7 @@ CREATE SZ-PATH-TMP  260 ALLOT
 : SZ-ENSURE-FTH  ( c-addr u -- c-addr' u' )
    2DUP SZ-LEAF-DOT? IF  EXIT  THEN
    DUP 251 > IF  EXIT  THEN                   \ no room for ".fth"
-   SZ-PATH-TMP PLACE
+   SZ-PATH-TMP SZ-PLACE
    SZ-PATH-TMP COUNT                          \ body u
    2DUP +                                     \ body u end
    S" .fth"                                   \ body u end src su

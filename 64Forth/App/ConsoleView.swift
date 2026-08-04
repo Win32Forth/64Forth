@@ -43,7 +43,7 @@ extension Notification.Name {
     static let hyperNext = Notification.Name("SixtyFourForthHyperNext")
 }
 
-private let banner = "=== 64Forth 1.0.1 ===\n"
+private let banner = "=== 64Forth 1.0.2 ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner
@@ -87,6 +87,9 @@ struct ConsoleView: View {
             onHistoryDown: { recallHistory(up: false) },
             onKeyCharacter: { c in
                 kernel.pushKey(c)
+            },
+            onCommandClickUTF16: { idx in
+                handleViewWordAtConsoleUTF16(idx)
             },
             onTextViewReady: { textView in
                 DispatchQueue.main.async {
@@ -568,10 +571,29 @@ struct ConsoleView: View {
         guard !kernel.isEvaluating else { return }
         #if os(macOS)
         guard let tv = consoleTextView else { return }
-        let ns = tv.string as NSString
         var idx = tv.selectedRange().location
+        let ns = tv.string as NSString
         if idx > ns.length { idx = ns.length }
-        guard let word = Self.forthToken(at: idx, in: ns), !word.isEmpty else { return }
+        viewForthToken(at: idx, in: ns, placingCaretIn: tv)
+        #endif
+    }
+
+    /// Console ⌘-click: VIEW word under the click (same as ⌘E on that token).
+    private func handleViewWordAtConsoleUTF16(_ idx: Int) {
+        guard !kernel.isEvaluating else { return }
+        #if os(macOS)
+        guard let tv = consoleTextView else { return }
+        let ns = tv.string as NSString
+        viewForthToken(at: idx, in: ns, placingCaretIn: tv)
+        #endif
+    }
+
+    private func viewForthToken(at idx: Int, in ns: NSString, placingCaretIn tv: NSTextView) {
+        #if os(macOS)
+        var i = idx
+        if i > ns.length { i = ns.length }
+        guard let word = Self.forthToken(at: i, in: ns), !word.isEmpty else { return }
+        tv.setSelectedRange(NSRange(location: min(i, ns.length), length: 0))
         let escaped = word
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")

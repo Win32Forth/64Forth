@@ -12,12 +12,13 @@
 \   Ctrl-End  / Cmd-End    end of file
 \   PgUp / PgDn     page up / down
 \   mouse click     word under click; gutter/col0 = whole line
-\   Cmd-click       extend word or multi-line range → clipboard
+\   Cmd-click       VIEW word under click (same as click + Cmd-E)
 \   gutter after copy  paste-here (keeps prior clip); ⌘V pastes prior
 \   Cmd-X/C/V       cut / copy / paste (before/after line if paste-here)
 \   Cmd-E           VIEW word under cursor; Cmd-PgUp returns here
 \   Cmd-PgUp/PgDn   previous/next Hyper hit
 \   Cmd-Left/Right  prev/next occurrence of word under cursor (same file)
+\                   assembly (.s/.inc/.asm): identifier bounds (labels / XROT:)
 \   Cmd-S / Ctrl-S  save
 \   Cmd-W / Ctrl-Q  quit
 \
@@ -538,18 +539,21 @@ VARIABLE SZ-CLIP-HOLD-U                \ previous solid clip (two-level stack)
 ;
 
 \ Facility mouse click → buffer cursor (Phase 4a).
-\ Host key 25 then (SZ-CLICK) → col row flag (1=plain, 3=⌘-click range).
+\ Host key 25 then (SZ-CLICK) → col row flag (1=plain, 3=⌘-click VIEW).
 : SZ-DO-MOUSE  ( -- )
    (SZ-CLICK) DUP 0= IF  DROP 2DROP EXIT  THEN
-   2 AND SZ-CLICK-EXTEND !                     \ ⌘-extend bit
+   2 AND SZ-CLICK-EXTEND !                     \ ⌘ bit
    SZ-MOUSE-PLACE
    SZ-MOUSE-XT @ ?DUP IF  EXECUTE  THEN
 ;
 
 \ Phase 5: load path + goto line for HYPER multi-hit ( a u line -- )
 \ Do not reference Hyper words here (editor loads before Hyper).
+\ Copy path to SZ-PATH-TMP so a/u may safely alias HYPER-HIT across SZ-LOAD.
 : SZ-HYPER-GOTO  ( c-addr u line -- )
    >R                                 \ R: line  ( a u )
+   255 MIN SZ-PATH-TMP SZ-PLACE
+   SZ-PATH-TMP COUNT
    2DUP SZ-LOAD IF
       R> DROP
       SZ-MSG-LINE
@@ -576,8 +580,8 @@ VARIABLE SZ-CLIP-HOLD-U                \ previous solid clip (two-level stack)
 \ Hyper words live in HYPER-VOC. Runtime FIND so Editor can load before Hyper.
 CREATE SZ-RUN-NAME  64 ALLOT
 : SZ-RUN-FORTH  ( c-addr u -- )
-   63 MIN SZ-RUN-NAME PLACE
-   S" HYPER-VOC" PAD PLACE
+   63 MIN SZ-RUN-NAME SZ-PLACE
+   S" HYPER-VOC" PAD SZ-PLACE
    PAD FIND 0= IF  DROP EXIT  THEN
    EXECUTE                              \ push HYPER-VOC
    SZ-RUN-NAME FIND IF  EXECUTE  ELSE  DROP  THEN
@@ -598,26 +602,77 @@ VARIABLE SZ-WORD-END                   \ exclusive end of word under cursor
    DUP SZ-TBUF U< IF  DROP SZ-TBUF EXIT  THEN
    DUP SZ-TEND U> IF  DROP SZ-TEND  THEN ;
 
-\ Character to expand from when caret may be mid-word, on a blank, or at EOL:
-\ prefer non-blank at SZ-CUR; else non-blank immediately before (click past end).
+\ --- Word boundaries: Forth = whitespace; assembly = non-identifier ----------
+\ Assembly (.s .S .inc .asm): labels like XROT: and uses like bl XROT / adrp x0,X@page
+\ so ":" "@" "," are separators — Cmd-←/→ can find the next label occurrence.
+
+: SZ-CH-UPC  ( c -- c' )
+   DUP [CHAR] a [CHAR] z 1+ WITHIN IF  32 -  THEN ;
+
+\ Current path ends with .s / .S / .inc / .INC / .asm / .ASM?
+: SZ-ASM-FILE?  ( -- flag )
+   SZ-HAS-NAME? 0= IF  FALSE EXIT  THEN
+   SZ-GET-NAME 2>R                          \ R: a u (u = R-TOS)
+   R@ 2 < IF  2R> 2DROP FALSE EXIT  THEN
+   \ .s / .S  (any path whose last two chars are .s)
+   2R@ + 2 - C@ [CHAR] . =
+   2R@ + 1 - C@ SZ-CH-UPC [CHAR] S = AND IF
+      2R> 2DROP TRUE EXIT
+   THEN
+   R@ 4 < IF  2R> 2DROP FALSE EXIT  THEN
+   2R@ + 4 - C@ [CHAR] . <> IF  2R> 2DROP FALSE EXIT  THEN
+   \ .inc
+   2R@ + 3 - C@ SZ-CH-UPC [CHAR] I =
+   2R@ + 2 - C@ SZ-CH-UPC [CHAR] N = AND
+   2R@ + 1 - C@ SZ-CH-UPC [CHAR] C = AND IF
+      2R> 2DROP TRUE EXIT
+   THEN
+   \ .asm
+   2R@ + 3 - C@ SZ-CH-UPC [CHAR] A =
+   2R@ + 2 - C@ SZ-CH-UPC [CHAR] S = AND
+   2R@ + 1 - C@ SZ-CH-UPC [CHAR] M = AND IF
+      2R> 2DROP TRUE EXIT
+   THEN
+   2R> 2DROP FALSE ;
+
+\ Identifier char for assembly labels / symbols (not "@" — Mach-O @page suffix).
+: SZ-ASM-NAME-CHAR?  ( c -- flag )
+   DUP [CHAR] 0 [CHAR] 9 1+ WITHIN IF  DROP TRUE EXIT  THEN
+   DUP [CHAR] A [CHAR] Z 1+ WITHIN IF  DROP TRUE EXIT  THEN
+   DUP [CHAR] a [CHAR] z 1+ WITHIN IF  DROP TRUE EXIT  THEN
+   DUP [CHAR] _ = IF  DROP TRUE EXIT  THEN
+   DUP [CHAR] . = IF  DROP TRUE EXIT  THEN
+   DUP [CHAR] $ = IF  DROP TRUE EXIT  THEN
+   DROP FALSE ;
+
+\ True if c ends a "word" for expand/search (separator).
+: SZ-WORD-SEP?  ( c -- flag )
+   SZ-ASM-FILE? IF
+      SZ-ASM-NAME-CHAR? 0=
+   ELSE
+      SZ-BLANK?
+   THEN ;
+
+\ Character to expand from when caret may be mid-word, on a sep, or at EOL:
+\ prefer non-separator at SZ-CUR; else non-separator immediately before.
 \ ( -- addr | 0 )
 : SZ-WORD-ANCHOR  ( -- addr|0 )
    SZ-CUR @ SZ-CLIP-ADDR
    DUP SZ-TEND SZ-U>= IF
       DROP
       SZ-CUR @ SZ-TBUF U> IF
-         SZ-CUR @ 1- DUP C@ SZ-BLANK? IF  DROP 0  THEN
+         SZ-CUR @ 1- DUP C@ SZ-WORD-SEP? IF  DROP 0  THEN
       ELSE  0  THEN
       EXIT
    THEN
-   DUP C@ SZ-BLANK? 0= IF  EXIT  THEN                 \ mid/start of word
-   \ On whitespace: use previous non-blank if any
+   DUP C@ SZ-WORD-SEP? 0= IF  EXIT  THEN          \ mid/start of word
+   \ On separator: use previous non-separator if any
    DUP SZ-TBUF = IF  DROP 0 EXIT  THEN
    1-
-   DUP C@ SZ-BLANK? IF  DROP 0 EXIT  THEN ;
+   DUP C@ SZ-WORD-SEP? IF  DROP 0 EXIT  THEN ;
 
-\ Expand anchor to full whitespace-delimited [beg,end) and copy into SZ-TOKEN.
-\ Works when SZ-CUR is anywhere inside the word (not only at its start).
+\ Expand anchor to full word [beg,end) and copy into SZ-TOKEN.
+\ Forth: whitespace-delimited.  Assembly: identifier run (so XROT: → XROT).
 \ ( -- c-addr u )
 : SZ-WORD-AT-CUR  ( -- c-addr u )
    0 SZ-TOKEN C!
@@ -627,14 +682,14 @@ VARIABLE SZ-WORD-END                   \ exclusive end of word under cursor
    \ walk left → inclusive start
    BEGIN
       DUP SZ-TBUF = IF  TRUE
-      ELSE  DUP 1- C@ SZ-BLANK? IF  TRUE
+      ELSE  DUP 1- C@ SZ-WORD-SEP? IF  TRUE
       ELSE  1- FALSE  THEN THEN
    UNTIL                                          \ beg
    DUP SZ-WORD-BEG !
    \ walk right → exclusive end
    BEGIN
       DUP SZ-TEND SZ-U>= IF  TRUE
-      ELSE  DUP C@ SZ-BLANK? IF  TRUE
+      ELSE  DUP C@ SZ-WORD-SEP? IF  TRUE
       ELSE  1+ FALSE  THEN THEN
    UNTIL                                          \ end
    DUP SZ-WORD-END !
@@ -805,8 +860,9 @@ VARIABLE SZ-CLIP-HOLD-U
    THEN
 ;
 
+\ Stub; redefined after SZ-DO-VIEW-UNDER (⌘-click → VIEW).
 : SZ-AFTER-MOUSE  ( -- )
-   SZ-CLICK-EXTEND @ IF  SZ-RANGE-CLICK  ELSE  SZ-PLAIN-CLICK  THEN
+   SZ-CLICK-EXTEND @ 0= IF  SZ-PLAIN-CLICK  THEN
 ;
 ' SZ-AFTER-MOUSE SZ-MOUSE-XT !
 
@@ -917,12 +973,19 @@ VARIABLE SZ-DR-N
 : SZ-DO-VIEW-UNDER  ( -- )
    SZ-WORD-AT-CUR
    DUP 0= IF  2DROP EXIT  THEN                 \ a u
-   S" HYPER-VOC" PAD PLACE
+   S" HYPER-VOC" PAD SZ-PLACE
    PAD FIND 0= IF  DROP 2DROP EXIT  THEN
    EXECUTE                                     \ push HYPER-VOC; a u remain
-   S" HYPER-VIEW-NAME" PAD PLACE
+   S" HYPER-VIEW-NAME" PAD SZ-PLACE
    PAD FIND IF  EXECUTE  ELSE  DROP 2DROP  THEN
    PREVIOUS ;
+
+\ ⌘-click: place caret (already done) then VIEW — same as click + Cmd-E.
+\ (Replaces earlier stub; range-extend via ⌘-click is no longer used.)
+: SZ-AFTER-MOUSE  ( -- )
+   SZ-CLICK-EXTEND @ IF  SZ-DO-VIEW-UNDER  ELSE  SZ-PLAIN-CLICK  THEN
+;
+' SZ-AFTER-MOUSE SZ-MOUSE-XT !
 
 \ Case-insensitive char equal
 : SZ-CH=  ( c1 c2 -- flag )
@@ -944,14 +1007,15 @@ VARIABLE SZ-DR-N
    REPEAT
    DROP R> DROP TRUE ;
 
-\ Whole-word: blanks (or buffer edges) on both sides of [addr, addr+u)
+\ Whole-word: separators (or buffer edges) on both sides of [addr, addr+u).
+\ Forth: whitespace.  Assembly: non-identifier so XROT matches XROT: and "bl XROT".
 : SZ-BOUND-OK  ( addr u -- flag )
    OVER SZ-TBUF = IF  TRUE
-   ELSE  OVER 1- C@ SZ-BLANK?  THEN
+   ELSE  OVER 1- C@ SZ-WORD-SEP?  THEN
    0= IF  2DROP FALSE EXIT  THEN
    2DUP +                               \ addr u end
    DUP SZ-TEND SZ-U>= IF  DROP 2DROP TRUE EXIT  THEN
-   C@ SZ-BLANK? NIP NIP ;
+   C@ SZ-WORD-SEP? NIP NIP ;
 
 \ True if SZ-TOKEN is a whole-word match at ha.
 : SZ-WORD-HIT?  ( ha -- flag )

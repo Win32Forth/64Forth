@@ -1,4 +1,4 @@
-64Forth Hyper / VIEW (Phases 0–5 complete — v1.0.0)
+64Forth Hyper / VIEW (Phases 0–5 complete — v1.0.2)
 ===================================================
 
 Load
@@ -27,18 +27,23 @@ Commands (from HYPER-VOC unless noted)
   VIEW <name>       Open file in SZ-EDITOR at that line
   SEE <name>        VIEW if SZ-EDITOR loaded, else decompile (kernel SEE)
   SEE-SOURCE        Alias of VIEW
-  HYPER-NEXT        Next hit for last LOCATE/VIEW   (Cmd-PgDn)
-  HYPER-PREV        Previous hit                    (Cmd-PgUp)
+  HYPER-NEXT        Visit history forward, else next multi-hit   (Cmd-PgDn)
+  HYPER-PREV        Visit history back, else previous multi-hit  (Cmd-PgUp)
   HYPER-REINDEX     Rebuild Config/HYPER.NDX, reload (FORTH)
   HYPER-RELOAD      Re-read index (Config/HYPER.NDX, else cwd HYPER.NDX)
-  .HYPER            Status
+  .HYPER            Status (includes visit n/m when history non-empty)
   HYPER-HELP        Short help
   MIN-HYPER-NOISE   ON quiet reindex  e.g.  HYPER-VOC MIN-HYPER-NOISE ON FORTH
 
-  Cmd-E             VIEW word under caret (console or SZ-EDITOR);
-                    in editor, saves origin so Cmd-PgUp can return
-  Cmd-PgDn          next hit for current name
-  Cmd-PgUp          previous hit, or return to Cmd-E origin
+  Visit history     Cmd-click / Cmd-E / VIEW build a list of path+line
+                    (up to 32). Cmd-PgUp/PgDn move in that list. A new
+                    visit while mid-list inserts after the current entry
+                    and keeps later entries (context is not discarded).
+
+  Cmd-E             VIEW word under caret (console or SZ-EDITOR)
+  Cmd-click         VIEW word under click (console or SZ-EDITOR; same as Cmd-E)
+  Cmd-PgDn          history forward, else next hit for current name
+  Cmd-PgUp          history back, else previous hit
   Cmd-Left/Right    prev/next same-word occurrence in the open file only
 
 Editor (ALSO EDITOR)

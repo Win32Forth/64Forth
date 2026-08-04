@@ -1,5 +1,5 @@
 // ============================================================================
-// PickleForth - A Forth kernel for ARM64 (Apple Silicon)
+// 64Forth - A Forth kernel for ARM64 (Apple Silicon)
 // ============================================================================
 // Registers:
 //   x20 = TOS  (Top of Data Stack)
@@ -90,7 +90,7 @@
 // ----------------------------------------------------------------------------
 // CORE EXT (6.2) — word names: complete (all required Core Ext names present).
 // ----------------------------------------------------------------------------
-// ANS Core Extensions word set — implemented in PickleForth:
+// ANS Core Extensions word set — implemented in 64Forth:
 //   .(  :NONAME  ?DO
 //   2>R  2R>  2R@
 //   <>  0<>  0>  AGAIN
@@ -122,7 +122,7 @@
 // Extended-Character: UTF-8 XC!+/XC@+/XEMIT + high-level width/string/pictured words.
 //
 // ----------------------------------------------------------------------------
-// PickleForth extensions (not ANS Core / Core Ext)
+// 64Forth extensions (not ANS Core / Core Ext)
 // ----------------------------------------------------------------------------
 //   >CODE >NAME >FLAGS >LINK NAME>STRING DOCOL? DOCON-ADDR CELL
 //   SP0 SP@ SP! DEPTH     stack probes / depth (ABORT uses SP0 SP!)
@@ -227,7 +227,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #19                    // "PickleForth v0.7.0\n"
+    mov x2, #15                    // "64Forth v1.0.2\n"
     mov x16, #4
     svc #0x80
 
@@ -11388,7 +11388,7 @@ env_n_file:     .asciz "FILE"
 env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
-str_hello:  .asciz "PickleForth v0.7.0\n"
+str_hello:  .asciz "64Forth v1.0.2\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
 str_bye:    .asciz "Bye!\n"

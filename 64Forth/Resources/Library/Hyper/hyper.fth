@@ -283,12 +283,54 @@ CREATE HYPER-HTAB  HYPER-HMAX HYPER-HESZ * ALLOT
 0 VALUE HYPER-ACTIVE-XT              \ SZ-EDITOR-ACTIVE variable xt
 0 VALUE HYPER-ORIGIN-XT              \ SZ-HYPER-ORIGIN
 
-\ Jump-return stack (Cmd-E origin): same entry layout as multi-hit table
- 16 CONSTANT HYPER-JMAX
-CREATE HYPER-JTAB  HYPER-JMAX HYPER-HESZ * ALLOT
-0 VALUE HYPER-JN
+\ -----------------------------------------------------------------------------
+\ Visit list — same entry store/load as the tested jump stack (PUSH/POP-ORIGIN).
+\ HYPER-VN = entries, HYPER-VI = current (0 .. VN-1).
+\ Cmd-PgUp/PgDn move VI; new VIEW inserts after VI (keeps later entries).
+\ -----------------------------------------------------------------------------
+ 32 CONSTANT HYPER-VMAX
+CREATE HYPER-VTAB  HYPER-VMAX HYPER-HESZ * ALLOT
+0 VALUE HYPER-VN
+0 VALUE HYPER-VI
+VARIABLE HYPER-V-IX                    \ slot index while storing
 
-: HYPER-JENT  ( i -- addr )  HYPER-HESZ * HYPER-JTAB + ;
+: HYPER-VENT  ( i -- addr )  HYPER-HESZ * HYPER-VTAB + ;
+
+\ Store path+line at slot i. Body is the proven HYPER-PUSH-ORIGIN sequence.
+: HYPER-V-STORE  ( a u line i -- )
+   HYPER-V-IX !
+   DUP 1 < IF  DROP 1  THEN >R               \ R: line  ( a u )
+   HYPER-V-IX @ HYPER-VENT >R                \ R: line ent
+   55 MIN
+   DUP R@ C!
+   R@ 1+ SWAP CMOVE
+   R@ HYPER-HOFF +
+   R> DROP
+   R> SWAP !
+;
+
+\ Load slot i into HYPER-HIT / HYPER-LINE# (same as former POP load).
+: HYPER-V-LOAD  ( i -- )
+   HYPER-VENT                                \ ent
+   DUP C@ 55 MIN >R                          \ ent  R: n
+   R@ HYPER-HIT C!
+   DUP 1+ HYPER-HIT 1+ R@ CMOVE              \ leaves ent
+   R> DROP
+   HYPER-HOFF + @ TO HYPER-LINE#
+;
+
+\ Open a hole at ins: shift [ins, VN) up one (MOVE handles overlap).
+: HYPER-V-OPEN  ( ins -- )
+   DUP HYPER-VN > IF  DROP EXIT  THEN
+   HYPER-V-IX !
+   HYPER-VN HYPER-V-IX @ - DUP 0= IF  DROP EXIT  THEN
+   HYPER-HESZ * >R
+   HYPER-V-IX @ HYPER-VENT
+   HYPER-V-IX @ 1+ HYPER-VENT
+   R> MOVE
+;
+
+: HYPER-HIST-CLEAR  ( -- )  0 TO HYPER-VN  0 TO HYPER-VI ;
 
 : HYPER-BIND-EDITOR  ( -- flag )
    ONLY FORTH ALSO EDITOR
@@ -310,6 +352,51 @@ CREATE HYPER-JTAB  HYPER-JMAX HYPER-HESZ * ALLOT
 : HYPER-EDITOR-ACTIVE?  ( -- flag )
    HYPER-ACTIVE-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
    HYPER-ACTIVE-XT IF  HYPER-ACTIVE-XT EXECUTE @  ELSE  FALSE  THEN ;
+
+\ Goto / note / record — after BIND and ACTIVE? (no forward refs).
+: HYPER-V-GOTO  ( i -- )
+   HYPER-V-LOAD
+   HYPER-GOTO-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
+   HYPER-GOTO-XT 0= IF  EXIT  THEN
+   HYPER-HIT COUNT HYPER-LINE#
+   HYPER-GOTO-XT EXECUTE
+;
+
+: HYPER-HIST-NOTE-HERE  ( -- )
+   HYPER-EDITOR-ACTIVE? 0= IF  EXIT  THEN
+   HYPER-ORIGIN-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
+   HYPER-ORIGIN-XT 0= IF  EXIT  THEN
+   HYPER-ORIGIN-XT EXECUTE                   \ a u line
+   HYPER-VN 0= IF
+      0 HYPER-V-STORE
+      1 TO HYPER-VN  0 TO HYPER-VI
+      EXIT
+   THEN
+   HYPER-VI HYPER-V-STORE
+;
+
+: HYPER-HIST-RECORD-DEST  ( -- )
+   HYPER-HIT C@ 0= IF  EXIT  THEN
+   HYPER-VN HYPER-VMAX >= IF
+      HYPER-VN 1- TO HYPER-VN
+      HYPER-VI 0> IF  HYPER-VI 1- TO HYPER-VI  THEN
+      HYPER-VN IF
+         HYPER-VTAB HYPER-HESZ +  HYPER-VTAB  HYPER-VN HYPER-HESZ * MOVE
+      THEN
+   THEN
+   HYPER-VN 0= IF
+      HYPER-HIT COUNT HYPER-LINE# 0 HYPER-V-STORE
+      1 TO HYPER-VN  0 TO HYPER-VI
+      EXIT
+   THEN
+   HYPER-VI 1+                               \ ins
+   DUP HYPER-V-OPEN
+   >R
+   HYPER-HIT COUNT HYPER-LINE# R@ HYPER-V-STORE
+   R@ TO HYPER-VI
+   R> DROP
+   HYPER-VN 1+ TO HYPER-VN
+;
 
 \ ( c-addr u line -- ) open in SZ-EDITOR; rebinds if needed
 : HYPER-OPEN-AT  ( c-addr u line -- )
@@ -340,64 +427,47 @@ CREATE HYPER-JTAB  HYPER-JMAX HYPER-HESZ * ALLOT
    HYPER-EDITOR-ACTIVE? IF  EXIT  THEN
    HYPER-SHOW-HIT ;
 
-\ Push current editor location before Cmd-E jump (path + line).
-: HYPER-PUSH-ORIGIN  ( -- )
-   HYPER-EDITOR-ACTIVE? 0= IF  EXIT  THEN
-   HYPER-ORIGIN-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
-   HYPER-ORIGIN-XT 0= IF  EXIT  THEN
-   HYPER-JN HYPER-JMAX >= IF  EXIT  THEN
-   HYPER-ORIGIN-XT EXECUTE                   \ a u line
-   DUP 1 < IF  DROP 1  THEN >R               \ R: line  ( a u )
-   HYPER-JN HYPER-JENT >R                    \ R: line ent
-   55 MIN                                    \ a u
-   DUP R@ C!
-   R@ 1+ SWAP CMOVE                          \ copy path chars
-   R@ HYPER-HOFF +                           \ line-cell addr
-   R> DROP                                   \ drop ent; R: line
-   R> SWAP !                                 \ (addr line) → store
-   HYPER-JN 1+ TO HYPER-JN ;
-
-\ Pop origin and goto it. ( -- flag ) true if restored.
-: HYPER-POP-ORIGIN  ( -- flag )
-   HYPER-JN 0= IF  FALSE EXIT  THEN
-   HYPER-JN 1- TO HYPER-JN
-   HYPER-JN HYPER-JENT                       \ ent
-   DUP C@ 55 MIN >R                          \ ent  R: n
-   R@ HYPER-HIT C!
-   1+ HYPER-HIT 1+ R@ CMOVE
-   R> DROP
-   HYPER-JN HYPER-JENT HYPER-HOFF + @ TO HYPER-LINE#
-   HYPER-GOTO-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
-   HYPER-GOTO-XT 0= IF  FALSE EXIT  THEN
-   HYPER-HIT COUNT HYPER-LINE#
-   HYPER-GOTO-XT EXECUTE
-   TRUE ;
-
-\ Cmd-PgDn: next redefine of current name
+\ Cmd-PgDn: visit forward, else next multi-hit
 : HYPER-NEXT  ( -- )
-   HYPER-HN 0= IF  ." HYPER: no hits" CR EXIT  THEN
+   HYPER-VI 1+ HYPER-VN < IF
+      HYPER-HIST-NOTE-HERE
+      HYPER-VI 1+ TO HYPER-VI
+      HYPER-VI HYPER-V-GOTO
+      EXIT
+   THEN
+   HYPER-HN 0= IF
+      HYPER-EDITOR-ACTIVE? 0= IF  ." HYPER: end of history" CR  THEN
+      EXIT
+   THEN
    HYPER-HI 1+
    DUP HYPER-HN >= IF
       DROP
       HYPER-EDITOR-ACTIVE? 0= IF  ." HYPER: last hit [" HYPER-HN . ." ]" CR  THEN
       EXIT
    THEN
+   HYPER-HIST-NOTE-HERE
    HYPER-SELECT
    HYPER-SHOW-HIT-SAFE
-   HYPER-APPLY-HIT ;
+   HYPER-APPLY-HIT
+   HYPER-HIST-RECORD-DEST ;
 
-\ Cmd-PgUp: previous redefine, or return to Cmd-E origin
+\ Cmd-PgUp: visit back, else previous multi-hit
 : HYPER-PREV  ( -- )
+   HYPER-VI 0> IF
+      HYPER-HIST-NOTE-HERE
+      HYPER-VI 1- TO HYPER-VI
+      HYPER-VI HYPER-V-GOTO
+      EXIT
+   THEN
    HYPER-HI 0> IF
+      HYPER-HIST-NOTE-HERE
       HYPER-HI 1- HYPER-SELECT
       HYPER-SHOW-HIT-SAFE
       HYPER-APPLY-HIT
+      HYPER-HIST-RECORD-DEST
       EXIT
    THEN
-   \ On first hit (or no multi-hit): pop jump stack from Cmd-E
-   HYPER-POP-ORIGIN IF  EXIT  THEN
-   HYPER-HN 0= IF  ." HYPER: no hits" CR EXIT  THEN
-   HYPER-EDITOR-ACTIVE? 0= IF  ." HYPER: first hit" CR  THEN ;
+   HYPER-EDITOR-ACTIVE? 0= IF  ." HYPER: start of history" CR  THEN ;
 
 : LOCATE  ( "name" -- )
    PARSE-NAME
@@ -410,23 +480,21 @@ CREATE HYPER-JTAB  HYPER-JMAX HYPER-HESZ * ALLOT
    THEN
    HYPER-SHOW-HIT ;
 
-\ VIEW by name string. If SZ-EDITOR is already active, push origin then jump
-\ (Cmd-E); Cmd-PgUp returns via HYPER-POP-ORIGIN. Else open SZ-EDIT-FILE-AT.
+\ VIEW by name: note here, jump, record destination in visit list.
 : HYPER-VIEW-NAME  ( c-addr u -- )
    DUP 0= IF  2DROP EXIT  THEN
    HYPER-EDITOR? 0= IF  2DROP EXIT  THEN
    TRUE TO HYPER-VIEWING
-   HYPER-EDITOR-ACTIVE? IF  HYPER-PUSH-ORIGIN  THEN
+   HYPER-EDITOR-ACTIVE? IF  HYPER-HIST-NOTE-HERE  THEN
    (HYPER-FIND) 0= IF
-      \ undo push if no hit
-      HYPER-JN IF  HYPER-JN 1- TO HYPER-JN  THEN
       HYPER-EDITOR-ACTIVE? 0= IF
          HYPER-SEEK COUNT TYPE ."  not in HYPER.NDX" CR
       THEN
       EXIT
    THEN
    HYPER-SHOW-HIT-SAFE
-   HYPER-APPLY-HIT ;
+   HYPER-APPLY-HIT
+   HYPER-HIST-RECORD-DEST ;
 
 \ (VIEW) opens a session when not editing; in-editor uses HYPER-VIEW-NAME.
 : (VIEW)  ( c-addr u -- )
@@ -439,6 +507,10 @@ CREATE HYPER-JTAB  HYPER-JMAX HYPER-HESZ * ALLOT
       EXIT
    THEN
    HYPER-SHOW-HIT
+   \ Seed visit list *before* OPEN-AT (SZ-EDIT-FILE-AT does not return until quit).
+   HYPER-HIST-CLEAR
+   HYPER-HIT COUNT HYPER-LINE# 0 HYPER-V-STORE
+   1 TO HYPER-VN  0 TO HYPER-VI
    HYPER-HIT COUNT HYPER-LINE# HYPER-OPEN-AT ;
 
 : VIEW  ( "name" -- )
@@ -484,6 +556,9 @@ CREATE HYPER-JTAB  HYPER-JMAX HYPER-HESZ * ALLOT
    HYPER-HN IF
       ."   hits " HYPER-HN . ."  current " HYPER-HI 1+ . CR
       HYPER-SHOW-HIT
+   THEN
+   HYPER-VN IF
+      ."   visit " HYPER-VI 1+ 0 .R [CHAR] / EMIT HYPER-VN 0 .R CR
    THEN ;
 
 : HYPER-HELP  ( -- )
@@ -491,9 +566,9 @@ CREATE HYPER-JTAB  HYPER-JMAX HYPER-HESZ * ALLOT
    ." LOCATE <name>     print path:line  [n/m] if multiple" CR
    ." VIEW <name>       open in SZ-EDITOR at line" CR
    ." SEE <name>        VIEW if editor loaded, else decompile" CR
-   ." Cmd-PgDn/PgUp     next/prev hit; PgUp also returns from Cmd-E" CR
+   ." Cmd-PgUp/PgDn     back/forward visit list; else multi-hit" CR
    ." Cmd-Left/Right    prev/next occurrence in current editor file" CR
-   ." Cmd-E             VIEW word under caret (console or SZ-EDITOR)" CR
+   ." Cmd-E / Cmd-click VIEW word; builds visit list for PgUp/PgDn" CR
    ." HYPER-REINDEX     rebuild Config/HYPER.NDX, reload (FORTH)" CR
    ." HYPER-VOC MIN-HYPER-NOISE ON|OFF  quiet reindex noise" CR
    ." HYPER-RELOAD  .HYPER   |  HYPER-VOC WORDS  |  ORDER" CR ;

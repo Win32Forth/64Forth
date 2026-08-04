@@ -251,7 +251,7 @@ CREATE SZ-FIND-STAT  18 ALLOT
    0 SZ-TEXT-BOT @ 2 + AT-XY
    ." Cmd-E VIEW word | Cmd-PgUp/Dn Hyper | Cmd-G/arrows find | wheel scroll"
    0 SZ-TEXT-BOT @ 3 + AT-XY
-   ." Cmd-X/C/V cut/copy/paste | gutter=line | Cmd-click range | Cmd-S/W save/close"
+   ." Cmd-X/C/V cut/copy/paste | gutter=line | Cmd-click VIEW | Cmd-S/W save/close"
 ;
 
 \ True if SZ-CUR lies on the logical line starting at `ls`.
