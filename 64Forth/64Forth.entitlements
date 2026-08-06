@@ -10,5 +10,12 @@
 	-->
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
+	<!-- 64TCOM / native code: mprotect(PROT_EXEC) on heap + MAP_JIT -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
 </dict>
 </plist>

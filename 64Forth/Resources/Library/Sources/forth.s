@@ -227,7 +227,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #15                    // "64Forth v1.0.2\n"
+    mov x2, #15                    // "64Forth v1.0.4\n"
     mov x16, #4
     svc #0x80
 
@@ -862,6 +862,12 @@ _kernel_eval:
     str  x1, [x0]
 
     bl   _vm_load
+
+    // MAP_JIT W^X is per-thread: eval may run on a background queue.
+    // Default this thread to *write* mode so C! into JIT buffers works.
+    // CALL-NATIVE flips to execute around the BLR, then back to write.
+    mov  x0, #0
+    bl   _pthread_jit_write_protect_np
 
     adrp x0, quit_jmpbuf@page
     add  x0, x0, quit_jmpbuf@pageoff
@@ -4135,6 +4141,285 @@ XFREE:
 1:
     RESTORE_VM
     mov  x20, #0                   // ior ok
+    NEXT
+
+// ---------------------------------------------------------------------------
+// Native code helpers (for 64TCOM and similar): make a buffer executable and
+// call it with a controlled ABI without smashing the Forth VM (x19-x24).
+// ---------------------------------------------------------------------------
+//
+// MPROTECT ( addr u prot -- ior )
+//   Darwin mprotect; addr need not be page-aligned (we align down; len up).
+//   prot: 1=READ 2=WRITE 4=EXEC (OR them; 7 = RWX).
+//   ior: 0 ok, else errno (or -1).
+//
+// ICACHE-INVAL ( addr u -- )
+//   sys_icache_invalidate(addr, u) so newly written code can execute.
+//
+// CALL-NATIVE ( x0 dsp code -- x0' )
+//   SAVE_VM; x0=x0_in; x19=dsp; blr code; RESTORE_VM; push result as TOS.
+//   Target may use x0,x1,x16,x19,x30 (and other caller-saved). Do not pass
+//   a code address that returns via a different ABI without preserving LR.
+
+    BOOT_WORD "MPROTECT", "MPROTECT ( addr u prot -- ior ) mprotect page range; prot 1=R 2=W 4=X", 0, XMPROTECT
+XMPROTECT:
+    // TOS=prot, under=u, under2=addr
+    mov  x3, x20                   // prot
+    ldr  x2, [x22], #8             // u
+    ldr  x1, [x22], #8             // addr
+    adrp x0, host_tmp0@page
+    add  x0, x0, host_tmp0@pageoff
+    str  x1, [x0]                  // addr
+    str  x2, [x0, #8]              // u
+    str  x3, [x0, #16]             // prot
+    SAVE_VM
+    bl   _getpagesize              // x0 = pagesize
+    mov  x4, x0                    // pagesize
+    adrp x9, host_tmp0@page
+    add  x9, x9, host_tmp0@pageoff
+    ldr  x1, [x9]                  // addr
+    ldr  x2, [x9, #8]              // u
+    ldr  x3, [x9, #16]             // prot
+    // page_base = addr & ~(pagesize-1)
+    sub  x5, x4, #1                // pagesize-1
+    bic  x0, x1, x5                // aligned addr
+    // end = addr + u; page_end = (end + pagesize-1) & ~(pagesize-1)
+    add  x6, x1, x2
+    add  x6, x6, x5
+    bic  x6, x6, x5
+    sub  x1, x6, x0                // len
+    mov  x2, x3                    // prot
+    // mprotect(x0=addr, x1=len, x2=prot) via libc
+    bl   _mprotect
+    // x0 = 0 ok, -1 fail — on fail return -errno for diagnosis
+    cbnz x0, 1f
+    adrp x1, host_tmp0@page
+    add  x1, x1, host_tmp0@pageoff
+    str  xzr, [x1]
+    b    2f
+1:
+    bl   ___error                  // x0 = &errno
+    ldr  w0, [x0]
+    neg  x0, x0                    // -errno (e.g. -13 EACCES)
+    adrp x1, host_tmp0@page
+    add  x1, x1, host_tmp0@pageoff
+    str  x0, [x1]
+2:
+    RESTORE_VM
+    adrp x0, host_tmp0@page
+    add  x0, x0, host_tmp0@pageoff
+    ldr  x20, [x0]                 // ior: 0 or -errno
+    NEXT
+
+    BOOT_WORD "ICACHE-INVAL", "ICACHE-INVAL ( addr u -- ) invalidate I-cache for [addr,addr+u)", 0, XICACHE_INVAL
+XICACHE_INVAL:
+    // ( addr u -- )  TOS=u, under=addr
+    mov  x1, x20                   // len
+    ldr  x0, [x22], #8             // addr; x22 → previous under
+    adrp x2, host_tmp0@page
+    add  x2, x2, host_tmp0@pageoff
+    str  x0, [x2]
+    str  x1, [x2, #8]
+    SAVE_VM
+    adrp x2, host_tmp0@page
+    add  x2, x2, host_tmp0@pageoff
+    ldr  x0, [x2]
+    ldr  x1, [x2, #8]
+    bl   _sys_icache_invalidate
+    RESTORE_VM
+    ldr  x20, [x22], #8            // new TOS = cell under (addr u)
+    NEXT
+
+    BOOT_WORD "CALL-NATIVE", "CALL-NATIVE ( x0 dsp code -- x0' ) call native code; saves Forth VM", 0, XCALL_NATIVE
+XCALL_NATIVE:
+    // TOS=code, under=dsp, under2=x0_in
+    // code must already be executable (MPROTECT R+X on an mmap buffer).
+    mov  x3, x20                   // code
+    ldr  x2, [x22], #8             // dsp
+    ldr  x1, [x22], #8             // x0_in
+    adrp x0, host_tmp0@page
+    add  x0, x0, host_tmp0@pageoff
+    str  x1, [x0]                  // x0_in
+    str  x2, [x0, #8]              // dsp
+    str  x3, [x0, #16]             // code
+    SAVE_VM
+    adrp x9, host_tmp0@page
+    add  x9, x9, host_tmp0@pageoff
+    ldr  x0, [x9]                  // ABI: TOS in x0
+    ldr  x19, [x9, #8]             // ABI: DSP in x19
+    ldr  x2, [x9, #16]             // code pointer
+    blr  x2
+    adrp x1, host_tmp0@page
+    add  x1, x1, host_tmp0@pageoff
+    str  x0, [x1, #24]             // save result
+    RESTORE_VM
+    adrp x0, host_tmp0@page
+    add  x0, x0, host_tmp0@pageoff
+    ldr  x20, [x0, #24]            // TOS = x0'
+    NEXT
+
+// ALLOCATE-EXEC ( u -- a-addr ior )
+// mmap anonymous PROT_READ|PROT_WRITE (NOT executable yet, NOT MAP_JIT).
+// Fill with code, then MPROTECT with prot 5 (R+X) before CALL-NATIVE.
+// malloc pages cannot be made executable; these can (with
+// allow-unsigned-executable-memory). Pair with FREE-EXEC.
+
+    BOOT_WORD "ALLOCATE-EXEC", "ALLOCATE-EXEC ( u -- a-addr ior ) mmap RW buffer for later R+X", 0, XALLOCATE_EXEC
+XALLOCATE_EXEC:
+    mov  x1, x20                   // length
+    cbnz x1, 0f
+    mov  x1, #0x1000
+0:
+    // round up to page (4096)
+    mov  x2, #0x1000
+    sub  x2, x2, #1                // 0xFFF
+    add  x1, x1, x2
+    bic  x1, x1, x2
+    adrp x0, host_tmp0@page
+    add  x0, x0, host_tmp0@pageoff
+    str  x1, [x0]
+    SAVE_VM
+    adrp x0, host_tmp0@page
+    add  x0, x0, host_tmp0@pageoff
+    ldr  x1, [x0]                  // len
+    mov  x0, #0
+    mov  x2, #3                    // PROT_READ|PROT_WRITE
+    // MAP_PRIVATE|MAP_ANON = 0x1002  (no MAP_JIT)
+    mov  x3, #0x1002
+    mov  x4, #-1
+    mov  x5, #0
+    bl   _mmap
+    adrp x1, host_tmp0@page
+    add  x1, x1, host_tmp0@pageoff
+    cmp  x0, #-1
+    b.eq 1f
+    str  x0, [x1]
+    str  xzr, [x1, #8]
+    b    2f
+1:
+    str  xzr, [x1]
+    mov  x2, #-1
+    str  x2, [x1, #8]
+2:
+    RESTORE_VM
+    adrp x0, host_tmp0@page
+    add  x0, x0, host_tmp0@pageoff
+    ldr  x1, [x0]
+    ldr  x2, [x0, #8]
+    mov  x20, x1
+    str  x20, [x22, #-8]!
+    mov  x20, x2
+    NEXT
+
+// NATIVE-SMOKE ( -- ior )
+// Self-test: mmap RW, write RET, mprotect R+X, blr, munmap.
+// ior 0 = CALL-NATIVE path works; nonzero = mapping/entitlement problem.
+
+    BOOT_WORD "NATIVE-SMOKE", "NATIVE-SMOKE ( -- ior ) test mmap RW + mprotect RX + BLR", 0, XNATIVE_SMOKE
+XNATIVE_SMOKE:
+    SAVE_VM
+    mov  x0, #0
+    mov  x1, #0x1000
+    mov  x2, #3                    // RW
+    mov  x3, #0x1002               // PRIVATE|ANON
+    mov  x4, #-1
+    mov  x5, #0
+    bl   _mmap
+    cmp  x0, #-1
+    b.eq 9f
+    mov  x19, x0                   // buf (VM already saved; x19 free)
+    // RET = 0xD65F03C0 little-endian
+    mov  w1, #0x03C0
+    movk w1, #0xD65F, lsl #16
+    str  w1, [x19]
+    // mprotect R+X
+    mov  x0, x19
+    mov  x1, #0x1000
+    mov  x2, #5                    // PROT_READ|PROT_EXEC
+    bl   _mprotect
+    cbnz x0, 8f
+    mov  x0, x19
+    mov  x1, #0x1000
+    bl   _sys_icache_invalidate
+    // call RET — returns immediately; x0 garbage ok
+    blr  x19
+    mov  x0, x19
+    mov  x1, #0x1000
+    bl   _munmap
+    adrp x1, host_tmp0@page
+    add  x1, x1, host_tmp0@pageoff
+    str  xzr, [x1]                 // ior 0
+    b    10f
+8:
+    mov  x0, x19
+    mov  x1, #0x1000
+    bl   _munmap
+9:
+    adrp x1, host_tmp0@page
+    add  x1, x1, host_tmp0@pageoff
+    mov  x0, #-1
+    str  x0, [x1]
+10:
+    RESTORE_VM
+    // ( -- ior ): push old TOS, leave ior
+    adrp x0, host_tmp0@page
+    add  x0, x0, host_tmp0@pageoff
+    ldr  x0, [x0]
+    str  x20, [x22, #-8]!
+    mov  x20, x0
+    NEXT
+
+// FREE-EXEC ( a-addr u -- ior )  munmap; ior 0 ok, -1 fail
+    BOOT_WORD "FREE-EXEC", "FREE-EXEC ( a-addr u -- ior ) munmap ALLOCATE-EXEC buffer", 0, XFREE_EXEC
+XFREE_EXEC:
+    mov  x1, x20                   // len
+    ldr  x0, [x22], #8             // addr
+    adrp x2, host_tmp0@page
+    add  x2, x2, host_tmp0@pageoff
+    str  x0, [x2]
+    str  x1, [x2, #8]
+    SAVE_VM
+    adrp x2, host_tmp0@page
+    add  x2, x2, host_tmp0@pageoff
+    ldr  x0, [x2]
+    ldr  x1, [x2, #8]
+    cbz  x0, 1f
+    bl   _munmap
+    // x0 = 0 ok, -1 fail
+    adrp x1, host_tmp0@page
+    add  x1, x1, host_tmp0@pageoff
+    str  x0, [x1]
+    b    2f
+1:
+    adrp x1, host_tmp0@page
+    add  x1, x1, host_tmp0@pageoff
+    str  xzr, [x1]
+2:
+    RESTORE_VM
+    adrp x0, host_tmp0@page
+    add  x0, x0, host_tmp0@pageoff
+    ldr  x20, [x0]
+    NEXT
+
+// JIT-WPROTECT ( f -- )
+// pthread_jit_write_protect_np(f): true = this thread execute MAP_JIT (no write);
+// false = write MAP_JIT (no execute). No-op-ish on non-MAP_JIT buffers.
+    BOOT_WORD "JIT-WPROTECT", "JIT-WPROTECT ( f -- ) MAP_JIT write(0)/exec(1) for this thread", 0, XJIT_WPROTECT
+XJIT_WPROTECT:
+    mov  x0, x20                   // flag
+    ldr  x20, [x22], #8            // pop TOS first (stack under → new TOS)
+    adrp x1, host_tmp0@page
+    add  x1, x1, host_tmp0@pageoff
+    str  x0, [x1]
+    SAVE_VM
+    adrp x1, host_tmp0@page
+    add  x1, x1, host_tmp0@pageoff
+    ldr  x0, [x1]
+    // nonzero → execute mode (1); zero → write mode (0)
+    cmp  x0, #0
+    cset x0, ne
+    bl   _pthread_jit_write_protect_np
+    RESTORE_VM
     NEXT
 
 // RESIZE ( a-addr1 u -- a-addr2 ior )  ANS Memory-Allocation
@@ -11388,7 +11673,7 @@ env_n_file:     .asciz "FILE"
 env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
-str_hello:  .asciz "64Forth v1.0.2\n"
+str_hello:  .asciz "64Forth v1.0.4\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
 str_bye:    .asciz "Bye!\n"
