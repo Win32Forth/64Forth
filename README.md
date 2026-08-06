@@ -53,7 +53,7 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 
 ---
 
-## Status (v1.0.4)
+## Status (v1.0.5)
 
 - [x] Project folder and design doc  
 - [x] Kernel sources copied from PickleForth (`_kernel_cold_start` entry, not `_main`)  
@@ -87,6 +87,7 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 - [x] **v1.0.2:** Hyper visit list (back/forward); Cmd-click VIEW; assembly-aware Cmd-←/→ find; Kernel→Library/Sources sync on build; kernel branding 64Forth
 - [x] **v1.0.3:** Native code helpers for 64TCOM (`MPROTECT`, `ICACHE-INVAL`, `CALL-NATIVE`, `ALLOCATE-EXEC`)
 - [x] **v1.0.4:** JIT entitlements (`com.apple.security.cs.allow-jit`, `allow-unsigned-executable-memory`); `JIT-WPROTECT` / `FREE-EXEC`; `CALL-NATIVE` toggles MAP_JIT exec mode; `kernel_eval` defaults MAP_JIT to write (avoids C! EXC_BAD_ACCESS); `ICACHE-INVAL` one-page-safe; verified with 64TCOM ARM64 `.RUN-ANS-N` / `SAVE-MACHO` (ANS exit 5). Release: `64Forth/releases/64Forth-1.0.4-macOS.dmg`
+- [x] **v1.0.5:** `SYSTEM ( c-addr u -- n )` — run a shell command via `/bin/sh -c` in the logical cwd (`CHDIR`/`PWD`); stdout/stderr to the console; `n` = exit status (`0` ok, `-1` launch fail). Enables 64TCOM `SAVE-MACHO` auto-`cc` without a separate Terminal window.
 
 ### Hypertext + SZ-EDITOR (v1.0.2)
 

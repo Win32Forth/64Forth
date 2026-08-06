@@ -227,7 +227,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #15                    // "64Forth v1.0.4\n"
+    mov x2, #15                    // "64Forth v1.0.5\n"
     mov x16, #4
     svc #0x80
 
@@ -438,6 +438,15 @@ _kernel_set_dir:
 _kernel_set_edit:
     adrp x1, edit_hook@page
     add  x1, x1, edit_hook@pageoff
+    str  x0, [x1]
+    ret
+
+// void kernel_set_system(long long (*fn)(const char *cmd, size_t n))
+// Host runs /bin/sh -c; returns exit status (0 ok) or -1 on launch failure.
+.globl _kernel_set_system
+_kernel_set_system:
+    adrp x1, system_hook@page
+    add  x1, x1, system_hook@pageoff
     str  x0, [x1]
     ret
 
@@ -2942,6 +2951,46 @@ XEDIT:
     blr  x9
 1:
     RESTORE_VM
+    NEXT
+
+// SYSTEM ( c-addr u -- n )
+// Run command string via host /bin/sh -c in the logical cwd (CHDIR/PWD).
+// n = process exit status (0 = success). n = -1 if hook missing or launch failed.
+// Example:  S" cc -arch arm64 -O2 -o tcomarm64 tcomarm64.c" SYSTEM
+
+    BOOT_WORD "SYSTEM", "SYSTEM ( c-addr u -- n ) run shell command (/bin/sh -c); n=exit status (-1 fail)", 0, XSYSTEM
+XSYSTEM:
+    // TOS = u, under = c-addr  →  net depth -1 (pop 2, push n as TOS)
+    // Same pattern as MPROTECT (3→1): pop unders, replace TOS with result.
+    adrp x9, host_tmp0@page
+    add  x9, x9, host_tmp0@pageoff
+    str  x20, [x9, #8]             // u
+    ldr  x0, [x22], #8             // c-addr (DSP +1 cell)
+    str  x0, [x9]                  // c-addr
+    SAVE_VM
+    adrp x2, system_hook@page
+    add  x2, x2, system_hook@pageoff
+    ldr  x9, [x2]
+    cbz  x9, 1f
+    adrp x2, host_tmp0@page
+    add  x2, x2, host_tmp0@pageoff
+    ldr  x0, [x2]                  // cmd
+    ldr  x1, [x2, #8]              // len
+    blr  x9                        // x0 = exit status
+    adrp x1, host_tmp1@page
+    add  x1, x1, host_tmp1@pageoff
+    str  x0, [x1]
+    b    2f
+1:
+    mov  x0, #-1
+    adrp x1, host_tmp1@page
+    add  x1, x1, host_tmp1@pageoff
+    str  x0, [x1]
+2:
+    RESTORE_VM
+    adrp x0, host_tmp1@page
+    add  x0, x0, host_tmp1@pageoff
+    ldr  x20, [x0]                 // TOS = n
     NEXT
 
 // ============================================================================
@@ -11740,7 +11789,7 @@ env_n_file:     .asciz "FILE"
 env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
-str_hello:  .asciz "64Forth v1.0.4\n"
+str_hello:  .asciz "64Forth v1.0.5\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
 str_bye:    .asciz "Bye!\n"
@@ -11789,6 +11838,7 @@ chdir_hook:     .quad 0            // void (*)(path, path_len); path_len 0 = bar
 pwd_hook:       .quad 0            // void (*)(void)
 dir_hook:       .quad 0            // void (*)(path, path_len); path_len 0 = list cwd
 edit_hook:      .quad 0            // void (*)(path, path_len); path_len 0 = bare EDIT dialog
+system_hook:    .quad 0            // long long (*)(cmd, n) — SYSTEM /bin/sh -c
 facility_op_hook: .quad 0          // void (*)(op, a, b) Facility terminal
 alloc_hook:     .quad 0            // int (*)(size_t n, void **out)
 free_hook:      .quad 0            // int (*)(void *p)

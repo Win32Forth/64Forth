@@ -5,7 +5,7 @@
 //  Public domain.
 //
 //  Swift ↔ PickleForth assembly kernel.
-//  Host words: FROMLIB, FLOAD/INCLUDE, CHDIR, PWD, DIR (TZForth-style).
+//  Host words: FROMLIB, FLOAD/INCLUDE, CHDIR, PWD, DIR, SYSTEM (TZForth-style).
 //  Phase 5: eval reentrancy guard (kernel is not re-entrant).
 //
 
@@ -130,6 +130,11 @@ private func kernel_set_dir(
 @_silgen_name("kernel_set_edit")
 private func kernel_set_edit(
     _ fn: (@convention(c) (UnsafePointer<CChar>?, Int) -> Void)?
+)
+
+@_silgen_name("kernel_set_system")
+private func kernel_set_system(
+    _ fn: (@convention(c) (UnsafePointer<CChar>?, Int) -> Int64)?
 )
 
 @_silgen_name("kernel_set_facility_op")
@@ -400,6 +405,18 @@ private let kernelDirTrampoline: @convention(c) (UnsafePointer<CChar>?, Int) -> 
 
 private let kernelEditTrampoline: @convention(c) (UnsafePointer<CChar>?, Int) -> Void = { path, pathLen in
     FileHost.shared.editForKernel(path: path, pathLen: pathLen)
+}
+
+/// SYSTEM ( c-addr u -- n ): run /bin/sh -c with the length-bounded command string.
+private let kernelSystemTrampoline: @convention(c) (UnsafePointer<CChar>?, Int) -> Int64 = { cmd, cmdLen in
+    guard let cmd, cmdLen > 0 else {
+        FileHost.shared.onMessage?("SYSTEM: empty command\n")
+        return -1
+    }
+    let n = cmdLen
+    let bytes = UnsafeBufferPointer(start: UnsafeRawPointer(cmd).assumingMemoryBound(to: UInt8.self), count: n)
+    let s = String(decoding: bytes, as: UTF8.self)
+    return Int64(FileHost.shared.runSystemCommand(s))
 }
 
 private let kernelAllocTrampoline: @convention(c) (Int, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> Int32 = { n, out in
@@ -762,6 +779,7 @@ final class KernelBridge {
         kernel_set_pwd(kernelPwdTrampoline)
         kernel_set_dir(kernelDirTrampoline)
         kernel_set_edit(kernelEditTrampoline)
+        kernel_set_system(kernelSystemTrampoline)
         kernel_set_allocate(kernelAllocTrampoline)
         kernel_set_free(kernelFreeTrampoline)
         kernel_set_bi_mul(kernelBiMulTrampoline)

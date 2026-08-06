@@ -85,6 +85,11 @@ void kernel_set_dir(void (*fn)(const char *path, size_t n));
 /// Honors FROMLIB (Library resolve; does not permanently chdir into Library).
 void kernel_set_edit(void (*fn)(const char *path, size_t n));
 
+/// SYSTEM — run shell command (host: /bin/sh -c). cmd is not necessarily NUL-terminated.
+/// Returns process exit status (0 = success), or -1 if launch/wait failed.
+typedef long long (*kernel_system_fn)(const char *cmd, size_t n);
+void kernel_set_system(kernel_system_fn fn);
+
 /// Facility terminal (PAGE / AT-XY / TERMINAL-REFRESH / FACILITY-OFF).
 /// op: 1=PAGE  2=AT-XY (a=col b=row, 0-based)  3=TERMINAL-REFRESH
 ///     4=FACILITY-OFF  5=resize (a=cols b=rows)

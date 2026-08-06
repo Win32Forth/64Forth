@@ -761,6 +761,90 @@ final class FileHost {
         msg("Current directory: \(logicalCurrentDirectory)\n")
     }
 
+    // MARK: - SYSTEM (shell command)
+
+    /// Run `cmd` via `/bin/sh -c` in `logicalCurrentDirectory`.
+    /// Returns process exit status (0 = success), or -1 if launch/wait failed.
+    /// Stdout and stderr are forwarded to the Forth console via `onMessage`.
+    func runSystemCommand(_ cmd: String) -> Int {
+        let trimmed = cmd.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            msg("SYSTEM: empty command\n")
+            return -1
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", trimmed]
+        process.currentDirectoryURL = URL(fileURLWithPath: logicalCurrentDirectory, isDirectory: true)
+
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = errPipe
+        process.standardInput = FileHandle.nullDevice
+
+        outPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                return
+            }
+            if let s = String(data: data, encoding: .utf8) {
+                self.msg(s)
+            } else {
+                self.msg(String(decoding: data, as: UTF8.self))
+            }
+        }
+        errPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                return
+            }
+            if let s = String(data: data, encoding: .utf8) {
+                self.msg(s)
+            } else {
+                self.msg(String(decoding: data, as: UTF8.self))
+            }
+        }
+
+        do {
+            try process.run()
+        } catch {
+            outPipe.fileHandleForReading.readabilityHandler = nil
+            errPipe.fileHandleForReading.readabilityHandler = nil
+            msg("SYSTEM: failed to launch: \(error.localizedDescription)\n")
+            return -1
+        }
+
+        process.waitUntilExit()
+        outPipe.fileHandleForReading.readabilityHandler = nil
+        errPipe.fileHandleForReading.readabilityHandler = nil
+
+        // Drain any residual data the handlers may have missed.
+        let restOut = outPipe.fileHandleForReading.readDataToEndOfFile()
+        if !restOut.isEmpty {
+            if let s = String(data: restOut, encoding: .utf8) { msg(s) }
+            else { msg(String(decoding: restOut, as: UTF8.self)) }
+        }
+        let restErr = errPipe.fileHandleForReading.readDataToEndOfFile()
+        if !restErr.isEmpty {
+            if let s = String(data: restErr, encoding: .utf8) { msg(s) }
+            else { msg(String(decoding: restErr, as: UTF8.self)) }
+        }
+
+        switch process.terminationReason {
+        case .exit:
+            return Int(process.terminationStatus)
+        case .uncaughtSignal:
+            msg("SYSTEM: terminated by signal \(process.terminationStatus)\n")
+            return -1
+        @unknown default:
+            return -1
+        }
+    }
+
     // MARK: - DIR (TZForth-style)
 
     /// List directory. Bare → cwd (or Library if FROMLIB). Named path / `*.fth` wildcards.
