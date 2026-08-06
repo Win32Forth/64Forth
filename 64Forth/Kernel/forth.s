@@ -4213,13 +4213,16 @@ XMPROTECT:
 
     BOOT_WORD "ICACHE-INVAL", "ICACHE-INVAL ( addr u -- ) invalidate I-cache for [addr,addr+u)", 0, XICACHE_INVAL
 XICACHE_INVAL:
-    // ( addr u -- )  TOS=u, under=addr
+    // ( addr u -- ) same stack effect as 2DROP
     mov  x1, x20                   // len
-    ldr  x0, [x22], #8             // addr; x22 → previous under
+    ldr  x0, [x22], #8             // addr
     adrp x2, host_tmp0@page
     add  x2, x2, host_tmp0@pageoff
     str  x0, [x2]
     str  x1, [x2, #8]
+    // Pop former TOS now (2DROP-style) BEFORE SAVE_VM so depth is correct
+    ldr  x3, [x22], #8             // new TOS value
+    str  x3, [x2, #16]             // keep across SAVE_VM/C call
     SAVE_VM
     adrp x2, host_tmp0@page
     add  x2, x2, host_tmp0@pageoff
@@ -4227,7 +4230,9 @@ XICACHE_INVAL:
     ldr  x1, [x2, #8]
     bl   _sys_icache_invalidate
     RESTORE_VM
-    ldr  x20, [x22], #8            // new TOS = cell under (addr u)
+    adrp x0, host_tmp0@page
+    add  x0, x0, host_tmp0@pageoff
+    ldr  x20, [x0, #16]            // restored TOS after 2DROP
     NEXT
 
     BOOT_WORD "CALL-NATIVE", "CALL-NATIVE ( x0 dsp code -- x0' ) call native code; saves Forth VM", 0, XCALL_NATIVE
@@ -4243,6 +4248,22 @@ XCALL_NATIVE:
     str  x2, [x0, #8]              // dsp
     str  x3, [x0, #16]             // code
     SAVE_VM
+    // I-cache one page only (64KiB was past end of small mmaps → EXC_BAD_ACCESS).
+    // Forth should already ICACHE-INVAL the real code length; this is a safety net.
+    adrp x9, host_tmp0@page
+    add  x9, x9, host_tmp0@pageoff
+    ldr  x2, [x9, #16]             // code pointer
+    bl   _getpagesize              // x0 = pagesize
+    mov  x3, x0                    // save pagesize
+    sub  x1, x0, #1                // mask
+    adrp x9, host_tmp0@page
+    add  x9, x9, host_tmp0@pageoff
+    ldr  x2, [x9, #16]
+    bic  x0, x2, x1                // page base
+    mov  x1, x3                    // len = one page (stays inside mapping)
+    bl   _sys_icache_invalidate
+    dsb  ish
+    isb
     adrp x9, host_tmp0@page
     add  x9, x9, host_tmp0@pageoff
     ldr  x0, [x9]                  // ABI: TOS in x0
@@ -4256,6 +4277,47 @@ XCALL_NATIVE:
     adrp x0, host_tmp0@page
     add  x0, x0, host_tmp0@pageoff
     ldr  x20, [x0, #24]            // TOS = x0'
+    NEXT
+
+// CALL-NATIVE-LEAF ( code -- x0' )
+// Like CALL-NATIVE but x0=0 and X19 = built-in data DSP (no Forth dsp arg).
+
+    BOOT_WORD "CALL-NATIVE-LEAF", "CALL-NATIVE-LEAF ( code -- x0' ) call code; x0=0, BSS DSP", 0, XCALL_NATIVE_LEAF
+XCALL_NATIVE_LEAF:
+    mov  x1, x20                   // code
+    adrp x0, host_tmp0@page
+    add  x0, x0, host_tmp0@pageoff
+    str  x1, [x0, #16]
+    SAVE_VM
+    adrp x9, host_tmp0@page
+    add  x9, x9, host_tmp0@pageoff
+    ldr  x2, [x9, #16]
+    bl   _getpagesize
+    mov  x3, x0
+    sub  x1, x0, #1
+    adrp x9, host_tmp0@page
+    add  x9, x9, host_tmp0@pageoff
+    ldr  x2, [x9, #16]
+    bic  x0, x2, x1
+    mov  x1, x3                    // one page only
+    bl   _sys_icache_invalidate
+    adrp x19, native_dsp_end@page
+    add  x19, x19, native_dsp_end@pageoff
+    sub  x19, x19, #64
+    mov  x0, #0
+    adrp x2, host_tmp0@page
+    add  x2, x2, host_tmp0@pageoff
+    ldr  x2, [x2, #16]
+    dsb  ish
+    isb
+    blr  x2
+    adrp x1, host_tmp0@page
+    add  x1, x1, host_tmp0@pageoff
+    str  x0, [x1, #24]
+    RESTORE_VM
+    adrp x0, host_tmp0@page
+    add  x0, x0, host_tmp0@pageoff
+    ldr  x20, [x0, #24]
     NEXT
 
 // ALLOCATE-EXEC ( u -- a-addr ior )
@@ -11554,6 +11616,11 @@ search_order:   .skip 64           // 8 wids
 search_order_n: .quad 0
 host_tmp0:      .skip 32           // scratch for host ABI
 host_tmp1:      .quad 0
+// Data stack for CALL-NATIVE-LEAF (grows down from native_dsp_end)
+.align 4
+native_dsp_mem: .skip 0x2000
+native_dsp_end:
+
 word_cursor:    .quad 0
 source_addr:    .quad 0
 source_len:     .quad 0
