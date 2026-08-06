@@ -86,7 +86,7 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 - [x] **v1.0.1:** Kernel assembly shipped as `Library/Sources/` so release VIEW/LOCATE works without a developer tree
 - [x] **v1.0.2:** Hyper visit list (back/forward); Cmd-click VIEW; assembly-aware Cmd-←/→ find; Kernel→Library/Sources sync on build; kernel branding 64Forth
 - [x] **v1.0.3:** Native code helpers for 64TCOM (`MPROTECT`, `ICACHE-INVAL`, `CALL-NATIVE`, `ALLOCATE-EXEC`)
-- [x] **v1.0.4:** JIT entitlements; `JIT-WPROTECT` / `FREE-EXEC`; `CALL-NATIVE` toggles MAP_JIT exec mode; `kernel_eval` defaults MAP_JIT to write (avoids C! EXC_BAD_ACCESS)
+- [x] **v1.0.4:** JIT entitlements (`com.apple.security.cs.allow-jit`, `allow-unsigned-executable-memory`); `JIT-WPROTECT` / `FREE-EXEC`; `CALL-NATIVE` toggles MAP_JIT exec mode; `kernel_eval` defaults MAP_JIT to write (avoids C! EXC_BAD_ACCESS); `ICACHE-INVAL` one-page-safe; verified with 64TCOM ARM64 `.RUN-ANS-N` / `SAVE-MACHO` (ANS exit 5). Release: `64Forth/releases/64Forth-1.0.4-macOS.dmg`
 
 ### Hypertext + SZ-EDITOR (v1.0.2)
 
