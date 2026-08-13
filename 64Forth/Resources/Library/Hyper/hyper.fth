@@ -4,7 +4,8 @@
 \ Use:  ALSO HYPER-VOC  LOCATE DUP  PREVIOUS
 \       (or: HYPER-VOC LOCATE DUP FORTH)
 \
-\ All Hyper words live in HYPER-VOC except HYPER-REINDEX (FORTH wrapper).
+\ Internals in HYPER-VOC. Public VIEW/LOCATE/SEE/… defined once in FORTH
+\ with ALSO HYPER-VOC so bodies find Hyper words (survive ONLY FORTH).
 
 ANEW HYPER-MODULE
 ONLY FORTH DEFINITIONS
@@ -63,15 +64,21 @@ S" Config/HYPER.NDX" HYPER-NDX-NAME PLACE
    R> DROP ;
 
 \ ( a1 u1 a2 u2 -- flag )  case-insensitive; always consumes all four args.
+\ After length check stack must be ( a1 a2 u ). A missing DROP left ( a1 a2 u2 u1 )
+\ so DUP C@ treated the length as an address → soft-fault / hang loops.
+\ Lengths must use U> : signed 255 > on a corrupt -1 length never trips and the
+\ compare loop runs "forever".
 : HYPER-NAME=  ( a1 u1 a2 u2 -- flag )
-   ROT OVER <> IF  2DROP 2DROP FALSE EXIT  THEN   \ len mismatch
-   DUP 64 > IF  2DROP 2DROP FALSE EXIT  THEN
+   ROT                                 \ a1 a2 u2 u1
+   2DUP <> IF  2DROP 2DROP FALSE EXIT  THEN   \ len mismatch
+   DROP                                \ a1 a2 u
+   DUP 255 U> IF  DROP 2DROP FALSE EXIT  THEN
    BEGIN  DUP WHILE
-      1- >R                             \ R: remaining-1  ( a1 a2 )
-      DUP C@ HYPER-UPC >R               \ R: rem ch2
-      OVER C@ HYPER-UPC R> <> IF        \ chars differ
-         R> DROP                        \ drop rem
-         2DROP FALSE EXIT               \ drop a1 a2
+      1- >R                            \ R: remaining-1  ( a1 a2 )
+      DUP C@ HYPER-UPC >R              \ R: rem ch2
+      OVER C@ HYPER-UPC R> <> IF       \ chars differ
+         R> DROP                       \ drop rem
+         2DROP FALSE EXIT
       THEN
       1+ SWAP 1+ SWAP
       R>
@@ -193,12 +200,15 @@ S" Config/HYPER.NDX" HYPER-NDX-NAME PLACE
    2DROP R> TRUE ;
 
 \ -----------------------------------------------------------------------------
-\ Multi-hit table (Phase 5)
-\ Entry layout (64 bytes): byte0 = path count, bytes1..55 = path, cell @56 = line
+\ Multi-hit / visit entry layout
+\   byte0 = path count, bytes1..PATHMAX = path, cell @HOFF = line
+\ PATHMAX was 55 — truncated absolute DerivedData paths mid-string (VIEW fail).
+\ Prefer short Library/… paths from host; room for long abs paths if needed.
 \ -----------------------------------------------------------------------------
 
- 56 CONSTANT HYPER-HOFF            \ offset of line cell within entry
- 64 CONSTANT HYPER-HESZ
+247 CONSTANT HYPER-PATHMAX           \ max path chars in a hit entry
+248 CONSTANT HYPER-HOFF              \ offset of line cell (aligned)
+256 CONSTANT HYPER-HESZ
  32 CONSTANT HYPER-HMAX
 
 CREATE HYPER-HTAB  HYPER-HMAX HYPER-HESZ * ALLOT
@@ -212,14 +222,42 @@ CREATE HYPER-HTAB  HYPER-HMAX HYPER-HESZ * ALLOT
    0 TO HYPER-HN  0 TO HYPER-HI
    0 HYPER-HIT C!  0 TO HYPER-LINE# ;
 
+VARIABLE HYPER-TMP-LINE
+VARIABLE HYPER-TMP-XT
+VARIABLE HYPER-TMP-WID
+VARIABLE HYPER-TMP-I
+VARIABLE HYPER-TMP-J                 \ HIT-DUP must not clobber other scan indices
+VARIABLE HYPER-TMP-N
+VARIABLE HYPER-TMP-ADDR
+
+\ True if HYPER-CUR + line already in hit table (path compare is
+\ case-insensitive via HYPER-NAME= — same file as AutoLoad/x vs autoload/x).
+: HYPER-HIT-DUP?  ( line -- flag )
+   HYPER-TMP-LINE !
+   0 HYPER-TMP-J !
+   BEGIN  HYPER-TMP-J @ HYPER-HN < WHILE
+      HYPER-TMP-J @ HYPER-HENT >R
+      R@ HYPER-HOFF + @ HYPER-TMP-LINE @ = IF
+         R@ COUNT HYPER-CUR COUNT HYPER-NAME= IF
+            R> DROP TRUE EXIT
+         THEN
+      THEN
+      R> DROP
+      1 HYPER-TMP-J +!
+   REPEAT
+   FALSE ;
+
 \ Store HYPER-CUR path + line into next table slot. ( line -- )
+\ Dedup here so NDX + dict VIEW (or two NDX @ paths that differ only by case)
+\ do not produce two "same" hits for VIEW VIEW etc.
 : HYPER-STORE-HIT  ( line -- )
+   DUP HYPER-HIT-DUP? IF  DROP EXIT  THEN
    HYPER-HN HYPER-HMAX >= IF  DROP EXIT  THEN
    HYPER-HN HYPER-HENT >R                \ R: ent  ( line )
-   HYPER-CUR COUNT 55 MIN                \ line a u
+   HYPER-CUR COUNT HYPER-PATHMAX MIN     \ line a u
    DUP R@ C!                             \ count at ent
    R@ 1+ SWAP CMOVE                      \ copy chars; leaves ( line )
-   R@ HYPER-HOFF + !                     \ line → ent+56
+   R@ HYPER-HOFF + !                     \ line → ent+HOFF
    R> DROP
    HYPER-HN 1+ TO HYPER-HN ;
 
@@ -229,7 +267,7 @@ CREATE HYPER-HTAB  HYPER-HMAX HYPER-HESZ * ALLOT
    DUP HYPER-HN >= IF  DROP EXIT  THEN
    TO HYPER-HI
    HYPER-HI HYPER-HENT                   \ ent
-   DUP C@ 55 MIN >R                      \ ent  R: n
+   DUP C@ HYPER-PATHMAX MIN >R           \ ent  R: n
    R@ HYPER-HIT C!
    1+ HYPER-HIT 1+ R@ CMOVE              \ src dest u
    R> DROP
@@ -251,9 +289,9 @@ CREATE HYPER-HTAB  HYPER-HMAX HYPER-HESZ * ALLOT
    IF  HYPER->LINE IF  HYPER-STORE-HIT  THEN
    ELSE  2DROP  THEN ;
 
-: (HYPER-COLLECT)  ( -- n )
-   HYPER-ENSURE 0= IF  0 EXIT  THEN
-   HYPER-CLEAR-HITS
+\ Append NDX hits for HYPER-SEEK (does not clear existing hits).
+: (HYPER-COLLECT-NDX)  ( -- )
+   HYPER-ENSURE 0= IF  EXIT  THEN
    0 TO HYPER-POS
    0 HYPER-CUR C!
    BEGIN  HYPER-EOF? 0= WHILE
@@ -267,12 +305,81 @@ CREATE HYPER-HTAB  HYPER-HMAX HYPER-HESZ * ALLOT
          THEN
       ELSE  (HYPER-TRY-LINE)
       THEN THEN THEN
+   REPEAT ;
+
+\ --- Dictionary VIEW hits (header file-id + line) ----------------------------
+\ NOTE: TRAVERSE-WORDLIST keeps state on the return stack — do NOT use {: :}
+\ locals inside visitors (corrupts traverse / leaves garbage for VIEW-REG).
+
+\ Add one xt's VIEW (if present) to hit table. ( xt -- )
+\ HYPER-STORE-HIT drops path+line duplicates (case-insensitive path).
+: HYPER-ADD-XT-VIEW  ( xt -- )
+   DUP VIEW-FILE# 0= IF  DROP EXIT  THEN
+   DUP VIEW-LINE 0= IF  DROP EXIT  THEN
+   >R
+   R@ VIEW-FILE# VIEW-PATH              \ ca u | 0 0
+   DUP 0= IF  2DROP R> DROP EXIT  THEN
+   HYPER-CUR HYPER-PLACE                \ ( ca u dest )
+   R> VIEW-LINE HYPER-STORE-HIT ;
+
+\ One wordlist: hash SEARCH-WORDLIST only (never TRAVERSE — that compared
+\ every same-length name via HYPER-NAME= and hung VIEW).
+: HYPER-SCAN-WID  ( wid -- )
+   DUP 0= IF  DROP EXIT  THEN
+   >R HYPER-SEEK COUNT R> SEARCH-WORDLIST   \ 0 | xt 1 | xt -1
+   DUP IF
+      DROP                                  \ drop imm flag, leave xt
+      HYPER-ADD-XT-VIEW
+   ELSE
+      DROP                                  \ not found
+   THEN ;
+
+CREATE HYPER-SEEN-WID  128 CELLS ALLOT
+0 VALUE HYPER-SEEN-N
+CREATE HYPER-ORDER-TMP  16 CELLS ALLOT
+0 VALUE HYPER-ORDER-N
+
+: HYPER-SEEN?  ( wid -- flag )
+   HYPER-TMP-WID !
+   0 HYPER-TMP-I !
+   BEGIN  HYPER-TMP-I @ HYPER-SEEN-N < WHILE
+      HYPER-SEEN-WID HYPER-TMP-I @ CELLS + @ HYPER-TMP-WID @ = IF
+         TRUE EXIT
+      THEN
+      1 HYPER-TMP-I +!
    REPEAT
-   HYPER-HN ;
+   FALSE ;
+
+: HYPER-MARK-SEEN  ( wid -- )
+   HYPER-SEEN-N 128 >= IF  DROP EXIT  THEN
+   HYPER-SEEN-WID HYPER-SEEN-N CELLS + !
+   HYPER-SEEN-N 1+ TO HYPER-SEEN-N ;
+
+\ Dictionary VIEW hits: one FIND over the search order (same as the interpreter).
+\
+\ Why not SEARCH-WORDLIST on each GET-ORDER / WORDLISTS wid?
+\ After ANEW/FORGET, search_order or the registry can still hold a stale wid
+\ (old VOCABULARY head array in reclaimed dict). SEARCH-WORDLIST walks
+\ heads[hash(name)] with no cycle guard — empty thread = instant miss (DUP),
+\ cyclic garbage thread = hang forever (MAIN). FIND stops at the first hit in
+\ order, so a later stale wid is never entered once FORTH has the word.
+\ Multi-hit / CODE / asm sites still come from HYPER.NDX below.
+\ FIND ( c-addr -- c-addr 0 | xt 1 | xt -1 ). IF consumes the flag, so on a
+\ hit TOS is already xt — do NOT DROP it (that threw the xt away and left
+\ HYPER-ADD-XT-VIEW to @ garbage → XFETCH crash). On a miss, DROP the c-addr.
+: HYPER-COLLECT-DICT  ( -- )
+   HYPER-SEEK FIND IF
+      HYPER-ADD-XT-VIEW
+   ELSE
+      DROP
+   THEN ;
 
 : (HYPER-FIND)  ( c-addr u -- flag )
    63 MIN HYPER-SEEK HYPER-PLACE
-   (HYPER-COLLECT) 0= IF  FALSE EXIT  THEN
+   HYPER-CLEAR-HITS
+   HYPER-COLLECT-DICT
+   (HYPER-COLLECT-NDX)
+   HYPER-HN 0= IF  FALSE EXIT  THEN
    0 HYPER-SELECT
    TRUE ;
 
@@ -282,6 +389,7 @@ CREATE HYPER-HTAB  HYPER-HMAX HYPER-HESZ * ALLOT
 0 VALUE HYPER-GOTO-XT                \ SZ-HYPER-GOTO
 0 VALUE HYPER-ACTIVE-XT              \ SZ-EDITOR-ACTIVE variable xt
 0 VALUE HYPER-ORIGIN-XT              \ SZ-HYPER-ORIGIN
+0 VALUE HYPER-HITS-XT                \ SZ-HYPER-HITS! ( cur tot -- )
 
 \ -----------------------------------------------------------------------------
 \ Visit list — same entry store/load as the tested jump stack (PUSH/POP-ORIGIN).
@@ -301,7 +409,7 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    HYPER-V-IX !
    DUP 1 < IF  DROP 1  THEN >R               \ R: line  ( a u )
    HYPER-V-IX @ HYPER-VENT >R                \ R: line ent
-   55 MIN
+   HYPER-PATHMAX MIN
    DUP R@ C!
    R@ 1+ SWAP CMOVE
    R@ HYPER-HOFF +
@@ -312,7 +420,7 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
 \ Load slot i into HYPER-HIT / HYPER-LINE# (same as former POP load).
 : HYPER-V-LOAD  ( i -- )
    HYPER-VENT                                \ ent
-   DUP C@ 55 MIN >R                          \ ent  R: n
+   DUP C@ HYPER-PATHMAX MIN >R               \ ent  R: n
    R@ HYPER-HIT C!
    DUP 1+ HYPER-HIT 1+ R@ CMOVE              \ leaves ent
    R> DROP
@@ -342,8 +450,17 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    HYPER-CMD FIND IF  TO HYPER-ACTIVE-XT  ELSE  DROP 0 TO HYPER-ACTIVE-XT  THEN
    S" SZ-HYPER-ORIGIN" HYPER-CMD HYPER-PLACE
    HYPER-CMD FIND IF  TO HYPER-ORIGIN-XT  ELSE  DROP 0 TO HYPER-ORIGIN-XT  THEN
+   S" SZ-HYPER-HITS!" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  TO HYPER-HITS-XT  ELSE  DROP 0 TO HYPER-HITS-XT  THEN
    ONLY FORTH
    HYPER-EDIT-XT 0<> ;
+
+\ Push multi-hit (1-based HI+1 / HN) into the editor status badge.
+: HYPER-SYNC-HITS  ( -- )
+   HYPER-HITS-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
+   HYPER-HITS-XT 0= IF  EXIT  THEN
+   HYPER-HN 0= IF  0 0 HYPER-HITS-XT EXECUTE EXIT  THEN
+   HYPER-HI 1+ HYPER-HN HYPER-HITS-XT EXECUTE ;
 
 : HYPER-EDITOR?  ( -- flag )
    HYPER-EDIT-XT IF  TRUE EXIT  THEN
@@ -407,11 +524,13 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
       ."   FROMLIB FLOAD Editor/SZ-EDITOR.fth" CR
       EXIT
    THEN
+   HYPER-SYNC-HITS
    HYPER-EDIT-XT EXECUTE ;
 
 \ In-editor: SZ-HYPER-GOTO ( a u line )
 : HYPER-APPLY-HIT  ( -- )
    HYPER-HN 0= IF  EXIT  THEN
+   HYPER-SYNC-HITS
    HYPER-EDITOR-ACTIVE? IF
       HYPER-GOTO-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
       HYPER-GOTO-XT 0= IF  EXIT  THEN
@@ -427,14 +546,19 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    HYPER-EDITOR-ACTIVE? IF  EXIT  THEN
    HYPER-SHOW-HIT ;
 
-\ Cmd-PgDn: visit forward, else next multi-hit
-: HYPER-NEXT  ( -- )
-   HYPER-VI 1+ HYPER-VN < IF
-      HYPER-HIST-NOTE-HERE
-      HYPER-VI 1+ TO HYPER-VI
-      HYPER-VI HYPER-V-GOTO
-      EXIT
-   THEN
+\ Cmd-PgDn / Cmd-PgUp
+\
+\ Two lists (same FIND as VIEW / Cmd-click / Cmd-E):
+\   1) Multi-hit (HN/HI) — all sites for the *current* search name.
+\      Status (n/m) tracks this. Prefer when HN > 1 so PgUp/Dn match the badge.
+\   2) Visit list (VN/VI) — prior VIEW/Cmd-E destinations (HIST-RECORD-DEST).
+\      Used only when the current search has a single hit (or none left).
+\
+\ Cmd-click = SZ-DO-VIEW-UNDER → HYPER-VIEW-NAME → same (HYPER-FIND) as VIEW,
+\ plus HIST-NOTE/RECORD. Preferring multi-hit avoids walking visit entries
+\ that are not part of (n/m).
+
+: HYPER-HIT-NEXT  ( -- )
    HYPER-HN 0= IF
       HYPER-EDITOR-ACTIVE? 0= IF  ." HYPER: end of history" CR  THEN
       EXIT
@@ -445,29 +569,57 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
       HYPER-EDITOR-ACTIVE? 0= IF  ." HYPER: last hit [" HYPER-HN . ." ]" CR  THEN
       EXIT
    THEN
-   HYPER-HIST-NOTE-HERE
    HYPER-SELECT
    HYPER-SHOW-HIT-SAFE
-   HYPER-APPLY-HIT
-   HYPER-HIST-RECORD-DEST ;
+   HYPER-APPLY-HIT ;
 
-\ Cmd-PgUp: visit back, else previous multi-hit
+: HYPER-HIT-PREV  ( -- )
+   HYPER-HN 0= IF
+      HYPER-EDITOR-ACTIVE? 0= IF  ." HYPER: start of history" CR  THEN
+      EXIT
+   THEN
+   HYPER-HI 0= IF
+      HYPER-EDITOR-ACTIVE? 0= IF  ." HYPER: first hit [1/" HYPER-HN 0 .R ." ]" CR  THEN
+      EXIT
+   THEN
+   HYPER-HI 1- HYPER-SELECT
+   HYPER-SHOW-HIT-SAFE
+   HYPER-APPLY-HIT ;
+
+\ Kernel SEE xt for FORTH SEE fallback (must find system SEE, not ours).
+ONLY FORTH
+' SEE CONSTANT (SEE-OLD)
+ONLY FORTH ALSO HYPER-VOC DEFINITIONS
+
+\ Phase 3a/4 indexer (stays in HYPER-VOC; HYPER-REINDEX wrapper → FORTH).
+FLOAD hyper-index.fth
+
+\ Init with HYPER-VOC visible.
+ONLY FORTH ALSO HYPER-VOC
+HYPER-LOAD DROP
+HYPER-BIND-EDITOR DROP
+
+\ Public API once, in FORTH. CURRENT=FORTH; search order includes HYPER-VOC
+\ so bodies resolve Hyper internals (HYPER-FIND, OPEN-AT, …).
+ONLY FORTH DEFINITIONS ALSO HYPER-VOC
+
+: HYPER-NEXT  ( -- )
+   HYPER-HN 1 > IF  HYPER-HIT-NEXT EXIT  THEN
+   HYPER-VN 1 >  HYPER-VI 1+ HYPER-VN <  AND IF
+      HYPER-VI 1+ TO HYPER-VI
+      HYPER-VI HYPER-V-GOTO
+      EXIT
+   THEN
+   HYPER-HIT-NEXT ;
+
 : HYPER-PREV  ( -- )
-   HYPER-VI 0> IF
-      HYPER-HIST-NOTE-HERE
+   HYPER-HN 1 > IF  HYPER-HIT-PREV EXIT  THEN
+   HYPER-VN 1 >  HYPER-VI 0>  AND IF
       HYPER-VI 1- TO HYPER-VI
       HYPER-VI HYPER-V-GOTO
       EXIT
    THEN
-   HYPER-HI 0> IF
-      HYPER-HIST-NOTE-HERE
-      HYPER-HI 1- HYPER-SELECT
-      HYPER-SHOW-HIT-SAFE
-      HYPER-APPLY-HIT
-      HYPER-HIST-RECORD-DEST
-      EXIT
-   THEN
-   HYPER-EDITOR-ACTIVE? 0= IF  ." HYPER: start of history" CR  THEN ;
+   HYPER-HIT-PREV ;
 
 : LOCATE  ( "name" -- )
    PARSE-NAME
@@ -480,7 +632,6 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    THEN
    HYPER-SHOW-HIT ;
 
-\ VIEW by name: note here, jump, record destination in visit list.
 : HYPER-VIEW-NAME  ( c-addr u -- )
    DUP 0= IF  2DROP EXIT  THEN
    HYPER-EDITOR? 0= IF  2DROP EXIT  THEN
@@ -496,7 +647,6 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    HYPER-APPLY-HIT
    HYPER-HIST-RECORD-DEST ;
 
-\ (VIEW) opens a session when not editing; in-editor uses HYPER-VIEW-NAME.
 : (VIEW)  ( c-addr u -- )
    DUP 0= IF  2DROP EXIT  THEN
    HYPER-EDITOR-ACTIVE? IF  HYPER-VIEW-NAME EXIT  THEN
@@ -507,7 +657,6 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
       EXIT
    THEN
    HYPER-SHOW-HIT
-   \ Seed visit list *before* OPEN-AT (SZ-EDIT-FILE-AT does not return until quit).
    HYPER-HIST-CLEAR
    HYPER-HIT COUNT HYPER-LINE# 0 HYPER-V-STORE
    1 TO HYPER-VN  0 TO HYPER-VI
@@ -520,12 +669,7 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
 
 : SEE-SOURCE  ( "name" -- )  VIEW ;
 
-\ Cmd-E (console or editor): VIEW name if editor present; silent no-op otherwise.
-: HYPER-VIEW-CU  ( c-addr u -- )
-   HYPER-VIEW-NAME ;
-
-\ SEE: prefer VIEW when editor is loaded; else original decompiler.
-' SEE CONSTANT (SEE-OLD)
+: HYPER-VIEW-CU  ( c-addr u -- )  HYPER-VIEW-NAME ;
 
 : SEE  ( "name" -- )
    >IN @ >R
@@ -566,24 +710,13 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    ." LOCATE <name>     print path:line  [n/m] if multiple" CR
    ." VIEW <name>       open in SZ-EDITOR at line" CR
    ." SEE <name>        VIEW if editor loaded, else decompile" CR
-   ." Cmd-PgUp/PgDn     back/forward visit list; else multi-hit" CR
+   ." Cmd-PgUp/PgDn     multi-hit (n/m); visit list if single hit" CR
    ." Cmd-Left/Right    prev/next occurrence in current editor file" CR
-   ." Cmd-E / Cmd-click VIEW word; builds visit list for PgUp/PgDn" CR
-   ." HYPER-REINDEX     rebuild Config/HYPER.NDX, reload (FORTH)" CR
-   ." HYPER-VOC MIN-HYPER-NOISE ON|OFF  quiet reindex noise" CR
-   ." HYPER-RELOAD  .HYPER   |  HYPER-VOC WORDS  |  ORDER" CR ;
+   ." Cmd-E / Cmd-click VIEW word" CR
+   ." HYPER-REINDEX     rebuild Config/HYPER.NDX, reload" CR
+   ." HYPER-RELOAD  .HYPER   |  ALSO HYPER-VOC WORDS  |  ORDER" CR ;
 
-\ Phase 3a/4 indexer (same HYPER-VOC; HYPER-REINDEX → FORTH at end of file)
-FLOAD hyper-index.fth
-
-\ Ensure HYPER-VOC is searchable for init (index file may leave CURRENT=FORTH).
+\ Session order: FORTH then HYPER-VOC.
 ONLY FORTH ALSO HYPER-VOC
-HYPER-LOAD DROP
-HYPER-BIND-EDITOR DROP
-
-\ Default session order: FORTH first (WORDS / new defs), then HYPER-VOC so
-\ VIEW LOCATE .HYPER etc. resolve without typing ALSO HYPER-VOC each time.
-\ (FORTH alone replaces order[0] and would drop HYPER-VOC — use SET-ORDER.)
-ONLY FORTH ALSO HYPER-VOC          \ order: HYPER-VOC, FORTH
-GET-ORDER >R SWAP R> SET-ORDER     \ order: FORTH, HYPER-VOC
+GET-ORDER >R SWAP R> SET-ORDER
 FORTH-WORDLIST SET-CURRENT

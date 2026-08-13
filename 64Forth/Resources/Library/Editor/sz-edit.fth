@@ -547,6 +547,14 @@ VARIABLE SZ-CLIP-HOLD-U                \ previous solid clip (two-level stack)
    SZ-MOUSE-XT @ ?DUP IF  EXECUTE  THEN
 ;
 
+\ Hyper multi-hit status: (cur/tot) after filename. Hyper calls SZ-HYPER-HITS!
+\ before OPEN/GOTO; plain file open clears so the badge does not linger.
+: SZ-HYPER-HITS!  ( cur1based tot -- )
+   TO SZ-HH-TOT  TO SZ-HH-CUR ;
+
+: SZ-HYPER-HITS-OFF  ( -- )
+   0 TO SZ-HH-CUR  0 TO SZ-HH-TOT ;
+
 \ Phase 5: load path + goto line for HYPER multi-hit ( a u line -- )
 \ Do not reference Hyper words here (editor loads before Hyper).
 \ Copy path to SZ-PATH-TMP so a/u may safely alias HYPER-HIT across SZ-LOAD.
@@ -563,10 +571,8 @@ VARIABLE SZ-CLIP-HOLD-U                \ previous solid clip (two-level stack)
       EXIT
    THEN
    2DROP
-   R@ SZ-GOTO-LINE
-   SZ-MSG-LINE
-   ." hyper " SZ-GET-NAME TYPE ." :" R> 0 .R
-   TERMINAL-REFRESH
+   R> SZ-GOTO-LINE
+   SZ-REDRAW
 ;
 
 \ ( -- a u line ) current file path + 1-based line (for Hyper jump stack)
@@ -1154,6 +1160,7 @@ VARIABLE SZ-DR-N
 ;
 
 : SZ-EDIT-FILE  ( c-addr u -- )
+   SZ-HYPER-HITS-OFF
    2DUP SZ-LOAD IF
       ." SZ-EDIT-FILE: load failed: " TYPE CR
       ."   try absolute path, or FROMLIB for Library-relative names" CR
@@ -1164,6 +1171,7 @@ VARIABLE SZ-DR-N
 ;
 
 \ Load path and open editor on 1-based line (for VIEW / hypertext).
+\ Hyper sets SZ-HYPER-HITS! before calling when multi-hit is active.
 : SZ-EDIT-FILE-AT  ( c-addr u line -- )
    >R
    2DUP SZ-LOAD IF
@@ -1178,6 +1186,7 @@ VARIABLE SZ-DR-N
 
 \ Empty untitled buffer and enter the editor (File → New / ⌘N).
 : SZ-EDIT-NEW  ( -- )
+   SZ-HYPER-HITS-OFF
    SZ-CLEAR-BUF
    0 SZ-FNAME C!
    SZ-EDIT-LOOP

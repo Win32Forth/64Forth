@@ -214,29 +214,34 @@ CREATE SZ-SEL-WORD  18 ALLOT
 \ Find note shown to the right of Selected: (e.g. no next / no prev).
 CREATE SZ-FIND-STAT  18 ALLOT
 0 SZ-FIND-STAT C!
+\ Hyper multi-hit: 1-based index and total (0 total = hide). Set by Hyper via
+\ SZ-HYPER-HITS! so status can show (1/4) after the filename.
+0 VALUE SZ-HH-CUR
+0 VALUE SZ-HH-TOT
 
 \ Status must fit on one facility row (no wrap). Long paths used to wrap past
 \ cols, scroll the facility buffer, wipe the status, and shift the caret down.
 : SZ-SHOW-STATUS  ( -- )
    0 SZ-BLANK-ROW
    0 0 AT-XY
-   ." SZ-EDITOR "
    SZ-HAS-NAME? IF
       SZ-GET-NAME
-      \ keep name short: leave room for L/C/size + Selected:
-      \ show the *tail* of the path (basename side), not the leading dirs
-      DUP 18 > IF  18 - + 18  THEN
+      \ Path tail; 33 chars (was 16, +17) — room for (n/m) L: C: size Sel:
+      DUP 33 > IF  33 - + 33  THEN
       TYPE
    ELSE
       ." untitled"
    THEN
+   \ Multi-hit progress immediately after the name: file.fth(2/13)
+   SZ-HH-TOT 1 > IF
+      [CHAR] ( EMIT  SZ-HH-CUR 0 .R  [CHAR] / EMIT  SZ-HH-TOT 0 .R  [CHAR] ) EMIT
+   THEN
    SZ-MODIFIED @ IF  ." *"  THEN
-   ."  L" SZ-CUR-LINE-NO 0 .R
-   ."  C" SZ-CUR-COL 1+ 0 .R
+   ."  L:" SZ-CUR-LINE-NO 0 .R
+   ."  C:" SZ-CUR-COL 1+ 0 .R
    ."  " SZ-TLEN @ 0 .R ." b/"
    SZ-TBUF-CAP @ 0 .R
-   ."  " SZ-TEXT-WIDTH @ 0 .R ." x" SZ-TEXT-ROWS 0 .R
-   ."  Selected: "
+   ."  Sel: "
    [CHAR] " EMIT
    SZ-SEL-WORD COUNT TYPE
    [CHAR] " EMIT

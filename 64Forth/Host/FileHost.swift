@@ -327,6 +327,31 @@ final class FileHost {
             return libraryURL?.appendingPathComponent(rest).standardizedFileURL
         }
 
+        // AutoLoad/… — product boot scripts (VIEW of MAIN after autoload)
+        if n == "AutoLoad" || n.hasPrefix("AutoLoad/") {
+            let rest = n == "AutoLoad" ? "" : String(n.dropFirst("AutoLoad/".count))
+            if let auto = autoLoadURL {
+                let u = rest.isEmpty ? auto : auto.appendingPathComponent(rest)
+                if fm.fileExists(atPath: u.path) { return u.standardizedFileURL }
+            }
+            if let tree = sourceTreeURL {
+                let base = tree.appendingPathComponent("Resources/AutoLoad", isDirectory: true)
+                let u = rest.isEmpty ? base : base.appendingPathComponent(rest)
+                if fm.fileExists(atPath: u.path) { return u.standardizedFileURL }
+            }
+            if let res = resourcesURL {
+                let base = res.appendingPathComponent("AutoLoad", isDirectory: true)
+                let u = rest.isEmpty ? base : base.appendingPathComponent(rest)
+                return u.standardizedFileURL
+            }
+            return nil
+        }
+
+        // Legacy VIEW stamp: bare "autoload.fth" (pre-AutoLoad/ keys)
+        if !n.contains("/"), n.lowercased() == "autoload.fth" {
+            return resolveHyperStylePath("AutoLoad/autoload.fth")
+        }
+
         return nil
     }
 
@@ -485,7 +510,9 @@ final class FileHost {
         return results.sorted { $0.path.lowercased() < $1.path.lowercased() }
     }
 
-    /// Disk path → HYPER.NDX path (`Library/…` not `Resources/Library/…`).
+    /// Disk path → HYPER.NDX / VIEW path (`Library/…`, `AutoLoad/…`, not absolute).
+    /// Bare lastPathComponent alone is unopenable from a random cwd (VIEW MAIN used
+    /// to stamp `autoload.fth` and SZ-EDIT-FILE-AT failed).
     private func ndxStylePath(_ url: URL) -> String {
         let path = url.standardizedFileURL.path
         if let tree = sourceTreeURL {
@@ -493,10 +520,17 @@ final class FileHost {
             if path.hasPrefix(prefix) {
                 var rel = String(path.dropFirst(prefix.count))
                 while rel.hasPrefix("/") { rel.removeFirst() }
+                rel = rel.replacingOccurrences(of: "\\", with: "/")
                 if rel.hasPrefix("Resources/Library/") {
                     return "Library/" + String(rel.dropFirst("Resources/Library/".count))
                 }
-                return rel.replacingOccurrences(of: "\\", with: "/")
+                if rel.hasPrefix("Resources/AutoLoad/") {
+                    return "AutoLoad/" + String(rel.dropFirst("Resources/AutoLoad/".count))
+                }
+                if rel.hasPrefix("Resources/Config/") {
+                    return "Config/" + String(rel.dropFirst("Resources/Config/".count))
+                }
+                return rel
             }
         }
         if let lib = libraryURL {
@@ -505,6 +539,26 @@ final class FileHost {
                 var rel = String(path.dropFirst(prefix.count))
                 while rel.hasPrefix("/") { rel.removeFirst() }
                 return "Library/" + rel.replacingOccurrences(of: "\\", with: "/")
+            }
+        }
+        if let auto = autoLoadURL {
+            let prefix = auto.path
+            if path.hasPrefix(prefix) {
+                var rel = String(path.dropFirst(prefix.count))
+                while rel.hasPrefix("/") { rel.removeFirst() }
+                if rel.isEmpty { return "AutoLoad/" + url.lastPathComponent }
+                return "AutoLoad/" + rel.replacingOccurrences(of: "\\", with: "/")
+            }
+        }
+        if let res = resourcesURL {
+            let prefix = res.path
+            if path.hasPrefix(prefix) {
+                var rel = String(path.dropFirst(prefix.count))
+                while rel.hasPrefix("/") { rel.removeFirst() }
+                rel = rel.replacingOccurrences(of: "\\", with: "/")
+                if rel.hasPrefix("Library/") || rel.hasPrefix("AutoLoad/") || rel.hasPrefix("Config/") {
+                    return rel
+                }
             }
         }
         return url.lastPathComponent
@@ -1172,7 +1226,10 @@ final class FileHost {
         // of its SOURCE (restored when the kernel finishes the include — endLoadCwdIfNeeded).
         beginLoadCwd(forFileURL: url)
 
-        lastLoadRegistryKey = url.standardizedFileURL.path
+        // Prefer short NDX-style path (Library/…) for VIEW headers — absolute
+        // DerivedData paths were truncated at 55 chars in the Hyper hit table
+        // and failed open (e.g. ".../DerivedData" only).
+        lastLoadRegistryKey = ndxStylePath(url)
         outPtr?.pointee = UnsafePointer(p)
         outLen?.pointee = n
         return 0

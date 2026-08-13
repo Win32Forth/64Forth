@@ -616,7 +616,11 @@ CREATE HX-LTAB  HX-LMAX HX-ESIZE * ALLOT
    MIN-HYPER-NOISE @ 0=
    IF   ." HYPER-REINDEX: " HX-COUNT . ." entries" CR
    THEN
-   HYPER-RELOAD ;
+   \ Use HYPER-LOAD here (HYPER-VOC); HYPER-RELOAD is defined later in FORTH.
+   HYPER-LOAD IF
+      ." HYPER: " HYPER-NDX-NAME COUNT TYPE
+      ."  " HYPER-LEN . ." bytes" CR
+   ELSE  ." HYPER: cannot open index" CR  THEN ;
 
 \ Public entry in FORTH — no ALSO needed at the call site.
 \ Note: FORTH replaces search_order[0] (does not push). Keep HYPER-VOC first

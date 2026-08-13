@@ -22,7 +22,8 @@
 //   HFA:  counted HELP (stack pic + text), pad 8 (empty = count 0)
 //   NFA:  counted NAME (uppercase), pad 8
 //   LFA:  LINK  = previous CFA (or 0)     @ CFA-16  >LINK
-//   FFA:  FLAGS @ CFA-8: low32 NFA_OFF, bits32-62 HFA_OFF, bit63 IMM
+//   FFA:  FLAGS @ CFA-8:
+//         bits 0-15 NFA_OFF, 16-31 HFA_OFF, 32-47 VIEW line, 48-62 file-id, 63 IMM
 //   CFA:  CODE (** xt **)                 >CODE (= xt)
 //   BODY: @ CFA+8                         >BODY
 //
@@ -38,6 +39,8 @@
 //   last_cfa tracks the most recently defined CFA (IMMEDIATE / DOES>).
 //   MARKER saves/restores HERE + all FORTH heads[0..DICT_THREADS-1].
 .equ DICT_THREADS, 16
+// Max registered wordlists (FORTH + every WORDLIST / VOCABULARY). For .WORDLISTS / Hyper.
+.equ WORDLIST_REG_MAX, 128
 //
 // ----------------------------------------------------------------------------
 // ANS Forth 2012 compatibility
@@ -227,7 +230,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #15                    // "64Forth v1.0.5\n"
+    mov x2, #15                    // "64Forth v1.0.6\n"
     mov x16, #4
     svc #0x80
 
@@ -297,6 +300,10 @@ _kernel_cold_common:
     adrp x1, search_order_n@page
     add  x1, x1, search_order_n@pageoff
     str  x0, [x1]
+    // Register FORTH for WORDLISTS / .VOCABULARIES / Hyper scans
+    adrp x0, latest_var@page
+    add  x0, x0, latest_var@pageoff
+    bl   _wordlist_register
     ldp x29, x30, [sp], #16
     ret
 
@@ -1079,10 +1086,19 @@ _install_fault_handlers:
 //   FFA: FLAGS               @ CFA-8
 //   CFA: CODE
 //   BODY                     @ CFA+8
-// FLAGS: bits 0-31 NFA_OFF, bits 32-62 HFA_OFF, bit 63 IMMEDIATE
-.equ NFA_OFF_MASK, 0xFFFFFFFF
-.equ HFA_OFF_MASK, 0x7FFFFFFF
+// FLAGS packed cell:
+//   bits  0-15  NFA_OFF   (CFA - NFA), max 65535
+//   bits 16-31  HFA_OFF   (CFA - HFA), max 65535
+//   bits 32-47  VIEW_LINE (1-based; 0 = none)
+//   bits 48-62  VIEW_FILE (file-id 1..32767; 0 = none)
+//   bit  63     IMMEDIATE
+.equ NFA_OFF_MASK, 0xFFFF
+.equ HFA_OFF_MASK, 0xFFFF
+.equ VIEW_LINE_MASK, 0xFFFF
+.equ VIEW_FILE_MASK, 0x7FFF
 .equ FLAG_IMM, 0x8000000000000000   // bit 63
+.equ VIEW_FILE_MAX, 256
+.equ VIEW_PATH_MAX, 256
 
 .macro DICT_BODY_ADDR dst, cfa
     add \dst, \cfa, #8
@@ -1258,11 +1274,26 @@ _header_build:
     // --- CFA ---
     mov x0, x6                     // CFA
     str x23, [x6], #8
-    // FLAGS = NFA_OFF | (HFA_OFF << 32) | IMM<<63
+    // FLAGS = NFA_OFF | (HFA_OFF<<16) | (LINE<<32) | (FILE<<48) | IMM<<63
     sub x1, x0, x7                 // NFA_OFF
+    and x1, x1, #0xFFFF
     sub x2, x0, x8                 // HFA_OFF
-    and x2, x2, #0x7FFFFFFF
-    lsl x2, x2, #32
+    and x2, x2, #0xFFFF
+    lsl x2, x2, #16
+    orr x1, x1, x2
+    // VIEW line + file-id (0 if console / no registered source)
+    stp x0, x1, [sp, #-16]!
+    bl  _view_line_now             // x0 = line (0 if none)
+    mov x3, x0
+    adrp x2, view_src_id@page
+    add  x2, x2, view_src_id@pageoff
+    ldr  x2, [x2]
+    ldp x0, x1, [sp], #16
+    and x3, x3, #0xFFFF
+    lsl x3, x3, #32
+    orr x1, x1, x3
+    and x2, x2, #0x7FFF
+    lsl x2, x2, #48
     orr x1, x1, x2
     ldr x5, [sp], #16              // imm
     cbz x5, 11f
@@ -2466,7 +2497,7 @@ XSEARCH_WORDLIST:
 _swl_loop:
     cbz  x21, _swl_zero
     ldr  x2, [x21, #-8]            // FLAGS
-    and  x3, x2, #0xFFFFFFFF       // NFA_OFF
+    and  x3, x2, #0xFFFF           // NFA_OFF (bits 0-15)
     sub  x4, x21, x3               // NFA
     ldrb w3, [x4], #1              // name length
     cmp  x3, x8
@@ -3164,6 +3195,7 @@ _include_with_len:
     cbnz x0, _include_fail_restore
     cbz  x25, _include_fail_restore
     bl   _push_source
+    bl   _view_push_src_id
     mov  x0, x25
     mov  x1, x26
     bl   _set_source
@@ -3173,6 +3205,7 @@ _include_with_len:
     str  x1, [x0]
     // Prefer absolute last-load key for registry
     bl   _apply_last_load_key
+    bl   _view_set_src_from_pending
     bl   _included_register_pending
     ldp  x25, x26, [sp], #16
     RESTORE_VM
@@ -3214,6 +3247,7 @@ _include_syscall:
 
 _include_done_restore:
     bl   _push_source
+    bl   _view_push_src_id
     adrp x0, file_buffer@page
     add  x0, x0, file_buffer@pageoff
     mov  x1, x26
@@ -3226,6 +3260,7 @@ _include_done_restore:
     add  x0, x0, source_id_var@pageoff
     mov  x1, #1
     str  x1, [x0]
+    bl   _view_set_src_from_pending
     bl   _included_register_pending
     ldp  x25, x26, [sp], #16
     RESTORE_VM
@@ -3616,6 +3651,8 @@ XCURRENT:
     NEXT
 
 // WORDLIST ( -- wid ) allot DICT_THREADS head cells (all 0); wid = base
+// Every WORDLIST (including those created by VOCABULARY) is registered so
+// .VOCABULARIES / .WORDLISTS / Hyper can find bare wordlists too.
 
     BOOT_WORD "WORDLIST", "WORDLIST ( -- wid ) create empty word list", 0, XWORDLIST
 XWORDLIST:
@@ -3632,8 +3669,305 @@ XWORDLIST:
     subs x3, x3, #1
     b.ne 1b
     str  x1, [x0]
+    mov  x0, x2
+    bl   _wordlist_register        // track for .WORDLISTS / Hyper
     DPUSH
     mov  x20, x2
+    NEXT
+
+// WORDLISTS ( -- addr n )  base of registered wid table and count
+// Includes FORTH (registered at cold start) and every WORDLIST/VOCABULARY.
+
+    BOOT_WORD "WORDLISTS", "WORDLISTS ( -- addr n ) registered wordlist table", 0, XWORDLISTS
+XWORDLISTS:
+    DPUSH
+    adrp x0, wordlist_reg@page
+    add  x0, x0, wordlist_reg@pageoff
+    mov  x20, x0
+    DPUSH
+    adrp x0, wordlist_reg_n@page
+    add  x0, x0, wordlist_reg_n@pageoff
+    ldr  x20, [x0]
+    NEXT
+
+// _wordlist_register: x0 = wid. Append if not already present and room remains.
+_wordlist_register:
+    adrp x1, wordlist_reg_n@page
+    add  x1, x1, wordlist_reg_n@pageoff
+    ldr  x2, [x1]                  // n
+    adrp x3, wordlist_reg@page
+    add  x3, x3, wordlist_reg@pageoff
+    mov  x4, #0
+1:
+    cmp  x4, x2
+    b.hs 2f
+    ldr  x5, [x3, x4, lsl #3]
+    cmp  x5, x0
+    b.eq 3f                        // already registered
+    add  x4, x4, #1
+    b    1b
+2:
+    cmp  x2, #WORDLIST_REG_MAX
+    b.hs 3f                        // full — ignore
+    str  x0, [x3, x2, lsl #3]
+    add  x2, x2, #1
+    str  x2, [x1]
+3:
+    ret
+
+// ---------------------------------------------------------------------------
+// VIEW source tracking (file-id + line in FLAGS)
+// ---------------------------------------------------------------------------
+
+// _view_line_now: → x0 = 1-based line in current SOURCE, or 0 if none.
+// Counts newlines in [source_addr, source_addr + >IN).
+_view_line_now:
+    adrp x0, view_src_id@page
+    add  x0, x0, view_src_id@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 9f                    // no registered file
+    adrp x0, source_id_var@page
+    add  x0, x0, source_id_var@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 9f                    // console SOURCE
+    adrp x1, source_addr@page
+    add  x1, x1, source_addr@pageoff
+    ldr  x1, [x1]
+    adrp x2, to_in_var@page
+    add  x2, x2, to_in_var@pageoff
+    ldr  x2, [x2]                  // >IN
+    mov  x0, #1                    // line
+    mov  x3, #0                    // i
+1:
+    cmp  x3, x2
+    b.hs 8f
+    ldrb w4, [x1, x3]
+    cmp  w4, #10                   // LF
+    b.ne 2f
+    add  x0, x0, #1
+2:
+    add  x3, x3, #1
+    b    1b
+8:
+    ret
+9:
+    mov  x0, #0
+    ret
+
+// _view_register_path: x0=path chars, x1=len → x0=file-id (1-based), 0 on fail.
+// Dedup by exact path match. Paths stored as counted strings in view_paths.
+_view_register_path:
+    stp  x29, x30, [sp, #-16]!
+    mov  x29, sp
+    stp  x19, x20, [sp, #-16]!
+    stp  x21, x22, [sp, #-16]!
+    mov  x19, x0                   // path
+    mov  x20, x1                   // len
+    cmp  x20, #0
+    b.le _vrp_fail
+    cmp  x20, #255
+    b.ls 1f
+    mov  x20, #255
+1:
+    adrp x21, view_file_n@page
+    add  x21, x21, view_file_n@pageoff
+    ldr  x22, [x21]                // n
+    // search existing 1..n
+    mov  x3, #1
+2:
+    cmp  x3, x22
+    b.hi 3f
+    // slot i at view_paths + (i-1)*VIEW_PATH_MAX
+    sub  x4, x3, #1
+    mov  x5, #VIEW_PATH_MAX
+    mul  x4, x4, x5
+    adrp x5, view_paths@page
+    add  x5, x5, view_paths@pageoff
+    add  x5, x5, x4
+    ldrb w6, [x5]
+    cmp  x6, x20
+    b.ne 4f
+    // compare chars
+    mov  x7, #0
+5:
+    cmp  x7, x20
+    b.hs _vrp_found                // match → x3 = id
+    add  x8, x5, #1
+    ldrb w9, [x8, x7]
+    ldrb w10, [x19, x7]
+    cmp  w9, w10
+    b.ne 4f
+    add  x7, x7, #1
+    b    5b
+4:
+    add  x3, x3, #1
+    b    2b
+3:
+    // append new
+    cmp  x22, #VIEW_FILE_MAX
+    b.hs _vrp_fail
+    add  x22, x22, #1
+    str  x22, [x21]
+    mov  x3, x22
+    sub  x4, x3, #1
+    mov  x5, #VIEW_PATH_MAX
+    mul  x4, x4, x5
+    adrp x5, view_paths@page
+    add  x5, x5, view_paths@pageoff
+    add  x5, x5, x4
+    strb w20, [x5]
+    mov  x7, #0
+6:
+    cmp  x7, x20
+    b.hs _vrp_found
+    ldrb w9, [x19, x7]
+    add  x8, x5, #1
+    strb w9, [x8, x7]
+    add  x7, x7, #1
+    b    6b
+_vrp_found:
+    mov  x0, x3
+    ldp  x19, x20, [sp], #16
+    ldp  x21, x22, [sp], #16
+    ldp  x29, x30, [sp], #16
+    ret
+_vrp_fail:
+    mov  x0, #0
+    ldp  x19, x20, [sp], #16
+    ldp  x21, x22, [sp], #16
+    ldp  x29, x30, [sp], #16
+    ret
+
+// _view_set_src_from_pending: register include_name_pending as current VIEW file.
+_view_set_src_from_pending:
+    stp  x29, x30, [sp, #-16]!
+    adrp x0, include_name_len@page
+    add  x0, x0, include_name_len@pageoff
+    ldr  x1, [x0]
+    cbz  x1, 1f
+    adrp x0, include_name_pending@page
+    add  x0, x0, include_name_pending@pageoff
+    bl   _view_register_path       // x0 = id
+    adrp x1, view_src_id@page
+    add  x1, x1, view_src_id@pageoff
+    str  x0, [x1]
+    ldp  x29, x30, [sp], #16
+    ret
+1:
+    adrp x1, view_src_id@page
+    add  x1, x1, view_src_id@pageoff
+    str  xzr, [x1]
+    ldp  x29, x30, [sp], #16
+    ret
+
+// _view_push_src_id / _view_pop_src_id — nest with INCLUDE
+_view_push_src_id:
+    adrp x0, view_src_id@page
+    add  x0, x0, view_src_id@pageoff
+    ldr  x1, [x0]
+    adrp x2, view_id_sp@page
+    add  x2, x2, view_id_sp@pageoff
+    ldr  x3, [x2]
+    cmp  x3, #8
+    b.hs 1f
+    adrp x4, view_id_stack@page
+    add  x4, x4, view_id_stack@pageoff
+    str  x1, [x4, x3, lsl #3]
+    add  x3, x3, #1
+    str  x3, [x2]
+1:  ret
+
+_view_pop_src_id:
+    adrp x2, view_id_sp@page
+    add  x2, x2, view_id_sp@pageoff
+    ldr  x3, [x2]
+    cbz  x3, 1f
+    sub  x3, x3, #1
+    str  x3, [x2]
+    adrp x4, view_id_stack@page
+    add  x4, x4, view_id_stack@pageoff
+    ldr  x1, [x4, x3, lsl #3]
+    adrp x0, view_src_id@page
+    add  x0, x0, view_src_id@pageoff
+    str  x1, [x0]
+    ret
+1:
+    adrp x0, view_src_id@page
+    add  x0, x0, view_src_id@pageoff
+    str  xzr, [x0]
+    ret
+
+// VIEW-PATH ( file-id -- c-addr u | 0 0 )
+    BOOT_WORD "VIEW-PATH", "VIEW-PATH ( id -- c-addr u | 0 0 ) path for VIEW file-id", 0, XVIEW_PATH
+XVIEW_PATH:
+    mov  x1, x20                   // id
+    cbz  x1, 1f
+    adrp x0, view_file_n@page
+    add  x0, x0, view_file_n@pageoff
+    ldr  x0, [x0]
+    cmp  x1, x0
+    b.hi 1f
+    sub  x2, x1, #1
+    mov  x3, #VIEW_PATH_MAX
+    mul  x2, x2, x3
+    adrp x0, view_paths@page
+    add  x0, x0, view_paths@pageoff
+    add  x0, x0, x2                // counted path
+    ldrb w2, [x0]                  // u
+    add  x3, x0, #1                // c-addr
+    // under = c-addr, TOS = u  (replace id)
+    str  x3, [x22, #-8]!
+    mov  x20, x2
+    NEXT
+1:
+    str  xzr, [x22, #-8]!
+    mov  x20, #0
+    NEXT
+
+// VIEW-REG ( c-addr u -- id ) register path, return file-id (0 on fail)
+    BOOT_WORD "VIEW-REG", "VIEW-REG ( c-addr u -- id ) register source path for VIEW", 0, XVIEW_REG
+XVIEW_REG:
+    // Guard: bad stack → garbage c-addr caused EXC_BAD_ACCESS in register_path
+    mov  x1, x20                   // u
+    ldr  x0, [x22], #8             // c-addr
+    ldr  x20, [x22], #8
+    // Reject absurd lengths (COUNT of corrupt memory)
+    cmp  x1, #0
+    b.le 1f
+    cmp  x1, #255
+    b.hi 1f
+    // Null / low addresses are never valid path buffers
+    cbz  x0, 1f
+    SAVE_VM
+    bl   _view_register_path
+    RESTORE_VM
+    mov  x20, x0
+    NEXT
+1:
+    mov  x20, #0
+    NEXT
+
+// VIEW-STAMP ( xt file-id line -- ) set VIEW fields in xt FLAGS (keep NFA/HFA/IMM)
+    BOOT_WORD "VIEW-STAMP", "VIEW-STAMP ( xt file-id line -- ) set source VIEW in header", 0, XVIEW_STAMP
+XVIEW_STAMP:
+    mov  x3, x20                   // line
+    ldr  x2, [x22], #8             // file-id
+    ldr  x1, [x22], #8             // xt
+    ldr  x20, [x22], #8
+    cbz  x1, 1f
+    ldr  x0, [x1, #-8]             // FLAGS
+    // clear bits 32-62
+    mov  x4, #0x7FFFFFFF
+    lsl  x4, x4, #32
+    bic  x0, x0, x4
+    and  x3, x3, #0xFFFF
+    lsl  x3, x3, #32
+    orr  x0, x0, x3
+    and  x2, x2, #0x7FFF
+    lsl  x2, x2, #48
+    orr  x0, x0, x2
+    str  x0, [x1, #-8]
+1:
     NEXT
 
 // FORTH-WORDLIST ( -- wid )
@@ -3930,7 +4264,7 @@ _print_wid_name:
     b.ne 3f
     // Found: print NFA name
     ldr  x0, [x21, #-8]            // FLAGS
-    and  x0, x0, #0xFFFFFFFF       // NFA_OFF
+    and  x0, x0, #0xFFFF           // NFA_OFF
     sub  x0, x21, x0               // NFA
     ldrb w1, [x0], #1              // count; x0 -> chars
     mov  x2, #0
@@ -5689,7 +6023,7 @@ _record_words_user_base_once:
 // _words_name_ptr: x0=CFA → x0=name chars, x1=len
 _words_name_ptr:
     ldr  x1, [x0, #-8]             // FLAGS
-    and  x1, x1, #0xFFFFFFFF       // NFA_OFF
+    and  x1, x1, #0xFFFF           // NFA_OFF
     sub  x0, x0, x1                // NFA
     ldrb w1, [x0], #1              // count; x0 → chars
     ret
@@ -9820,7 +10154,10 @@ _interpret_empty:
     cbz  x9, 1f
     blr  x9
 1:
-    bl _pop_source
+    bl   _pop_source               // x0=1 restored outer, 0 = base done
+    str  x0, [sp, #-16]!
+    bl   _view_pop_src_id          // nest VIEW file-id with SOURCE
+    ldr  x0, [sp], #16
     cbnz x0, _interpret_loop       // restored outer SOURCE — keep going
 _interpret_done:
     // First completion is bootstrap (forth_init_str); fence user WORDS after that.
@@ -11309,7 +11646,7 @@ _fw_wl:
 _fw_loop:
     cbz x21, _fw_next_wl
     ldr x2, [x21, #-8]             // FLAGS
-    and x3, x2, #0xFFFFFFFF        // NFA_OFF
+    and x3, x2, #0xFFFF            // NFA_OFF
     sub x4, x21, x3                // NFA
     ldrb w3, [x4], #1              // name len; x4 -> chars
     cmp x3, x20
@@ -11663,6 +12000,18 @@ last_cfa:       .quad 0            // most recent _header_build CFA (IMMEDIATE/D
 current_var:    .quad 0            // wid (addr of wordlist head array)
 search_order:   .skip 64           // 8 wids
 search_order_n: .quad 0
+// All WORDLIST bases (FORTH registered at cold; others at WORDLIST time)
+.align 8
+wordlist_reg:   .skip WORDLIST_REG_MAX * 8
+wordlist_reg_n: .quad 0
+// VIEW source file table: id 1..VIEW_FILE_MAX; id 0 = none
+// Each path: counted string (1 + VIEW_PATH_MAX-1 bytes), fixed VIEW_PATH_MAX slots
+.align 8
+view_src_id:    .quad 0            // current INCLUDE file-id (0 = console)
+view_file_n:    .quad 0            // highest assigned id
+view_paths:     .skip VIEW_FILE_MAX * VIEW_PATH_MAX
+view_id_stack:  .skip 64           // nested INCLUDE file-id stack (8 quads)
+view_id_sp:     .quad 0
 host_tmp0:      .skip 32           // scratch for host ABI
 host_tmp1:      .quad 0
 // Data stack for CALL-NATIVE-LEAF (grows down from native_dsp_end)
@@ -11789,7 +12138,7 @@ env_n_file:     .asciz "FILE"
 env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
-str_hello:  .asciz "64Forth v1.0.5\n"
+str_hello:  .asciz "64Forth v1.0.6\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
 str_bye:    .asciz "Bye!\n"
@@ -11943,17 +12292,20 @@ forth_init_str:
     .ascii ": >CODE ; "
     .ascii "DOC\" >BODY ( xt -- addr ) data field of a CREATEd word\" "
     .ascii ": >BODY 8 + ; "
-    // Layout: HFA help | NFA name | LFA | FLAGS | CFA | BODY
-    // FLAGS: low32 NFA_OFF, bits32-62 HFA_OFF, bit63 IMM
+    // Layout: HFA | NFA | LFA | FLAGS | CFA | BODY
+    // FLAGS: 0-15 NFA_OFF, 16-31 HFA_OFF, 32-47 LINE, 48-62 FILE-ID, 63 IMM
     .ascii "DOC\" NFA ( xt -- nfa ) name field address\" "
-    .ascii ": NFA DUP >FLAGS @ 4294967295 AND - ; "
-    // Classic F-PC / Win32Forth: >NAME ( cfa -- nfa ); same as NFA here (nt = CFA).
+    .ascii ": NFA DUP >FLAGS @ 65535 AND - ; "
     .ascii "DOC\" >NAME ( xt -- nfa ) name field address (classic synonym for NFA)\" "
     .ascii ": >NAME NFA ; "
     .ascii "DOC\" >NFA ( xt -- nfa ) synonym for >NAME / NFA\" "
     .ascii ": >NFA NFA ; "
     .ascii "DOC\" HFA ( xt -- hfa ) help field address\" "
-    .ascii ": HFA DUP >FLAGS @ 32 RSHIFT 2147483647 AND - ; "
+    .ascii ": HFA DUP >FLAGS @ 16 RSHIFT 65535 AND - ; "
+    .ascii "DOC\" VIEW-LINE ( xt -- u ) 1-based source line in FLAGS (0=none)\" "
+    .ascii ": VIEW-LINE >FLAGS @ 32 RSHIFT 65535 AND ; "
+    .ascii "DOC\" VIEW-FILE# ( xt -- u ) source file-id in FLAGS (0=none)\" "
+    .ascii ": VIEW-FILE# >FLAGS @ 48 RSHIFT 32767 AND ; "
     .ascii "DOC\" NAME>STRING ( nt -- c-addr u ) copy name token name to buffer (valid until next NAME>STRING)\" "
     .ascii ": NAME>STRING NFA COUNT ; "
     .ascii "DOC\" >HELP ( xt -- hfa ) help string\" "
@@ -12212,14 +12564,30 @@ forth_init_str:
     // Name in a left field of width n (TYPE then pad with spaces).
     .ascii "DOC\" (TYPE-FIELD) ( c-addr u n -- ) type string left-justified in field n\" "
     .ascii ": (TYPE-FIELD) >R 2DUP TYPE NIP R> SWAP - 0 MAX SPACES ; "
-    // FORTH plus every VOCABULARY word (same DOES> does_ip as FP). Table: name + thread depths.
-    // VOCABULARY PFA (nt + 2 CELLS) is the wid (WORDLIST head array). Name field width 16.
+    // FORTH + VOCABULARY names + bare WORDLIST entries (WORDLISTS registry).
+    // VOCABULARY PFA (nt + 2 CELLS) is the wid. Name field width 16.
     .ascii "DOC\" (IS-VOCAB) ( nt -- flag ) true if nt was defined by VOCABULARY\" "
     .ascii ": (IS-VOCAB) CELL+ @ ['] FP CELL+ @ = ; "
     .ascii "DOC\" (SHOW-VOCAB) ( nt -- true ) print vocabulary name and thread depths\" "
     .ascii ": (SHOW-VOCAB) DUP (IS-VOCAB) IF DUP NAME>STRING 16 (TYPE-FIELD) 2 CELLS + (WID.THREADS) CR ELSE DROP THEN TRUE ; "
-    .ascii "DOC\" .VOCABULARIES ( -- ) list FORTH and all VOCABULARY lists with thread depths\" "
-    .ascii ": .VOCABULARIES S\" FORTH\" 16 (TYPE-FIELD) FORTH-WORDLIST (WID.THREADS) CR ['] (SHOW-VOCAB) FORTH-WORDLIST TRAVERSE-WORDLIST ; "
+    .ascii "VARIABLE (VW-T)  VARIABLE (VW-F) "
+    // VOCABULARY wid = head-array address = nt+2 CELLS (PFA), not @PFA (heads[0]).
+    .ascii "DOC\" (CHK-VOC-WID) ( nt -- cont ) TRAVERSE helper for (VOCAB-WID?)\" "
+    .ascii ": (CHK-VOC-WID) DUP (IS-VOCAB) IF 2 CELLS + (VW-T) @ = IF -1 (VW-F) ! FALSE ELSE TRUE THEN ELSE DROP TRUE THEN ; "
+    .ascii "DOC\" (VOCAB-WID?) ( wid -- flag ) true if wid is a named VOCABULARY head array\" "
+    .ascii ": (VOCAB-WID?) (VW-T) ! 0 (VW-F) ! ['] (CHK-VOC-WID) FORTH-WORDLIST TRAVERSE-WORDLIST (VW-F) @ ; "
+    .ascii "DOC\" (SHOW-BARE-WL) ( wid -- ) print one non-named wordlist from the registry\" "
+    .ascii ": (SHOW-BARE-WL) DUP FORTH-WORDLIST = IF DROP EXIT THEN "
+    .ascii "  DUP (VOCAB-WID?) IF DROP EXIT THEN "
+    .ascii "  S\" (wordlist)\" 16 (TYPE-FIELD) (WID.THREADS) CR ; "
+    .ascii "DOC\" (SHOW-WL-REG) ( -- ) print bare WORDLIST entries not already named\" "
+    .ascii ": (SHOW-WL-REG) WORDLISTS 0 ?DO DUP I CELLS + @ (SHOW-BARE-WL) LOOP DROP ; "
+    .ascii "DOC\" .VOCABULARIES ( -- ) list FORTH, VOCABULARY lists, and bare WORDLISTs\" "
+    .ascii ": .VOCABULARIES S\" FORTH\" 16 (TYPE-FIELD) FORTH-WORDLIST (WID.THREADS) CR "
+    .ascii "  ['] (SHOW-VOCAB) FORTH-WORDLIST TRAVERSE-WORDLIST (SHOW-WL-REG) ; "
+    .ascii "DOC\" .WORDLISTS ( -- ) synonym of .VOCABULARIES\" "
+    .ascii ": .WORDLISTS .VOCABULARIES ; "
+
     .ascii "DOC\" HOLDS ( c-addr u -- ) add string to pictured numeric output (prepend via HOLD)\" "
     .ascii ": HOLDS BEGIN DUP WHILE 1- 2DUP + C@ HOLD REPEAT 2DROP ; "
     .ascii "DOC\" COMPILE, ( xt -- ) compile the execution token xt\" "

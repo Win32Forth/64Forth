@@ -1,4 +1,4 @@
-64Forth Hyper / VIEW (Phases 0–5 complete — v1.0.2)
+64Forth Hyper / VIEW (Phases 0–5 + header VIEW — v1.0.x)
 ===================================================
 
 Load
@@ -10,15 +10,15 @@ Load
 
 Vocabulary
 ----------
-  Almost all Hyper words are defined in HYPER-VOC (not FORTH).
-  HYPER-REINDEX is in FORTH (thin wrapper).
+  Internals / indexer live in HYPER-VOC. Public commands are defined once
+  in FORTH while the search order includes HYPER-VOC:
 
-  After load, search order is FORTH then HYPER-VOC, so VIEW / LOCATE /
-  .HYPER work at the console without ALSO. Do not bare FORTH after that
-  if you still want Hyper commands (FORTH replaces order[0] and drops HYPER-VOC);
-  use:  ONLY FORTH ALSO HYPER-VOC  GET-ORDER >R SWAP R> SET-ORDER
+    ONLY FORTH DEFINITIONS ALSO HYPER-VOC
+    : VIEW … (HYPER-FIND) … ;   \ name → FORTH, callees → HYPER-VOC
 
-  HYPER-VOC WORDS              list Hyper words only
+  so ONLY FORTH still finds VIEW / LOCATE / SEE / HYPER-NEXT / …
+
+  HYPER-VOC WORDS              list Hyper implementation words
   ORDER                        show search order
 
 Commands (from HYPER-VOC unless noted)
@@ -39,6 +39,13 @@ Commands (from HYPER-VOC unless noted)
                     (up to 32). Cmd-PgUp/PgDn move in that list. A new
                     visit while mid-list inserts after the current entry
                     and keeps later entries (context is not discarded).
+
+  Header VIEW       FLOAD/INCLUDE stamps file-id + line into each new word's
+                    FLAGS (VIEW-FILE# VIEW-LINE VIEW-PATH). LOCATE/VIEW always
+                    search dictionary VIEW first (search order, then WORDLISTS
+                    via SEARCH-WORDLIST — not a full WORDS walk), then HYPER.NDX
+                    for CODE words, assembly labels, multi-hit.
+                    HYPER-REINDEX only rebuilds NDX — it does not rewrite headers.
 
   Cmd-E             VIEW word under caret (console or SZ-EDITOR)
   Cmd-click         VIEW word under click (console or SZ-EDITOR; same as Cmd-E)
