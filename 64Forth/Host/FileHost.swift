@@ -402,9 +402,19 @@ final class FileHost {
         for spec in specs {
             for path in expandHyperSpec(spec) {
                 let ndx = ndxStylePath(path)
-                if excludes.contains(where: { ndx.localizedCaseInsensitiveContains($0) }) {
+                // Match excludes against NDX key *and* full filesystem path so
+                // bare last-component keys (symlink prefix mismatch) still drop
+                // HayesTest / ANSValidate / Benchmarks noise.
+                let full = path.resolvingSymlinksInPath().path
+                if excludes.contains(where: {
+                    ndx.localizedCaseInsensitiveContains($0)
+                        || full.localizedCaseInsensitiveContains($0)
+                }) {
                     continue
                 }
+                // Refuse bare filenames — OPEN-FILE would look in session cwd
+                // and print "HX: skip …" for every SPECS line in a release DMG.
+                if !ndx.contains("/") { continue }
                 if seen.insert(ndx).inserted {
                     out.append(ndx)
                 }
@@ -510,58 +520,51 @@ final class FileHost {
         return results.sorted { $0.path.lowercased() < $1.path.lowercased() }
     }
 
+    /// True if `path` is under `root` (symlink-resolved). Returns relative path
+    /// with `/` separators, or nil. Avoids `/var` vs `/private/var` prefix misses
+    /// that made release SPECS fall back to bare filenames → "HX: skip …".
+    private func relativePath(of url: URL, under root: URL?) -> String? {
+        guard let root else { return nil }
+        let path = url.resolvingSymlinksInPath().standardizedFileURL.path
+        let prefix = root.resolvingSymlinksInPath().standardizedFileURL.path
+        guard path == prefix || path.hasPrefix(prefix + "/") else { return nil }
+        var rel = path == prefix ? "" : String(path.dropFirst(prefix.count))
+        while rel.hasPrefix("/") { rel.removeFirst() }
+        return rel.replacingOccurrences(of: "\\", with: "/")
+    }
+
     /// Disk path → HYPER.NDX / VIEW path (`Library/…`, `AutoLoad/…`, not absolute).
-    /// Bare lastPathComponent alone is unopenable from a random cwd (VIEW MAIN used
-    /// to stamp `autoload.fth` and SZ-EDIT-FILE-AT failed).
+    /// Bare lastPathComponent alone is unopenable from a random cwd.
     private func ndxStylePath(_ url: URL) -> String {
-        let path = url.standardizedFileURL.path
-        if let tree = sourceTreeURL {
-            let prefix = tree.path
-            if path.hasPrefix(prefix) {
-                var rel = String(path.dropFirst(prefix.count))
-                while rel.hasPrefix("/") { rel.removeFirst() }
-                rel = rel.replacingOccurrences(of: "\\", with: "/")
-                if rel.hasPrefix("Resources/Library/") {
-                    return "Library/" + String(rel.dropFirst("Resources/Library/".count))
-                }
-                if rel.hasPrefix("Resources/AutoLoad/") {
-                    return "AutoLoad/" + String(rel.dropFirst("Resources/AutoLoad/".count))
-                }
-                if rel.hasPrefix("Resources/Config/") {
-                    return "Config/" + String(rel.dropFirst("Resources/Config/".count))
-                }
+        if let tree = sourceTreeURL, let rel = relativePath(of: url, under: tree) {
+            if rel.hasPrefix("Resources/Library/") {
+                return "Library/" + String(rel.dropFirst("Resources/Library/".count))
+            }
+            if rel.hasPrefix("Resources/AutoLoad/") {
+                return "AutoLoad/" + String(rel.dropFirst("Resources/AutoLoad/".count))
+            }
+            if rel.hasPrefix("Resources/Config/") {
+                return "Config/" + String(rel.dropFirst("Resources/Config/".count))
+            }
+            if rel.hasPrefix("Resources/") {
+                return String(rel.dropFirst("Resources/".count))
+            }
+            return rel
+        }
+        if let rel = relativePath(of: url, under: libraryURL) {
+            return "Library/" + rel
+        }
+        if let rel = relativePath(of: url, under: autoLoadURL) {
+            return rel.isEmpty ? "AutoLoad/" + url.lastPathComponent : "AutoLoad/" + rel
+        }
+        if let rel = relativePath(of: url, under: resourcesURL) {
+            if rel.hasPrefix("Library/") || rel.hasPrefix("AutoLoad/") || rel.hasPrefix("Config/") {
                 return rel
             }
+            if !rel.isEmpty { return rel }
         }
-        if let lib = libraryURL {
-            let prefix = lib.path
-            if path.hasPrefix(prefix) {
-                var rel = String(path.dropFirst(prefix.count))
-                while rel.hasPrefix("/") { rel.removeFirst() }
-                return "Library/" + rel.replacingOccurrences(of: "\\", with: "/")
-            }
-        }
-        if let auto = autoLoadURL {
-            let prefix = auto.path
-            if path.hasPrefix(prefix) {
-                var rel = String(path.dropFirst(prefix.count))
-                while rel.hasPrefix("/") { rel.removeFirst() }
-                if rel.isEmpty { return "AutoLoad/" + url.lastPathComponent }
-                return "AutoLoad/" + rel.replacingOccurrences(of: "\\", with: "/")
-            }
-        }
-        if let res = resourcesURL {
-            let prefix = res.path
-            if path.hasPrefix(prefix) {
-                var rel = String(path.dropFirst(prefix.count))
-                while rel.hasPrefix("/") { rel.removeFirst() }
-                rel = rel.replacingOccurrences(of: "\\", with: "/")
-                if rel.hasPrefix("Library/") || rel.hasPrefix("AutoLoad/") || rel.hasPrefix("Config/") {
-                    return rel
-                }
-            }
-        }
-        return url.lastPathComponent
+        // Last resort: absolute path (openable); never bare leaf for SPECS/VIEW.
+        return url.resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     func resourceRootsDescription() -> String {

@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-08-13 — **v1.0.6** (Hyper/VIEW polish: FORTH API, multi-hit badge, path resolve, hit dedup; v1.0.5 `SYSTEM`; v1.0.4 JIT/native; v1.0.0 Hyper + SZ-EDITOR).
+**Updated:** 2026-08-13 — **v1.0.7** (release HYPER-REINDEX SPECS path fix; v1.0.6 Hyper/VIEW polish; v1.0.5 `SYSTEM`; v1.0.0 Hyper + SZ-EDITOR).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 

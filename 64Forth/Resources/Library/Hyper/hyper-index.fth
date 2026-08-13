@@ -509,7 +509,12 @@ CREATE HX-LTAB  HX-LMAX HX-ESIZE * ALLOT
    2DUP HX-PATH PLACE
    2DUP HX-SET-ASM
    2DUP R/O OPEN-FILE
-   IF  DROP ." HX: skip " TYPE CR EXIT  THEN
+   IF
+      DROP
+      \ Quiet when MIN-HYPER-NOISE is on (autoload reindex on release DMG).
+      MIN-HYPER-NOISE @ 0= IF  ." HX: skip " TYPE CR  ELSE  2DROP  THEN
+      EXIT
+   THEN
    >R 2DROP
    HX-EMIT-AT
    0 TO HX-LINE#
