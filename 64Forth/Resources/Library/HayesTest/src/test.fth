@@ -48,7 +48,5 @@ VARIABLE fperrors  0 #ERRORS ! fload Harness/runfptests.fth .( #ERRORS @ = ) #ER
 .( BERRORS @ = ) berrors @ .
 .( FPERRORS @ = ) fperrors @ .
 .( #ERRORS @ = ) #ERRORS @ .
- 
-File-echo on
- 
+  
 \s

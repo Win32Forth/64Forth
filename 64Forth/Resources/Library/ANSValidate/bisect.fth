@@ -11,7 +11,6 @@
 \
 \ Each step emits "Bn " via EMIT only (no .R). Last Bn before fault = culprit.
 
-FILE-ECHO OFF
 DECIMAL
 ONLY FORTH DEFINITIONS
 

@@ -2,7 +2,6 @@
 \   FLOAD debug-bootstrap.fth
 \   FLOAD debug-full-chain.fth
 
-FILE-ECHO OFF
 .( --- Hayes-order segment loads --- ) CR
 
 VARIABLE cperrors

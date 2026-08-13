@@ -80,8 +80,7 @@ CREATE T6MEM 256 ALLOT
 \ TUCK ( a b -- b a b )
 1 2 TUCK 2 = SWAP 1 = AND SWAP 2 = AND S" TUCK" EXPECT
 10 20 30 1 PICK 20 = S" PICK" EXPECT
-\ leave clean stack after PICK test
-DROP DROP DROP
+
 \ 1 ROLL swaps top two of three: ( 10 20 30 -- 10 30 20 )
 10 20 30 1 ROLL 20 = SWAP 30 = AND SWAP 10 = AND S" ROLL" EXPECT
 
@@ -92,7 +91,7 @@ DROP DROP DROP
 1 2 3 4 2DROP 2 = SWAP 1 = AND S" 2DROP" EXPECT
 1 2 2DUP 2 = SWAP 1 = AND SWAP 2 = AND SWAP 1 = AND S" 2DUP" EXPECT
 1 2 3 4 2OVER 2 = SWAP 1 = AND SWAP 4 = AND SWAP 3 = AND S" 2OVER" EXPECT
-DROP DROP
+
 1 2 3 4 2SWAP 2 = SWAP 1 = AND SWAP 4 = AND SWAP 3 = AND S" 2SWAP" EXPECT
 
 \ --- Memory ---
@@ -115,8 +114,8 @@ DECIMAL
 DECIMAL
 
 \ --- DEPTH ---
-1 2 3 DEPTH 3 = S" DEPTH" EXPECT
-DROP DROP DROP
+\ 1 2 3 DEPTH → 1 2 3 3;  3 = → 1 2 flag. Drop the two cells under the flag.
+1 2 3 DEPTH 3 = >R 2DROP R> S" DEPTH" EXPECT
 
 \ --- S" and pictured numeric ---
 S" HELLO" NIP 5 = S" Squote-len" EXPECT

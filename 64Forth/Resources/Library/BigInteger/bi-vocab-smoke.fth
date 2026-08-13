@@ -5,7 +5,6 @@
 \   .( text)  prints NOW (even while compiling a definition)
 \   ." text"  prints at RUN time (what you want inside : … ;)
 
-FILE-ECHO OFF
 ONLY FORTH ALSO BIG-INTEGER DEFINITIONS
 
 \ 56 bytes = 7 cells (cap, len, sign, 4 limbs)

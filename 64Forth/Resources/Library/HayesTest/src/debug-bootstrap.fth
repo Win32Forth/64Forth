@@ -2,7 +2,6 @@
 \ 1) bare FLOAD or CHDIR to this folder in the UI (pick any file here once)
 \ 2) FLOAD debug-bootstrap.fth
 
-FILE-ECHO OFF
 .( debug-bootstrap: loading Hayes harness... ) CR
 FLOAD prelimtest.fth
 FLOAD tester.fr

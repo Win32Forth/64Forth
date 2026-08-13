@@ -14,10 +14,19 @@ VARIABLE #FAIL
 0 #PASS !
 0 #FAIL !
 
+\ Append " stack(n)" with current data-stack depth (diagnose residual cells).
+: .STACK-DEPTH  ( -- )  ."  stack(" DEPTH 0 .R ." )" ;
+
 : T.PASS  #PASS @ 1+ #PASS ! ;
 : T.FAIL  ( ca u -- ) #FAIL @ 1+ #FAIL ! ." FAIL: " TYPE CR ;
-: EXPECT  ( flag ca u -- ) ROT IF 2DROP T.PASS ELSE T.FAIL THEN ;
-
+: EXPECT  ( flag ca u -- )
+        {: flag ca u -- :}
+        depth 0 ?do drop loop
+        flag ca u ROT IF 2DROP T.PASS ELSE T.FAIL THEN
+        DEPTH FILE-ECHO @ AND IF .STACK-DEPTH THEN ;
+: XEXPECT  ( flag ca u -- )
+        {: flag ca u -- :}
+        flag ca u ROT IF 2DROP T.PASS ELSE T.FAIL THEN ;
 \ Summary for one section or the whole run:  S" ANS-VALIDATE" .TEST-SUMMARY
 : .TEST-SUMMARY  ( ca u -- )
   CR TYPE ." : " #PASS @ 0 .R ."  passed, " #FAIL @ 0 .R ."  failed." CR
@@ -25,9 +34,6 @@ VARIABLE #FAIL
 
 \ Optional: zero counters between modules without reloading tester
 : ZERO-COUNTS  0 #PASS ! 0 #FAIL ! ;
-
-\ Append " stack(n)" with current data-stack depth (diagnose residual cells).
-: .STACK-DEPTH  ( -- )  ."  stack(" DEPTH 0 .R ." )" ;
 
 \ Empty the data stack (for suite cleanup).
 : EMPTY-DATA  ( -- )  BEGIN DEPTH WHILE DROP REPEAT ;

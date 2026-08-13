@@ -78,7 +78,7 @@ VARIABLE H-RQ
 VARIABLE H-RFID
 0 H-RQ !
 S" /tmp/64forth-ansval-host-req.fth" R/W CREATE-FILE
-0= S" REQ-create" EXPECT
+0= S" REQ-create" XEXPECT
 H-RFID !
 S" 1 H-RQ +! " H-RFID @ WRITE-FILE 0= S" REQ-write" EXPECT
 H-RFID @ CLOSE-FILE DROP

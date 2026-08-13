@@ -5,7 +5,6 @@
 \
 \ Watch which STEP line is last before a crash.
 
-FILE-ECHO OFF
 DECIMAL
 ONLY FORTH DEFINITIONS
 

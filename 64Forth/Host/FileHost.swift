@@ -1226,10 +1226,11 @@ final class FileHost {
         // of its SOURCE (restored when the kernel finishes the include — endLoadCwdIfNeeded).
         beginLoadCwd(forFileURL: url)
 
-        // Prefer short NDX-style path (Library/…) for VIEW headers — absolute
-        // DerivedData paths were truncated at 55 chars in the Hyper hit table
-        // and failed open (e.g. ".../DerivedData" only).
-        lastLoadRegistryKey = ndxStylePath(url)
+        // REQUIRED registry key must match resolveRegistryKey (absolute path).
+        // Using ndxStylePath (e.g. bare "foo.fth" or "Library/…") made a second
+        // REQUIRED of "/tmp/foo.fth" miss the registry and reload the file.
+        // VIEW stamps this same key; absolute paths open fine (status shows a tail).
+        lastLoadRegistryKey = url.standardizedFileURL.path
         outPtr?.pointee = UnsafePointer(p)
         outLen?.pointee = n
         return 0

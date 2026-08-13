@@ -80,7 +80,6 @@ DB-DV 0 = SWAP 200 = AND S" 2VALUE-TO" EXPECT
 \ 2ROT ( d1 d2 d3 -- d2 d3 d1 )
 \ stack after: d2 d3 d1 with d1 TOS pair
 0 = SWAP 1 = AND S" 2ROT-top" EXPECT
-2DROP 2DROP
 
 \ --- ENVIRONMENT? DOUBLE ---
 S" DOUBLE" ENVIRONMENT? NIP S" ENV-DOUBLE" EXPECT

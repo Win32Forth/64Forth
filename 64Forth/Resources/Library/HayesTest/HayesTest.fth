@@ -17,7 +17,6 @@
 
 \ Cleaner transcripts: FILE-ECHO ON dumps every source line (and ERROR + SOURCE
 \ TYPE would re-dump whole INCLUDE buffers). Leave OFF unless debugging.
-FILE-ECHO OFF
 
 FLOAD src/debug-bootstrap.fth
 TRUE VERBOSE !

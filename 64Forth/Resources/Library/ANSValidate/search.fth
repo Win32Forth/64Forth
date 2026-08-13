@@ -3,8 +3,7 @@
 \ Requires: tester.fth already loaded
 \ Loaded by ANS-VALIDATE.fth via relative FLOAD
 \
-\ Kernel SEARCH-WORDLIST c-addr clobber fixed in forth.s (needs rebuild).
-\ Helper (SWL) uses FIND + temporary one-list order.
+\ (SWL) is SEARCH-WORDLIST — one wordlist probe without SET-ORDER thrashing.
 \
 \ CRITICAL: no interpret-time IF/BEGIN/WHILE.
 \
@@ -15,41 +14,9 @@ ONLY FORTH DEFINITIONS
 
 CR .( === Search-Order ===) CR
 
-\ Drop all data-stack items (colon only — BEGIN is unsafe while interpreting)
-: (CLEAR)  BEGIN DEPTH WHILE DROP REPEAT ;
-
 \ --- (SWL) helper ---
-CREATE (SWL-NAME) 256 ALLOT
-CREATE (SWL-ORD)  16 CELLS ALLOT
-VARIABLE (SWL-ON)
-
-: (SWL-SAVE)  ( -- )
-  GET-ORDER
-  DUP (SWL-ON) !
-  DUP 0= IF DROP EXIT THEN
-  0 DO  (SWL-ORD) I CELLS + !  LOOP ;
-
-: (SWL-REST)  ( -- )
-  (SWL-ON) @ DUP 0= IF DROP ONLY EXIT THEN
-  DUP 1- BEGIN DUP 0< 0= WHILE
-    DUP (SWL-ORD) SWAP CELLS + @
-    SWAP 1-
-  REPEAT DROP
-  (SWL-ON) @ SET-ORDER ;
-
 : (SWL)  ( c-addr u wid -- 0 | xt 1 | xt -1 )
-  >R
-  DUP 255 > IF 2DROP R> DROP 0 EXIT THEN
-  DUP (SWL-NAME) C!
-  (SWL-NAME) 1+ SWAP CMOVE
-  (SWL-SAVE)
-  R> 1 SET-ORDER
-  (SWL-NAME) FIND
-  DUP 0= IF
-    NIP (SWL-REST) 0
-  ELSE
-    2>R (SWL-REST) 2R>
-  THEN ;
+SEARCH-WORDLIST ;
 
 \ --- ENVIRONMENT? ---
 S" SEARCH-ORDER" ENVIRONMENT? NIP S" ENV-SO" EXPECT
@@ -63,26 +30,25 @@ WORDLIST CONSTANT SW-WL1
 S" DUP" SW-WL1 (SWL) 0= S" SWL-empty" EXPECT
 
 \ --- hit / immediate / miss ---
+\ hit leaves xt flag; turn flag into EXPECT flag, then drop xt
 S" DUP" FORTH-WORDLIST (SWL)
 0= 0= S" SWL-DUP" EXPECT
-DROP DROP
 
 S" IF" FORTH-WORDLIST (SWL)
 1 = S" SWL-IF" EXPECT
-DROP
 
 S" NOSUCHWORDXYZ" FORTH-WORDLIST (SWL)
 0= S" SWL-miss" EXPECT
 
 \ --- ONLY → n=1 ---
+\ GET-ORDER: wid 1 → after 1= : wid flag ; EXPECT leaves wid
 ONLY
 GET-ORDER 1 = S" ONLY-n" EXPECT
-(CLEAR)
 
 \ --- ONLY ALSO FORTH → n=2 ---
+\ GET-ORDER: wid2 wid1 2 → after 2= : wid2 wid1 flag
 ONLY ALSO FORTH
 GET-ORDER 2 = S" ALSO-n" EXPECT
-(CLEAR)
 
 ONLY ALSO FORTH
 1 2 + 3 = S" ALSO-search" EXPECT
@@ -91,7 +57,6 @@ ONLY ALSO FORTH
 ONLY
 GET-ORDER SET-ORDER
 GET-ORDER 1 = S" SET-ORDER" EXPECT
-(CLEAR)
 
 \ --- VOCABULARY isolate ---
 VOCABULARY SW-FOO
@@ -99,8 +64,7 @@ SW-FOO DEFINITIONS
 123 CONSTANT SW-BAZ
 FORTH DEFINITIONS
 ONLY FORTH
-S" SW-BAZ" DUP (SWL-NAME) C! (SWL-NAME) 1+ SWAP CMOVE
-(SWL-NAME) FIND NIP 0= S" VOCAB-isolate" EXPECT
+S" SW-BAZ" FORTH-WORDLIST (SWL) 0= S" VOCAB-isolate" EXPECT
 
 456 CONSTANT SW-OK
 SW-OK 456 = S" VOCAB-forth" EXPECT
@@ -115,11 +79,10 @@ FORTH DEFINITIONS
 GET-CURRENT FORTH-WORDLIST = S" DEF-FORTH" EXPECT
 
 \ --- PREVIOUS ---
-\ ONLY FORTH → n=1; ALSO → n=2; SW-FOO pushes → n=3; PREVIOUS → n=2
+\ ONLY FORTH ALSO → n=2; SW-FOO (PUSH-ORDER) → n=3; PREVIOUS → n=2
 ONLY FORTH ALSO SW-FOO
 PREVIOUS
 GET-ORDER 2 = S" PREVIOUS" EXPECT
-(CLEAR)
 ONLY FORTH
 
 \ --- ALSO arithmetic ---
@@ -139,11 +102,9 @@ GET-CURRENT SW-WL2 SET-CURRENT
 789 CONSTANT SW-IN-WL2
 FORTH-WORDLIST SET-CURRENT
 ONLY FORTH
-S" SW-IN-WL2" DUP (SWL-NAME) C! (SWL-NAME) 1+ SWAP CMOVE
-(SWL-NAME) FIND NIP 0= S" WL-isolate" EXPECT
+S" SW-IN-WL2" FORTH-WORDLIST (SWL) 0= S" WL-isolate" EXPECT
 S" SW-IN-WL2" SW-WL2 (SWL)
 0= 0= S" WL-find" EXPECT
-DROP DROP
 ONLY FORTH
 
 .( --- Search-Order batch done ---) .STACK-DEPTH CR

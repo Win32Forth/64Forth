@@ -3669,10 +3669,10 @@ XWORDLIST:
     subs x3, x3, #1
     b.ne 1b
     str  x1, [x0]
-    mov  x0, x2
-    bl   _wordlist_register        // track for .WORDLISTS / Hyper
+    mov  x0, x2                    // wid for register + return
+    bl   _wordlist_register        // clobbers x1–x5; preserves x0 (= wid)
     DPUSH
-    mov  x20, x2
+    mov  x20, x0                   // must use x0, not x2 (x2 was reg_n)
     NEXT
 
 // WORDLISTS ( -- addr n )  base of registered wid table and count

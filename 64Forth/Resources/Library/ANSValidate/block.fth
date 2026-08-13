@@ -22,7 +22,7 @@ S" BLOCK" ENVIRONMENT? NIP S" ENV-BLOCK" EXPECT
 \ --- create a 4-block volume ---
 S" /tmp/64forth-ansval.blk" DELETE-FILE DROP
 S" /tmp/64forth-ansval.blk" 4 CREATE-BLOCK-FILE
-0= S" CREATE-BLOCK-FILE" EXPECT
+0= S" CREATE-BLOCK-FILE" XEXPECT
 \ leave only fileid (CREATE-BLOCK-FILE may leave loop junk below)
 (BL-1)
 USE-BLOCK-FILE

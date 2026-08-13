@@ -31,7 +31,6 @@
 \ CRITICAL: no interpret-time IF/ELSE/THEN/BEGIN.
 \ CRITICAL: .( stops at first ) — no nested parentheses in messages.
 
-FILE-ECHO OFF
 DECIMAL
 ONLY FORTH DEFINITIONS
 
@@ -40,6 +39,7 @@ CR .( Library Forth - not a formal ANS certificate.) CR
 CR .( Modules: tester, core, core-ext, search, string, facility, exception, memory, double, locals, tools, file, block, xchar, float, host ) CR
 
 \ Relative to this file's directory - ANSValidate/ under Resources/Library.
+\ FILE-ECHO ON
 FLOAD tester.fth
 FLOAD core.fth
 FLOAD core-ext.fth

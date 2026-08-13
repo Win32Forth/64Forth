@@ -28,16 +28,16 @@ MA-A @ FREE 0= S" FREE" EXPECT
 \ --- RESIZE grow ---
 64 ALLOCATE DROP MA-A !
 MA-A @ 256 RESIZE        \ a2 ior
-0= S" RESIZE-ior" EXPECT \ a2 remains
+0= S" RESIZE-ior" XEXPECT \ a2 remains
 MA-A !
 99 MA-A @ !
-MA-A @ @ 99 = S" RESIZE-store" EXPECT
+MA-A @ @ 99 = S" RESIZE-store" XEXPECT
 MA-A @ FREE DROP
 
 \ --- 1-byte region ---
 1 ALLOCATE DROP MA-A !
 1 MA-A @ C!
-MA-A @ C@ 1 = S" ALLOC-1" EXPECT
+MA-A @ C@ 1 = S" ALLOC-1" XEXPECT
 MA-A @ FREE DROP
 
 \ --- ENVIRONMENT? ---
