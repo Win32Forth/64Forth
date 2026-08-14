@@ -110,7 +110,7 @@ Selection storage already exists; wire it to drag:
 - [ ] Optional: scroll-on-drag at edges
 - [x] Shift+click extend (from anchor; before or after)
 - [x] Double-click word (space-delimited)
-- [ ] Optional: triple-click line
+- [x] Triple-click line (whole logical line; host bit6, `SZ-TRI-CLICK`)
 
 ---
 
@@ -118,7 +118,7 @@ Selection storage already exists; wire it to drag:
 
 1. **I-beam caret only** — quick win, pure host paint.
 2. **Drag selection** — host mouse stream, then Forth range + paint, then “type replaces selection.”
-3. Optional: Shift+click extend, double-click word (word bounds almost exist), triple-click line.
+3. Optional: Shift+click extend, double-click word, triple-click line — **done**.
 
 ---
 
@@ -157,9 +157,14 @@ _Further design suggestions and decisions go below as work proceeds._
 
 ### 2026-08-13 — Double-click word + Shift-click extend
 
-- Host flag bit4 = ⇧, bit5 = double-click (`clickCount >= 2`).
+- Host flag bit4 = ⇧, bit5 = double-click (`clickCount == 2`).
 - Double-click: `SZ-SPACE-WORD-RANGE` (space/blank/CR/LF only) → full reverse-video word + clipboard; `SZ-EXT-ANCHOR` at word start.
 - Shift-click / shift-drag: free end moves; fixed end is `SZ-EXT-ANCHOR` (set on plain down, drag start, or double-click); range ordered so click may be before or after.
+
+### 2026-08-14 — Triple-click line
+
+- Host flag bit6 = triple-click (`clickCount >= 3`); double is exactly 2 so triple is not also a word select.
+- `SZ-TRI-CLICK`: place caret, `SZ-LINE-RANGE-AT-CUR` → `SZ-COMMIT-RANGE` (selection + clipboard), `SZ-SET-LINE-ANCHOR` for ⇧-extend.
 
 ### 2026-08-13 — Gutter click no longer line-selects
 
@@ -191,7 +196,20 @@ _Further design suggestions and decisions go below as work proceeds._
   (`forth.s`) never stayed on the list / highlight broke. Fixed with `2DROP`
   after saving base/len in temps. Automated suite: `Editor/sz-fl-test.fth`
   (host: `SZFLTEST=1`).
-- Side Files list: **one row per unique path** (positions live in Hyper visit
-  history). List **persists** across editor exit / `VIEW` re-entry (session).
-- Cmd-PgUp/PgDn: **visit history first**, multi-hit `(n/m)` only when the visit
-  list cannot move (matches README; fixes trap after multi-site words).
+- Side panel = **visit list** (one row per path+line): leaf, line#, trailing **X**.
+  Wider panel (28 cols). Click row → goto; click **X** → remove visit.
+  List **persists** across editor exit / re-VIEW (session).
+- Cmd-click VIEW notes origin **before** moving the caret (return to pre-click
+  position, e.g. original VIEW line if you never plain-clicked elsewhere).
+- New visits **insert after** the current visit (branch mid-list; later kept).
+- Cmd-PgUp/PgDn: visit history first; multi-hit only if visit cannot move.
+- Tests: `Editor/sz-fl-test.fth` / `SZFLTEST=1` (visit record/insert/remove/line).
+- **Bug fix (list order / blank / dead top row):** `SZ-FL-CLEAR` now **ERASE**s the
+  table (stale `forth.s` no longer paints above `hyper.fth` after a partial PUT).
+  Hyper panel rebuild uses **bound XTs** (no silent FIND-skip holes). Empty paths
+  rejected in `HYPER-V-STORE` / `SZ-FL-PUT`. `SZ-FL-GOTO` no longer no-ops when
+  `i = CUR` (dead click on highlighted row). VI clamped before insert-after.
+  Tests: CLEAR-ERASES, VTAB-MIRROR, PUT-EMPTY.
+- **Bug fix (Cmd-W exit looks stuck):** `FACILITY-OFF` now restores the pre-editor
+  console transcript (snapshot on first facility paint). Previously the last
+  SZ-EDITOR frame stayed on screen until Return; exit worked but was not obvious.

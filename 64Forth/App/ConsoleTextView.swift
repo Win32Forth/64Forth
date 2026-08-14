@@ -228,7 +228,9 @@ final class ConsoleNSTextView: NSTextView {
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let cmd = mods.contains(.command)
         let shift = mods.contains(.shift) && !cmd
-        let doubleClick = event.clickCount >= 2 && !cmd
+        // Triple is clickCount >= 3; double is exactly 2 (do not treat triple as double).
+        let tripleClick = event.clickCount >= 3 && !cmd
+        let doubleClick = event.clickCount == 2 && !cmd
 
         if KernelBridge.shared.isFacilityTerminalActive, KernelBridge.shared.isEvaluating {
             // Keep focus; do not change the document selection into the paint grid.
@@ -242,6 +244,20 @@ final class ConsoleNSTextView: NSTextView {
                     phase: .down,
                     command: true
                 )
+                return
+            }
+            if tripleClick {
+                // Triple-click: select whole logical line (handled on down).
+                facilityDragTracking = false
+                facilityDragShift = false
+                if let cell = KernelBridge.shared.facilityCell(fromUTF16: idx) {
+                    KernelBridge.shared.reportFacilityMouse(
+                        col: cell.col,
+                        row: cell.row,
+                        phase: .down,
+                        tripleClick: true
+                    )
+                }
                 return
             }
             if doubleClick {

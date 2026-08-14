@@ -40,8 +40,8 @@ DECIMAL
 : SZ-INIT-CURSOR   ( -- )  ;
 
 \ TERMINAL-REFRESH / FACILITY-OFF / PAGE / AT-XY are kernel CODE (FacilityTerminal host).
-\ CLS leaves facility mode then clears via a fresh PAGE + refresh of an empty grid —
-\ editor exit uses FACILITY-OFF then host console restore.
+\ FACILITY-OFF deactivates the cell grid and asks the host to restore the pre-editor
+\ console transcript (ConsoleView snapshot). CLS is the same for editor exit.
 : CLS  ( -- )  FACILITY-OFF ;
 
 \ -----------------------------------------------------------------------------

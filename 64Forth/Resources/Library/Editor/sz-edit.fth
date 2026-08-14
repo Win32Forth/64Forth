@@ -14,6 +14,7 @@
 \   mouse click     place caret; word under click in status (body)
 \   mouse drag      byte-range selection (reverse-video); Cmd-C/X use it
 \   double-click    select space-delimited word (reverse-video)
+\   triple-click    select whole logical line (reverse-video)
 \   Shift-click     extend selection from anchor to click (before or after)
 \   Cmd-click       VIEW word under click (same as click + Cmd-E)
 \   line# gutter    place caret only (reserved for later: e.g. breakpoints)
@@ -597,6 +598,7 @@ VARIABLE SZ-ANCHOR-END
 VARIABLE SZ-CLICK-EXTEND               \ last click was ⌘-click (VIEW)
 VARIABLE SZ-CLICK-SHIFT                \ last event had Shift (extend selection)
 VARIABLE SZ-CLICK-DBL                  \ last event was double-click
+VARIABLE SZ-CLICK-TRI                  \ last event was triple-click (whole line)
 VARIABLE SZ-CLICK-ZONE                 \ 0=body 1=line# gutter 2=after-eol
 VARIABLE SZ-ANCHOR-LINE                \ nonzero if anchor is whole-line based
 VARIABLE SZ-PASTE-WHERE                \ 0=normal 1=before-line 2=after-line
@@ -609,7 +611,7 @@ VARIABLE SZ-DRAG-ACTIVE                \ nonzero while button held
 VARIABLE SZ-DRAG-MOVED                 \ nonzero if drag left the start cell
 VARIABLE SZ-SEL-DONE                   \ nonzero: selection finished on down (skip plain up)
 
-\ Host click flag: bit0=valid bit1=⌘ bit2-3=phase bit4=⇧ bit5=double.
+\ Host click flag: bit0=valid bit1=⌘ bit2-3=phase bit4=⇧ bit5=double bit6=triple.
 \ Place caret without scrolling (line is already on-screen under the pointer).
 \ zone: 0=body  1=line# gutter (no select; reserved)  2=after last char on line
 \
@@ -694,10 +696,7 @@ VARIABLE SZ-SEL-DONE                   \ nonzero: selection finished on down (sk
       2DROP EXIT
    THEN
    2DROP
-   \ Register the path we opened (PATH-TMP), then FNAME if present (may
-   \ differ only after SZ-ENSURE-FTH appends .fth). Second ADD is a CUR bump.
-   SZ-PATH-TMP COUNT SZ-FL-ADD
-   SZ-FL-NOTE-CURRENT
+   \ Panel rows come from Hyper VTAB rebuild (HYPER-FL-REBUILD). Just go.
    R> SZ-GOTO-LINE
    SZ-REDRAW
 ;
@@ -1188,16 +1187,42 @@ VARIABLE SZ-DR-N
    S" pasted" SZ-FIND-SET-STAT
 ;
 
-\ Cmd-E in editor: VIEW word under cursor (Hyper); stays in this edit session.
+\ Cmd-E / Cmd-click VIEW. Note visit origin at *current caret* first when the
+\ caller has not already noted (Cmd-click notes before mouse-place so return
+\ is the pre-click caret — e.g. VIEW line — not the click cell).
+VARIABLE SZ-VIEW-NOTED                     \ nonzero: skip next HIST-NOTE
+0 SZ-VIEW-NOTED !
+
 : SZ-DO-VIEW-UNDER  ( -- )
    SZ-WORD-AT-CUR
-   DUP 0= IF  2DROP EXIT  THEN                 \ a u
+   DUP 0= IF  2DROP 0 SZ-VIEW-NOTED ! EXIT  THEN
+   \ Copy token — Hyper may clobber PAD / temps.
+   63 MIN SZ-PATH-TMP SZ-PLACE
    S" HYPER-VOC" PAD SZ-PLACE
-   PAD FIND 0= IF  DROP 2DROP EXIT  THEN
-   EXECUTE                                     \ push HYPER-VOC; a u remain
+   PAD FIND 0= IF  DROP 0 SZ-VIEW-NOTED ! EXIT  THEN
+   EXECUTE
+   SZ-VIEW-NOTED @ IF
+      0 SZ-VIEW-NOTED !
+      S" HYPER-SKIP-NOTE" PAD SZ-PLACE
+      PAD FIND IF  EXECUTE  ELSE  DROP  THEN
+   THEN
+   SZ-PATH-TMP COUNT
    S" HYPER-VIEW-NAME" PAD SZ-PLACE
    PAD FIND IF  EXECUTE  ELSE  DROP 2DROP  THEN
    PREVIOUS ;
+
+\ Note Hyper origin at caret *before* moving the caret (for Cmd-click).
+\ Only updates Hyper VTAB + side list via NOTE-HERE; must not throw or leave
+\ the search order broken (BIND uses ONLY FORTH — avoid rebinding here).
+: SZ-NOTE-ORIGIN-NOW  ( -- )
+   S" HYPER-VOC" PAD SZ-PLACE
+   PAD FIND 0= IF  DROP EXIT  THEN
+   EXECUTE
+   S" HYPER-HIST-NOTE-HERE" PAD SZ-PLACE
+   PAD FIND IF  EXECUTE  ELSE  DROP  THEN
+   PREVIOUS
+   -1 SZ-VIEW-NOTED !
+;
 
 \ Plain click (no drag): word / line / placeholder. ⌘ is handled on mouse-down.
 : SZ-AFTER-MOUSE  ( -- )
@@ -1277,6 +1302,21 @@ VARIABLE SZ-DR-N
    S" word" SZ-FIND-SET-STAT
 ;
 
+\ Triple-click: select whole logical line under pointer (incl. EOL if present).
+: SZ-TRI-CLICK  ( col row -- )
+   0 SZ-DRAG-ACTIVE !
+   -1 SZ-SEL-DONE !
+   SZ-MOUSE-PLACE
+   0 SZ-PLACEHOLD !
+   0 SZ-PASTE-WHERE !
+   SZ-LINE-RANGE-AT-CUR                     \ beg end
+   2DUP = IF  2DROP 0 SZ-SEL-OK ! EXIT  THEN
+   SZ-COMMIT-RANGE
+   \ Line-based shift-extend anchor for subsequent ⇧-clicks.
+   SZ-SET-LINE-ANCHOR
+   S" line" SZ-FIND-SET-STAT
+;
+
 \ Shift-click / shift-drag free end: selection is [EXT-ANCHOR, CUR].
 : SZ-SHIFT-SET-SEL  ( -- )
    SZ-EXT-ANCHOR @ SZ-CUR @
@@ -1288,36 +1328,62 @@ VARIABLE SZ-DR-N
    S" select" SZ-FIND-SET-STAT
 ;
 
+\ Wire line apply now that SZ-GOTO-LINE exists.
+: SZ-FL-APPLY-LINE  ( n -- )  SZ-GOTO-LINE ;
+
 \ Redefine side-panel goto with dirty-buffer dialog (S/D/Esc or click).
+\ Do NOT no-op when i = CUR: a mis-painted current row must still open its path
+\ (user report: top forth.s dead-click while listed as current).
 : SZ-FL-GOTO  ( i -- )
    DUP 0< IF  DROP EXIT  THEN
    DUP SZ-FL-N @ >= IF  DROP EXIT  THEN
-   DUP SZ-FL-CUR @ = IF  DROP EXIT  THEN
+   DUP SZ-FL-ENT C@ 0= IF  DROP EXIT  THEN   \ empty slot
    SZ-CONFIRM-DIRTY 0= IF  DROP SZ-REDRAW EXIT  THEN
-   SZ-FL-ENT COUNT
+   DUP SZ-FL-CUR !
+   DUP SZ-FL-ENT COUNT                        \ i a u
    2DUP SZ-LOAD IF
-      ." cannot open " TYPE CR 2DROP EXIT
+      ." cannot open " TYPE CR 2DROP DROP EXIT
    THEN
    2DROP
-   SZ-FL-NOTE-CURRENT
-   SZ-VIEW-RESET
+   DUP SZ-FL-LINE@ SZ-GOTO-LINE
+   DROP
+   \ Keep Hyper visit index in sync when present.
+   S" HYPER-VOC" PAD SZ-PLACE
+   PAD FIND IF
+      EXECUTE
+      S" HYPER-SET-VI" PAD SZ-PLACE
+      PAD FIND IF  SZ-FL-CUR @ SWAP EXECUTE  ELSE  DROP  THEN
+      PREVIOUS
+   ELSE  DROP  THEN
    SZ-REDRAW
 ;
 
-\ Must redefine after SZ-FL-GOTO so click uses the dirty-check version.
 : SZ-SIDE-CLICK  ( col row -- )
    OVER SZ-EDIT-RIGHT > 0= IF  2DROP EXIT  THEN
    OVER SZ-COLS @ 1- < 0= IF  2DROP EXIT  THEN
    DUP SZ-TEXT-TOP < IF  2DROP EXIT  THEN
    DUP SZ-TEXT-BOT @ > IF  2DROP EXIT  THEN
-   NIP
-   SZ-TEXT-TOP - SZ-FL-TOP @ +
-   DUP 0< IF  DROP EXIT  THEN
-   DUP SZ-FL-N @ >= IF  DROP EXIT  THEN
-   SZ-FL-GOTO
+   SZ-TEXT-TOP - SZ-FL-TOP @ +                \ col i
+   DUP 0< IF  2DROP EXIT  THEN
+   DUP SZ-FL-N @ >= IF  2DROP EXIT  THEN
+   SWAP SZ-FL-X-COL? IF
+      \ Hyper owns visit table; V-REMOVE rebuilds the side list.
+      S" HYPER-VOC" PAD SZ-PLACE
+      PAD FIND IF
+         EXECUTE
+         S" HYPER-V-REMOVE" PAD SZ-PLACE
+         PAD FIND IF  EXECUTE  ELSE  DROP SZ-FL-REMOVE  THEN
+         PREVIOUS
+      ELSE
+         DROP SZ-FL-REMOVE
+      THEN
+      SZ-REDRAW
+   ELSE
+      SZ-FL-GOTO
+   THEN
 ;
 
-\ mouse-down: side-panel file | ⌘ VIEW | double-click | shift-extend | drag.
+\ mouse-down: side-panel | ⌘ VIEW | triple-line | double-word | ⇧-extend | drag.
 : SZ-MOUSE-DOWN  ( col row -- )
    0 SZ-SEL-DONE !
    \ Click in file list → switch file (no drag / selection).
@@ -1329,9 +1395,14 @@ VARIABLE SZ-DR-N
    THEN
    SZ-CLICK-EXTEND @ IF
       0 SZ-DRAG-ACTIVE !
+      \ Origin = caret *before* click (VIEW line if user never moved).
+      SZ-NOTE-ORIGIN-NOW
       SZ-MOUSE-PLACE
       SZ-DO-VIEW-UNDER
       EXIT
+   THEN
+   SZ-CLICK-TRI @ IF
+      SZ-TRI-CLICK EXIT
    THEN
    SZ-CLICK-DBL @ IF
       SZ-DBL-CLICK EXIT
@@ -1396,12 +1467,13 @@ VARIABLE SZ-DR-N
 ;
 
 \ Facility mouse → buffer (key 25).
-\ (SZ-CLICK) → col row flag; bits: 0=valid 1=⌘ 2-3=phase 4=⇧ 5=double.
+\ (SZ-CLICK) → col row flag; bits: 0=valid 1=⌘ 2-3=phase 4=⇧ 5=double 6=triple.
 : SZ-DO-MOUSE  ( -- )
    (SZ-CLICK) DUP 0= IF  DROP 2DROP EXIT  THEN
    DUP 2 AND SZ-CLICK-EXTEND !                 \ ⌘
    DUP 16 AND SZ-CLICK-SHIFT !                 \ ⇧
    DUP 32 AND SZ-CLICK-DBL !                   \ double
+   DUP 64 AND SZ-CLICK-TRI !                   \ triple
    2 RSHIFT 3 AND                              \ col row phase
    DUP 0= IF  DROP SZ-MOUSE-DOWN EXIT  THEN
    DUP 1 = IF  DROP SZ-MOUSE-DRAG EXIT  THEN
@@ -1596,8 +1668,9 @@ VARIABLE SZ-DR-N
       2DROP EXIT
    THEN
    2DROP
-   SZ-FL-NOTE-CURRENT
    R> SZ-GOTO-LINE
+   \ After line is set so visit row stores the real line number.
+   SZ-FL-NOTE-CURRENT
    (SZ-EDIT-LOOP)
 ;
 

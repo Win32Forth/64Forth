@@ -28,7 +28,7 @@ DECIMAL
    5 CONSTANT SZ-LN-WIDTH       \ digits (right-justified; blank if past EOF)
    6 CONSTANT SZ-LN-SEP         \ column of | between gutter and text
    7 CONSTANT SZ-TEXT-LEFT      \ first column of text body
-  16 CONSTANT SZ-SIDE-WIDTH     \ right panel (filename.ext; list later)
+  28 CONSTANT SZ-SIDE-WIDTH     \ visit list: leaf + line# + X
 
 \ Dynamic geometry (set by SZ-APPLY-EDIT-WINDOW)
 VARIABLE SZ-TEXT-WIDTH          \ editable text columns
@@ -60,7 +60,7 @@ VARIABLE SZ-SAVE-BASE              \ BASE save for gutter (avoid R stack inside 
    SZ-TEXT-BOT @ 1+ SZ-FRAME-BOT !
    \ editor cols = TEXT-LEFT + width + 1 (right border) = width + 8
    SZ-TEXT-WIDTH @ SZ-TEXT-LEFT + 1+ DUP SZ-EDIT-COLS !
-   \ full facility = editor + side content (16) + outer right '|'
+   \ full facility = editor + side content + outer right '|'
    SZ-SIDE-WIDTH + 1+ SZ-COLS !
 ;
 
@@ -161,14 +161,21 @@ VARIABLE SZ-PREF-COL               \ sticky column for Up/Down (like most editor
 ;
 
 \ -----------------------------------------------------------------------------
-\ Side panel file list: full paths stored; leaf name.ext shown (≤16 cols).
-\ One row per unique path (not per visit / line). Hyper visit history
-\ (Cmd-PgUp/PgDn) holds path+line; this list is the set of opened files.
-\ List is intentionally kept across editor exit / re-VIEW (session open files).
-\ Click a row to switch back to that file (SZ-FL-GOTO).
+\ Side panel = visit list (one row per path+line, not unique file).
+\ Layout per row (SIDE-WIDTH cols):  leaf name | spaces | line# | [X]
+\   SZ-FL-NAMEW name chars, then SZ-FL-LINEW digits, then "[X]" to close.
+\ Hyper visit history (Cmd-PgUp/PgDn) dual-writes here; list persists session.
+\ Click row body → goto that visit; click any of the three [X] cols → remove.
 \ -----------------------------------------------------------------------------
- 48 CONSTANT SZ-FL-MAX
-256 CONSTANT SZ-FL-ESZ                       \ counted path (1 + 255)
+ 32 CONSTANT SZ-FL-MAX
+256 CONSTANT SZ-FL-ESZ                       \ path counted + line cell @HOFF
+248 CONSTANT SZ-FL-HOFF                      \ line cell offset (aligned)
+247 CONSTANT SZ-FL-PATHMAX                   \ max path chars in entry
+  5 CONSTANT SZ-FL-LINEW                     \ line number field width
+  3 CONSTANT SZ-FL-XW                        \ trailing "[X]" close (3 cols hit)
+\ name field = SIDE - LINEW - XW  (e.g. 28-5-3 = 20)
+: SZ-FL-NAMEW  ( -- n )  SZ-SIDE-WIDTH SZ-FL-LINEW - SZ-FL-XW - ;
+
 CREATE SZ-FL-TAB  SZ-FL-MAX SZ-FL-ESZ * ALLOT
 VARIABLE SZ-FL-N
 VARIABLE SZ-FL-CUR
@@ -177,6 +184,9 @@ VARIABLE SZ-FL-P
 VARIABLE SZ-FL-Q
 VARIABLE SZ-FL-K
 VARIABLE SZ-FL-I
+VARIABLE SZ-FL-L                             \ temp line while storing
+VARIABLE SZ-FL-DI                            \ paint: visit index
+VARIABLE SZ-FL-DR                            \ paint: facility row
 0 SZ-FL-N !
 0 SZ-FL-CUR !
 0 SZ-FL-TOP !
@@ -185,9 +195,16 @@ VARIABLE SZ-FL-I
    SZ-FL-ESZ * SZ-FL-TAB +
 ;
 
+: SZ-FL-LINE@  ( i -- n )
+   SZ-FL-ENT SZ-FL-HOFF + @
+;
+
+: SZ-FL-LINE!  ( n i -- )
+   SZ-FL-ENT SZ-FL-HOFF + !
+;
+
 \ Leaf after last / or \   ( a u -- a' u' )
-\ Store base/len in P/K then drop a u — must not leave the full path under
-\ the leaf (that stack leak broke ADD of a second file and side-panel paint).
+\ Store base/len in P/K then 2DROP — must not leave full path under the leaf.
 : SZ-FL-LEAF  ( c-addr u -- c-addr' u' )
    DUP 0= IF  EXIT  THEN
    OVER SZ-FL-P !
@@ -207,69 +224,11 @@ VARIABLE SZ-FL-I
    SZ-FL-P @ SZ-FL-K @
 ;
 
-\ Match full path (a u) to entry i. ( a u i -- flag )
-\ Uses only Q/I temps; path stays on the stack until done.
-: SZ-FL-MATCH  ( c-addr u i -- flag )
-   SZ-FL-ENT SZ-FL-Q !
-   SZ-FL-Q @ C@ OVER <> IF  2DROP FALSE EXIT  THEN
-   \ a u  lengths equal
-   0 SZ-FL-I !
-   BEGIN  SZ-FL-I @ OVER < WHILE
-      OVER SZ-FL-I @ + C@                 \ a u ch1
-      SZ-FL-Q @ 1+ SZ-FL-I @ + C@ <> IF  \ a u  (IF ate flag)
-         2DROP FALSE EXIT
-      THEN
-      1 SZ-FL-I +!
-   REPEAT
-   2DROP TRUE
-;
-
-\ Match leaf name of (a u) to leaf of entry i. ( a u i -- flag )
-: SZ-FL-LEAF-MATCH  ( c-addr u i -- flag )
-   >R                                     \ a u  R: i
-   SZ-FL-LEAF                             \ la lu
-   R> SZ-FL-ENT COUNT SZ-FL-LEAF          \ la lu ea eu
-   COMPARE 0=
-;
-
-: SZ-FL-FIND  ( c-addr u -- i )
-   SZ-FL-N @ 0= IF  2DROP -1 EXIT  THEN
-   0
-   BEGIN  DUP SZ-FL-N @ < WHILE
-      >R 2DUP R@ SZ-FL-MATCH IF
-         2DROP R> EXIT
-      THEN
-      R> 1+
-   REPEAT
-   DROP 2DROP -1
-;
-
-\ Find by leaf name only (same file under different path forms).
-: SZ-FL-FIND-LEAF  ( c-addr u -- i )
-   SZ-FL-N @ 0= IF  2DROP -1 EXIT  THEN
-   0
-   BEGIN  DUP SZ-FL-N @ < WHILE
-      >R 2DUP R@ SZ-FL-LEAF-MATCH IF
-         2DROP R> EXIT
-      THEN
-      R> 1+
-   REPEAT
-   DROP 2DROP -1
-;
-
-: SZ-FL-DROP0  ( -- )
-   SZ-FL-N @ 1 < IF  EXIT  THEN
-   SZ-FL-TAB SZ-FL-ESZ +  SZ-FL-TAB
-   SZ-FL-N @ 1- SZ-FL-ESZ *  MOVE
-   -1 SZ-FL-N +!
-   SZ-FL-CUR @ 0> IF  -1 SZ-FL-CUR +!  THEN
-   SZ-FL-CUR @ SZ-FL-N @ >= IF  0 SZ-FL-CUR !  THEN
-;
-
-\ Store full path as counted string at ent (u clamped ≤255).
-: SZ-FL-STORE  ( c-addr u ent -- )
-   SZ-FL-Q !
-   255 MIN
+\ Store path + line at ent. ( a u line ent -- )
+: SZ-FL-STORE  ( c-addr u line ent -- )
+   SZ-FL-Q !                                  \ Q = ent
+   SZ-FL-L !                                  \ L = line
+   SZ-FL-PATHMAX MIN
    SZ-FL-K !  SZ-FL-P !
    SZ-FL-K @ SZ-FL-Q @ C!
    0 SZ-FL-I !
@@ -278,88 +237,269 @@ VARIABLE SZ-FL-I
       SZ-FL-Q @ 1+ SZ-FL-I @ + C!
       1 SZ-FL-I +!
    REPEAT
+   SZ-FL-L @ SZ-FL-Q @ SZ-FL-HOFF + !
 ;
 
-\ Remember full path; show leaf in panel. Stack empty on return.
-\ Full-path hit → set current. Leaf-only hit → refresh stored path + current.
-\ New path → append (drop oldest if full).
-: SZ-FL-ADD  ( c-addr u -- )
-   DUP 0= IF  2DROP EXIT  THEN
-   255 MIN
-   2DUP SZ-FL-FIND DUP 0< 0= IF
-      SZ-FL-CUR !  2DROP EXIT
-   THEN  DROP
-   2DUP SZ-FL-FIND-LEAF DUP 0< 0= IF
-      \ Same leaf, different full path — update store + highlight
-      DUP SZ-FL-CUR !
-      SZ-FL-ENT SZ-FL-STORE
+\ Drop oldest entry (index 0).
+: SZ-FL-DROP0  ( -- )
+   SZ-FL-N @ 1 < IF  EXIT  THEN
+   SZ-FL-TAB SZ-FL-ESZ +  SZ-FL-TAB
+   SZ-FL-N @ 1- SZ-FL-ESZ *  MOVE
+   -1 SZ-FL-N +!
+   SZ-FL-CUR @ 0> IF  -1 SZ-FL-CUR +!  THEN
+   SZ-FL-CUR @ SZ-FL-N @ >= IF
+      SZ-FL-N @ 1- 0 MAX SZ-FL-CUR !
+   THEN
+;
+
+\ Open hole at ins: shift [ins, N) up one slot.
+: SZ-FL-OPEN  ( ins -- )
+   DUP SZ-FL-N @ > IF  DROP EXIT  THEN
+   SZ-FL-I !                                  \ ins
+   SZ-FL-N @ SZ-FL-I @ - DUP 0= IF  DROP EXIT  THEN
+   SZ-FL-ESZ * >R
+   SZ-FL-I @ SZ-FL-ENT
+   SZ-FL-I @ 1+ SZ-FL-ENT
+   R> MOVE
+;
+
+\ Remove entry i (shift down). Adjust CUR.
+\ Uses K for i — SZ-FL-STORE clobbers I and L/P/Q.
+: SZ-FL-REMOVE  ( i -- )
+   DUP 0< IF  DROP EXIT  THEN
+   DUP SZ-FL-N @ >= IF  DROP EXIT  THEN
+   SZ-FL-K !                                  \ K = i
+   SZ-FL-N @ 1 = IF
+      0 SZ-FL-N !  0 SZ-FL-CUR !  EXIT
+   THEN
+   SZ-FL-N @ SZ-FL-K @ - 1- DUP 0> IF
+      SZ-FL-ESZ * >R
+      SZ-FL-K @ 1+ SZ-FL-ENT
+      SZ-FL-K @ SZ-FL-ENT
+      R> MOVE
+   ELSE  DROP  THEN
+   -1 SZ-FL-N +!
+   SZ-FL-CUR @ SZ-FL-K @ > IF  -1 SZ-FL-CUR +!  THEN
+   SZ-FL-CUR @ SZ-FL-N @ >= IF
+      SZ-FL-N @ 1- 0 MAX SZ-FL-CUR !
+   THEN
+;
+
+\ Overwrite current visit (or create slot 0). ( a u line -- )
+: SZ-FL-NOTE-HERE  ( c-addr u line -- )
+   DUP 1 < IF  DROP 1  THEN >R                \ R: line  ( a u )
+   DUP 0= IF  R> DROP 2DROP EXIT  THEN
+   SZ-FL-N @ 0= IF
+      2DUP R@ 0 SZ-FL-ENT SZ-FL-STORE
+      2DROP R> DROP
+      1 SZ-FL-N !  0 SZ-FL-CUR !
       EXIT
-   THEN  DROP
+   THEN
+   2DUP R@ SZ-FL-CUR @ SZ-FL-ENT SZ-FL-STORE
+   2DROP R> DROP
+;
+
+\ Insert visit after CUR (browser branch). ( a u line -- )
+\ Note: SZ-FL-STORE clobbers SZ-FL-I — keep ins on the return stack.
+: SZ-FL-RECORD  ( c-addr u line -- )
+   DUP 1 < IF  DROP 1  THEN
+   SZ-FL-L !                                  \ L = line
+   DUP 0= IF  2DROP EXIT  THEN
+   SZ-FL-PATHMAX MIN
    SZ-FL-N @ SZ-FL-MAX >= IF  SZ-FL-DROP0  THEN
-   2DUP SZ-FL-N @ SZ-FL-ENT SZ-FL-STORE
+   SZ-FL-N @ 0= IF
+      2DUP SZ-FL-L @ 0 SZ-FL-ENT SZ-FL-STORE
+      2DROP
+      1 SZ-FL-N !  0 SZ-FL-CUR !
+      EXIT
+   THEN
+   SZ-FL-CUR @ 1+ >R                          \ R: ins
+   R@ SZ-FL-OPEN
+   2DUP SZ-FL-L @ R@ SZ-FL-ENT SZ-FL-STORE
    2DROP
-   SZ-FL-N @ SZ-FL-CUR !
+   R> SZ-FL-CUR !
    1 SZ-FL-N +!
 ;
 
-: SZ-FL-ENSURE-VIS  ( -- )
-   \ Keep CUR in range so reverse-video never points at a missing row.
-   SZ-FL-N @ 0= IF  0 SZ-FL-CUR !  0 SZ-FL-TOP !  EXIT  THEN
-   SZ-FL-CUR @ 0< IF  0 SZ-FL-CUR !  THEN
-   SZ-FL-CUR @ SZ-FL-N @ >= IF  SZ-FL-N @ 1- SZ-FL-CUR !  THEN
-   SZ-TEXT-ROWS >R
-   SZ-FL-CUR @ SZ-FL-TOP @ < IF
-      SZ-FL-CUR @ SZ-FL-TOP !
-   THEN
-   SZ-FL-CUR @ SZ-FL-TOP @ R@ + 1- > IF
-      SZ-FL-CUR @ R@ - 1+ 0 MAX SZ-FL-TOP !
-   THEN
-   SZ-FL-N @ R@ <= IF  0 SZ-FL-TOP !  THEN
+\ Plain open (no line): record path at line 1, or update if only noting.
+: SZ-FL-ADD  ( c-addr u -- )
+   1 SZ-FL-RECORD
+;
+
+: SZ-FL-NOTE-PATH  ( c-addr u -- )
+   1 SZ-FL-RECORD
+;
+
+\ After load: update current visit path+line, or record if list empty.
+: SZ-FL-NOTE-CURRENT  ( -- )
+   SZ-HAS-NAME? 0= IF  EXIT  THEN
+   SZ-GET-NAME SZ-CUR-LINE-NO
+   SZ-FL-N @ IF  SZ-FL-NOTE-HERE  ELSE  SZ-FL-RECORD  THEN
+;
+
+\ Clear visit panel (Hyper rebuilds from VTAB).
+\ ERASE the table — without that, a skipped PUT leaves a stale path that still
+\ paints (e.g. forth.s above hyper) while empty slots paint as blank rows.
+: SZ-FL-CLEAR  ( -- )
+   SZ-FL-TAB  SZ-FL-MAX SZ-FL-ESZ *  ERASE
+   0 SZ-FL-N !
+   0 SZ-FL-CUR !
+   0 SZ-FL-TOP !
+;
+
+\ Store path+line at fixed index i; grow N to at least i+1.
+\ Reject empty path so rebuild never creates holes.
+: SZ-FL-PUT  ( c-addr u line i -- )
+   >R                                         \ R: i  ( a u line )
+   OVER 0= IF  R> DROP 2DROP DROP EXIT  THEN  \ empty path
+   DUP 1 < IF  DROP 1  THEN
+   R@ 0< IF  R> DROP 2DROP DROP EXIT  THEN
+   R@ SZ-FL-MAX >= IF  R> DROP 2DROP DROP EXIT  THEN
+   R@ SZ-FL-ENT SZ-FL-STORE                   \ ( a u line ent )
+   R@ 1+ SZ-FL-N @ MAX SZ-FL-N !
    R> DROP
 ;
 
-\ Draw leaf name for entry i at facility row (highlight if current).
+\ Set current highlight index (clamped).
+: SZ-FL-SET-CUR  ( i -- )
+   SZ-FL-N @ 0= IF  DROP 0 SZ-FL-CUR !  EXIT  THEN
+   0 MAX
+   SZ-FL-N @ 1- MIN
+   SZ-FL-CUR !
+;
+
+\ True if entry i has this path and line. ( a u line i -- flag )
+: SZ-FL-SAME?  ( c-addr u line i -- flag )
+   >R                                         \ R: i  a u line
+   R@ SZ-FL-LINE@ <> IF  R> DROP 2DROP FALSE EXIT  THEN
+   R> SZ-FL-ENT COUNT                         \ a u ea eu
+   COMPARE 0=
+;
+
+\ Find index of path+line or -1. ( a u line -- i )
+: SZ-FL-FIND-VISIT  ( c-addr u line -- i )
+   SZ-FL-L !                                  \ L = line
+   SZ-FL-N @ 0= IF  2DROP -1 EXIT  THEN
+   0
+   BEGIN  DUP SZ-FL-N @ < WHILE
+      >R 2DUP SZ-FL-L @ R@ SZ-FL-SAME? IF
+         2DROP R> EXIT
+      THEN
+      R> 1+
+   REPEAT
+   DROP 2DROP -1
+;
+
+\ Ensure path+line is a visit and current. Insert after CUR if new.
+\ Used by SZ-HYPER-GOTO so the side list always shows the destination
+\ even when Hyper→panel rebuild is unavailable.
+: SZ-FL-ENSURE-VISIT  ( c-addr u line -- )
+   DUP 1 < IF  DROP 1  THEN
+   >R 2DUP R@ SZ-FL-FIND-VISIT                \ a u i  R: line
+   DUP 0< 0= IF
+      SZ-FL-CUR !  2DROP R> DROP  EXIT        \ already present
+   THEN  DROP
+   R> SZ-FL-RECORD
+;
+
+: SZ-FL-ENSURE-VIS  ( -- )
+   SZ-FL-N @ 0= IF  0 SZ-FL-CUR !  0 SZ-FL-TOP !  EXIT  THEN
+   SZ-FL-CUR @ 0 MAX SZ-FL-CUR !
+   SZ-FL-CUR @ SZ-FL-N @ 1- MIN SZ-FL-CUR !
+   SZ-FL-TOP @ 0 MAX SZ-FL-TOP !
+   \ Keep current row in the text band; never use TOP that paints above TEXT-TOP.
+   SZ-FL-N @ SZ-TEXT-ROWS <= IF  0 SZ-FL-TOP !  EXIT  THEN
+   SZ-FL-CUR @ SZ-FL-TOP @ < IF
+      SZ-FL-CUR @ SZ-FL-TOP !
+   THEN
+   SZ-FL-CUR @ SZ-FL-TOP @ SZ-TEXT-ROWS + 1- > IF
+      SZ-FL-CUR @ SZ-TEXT-ROWS - 1+ 0 MAX SZ-FL-TOP !
+   THEN
+;
+
+\ Right-justify n in `width` columns (uses SZ-FL-I as digit count only).
+CREATE SZ-FL-LDIG  8 ALLOT
+: SZ-FL-EMIT-LINE  ( n width -- )
+   SZ-FL-K !                                  \ K = width (not used by LEAF after)
+   DUP 0> 0= IF  DROP SZ-FL-K @ SZ-SPACES1 EXIT  THEN
+   0 SZ-FL-I !
+   BEGIN  DUP WHILE
+      10 /MOD
+      SWAP [CHAR] 0 +
+      SZ-FL-I @ 8 < IF
+         SZ-FL-LDIG SZ-FL-I @ + C!
+         1 SZ-FL-I +!
+      ELSE  DROP  THEN
+   REPEAT  DROP
+   SZ-FL-K @ SZ-FL-I @ - 0 MAX SZ-SPACES1
+   SZ-FL-I @
+   BEGIN  DUP WHILE
+      1-
+      DUP SZ-FL-LDIG + C@ EMIT
+   REPEAT  DROP
+;
+
+\ Draw visit i at facility row. Refuses rows outside the text band.
+\ Empty path still paints "(?)" + line + [X] so a hole is visible (not a dead blank).
 : SZ-FL-SHOW1  ( i row -- )
+   DUP SZ-TEXT-TOP < IF  2DROP EXIT  THEN
+   DUP SZ-TEXT-BOT @ > IF  2DROP EXIT  THEN
    OVER SZ-FL-N @ >= IF  2DROP EXIT  THEN
-   SZ-SIDE-LEFT SWAP AT-XY
+   OVER 0< IF  2DROP EXIT  THEN
+   SZ-SIDE-LEFT SWAP AT-XY                    \ i  (row consumed)
    DUP SZ-FL-CUR @ = IF  -1  ELSE  0  THEN FACILITY-REV
-   SZ-FL-ENT COUNT SZ-FL-LEAF                 \ leaf a u
-   SZ-SIDE-WIDTH MIN
-   DUP >R TYPE
-   SZ-SIDE-WIDTH R> - 0 MAX SZ-SPACES1
+   DUP SZ-FL-ENT C@ 0= IF
+      S" (?)" SZ-FL-NAMEW MIN
+      DUP >R TYPE
+      SZ-FL-NAMEW R> - 0 MAX SZ-SPACES1
+   ELSE
+      DUP SZ-FL-ENT COUNT SZ-FL-LEAF
+      SZ-FL-NAMEW MIN
+      DUP >R TYPE
+      SZ-FL-NAMEW R> - 0 MAX SZ-SPACES1
+   THEN
+   \ line# then [X] close control  (i still TOS)
+   DUP SZ-FL-LINE@ SZ-FL-LINEW SZ-FL-EMIT-LINE
+   DROP
+   S" [X]" TYPE
    0 FACILITY-REV
 ;
 
+\ Paint side panel using variables only (no fragile stack loops).
 : SZ-DRAW-SIDE  ( -- )
-   SZ-TEXT-TOP
-   BEGIN  DUP SZ-TEXT-BOT @ > 0= WHILE
-      DUP SZ-SIDE-LEFT SWAP AT-XY
+   \ Clear only text-band side cells
+   SZ-TEXT-TOP SZ-FL-DR !
+   BEGIN  SZ-FL-DR @ SZ-TEXT-BOT @ > 0= WHILE
+      SZ-SIDE-LEFT SZ-FL-DR @ AT-XY
       SZ-SIDE-WIDTH SZ-SPACES1
-      1+
-   REPEAT  DROP
+      1 SZ-FL-DR +!
+   REPEAT
    SZ-FL-N @ IF
       SZ-FL-ENSURE-VIS
-      SZ-FL-TOP @
-      SZ-TEXT-TOP
-      BEGIN  DUP SZ-TEXT-BOT @ > 0= WHILE
-         OVER SZ-FL-N @ < IF  2DUP SZ-FL-SHOW1  THEN
-         >R 1+ R> 1+
+      SZ-FL-TOP @ 0 MAX SZ-FL-DI !
+      SZ-TEXT-TOP SZ-FL-DR !
+      BEGIN  SZ-FL-DR @ SZ-TEXT-BOT @ > 0= WHILE
+         SZ-FL-DI @ SZ-FL-N @ < IF
+            SZ-FL-DI @ SZ-FL-DR @ SZ-FL-SHOW1
+         THEN
+         1 SZ-FL-DI +!
+         1 SZ-FL-DR +!
       REPEAT
-      2DROP
    THEN
+   \ Outer right border on all frame rows (not over status row 0)
    SZ-FRAME-BOT @ 1+ SZ-FRAME-TOP DO
       SZ-COLS @ 1- I AT-XY  [CHAR] | EMIT
    LOOP
 ;
 
-\ Register path (a u) in the side list and mark it current.
-: SZ-FL-NOTE-PATH  ( c-addr u -- )
-   SZ-FL-ADD
-;
-
-\ Call after a successful SZ-LOAD / open (does not alter ior stack).
-: SZ-FL-NOTE-CURRENT  ( -- )
-   SZ-HAS-NAME? IF  SZ-GET-NAME SZ-FL-ADD  THEN
+\ True if facility col is inside the trailing "[X]" close (all three columns).
+\ Hit range: [ SIDE-LEFT + SIDE-WIDTH - XW , SIDE-LEFT + SIDE-WIDTH )
+: SZ-FL-X-COL?  ( col -- flag )
+   DUP                                        \ col col
+   SZ-SIDE-LEFT SZ-SIDE-WIDTH + SZ-FL-XW -    \ col col first
+   < IF  DROP FALSE EXIT  THEN                \ col < first
+   SZ-SIDE-LEFT SZ-SIDE-WIDTH +               \ col past-end
+   <                                          \ col < past-end
 ;
 
 \ SZ-FL-GOTO / SZ-SIDE-CLICK are defined after final SZ-REDRAW (need that CFA).
@@ -501,9 +641,9 @@ CREATE SZ-FIND-STAT  18 ALLOT
    SZ-TEXT-BOT @ 2 + SZ-BLANK-ROW
    SZ-TEXT-BOT @ 3 + SZ-BLANK-ROW
    0 SZ-TEXT-BOT @ 2 + AT-XY
-   ." Cmd-E VIEW word | Cmd-PgUp/Dn Hyper | Cmd-G/arrows find | wheel scroll"
+   ." Cmd-E/click VIEW | Cmd-PgUp/Dn visits | side: line# [X] | find Cmd-G"
    0 SZ-TEXT-BOT @ 3 + AT-XY
-   ." drag/⇧-click select | dbl-click word | Cmd-click VIEW | Cmd-X/C/V/S/W"
+   ." drag/⇧-click | dbl-word tri-line | Cmd-click VIEW | Cmd-X/C/V/S/W"
 ;
 
 \ True if SZ-CUR lies on the logical line starting at `ls`.
@@ -646,33 +786,41 @@ EDIT-WINDOW SZ-APPLY-EDIT-WINDOW
    SZ-REDRAW-CORE
 ;
 
-\ Switch editor to list entry i (reload file). No-op if already current.
+\ Line apply — stub until sz-edit defines SZ-GOTO-LINE (load order).
+: SZ-FL-APPLY-LINE  ( n -- )  DROP ;
+
+\ Switch editor to visit i (path + stored line). No-op if already current.
 \ Defined here so SZ-REDRAW is the final (sync+paint) version.
+\ Full dirty-check version is redefined in sz-edit.fth.
 : SZ-FL-GOTO  ( i -- )
    DUP 0< IF  DROP EXIT  THEN
    DUP SZ-FL-N @ >= IF  DROP EXIT  THEN
-   DUP SZ-FL-CUR @ = IF  DROP EXIT  THEN
-   SZ-FL-ENT COUNT                            \ a u
+   DUP SZ-FL-CUR !
+   DUP SZ-FL-ENT COUNT                        \ i a u
    2DUP SZ-LOAD IF
-      ." cannot open " TYPE CR 2DROP EXIT
+      ." cannot open " TYPE CR 2DROP DROP EXIT
    THEN
-   2DROP
-   SZ-FL-NOTE-CURRENT
-   SZ-VIEW-RESET
+   2DROP                                      \ i
+   DUP SZ-FL-LINE@ SZ-FL-APPLY-LINE
+   DROP
    SZ-REDRAW
 ;
 
-\ Click in side panel (col row) → open that list row's file.
+\ Click side panel: X column removes visit; else goto that visit.
 : SZ-SIDE-CLICK  ( col row -- )
    OVER SZ-EDIT-RIGHT > 0= IF  2DROP EXIT  THEN
    OVER SZ-COLS @ 1- < 0= IF  2DROP EXIT  THEN
    DUP SZ-TEXT-TOP < IF  2DROP EXIT  THEN
    DUP SZ-TEXT-BOT @ > IF  2DROP EXIT  THEN
-   NIP
-   SZ-TEXT-TOP - SZ-FL-TOP @ +
-   DUP 0< IF  DROP EXIT  THEN
-   DUP SZ-FL-N @ >= IF  DROP EXIT  THEN
-   SZ-FL-GOTO
+   SZ-TEXT-TOP - SZ-FL-TOP @ +                \ col i
+   DUP 0< IF  2DROP EXIT  THEN
+   DUP SZ-FL-N @ >= IF  2DROP EXIT  THEN
+   SWAP SZ-FL-X-COL? IF
+      SZ-FL-REMOVE
+      SZ-REDRAW
+   ELSE
+      SZ-FL-GOTO
+   THEN
 ;
 
 \ Apply current window size to facility grid at load

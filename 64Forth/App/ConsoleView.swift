@@ -65,6 +65,8 @@ struct ConsoleView: View {
     #endif
     /// Throttle auto-scroll while engine output streams.
     @State private var lastFollowOutputTime = Date.distantPast
+    /// Console body before the first facility PAGE/refresh (restored on FACILITY-OFF).
+    @State private var preFacilityConsole: String?
 
     @FocusState private var isFocused: Bool
 
@@ -139,6 +141,10 @@ struct ConsoleView: View {
         // Facility terminal (PAGE/AT-XY): replace console body with grid paint.
         kernel.onTerminalRefresh = { screen in
             isProgrammaticConsoleAppend = true
+            // Snapshot once so FACILITY-OFF can put the REPL transcript back.
+            if preFacilityConsole == nil {
+                preFacilityConsole = consoleText
+            }
             consoleText = kernel.facilityPaintPrefix + screen
             if !consoleText.hasSuffix("\n") {
                 consoleText += "\n"
@@ -152,6 +158,10 @@ struct ConsoleView: View {
                 applyFacilitySelectionHighlight()
                 applyFacilityCursorHighlight()
             }
+        }
+        // FACILITY-OFF / editor Cmd-W: restore REPL text so exit is obvious.
+        kernel.onFacilityExit = {
+            restoreConsoleAfterFacility()
         }
         // Startup: banner → cwd + blank line → AutoLoad → host prompt.
         isProgrammaticConsoleAppend = true
@@ -288,6 +298,27 @@ struct ConsoleView: View {
         // (e.g. before FLOAD Hayes / ANS-VALIDATE). Format: ok(0)>
         let n = kernel.dataStackDepth
         appendEngineOutput("ok(\(n))> ")
+    }
+
+    /// Put the pre-editor console back after SZ-EDITOR / facility leave.
+    /// Without this, the last editor frame remains until the next Return.
+    private func restoreConsoleAfterFacility() {
+        isProgrammaticConsoleAppend = true
+        if let saved = preFacilityConsole {
+            consoleText = saved
+            preFacilityConsole = nil
+        }
+        // Ensure a trailing newline so a following prompt/TYPE is not glued
+        // onto the last transcript line.
+        if !consoleText.isEmpty && !consoleText.hasSuffix("\n") {
+            consoleText += "\n"
+        }
+        markProtectedThroughEndOfText()
+        #if os(macOS)
+        (consoleTextView as? ConsoleNSTextView)?.hideFacilityLineCaret()
+        #endif
+        isProgrammaticConsoleAppend = false
+        keepCursorVisible(followPrompt: true)
     }
 
     private func keepCursorVisible(followPrompt: Bool = false) {
@@ -631,8 +662,33 @@ struct ConsoleView: View {
         let escaped = word
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+        isProgrammaticConsoleAppend = true
         _ = kernel.evaluate("S\" \(escaped)\" HYPER-VIEW-CU")
+        // evaluate blocks until the editor exits. FACILITY-OFF restores the
+        // transcript (async from the Forth queue); ensure restore + prompt here
+        // if the callback has not already run.
+        if !kernel.isFacilityTerminalActive {
+            if preFacilityConsole != nil {
+                restoreConsoleAfterFacility()
+            }
+            ensureInputPrompt()
+        }
+        isProgrammaticConsoleAppend = false
+        keepCursorVisible(followPrompt: true)
         #endif
+    }
+
+    /// After facility restore / console VIEW: make sure the user can type.
+    /// Pre-facility snapshot usually already ends with `ok(n)> `; do not double it.
+    private func ensureInputPrompt() {
+        if consoleText.hasSuffix("> ") { return }
+        isProgrammaticConsoleAppend = true
+        if !consoleText.isEmpty && !consoleText.hasSuffix("\n") {
+            consoleText += "\n"
+            markProtectedThroughEndOfText()
+        }
+        appendPrompt()
+        isProgrammaticConsoleAppend = false
     }
 
     /// Whitespace-delimited token containing UTF-16 index `idx` (Forth-ish name).

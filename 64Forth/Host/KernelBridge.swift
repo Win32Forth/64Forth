@@ -476,7 +476,18 @@ private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> 
             DispatchQueue.main.async(execute: paint)
         }
     case 4:
+        // Leave facility mode and restore the pre-editor console (snapshot held
+        // by ConsoleView). Without this, the last SZ-EDITOR frame stays on screen
+        // until the user presses Return — exit feels broken.
         term.deactivate()
+        let exit: () -> Void = {
+            KernelBridge.shared.onFacilityExit?()
+        }
+        if Thread.isMainThread {
+            exit()
+        } else {
+            DispatchQueue.main.async(execute: exit)
+        }
     case 5:
         term.resize(cols: Int(a), rows: Int(b))
     case 6:
@@ -505,6 +516,7 @@ public func host_facility_xy(
 ///   bits2–3 = phase: 0=down, 1=drag, 2=up
 ///   bit4    = Shift held (extend selection)
 ///   bit5    = double-click (space-delimited word)
+///   bit6    = triple-click (whole logical line)
 /// Fills col/row (0-based facility cells).
 @_cdecl("host_sz_click")
 public func host_sz_click(
@@ -717,6 +729,8 @@ final class KernelBridge {
         var shift: Bool
         /// Double-click — select space-delimited word.
         var doubleClick: Bool
+        /// Triple-click — select whole logical line.
+        var tripleClick: Bool
         var phase: FacilityMousePhase
     }
 
@@ -814,7 +828,8 @@ final class KernelBridge {
         phase: FacilityMousePhase,
         command: Bool = false,
         shift: Bool = false,
-        doubleClick: Bool = false
+        doubleClick: Bool = false,
+        tripleClick: Bool = false
     ) {
         guard isFacilityTerminalActive, isEvaluating else { return }
         guard let cell = facilityCell(fromUTF16: utf16Index) else { return }
@@ -824,7 +839,8 @@ final class KernelBridge {
             phase: phase,
             command: command,
             shift: shift,
-            doubleClick: doubleClick
+            doubleClick: doubleClick,
+            tripleClick: tripleClick
         )
     }
 
@@ -834,7 +850,8 @@ final class KernelBridge {
         phase: FacilityMousePhase,
         command: Bool = false,
         shift: Bool = false,
-        doubleClick: Bool = false
+        doubleClick: Bool = false,
+        tripleClick: Bool = false
     ) {
         guard isFacilityTerminalActive, isEvaluating else { return }
         let ev = FacilityMouseEvent(
@@ -843,6 +860,7 @@ final class KernelBridge {
             command: command,
             shift: shift,
             doubleClick: doubleClick,
+            tripleClick: tripleClick,
             phase: phase
         )
         var shouldPushKey = false
@@ -898,6 +916,7 @@ final class KernelBridge {
         flag |= Int32(ev.phase.rawValue) << 2
         if ev.shift { flag |= 16 }
         if ev.doubleClick { flag |= 32 }
+        if ev.tripleClick { flag |= 64 }
 
         // Drain remaining events one KEY at a time (down → drag* → up).
         if more {
@@ -953,6 +972,10 @@ final class KernelBridge {
 
     /// Host replaces console body with rendered facility screen (cols×rows + newlines).
     var onTerminalRefresh: ((String) -> Void)?
+
+    /// Host restores the pre-facility console transcript after FACILITY-OFF.
+    /// Called on the main thread (sync if already main, else async).
+    var onFacilityExit: (() -> Void)?
 
     /// Optional banner prefix kept above facility paints (e.g. empty while editing).
     var facilityPaintPrefix: String = ""

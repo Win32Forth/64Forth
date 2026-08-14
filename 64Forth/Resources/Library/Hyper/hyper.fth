@@ -273,12 +273,38 @@ VARIABLE HYPER-TMP-ADDR
    R> DROP
    HYPER-HI HYPER-HENT HYPER-HOFF + @ TO HYPER-LINE# ;
 
+\ Leaf after last / or \ — console hit lines use this instead of absolute
+\ DerivedData paths (VIEW/LOCATE stay readable after editor exit restore).
+VARIABLE HYPER-LEAF-A
+VARIABLE HYPER-LEAF-U
+: HYPER-HIT-LEAF  ( -- c-addr u )
+   HYPER-HIT COUNT
+   DUP 0= IF  EXIT  THEN
+   OVER HYPER-LEAF-A !
+   DUP HYPER-LEAF-U !
+   2DROP
+   HYPER-LEAF-U @
+   BEGIN  1- DUP 0< 0= WHILE
+      HYPER-LEAF-A @ OVER + C@
+      DUP [CHAR] / = SWAP [CHAR] \ = OR IF
+         1+
+         DUP HYPER-LEAF-A @ +             \ leaf-a
+         SWAP HYPER-LEAF-U @ SWAP -       \ leaf-a leaf-u
+         EXIT
+      THEN
+   REPEAT
+   DROP
+   HYPER-LEAF-A @ HYPER-LEAF-U @
+;
+
+\ Console location line: leaf:line [n/m]  (not full absolute path).
 : HYPER-SHOW-HIT  ( -- )
-   HYPER-HIT COUNT TYPE [CHAR] : EMIT HYPER-LINE# .
+   HYPER-HIT-LEAF TYPE [CHAR] : EMIT HYPER-LINE# 0 .R
    HYPER-HN 1 > IF
       ."  [" HYPER-HI 1+ 0 .R [CHAR] / EMIT HYPER-HN 0 .R ." ]"
    THEN
-   CR ;
+   CR
+;
 
 \ ( a u -- ) try one NDX body line; stack-clean
 : (HYPER-TRY-LINE)  ( a u -- )
@@ -390,7 +416,13 @@ CREATE HYPER-ORDER-TMP  16 CELLS ALLOT
 0 VALUE HYPER-ACTIVE-XT              \ SZ-EDITOR-ACTIVE variable xt
 0 VALUE HYPER-ORIGIN-XT              \ SZ-HYPER-ORIGIN
 0 VALUE HYPER-HITS-XT                \ SZ-HYPER-HITS! ( cur tot -- )
-0 VALUE HYPER-FL-XT                  \ SZ-FL-NOTE-PATH ( a u -- ) side file list
+0 VALUE HYPER-FL-NOTE-XT             \ SZ-FL-NOTE-HERE ( a u line -- )
+0 VALUE HYPER-FL-REC-XT              \ SZ-FL-RECORD ( a u line -- )
+0 VALUE HYPER-FL-CUR-XT              \ SZ-FL-CUR variable xt
+0 VALUE HYPER-FL-CLR-XT              \ SZ-FL-CLEAR ( -- )
+0 VALUE HYPER-FL-PUT-XT              \ SZ-FL-PUT ( a u line i -- )
+0 VALUE HYPER-FL-SCUR-XT             \ SZ-FL-SET-CUR ( i -- )
+FALSE VALUE HYPER-SKIP-NOTE?         \ true → next VIEW-NAME skips HIST-NOTE
 
 \ -----------------------------------------------------------------------------
 \ Visit list — same entry store/load as the tested jump stack (PUSH/POP-ORIGIN).
@@ -406,10 +438,14 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
 : HYPER-VENT  ( i -- addr )  HYPER-HESZ * HYPER-VTAB + ;
 
 \ Store path+line at slot i. Body is the proven HYPER-PUSH-ORIGIN sequence.
+\ Reject empty path — empty VTAB slots become blank FL rows / stale paint after
+\ CLEAR without ERASE (fixed) and break index alignment with PUT-SLOT skips.
 : HYPER-V-STORE  ( a u line i -- )
-   HYPER-V-IX !
-   DUP 1 < IF  DROP 1  THEN >R               \ R: line  ( a u )
-   HYPER-V-IX @ HYPER-VENT >R                \ R: line ent
+   2>R                                        \ R: line i  ( a u )  i = R-TOS
+   DUP 0= IF  2DROP 2R> 2DROP EXIT  THEN      \ empty u
+   R> HYPER-V-IX !                            \ R: line  ( a u )
+   R@ 1 < IF  R> DROP 1 >R  THEN              \ clamp line on R
+   HYPER-V-IX @ HYPER-VENT >R                 \ R: line ent
    HYPER-PATHMAX MIN
    DUP R@ C!
    R@ 1+ SWAP CMOVE
@@ -453,10 +489,138 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    HYPER-CMD FIND IF  TO HYPER-ORIGIN-XT  ELSE  DROP 0 TO HYPER-ORIGIN-XT  THEN
    S" SZ-HYPER-HITS!" HYPER-CMD HYPER-PLACE
    HYPER-CMD FIND IF  TO HYPER-HITS-XT  ELSE  DROP 0 TO HYPER-HITS-XT  THEN
-   S" SZ-FL-NOTE-PATH" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND IF  TO HYPER-FL-XT  ELSE  DROP 0 TO HYPER-FL-XT  THEN
+   S" SZ-FL-NOTE-HERE" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  TO HYPER-FL-NOTE-XT  ELSE  DROP 0 TO HYPER-FL-NOTE-XT  THEN
+   S" SZ-FL-RECORD" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  TO HYPER-FL-REC-XT  ELSE  DROP 0 TO HYPER-FL-REC-XT  THEN
+   S" SZ-FL-CUR" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  TO HYPER-FL-CUR-XT  ELSE  DROP 0 TO HYPER-FL-CUR-XT  THEN
+   S" SZ-FL-CLEAR" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  TO HYPER-FL-CLR-XT  ELSE  DROP 0 TO HYPER-FL-CLR-XT  THEN
+   S" SZ-FL-PUT" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  TO HYPER-FL-PUT-XT  ELSE  DROP 0 TO HYPER-FL-PUT-XT  THEN
+   S" SZ-FL-SET-CUR" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  TO HYPER-FL-SCUR-XT  ELSE  DROP 0 TO HYPER-FL-SCUR-XT  THEN
    ONLY FORTH
    HYPER-EDIT-XT 0<> ;
+
+\ Editor Cmd-click already noted origin — skip one HIST-NOTE in VIEW-NAME.
+: HYPER-SKIP-NOTE  ( -- )  TRUE TO HYPER-SKIP-NOTE? ;
+
+\ Temps so PLACE never sees (a u line) as a counted name.
+VARIABLE HYPER-FL-A
+VARIABLE HYPER-FL-U
+VARIABLE HYPER-FL-LN
+VARIABLE HYPER-FL-IX
+
+: HYPER-FL-CALL3  ( name-a name-u -- )
+   HYPER-CMD HYPER-PLACE
+   ALSO EDITOR
+   HYPER-CMD FIND IF
+      >R
+      HYPER-FL-A @ HYPER-FL-U @ HYPER-FL-LN @
+      R> EXECUTE
+   ELSE  DROP  THEN
+   PREVIOUS
+;
+
+\ Prefer bound XTs (set by HYPER-BIND-EDITOR). FIND-per-slot was silent on
+\ failure and left holes; stale FL memory then painted forth.s above hyper.
+: HYPER-FL-ENSURE-BIND  ( -- )
+   HYPER-FL-PUT-XT 0=  HYPER-FL-CLR-XT 0= OR  HYPER-FL-SCUR-XT 0= OR IF
+      HYPER-BIND-EDITOR DROP
+   THEN
+;
+
+: HYPER-FL-SHOW  ( c-addr u line -- )
+   \ Keep for tests / diagnostics: append via ENSURE (not used by VIEW path).
+   HYPER-FL-LN !  HYPER-FL-U !  HYPER-FL-A !
+   S" SZ-FL-ENSURE-VISIT" HYPER-FL-CALL3
+;
+
+: HYPER-FL-NOTE  ( c-addr u line -- )
+   HYPER-FL-LN !  HYPER-FL-U !  HYPER-FL-A !
+   HYPER-FL-ENSURE-BIND
+   HYPER-FL-NOTE-XT IF
+      HYPER-FL-A @ HYPER-FL-U @ HYPER-FL-LN @
+      HYPER-FL-NOTE-XT EXECUTE
+   THEN
+;
+
+: HYPER-FL-SET-CUR  ( i -- )
+   HYPER-FL-ENSURE-BIND
+   HYPER-FL-SCUR-XT IF  HYPER-FL-SCUR-XT EXECUTE
+   ELSE  DROP  THEN
+;
+
+: HYPER-FL-CLEAR  ( -- )
+   HYPER-FL-ENSURE-BIND
+   HYPER-FL-CLR-XT IF  HYPER-FL-CLR-XT EXECUTE  THEN
+;
+
+\ Copy VTAB[i] → FL[i] via bound SZ-FL-PUT (fixed index; preserves visit order).
+\ Empty VTAB path: still consume i but do not PUT (and do not leave FL stale —
+\ CLEAR already erased the table).
+: HYPER-FL-PUT-SLOT  ( i -- )
+   DUP HYPER-VENT C@ 0= IF  DROP EXIT  THEN
+   HYPER-FL-IX !
+   HYPER-FL-IX @ HYPER-VENT                   \ ent
+   DUP 1+                                     \ ent body
+   SWAP C@ HYPER-PATHMAX MIN                  \ body n
+   DUP 0= IF  2DROP EXIT  THEN
+   HYPER-FL-U !  HYPER-FL-A !                 \ path
+   HYPER-FL-IX @ HYPER-VENT HYPER-HOFF + @ HYPER-FL-LN !
+   HYPER-FL-PUT-XT 0= IF  EXIT  THEN
+   HYPER-FL-A @ HYPER-FL-U @ HYPER-FL-LN @ HYPER-FL-IX @
+   HYPER-FL-PUT-XT EXECUTE
+;
+
+\ Full panel = exact mirror of VTAB order (no insert-after scramble).
+\ Uses bound XTs only — no ALSO/FIND mid-rebuild (search-order safe in KEY).
+: HYPER-FL-REBUILD  ( -- )
+   HYPER-FL-ENSURE-BIND
+   HYPER-FL-CLEAR
+   HYPER-VN 0= IF  0 HYPER-FL-SET-CUR  EXIT  THEN
+   0
+   BEGIN  DUP HYPER-VN < WHILE
+      DUP HYPER-FL-PUT-SLOT
+      1+
+   REPEAT  DROP
+   \ Clamp VI then highlight; TOP forced to 0 so first visits always paint in-band.
+   HYPER-VI 0 MAX HYPER-VN 1- MIN TO HYPER-VI
+   HYPER-VI HYPER-FL-SET-CUR
+   S" SZ-FL-TOP" HYPER-CMD HYPER-PLACE
+   ALSO EDITOR
+   HYPER-CMD FIND IF  EXECUTE 0 SWAP !  ELSE  DROP  THEN
+   PREVIOUS
+;
+
+: HYPER-SET-VI  ( i -- )
+   DUP 0< IF  DROP EXIT  THEN
+   DUP HYPER-VN >= IF  DROP EXIT  THEN
+   DUP TO HYPER-VI
+   HYPER-FL-SET-CUR
+;
+
+: HYPER-V-REMOVE  ( i -- )
+   DUP 0< IF  DROP EXIT  THEN
+   DUP HYPER-VN >= IF  DROP EXIT  THEN
+   HYPER-V-IX !
+   HYPER-VN 1 = IF
+      0 TO HYPER-VN  0 TO HYPER-VI
+      HYPER-FL-REBUILD EXIT
+   THEN
+   HYPER-VN HYPER-V-IX @ - 1- DUP 0> IF
+      HYPER-HESZ * >R
+      HYPER-V-IX @ 1+ HYPER-VENT
+      HYPER-V-IX @ HYPER-VENT
+      R> MOVE
+   ELSE  DROP  THEN
+   HYPER-VN 1- TO HYPER-VN
+   HYPER-VI HYPER-V-IX @ > IF  HYPER-VI 1- TO HYPER-VI  THEN
+   HYPER-VI HYPER-VN >= IF  HYPER-VN 1- 0 MAX TO HYPER-VI  THEN
+   HYPER-FL-REBUILD
+;
 
 \ Push multi-hit (1-based HI+1 / HN) into the editor status badge.
 : HYPER-SYNC-HITS  ( -- )
@@ -473,40 +637,44 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    HYPER-ACTIVE-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
    HYPER-ACTIVE-XT IF  HYPER-ACTIVE-XT EXECUTE @  ELSE  FALSE  THEN ;
 
-\ Put hit path on the editor side list *before* SZ-HYPER-GOTO redraws so
-\ Library/Sources/forth.s (etc.) is visible and highlighted on first paint.
-: HYPER-NOTE-HIT  ( -- )
-   HYPER-FL-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
-   HYPER-FL-XT 0= IF  EXIT  THEN
-   HYPER-HIT C@ 0= IF  EXIT  THEN
-   HYPER-HIT COUNT HYPER-FL-XT EXECUTE
-;
-
-\ Goto / note / record — after BIND and ACTIVE? (no forward refs).
+\ Goto visit i — load path:line, sync side-panel current.
 : HYPER-V-GOTO  ( i -- )
+   DUP TO HYPER-VI
    HYPER-V-LOAD
    HYPER-GOTO-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
    HYPER-GOTO-XT 0= IF  EXIT  THEN
-   HYPER-NOTE-HIT
    HYPER-HIT COUNT HYPER-LINE#
    HYPER-GOTO-XT EXECUTE
-   \ Visit walk is not multi-hit browse — clear (n/m) so Cmd-Pg* keep using visits.
+   \ Highlight the visit we jumped to (list already has rows from RECORD).
+   HYPER-VI HYPER-FL-SET-CUR
    0 TO HYPER-HN
    0 TO HYPER-HI
    HYPER-SYNC-HITS
 ;
 
+\ Save caret path:line as current visit (overwrite VI). Dual-write side list.
 : HYPER-HIST-NOTE-HERE  ( -- )
    HYPER-EDITOR-ACTIVE? 0= IF  EXIT  THEN
-   HYPER-ORIGIN-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
-   HYPER-ORIGIN-XT 0= IF  EXIT  THEN
+   HYPER-ORIGIN-XT 0= IF
+      HYPER-BIND-EDITOR DROP
+      HYPER-ORIGIN-XT 0= IF  EXIT  THEN
+   THEN
    HYPER-ORIGIN-XT EXECUTE                   \ a u line
+   \ Empty path (untitled / no name) — do not poison VTAB.
+   OVER 0= IF  DROP 2DROP EXIT  THEN
+   >R                                        \ R: line  ( a u )
    HYPER-VN 0= IF
-      0 HYPER-V-STORE
+      2DUP R@ 0 HYPER-V-STORE
       1 TO HYPER-VN  0 TO HYPER-VI
+      2DROP R> DROP
+      HYPER-FL-REBUILD
       EXIT
    THEN
-   HYPER-VI HYPER-V-STORE
+   \ Keep VI in range before overwrite.
+   HYPER-VI 0 MAX HYPER-VN 1- MIN TO HYPER-VI
+   2DUP R@ HYPER-VI HYPER-V-STORE
+   2DROP R> DROP
+   HYPER-FL-REBUILD
 ;
 
 : HYPER-HIST-RECORD-DEST  ( -- )
@@ -521,15 +689,20 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    HYPER-VN 0= IF
       HYPER-HIT COUNT HYPER-LINE# 0 HYPER-V-STORE
       1 TO HYPER-VN  0 TO HYPER-VI
+      HYPER-FL-REBUILD
       EXIT
    THEN
-   HYPER-VI 1+                               \ ins
+   \ Clamp VI so ins = VI+1 is never 0 unless VI was invalid (-1 → 0 → ins 1).
+   HYPER-VI 0 MAX HYPER-VN 1- MIN TO HYPER-VI
+   HYPER-VI 1+                               \ ins (1..VN) append or mid
    DUP HYPER-V-OPEN
    >R
    HYPER-HIT COUNT HYPER-LINE# R@ HYPER-V-STORE
    R@ TO HYPER-VI
    R> DROP
    HYPER-VN 1+ TO HYPER-VN
+   \ Panel = exact VTAB mirror (order preserved).
+   HYPER-FL-REBUILD
 ;
 
 \ ( c-addr u line -- ) open in SZ-EDITOR; rebinds if needed
@@ -551,9 +724,9 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    HYPER-EDITOR-ACTIVE? IF
       HYPER-GOTO-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
       HYPER-GOTO-XT 0= IF  EXIT  THEN
-      HYPER-NOTE-HIT
       HYPER-HIT COUNT HYPER-LINE#
       HYPER-GOTO-XT EXECUTE
+      \ SZ-HYPER-GOTO already ENSURE-VISITs; do not CLEAR/rebuild (wiped the list).
    ELSE
       HYPER-VIEWING IF
          HYPER-HIT COUNT HYPER-LINE# HYPER-OPEN-AT
@@ -658,7 +831,11 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC
    DUP 0= IF  2DROP EXIT  THEN
    HYPER-EDITOR? 0= IF  2DROP EXIT  THEN
    TRUE TO HYPER-VIEWING
-   HYPER-EDITOR-ACTIVE? IF  HYPER-HIST-NOTE-HERE  THEN
+   \ Cmd-click notes origin before mouse-place, then sets SKIP-NOTE.
+   HYPER-EDITOR-ACTIVE? IF
+      HYPER-SKIP-NOTE? IF  FALSE TO HYPER-SKIP-NOTE?
+      ELSE  HYPER-HIST-NOTE-HERE  THEN
+   THEN
    (HYPER-FIND) 0= IF
       HYPER-EDITOR-ACTIVE? 0= IF
          HYPER-SEEK COUNT TYPE ."  not in HYPER.NDX" CR
@@ -666,8 +843,9 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC
       EXIT
    THEN
    HYPER-SHOW-HIT-SAFE
-   HYPER-APPLY-HIT
-   HYPER-HIST-RECORD-DEST ;
+   \ Record dest *before* goto so side list shows the new visit on first paint.
+   HYPER-HIST-RECORD-DEST
+   HYPER-APPLY-HIT ;
 
 : (VIEW)  ( c-addr u -- )
    DUP 0= IF  2DROP EXIT  THEN
@@ -678,10 +856,13 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC
       ELSE  HYPER-SEEK COUNT TYPE ."  not in HYPER.NDX" CR  THEN
       EXIT
    THEN
-   HYPER-SHOW-HIT
+   \ Editor shows path/line/(n/m); do not dump a long path onto the console
+   \ (it would reappear after Cmd-W when the host restores the transcript).
+   HYPER-EDITOR? 0= IF  HYPER-SHOW-HIT  THEN
    HYPER-HIST-CLEAR
    HYPER-HIT COUNT HYPER-LINE# 0 HYPER-V-STORE
    1 TO HYPER-VN  0 TO HYPER-VI
+   HYPER-FL-REBUILD
    HYPER-HIT COUNT HYPER-LINE# HYPER-OPEN-AT ;
 
 : VIEW  ( "name" -- )
@@ -734,7 +915,7 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC
    ." SEE <name>        VIEW if editor loaded, else decompile" CR
    ." Cmd-PgUp/PgDn     visit history (back/forward); else multi-hit n/m" CR
    ." Cmd-Left/Right    prev/next occurrence in current editor file" CR
-   ." Cmd-E / Cmd-click VIEW word (side Files list = unique paths)" CR
+   ." Cmd-E / Cmd-click VIEW word; side list = visits (line# + [X] close)" CR
    ." HYPER-REINDEX     rebuild Config/HYPER.NDX, reload" CR
    ." HYPER-RELOAD  .HYPER   |  ALSO HYPER-VOC WORDS  |  ORDER" CR ;
 
