@@ -55,7 +55,7 @@ Neither needs a kernel rewrite. Most work is **host (Swift) input + paint** and 
 **Checklist**
 
 - [x] Replace reverse-video cell with thin vertical bar (I-beam)
-- [ ] Optional: blink
+- [x] Facility I-beam blink (~0.53s); system insertion point suppressed in facility mode
 - [ ] Optional: Forth toggle for block vs line caret
 - [ ] Verify redraw after motion, scroll, and status updates (manual in SZ-EDITOR)
 
@@ -146,6 +146,13 @@ _Further design suggestions and decisions go below as work proceeds._
 - macOS: `ConsoleNSTextView.showFacilityLineCaret` / `hideFacilityLineCaret`; `shouldDrawInsertionPoint` off in facility mode.
 - iOS: same API on `UITextView` (tagged subview + clear `tintColor` while active).
 - No Forth changes; still driven by facility `AT-XY` row/col after each `TERMINAL-REFRESH`.
+
+### 2026-08-14 — Facility caret blink + hide system caret
+
+- System caret: `shouldDrawInsertionPoint`, `drawInsertionPoint`, `insertionPointColor` clear, and
+  forced collapsed selection at 0 while facility is active (stops top-left blink leak).
+- Our I-beam blinks on a 0.53s timer (common modes so it ticks during KEY pump); motion/redraw
+  restarts visible phase like a normal editor.
 
 ### 2026-08-13 — Click-drag selection
 

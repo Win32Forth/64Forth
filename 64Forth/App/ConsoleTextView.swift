@@ -57,22 +57,81 @@ final class ConsoleNSTextView: NSTextView {
         return v
     }()
 
-    /// Hide AppKit’s own blinking insertion point while the facility caret is shown.
+    /// True while SZ-EDITOR / facility owns the insert point (may be blink-off phase).
+    private var facilityCaretActive = false
+    /// Visible half of the blink cycle.
+    private var facilityCaretBlinkOn = true
+    /// Last UTF-16 index for the facility bar (reposition on layout if needed).
+    private var facilityCaretUTF16: Int = 0
+    /// ~0.53s matches typical AppKit insertion-point blink period.
+    private var facilityCaretBlinkTimer: Timer?
+
+    // MARK: - Suppress AppKit system caret in facility mode
+
+    /// Facility mode must never show the document insertion point (it parks at 0,0).
     override var shouldDrawInsertionPoint: Bool {
         if KernelBridge.shared.isFacilityTerminalActive { return false }
         return super.shouldDrawInsertionPoint
     }
 
+    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
+        if KernelBridge.shared.isFacilityTerminalActive { return }
+        super.drawInsertionPoint(in: rect, color: color, turnedOn: flag)
+    }
+
+    override var insertionPointColor: NSColor? {
+        get {
+            if KernelBridge.shared.isFacilityTerminalActive { return .clear }
+            return super.insertionPointColor
+        }
+        set { super.insertionPointColor = newValue }
+    }
+
+    /// Avoid a zero-length selection paint flashing at the top-left of the grid.
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool) {
+        if KernelBridge.shared.isFacilityTerminalActive {
+            // Keep a collapsed selection for AppKit, but force location 0 and never
+            // allow a non-empty range that would look like text selection on the grid.
+            let zero = [NSValue(range: NSRange(location: 0, length: 0))]
+            super.setSelectedRanges(zero, affinity: affinity, stillSelecting: false)
+            return
+        }
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
+    }
+
+    // MARK: - Facility I-beam caret (+ blink)
+
     /// Place a 2pt vertical bar at the left edge of the character cell at `utf16Index`.
+    /// Repositions and restarts blink (visible) so typing/motion feels like a normal editor.
     func showFacilityLineCaret(atUTF16 utf16Index: Int) {
+        facilityCaretUTF16 = utf16Index
+        facilityCaretActive = true
+        facilityCaretBlinkOn = true
         if facilityCaretView.superview !== self {
             addSubview(facilityCaretView)
+        }
+        layoutFacilityCaretBar()
+        startFacilityCaretBlinkTimer()
+    }
+
+    func hideFacilityLineCaret() {
+        facilityCaretActive = false
+        facilityCaretBlinkOn = true
+        stopFacilityCaretBlinkTimer()
+        facilityCaretView.isHidden = true
+    }
+
+    private func layoutFacilityCaretBar() {
+        guard facilityCaretActive else {
+            facilityCaretView.isHidden = true
+            return
         }
         guard let layoutManager, let textContainer else {
             facilityCaretView.isHidden = true
             return
         }
         let length = (string as NSString).length
+        let utf16Index = facilityCaretUTF16
         guard length > 0, utf16Index >= 0, utf16Index < length else {
             facilityCaretView.isHidden = true
             return
@@ -92,15 +151,34 @@ final class ConsoleNSTextView: NSTextView {
 
         // Insert-point bar: left edge of the cell (before the character).
         let barWidth: CGFloat = 2
-        // Nudge slightly left so the bar sits between cells when possible.
         let x = max(0, rect.minX - barWidth * 0.5)
         facilityCaretView.frame = NSRect(x: x, y: rect.minY, width: barWidth, height: max(rect.height, 1))
         facilityCaretView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
-        facilityCaretView.isHidden = false
+        facilityCaretView.isHidden = !facilityCaretBlinkOn
     }
 
-    func hideFacilityLineCaret() {
-        facilityCaretView.isHidden = true
+    private func startFacilityCaretBlinkTimer() {
+        if facilityCaretBlinkTimer != nil { return }
+        // Common AppKit period; main run-loop common modes so it ticks during KEY pump.
+        let t = Timer(timeInterval: 0.53, repeats: true) { [weak self] _ in
+            self?.facilityCaretBlinkTick()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        facilityCaretBlinkTimer = t
+    }
+
+    private func stopFacilityCaretBlinkTimer() {
+        facilityCaretBlinkTimer?.invalidate()
+        facilityCaretBlinkTimer = nil
+    }
+
+    private func facilityCaretBlinkTick() {
+        guard facilityCaretActive, KernelBridge.shared.isFacilityTerminalActive else {
+            hideFacilityLineCaret()
+            return
+        }
+        facilityCaretBlinkOn.toggle()
+        facilityCaretView.isHidden = !facilityCaretBlinkOn
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -839,12 +917,64 @@ struct ConsoleTextView: NSViewRepresentable {
 
 #else
 import UIKit
+import ObjectiveC
 
 private let facilityCaretViewTag = 0xFAC1_CA2E
+private var facilityCaretBlinkTimerKey: UInt8 = 0
+private var facilityCaretBlinkOnKey: UInt8 = 0
+private var facilityCaretUTF16Key: UInt8 = 0
 
 extension UITextView {
-    /// Thin vertical I-beam for the Facility / SZ-EDITOR insert point.
+    private var facilityCaretBlinkTimer: Timer? {
+        get { objc_getAssociatedObject(self, &facilityCaretBlinkTimerKey) as? Timer }
+        set { objc_setAssociatedObject(self, &facilityCaretBlinkTimerKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    private var facilityCaretBlinkOn: Bool {
+        get { (objc_getAssociatedObject(self, &facilityCaretBlinkOnKey) as? Bool) ?? true }
+        set { objc_setAssociatedObject(self, &facilityCaretBlinkOnKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    private var facilityCaretUTF16: Int {
+        get { (objc_getAssociatedObject(self, &facilityCaretUTF16Key) as? Int) ?? 0 }
+        set { objc_setAssociatedObject(self, &facilityCaretUTF16Key, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    /// Thin vertical I-beam for the Facility / SZ-EDITOR insert point (+ blink).
     func showFacilityLineCaret(atUTF16 utf16Index: Int) {
+        facilityCaretUTF16 = utf16Index
+        facilityCaretBlinkOn = true
+        // Hide UITextView insertion point while we draw our own.
+        tintColor = .clear
+        layoutFacilityCaretBar()
+        if facilityCaretBlinkTimer == nil {
+            let t = Timer(timeInterval: 0.53, repeats: true) { [weak self] _ in
+                self?.facilityCaretBlinkTick()
+            }
+            RunLoop.main.add(t, forMode: .common)
+            facilityCaretBlinkTimer = t
+        }
+    }
+
+    func hideFacilityLineCaret() {
+        facilityCaretBlinkTimer?.invalidate()
+        facilityCaretBlinkTimer = nil
+        facilityCaretBlinkOn = true
+        viewWithTag(facilityCaretViewTag)?.isHidden = true
+        // Restore default caret tint for normal REPL.
+        tintColor = .systemBlue
+    }
+
+    private func facilityCaretBlinkTick() {
+        guard KernelBridge.shared.isFacilityTerminalActive else {
+            hideFacilityLineCaret()
+            return
+        }
+        facilityCaretBlinkOn.toggle()
+        viewWithTag(facilityCaretViewTag)?.isHidden = !facilityCaretBlinkOn
+    }
+
+    private func layoutFacilityCaretBar() {
         let caret: UIView
         if let existing = viewWithTag(facilityCaretViewTag) {
             caret = existing
@@ -858,6 +988,7 @@ extension UITextView {
             caret = v
         }
 
+        let utf16Index = facilityCaretUTF16
         let ns = (text ?? "") as NSString
         let length = ns.length
         guard length > 0, utf16Index >= 0, utf16Index < length,
@@ -865,10 +996,6 @@ extension UITextView {
               let end = position(from: start, offset: 1),
               let textRange = textRange(from: start, to: end) else {
             caret.isHidden = true
-            // Keep system caret hidden while facility is active.
-            if KernelBridge.shared.isFacilityTerminalActive {
-                tintColor = .clear
-            }
             return
         }
 
@@ -881,15 +1008,7 @@ extension UITextView {
         let x = max(0, rect.minX - barWidth * 0.5)
         caret.frame = CGRect(x: x, y: rect.minY, width: barWidth, height: max(rect.height, 1))
         caret.backgroundColor = .systemBlue
-        caret.isHidden = false
-        // Hide UITextView insertion point while we draw our own.
-        tintColor = .clear
-    }
-
-    func hideFacilityLineCaret() {
-        viewWithTag(facilityCaretViewTag)?.isHidden = true
-        // Restore default caret tint for normal REPL.
-        tintColor = .systemBlue
+        caret.isHidden = !facilityCaretBlinkOn
     }
 }
 
