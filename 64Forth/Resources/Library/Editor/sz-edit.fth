@@ -11,13 +11,13 @@
 \   Ctrl-Home / Cmd-Home   start of file
 \   Ctrl-End  / Cmd-End    end of file
 \   PgUp / PgDn     page up / down
-\   mouse click     word under click; gutter/col0 = whole line
+\   mouse click     place caret; word under click in status (body)
 \   mouse drag      byte-range selection (reverse-video); Cmd-C/X use it
 \   double-click    select space-delimited word (reverse-video)
 \   Shift-click     extend selection from anchor to click (before or after)
 \   Cmd-click       VIEW word under click (same as click + Cmd-E)
-\   gutter after copy  paste-here (keeps prior clip); ⌘V pastes prior
-\   Cmd-X/C/V       cut / copy / paste (before/after line if paste-here)
+\   line# gutter    place caret only (reserved for later: e.g. breakpoints)
+\   Cmd-X/C/V       cut / copy / paste
 \   Cmd-E           VIEW word under cursor; Cmd-PgUp returns here
 \   Cmd-PgUp/PgDn   previous/next Hyper hit
 \   Cmd-Left/Right  prev/next occurrence of word under cursor (same file)
@@ -496,7 +496,7 @@ VARIABLE SZ-ANCHOR-END
 VARIABLE SZ-CLICK-EXTEND               \ last click was ⌘-click (VIEW)
 VARIABLE SZ-CLICK-SHIFT                \ last event had Shift (extend selection)
 VARIABLE SZ-CLICK-DBL                  \ last event was double-click
-VARIABLE SZ-CLICK-ZONE                 \ 0=body 1=gutter/before-line 2=after-eol
+VARIABLE SZ-CLICK-ZONE                 \ 0=body 1=line# gutter 2=after-eol
 VARIABLE SZ-ANCHOR-LINE                \ nonzero if anchor is whole-line based
 VARIABLE SZ-PASTE-WHERE                \ 0=normal 1=before-line 2=after-line
 VARIABLE SZ-PASTE-LS                  \ line-start for before/after paste
@@ -510,7 +510,7 @@ VARIABLE SZ-SEL-DONE                   \ nonzero: selection finished on down (sk
 
 \ Host click flag: bit0=valid bit1=⌘ bit2-3=phase bit4=⇧ bit5=double.
 \ Place caret without scrolling (line is already on-screen under the pointer).
-\ zone: 0=body  1=gutter/line-start  2=after last char on line
+\ zone: 0=body  1=line# gutter (no select; reserved)  2=after last char on line
 \
 \ Critical: never set CUR to line-start + screen-col when past end-of-line —
 \ that walked past SZ-TEND into heap and RETURN wrote garbage into the file.
@@ -524,7 +524,7 @@ VARIABLE SZ-SEL-DONE                   \ nonzero: selection finished on down (sk
    OVER SZ-TEXT-TOP -                          \ row col text-row
    SZ-TOP @ SZ-HOST-LINE-NO +                  \ row col line#
    >R                                          \ row col  R: line
-   \ Gutter / line# / '|' → whole-line / paste-before
+   \ Line-number gutter / '|' — place at line start only (no line-select).
    DUP SZ-TEXT-LEFT < IF
       2DROP
       1 SZ-CLICK-ZONE !
@@ -552,7 +552,6 @@ VARIABLE SZ-SEL-DONE                   \ nonzero: selection finished on down (sk
       SZ-CUR-LINE + SZ-CUR !                   \ true EOL, not "far right on screen"
       2 SZ-CLICK-ZONE !
    ELSE
-      OVER 0= IF  1 SZ-CLICK-ZONE !  THEN      \ col 0 → line mode
       MIN 0 MAX
       SZ-CUR-LINE + SZ-CUR !
    THEN
@@ -822,7 +821,7 @@ VARIABLE SZ-CLIP-HOLD-U
    S" paste here" SZ-FIND-SET-STAT
 ;
 
-\ Solid whole-line select + copy.
+\ Whole-line select + copy (kept for future / programmatic use; not bound to gutter).
 : SZ-LINE-SELECT  ( -- )
    SZ-LINE-RANGE-AT-CUR
    SZ-SET-SEL
@@ -831,16 +830,20 @@ VARIABLE SZ-CLIP-HOLD-U
 ;
 
 : SZ-PLAIN-CLICK  ( -- )
-   \ Gutter / line-start: line select, or placeholder if solid clip already set
+   \ Line# gutter: caret already placed; no select (reserved for breakpoints etc.)
    SZ-CLICK-ZONE @ 1 = IF
-      SZ-CLIP-U @ IF  SZ-PLACEHOLDER-CLICK  ELSE  SZ-LINE-SELECT  THEN
+      0 SZ-SEL-OK !
+      0 SZ-PLACEHOLD !
+      0 SZ-PASTE-WHERE !
+      0 SZ-SEL-WORD C!
+      SZ-FIND-CLEAR-STAT
       EXIT
    THEN
    \ After EOL with existing solid clip → placeholder paste-after
    SZ-CLICK-ZONE @ 2 = SZ-CLIP-U @ AND IF
       SZ-PLACEHOLDER-CLICK EXIT
    THEN
-   \ Body: word select
+   \ Body: word under cursor in status (not a reverse-video range)
    0 SZ-SEL-OK !
    0 SZ-PLACEHOLD !
    0 SZ-PASTE-WHERE !

@@ -160,3 +160,9 @@ _Further design suggestions and decisions go below as work proceeds._
 - Host flag bit4 = ⇧, bit5 = double-click (`clickCount >= 2`).
 - Double-click: `SZ-SPACE-WORD-RANGE` (space/blank/CR/LF only) → full reverse-video word + clipboard; `SZ-EXT-ANCHOR` at word start.
 - Shift-click / shift-drag: free end moves; fixed end is `SZ-EXT-ANCHOR` (set on plain down, drag start, or double-click); range ordered so click may be before or after.
+
+### 2026-08-13 — Gutter click no longer line-selects
+
+- Line-number column click only places the caret at line start (`SZ-CLICK-ZONE` 1).
+- Whole-line select / gutter paste-here unbound; `SZ-LINE-SELECT` remains for later use.
+- Gutter reserved (e.g. breakpoints).

@@ -54,10 +54,11 @@ Keys while editing (SZ-KEY)
                         (.s/.inc/.asm: identifier rules so labels work —
                         XROT: and bl XROT match; Forth files stay blank-delimited)
   Cmd-G / Cmd-Shift-G   find next / prev (same as arrows)
-  Mouse click       word under click; gutter/line-start selects whole line
+  Mouse click       place caret; body shows word under click in status
+  Mouse drag / ⇧    range select; double-click = space-delimited word
   Cmd-click         VIEW word under click (same as click + Cmd-E; needs Hyper)
   Wheel / trackpad  scroll view (caret stays on row; short files locked)
-  Gutter after copy paste-here placeholder; ⌘V pastes prior clip
+  Line# gutter      place caret only (reserved; e.g. future breakpoints)
   Cmd-X / Cmd-C / Cmd-V   cut / copy / paste
 
 Display
