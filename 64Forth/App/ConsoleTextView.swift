@@ -30,6 +30,61 @@ final class ConsoleNSTextView: NSTextView {
     /// Console (non-facility) ⌘-click → VIEW word at UTF-16 index.
     var onCommandClickAtUTF16: ((Int) -> Void)?
 
+    /// Thin vertical I-beam for the Facility / SZ-EDITOR insert point (host paint).
+    private lazy var facilityCaretView: NSView = {
+        let v = NSView(frame: .zero)
+        v.wantsLayer = true
+        v.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        v.isHidden = true
+        return v
+    }()
+
+    /// Hide AppKit’s own blinking insertion point while the facility caret is shown.
+    override var shouldDrawInsertionPoint: Bool {
+        if KernelBridge.shared.isFacilityTerminalActive { return false }
+        return super.shouldDrawInsertionPoint
+    }
+
+    /// Place a 2pt vertical bar at the left edge of the character cell at `utf16Index`.
+    func showFacilityLineCaret(atUTF16 utf16Index: Int) {
+        if facilityCaretView.superview !== self {
+            addSubview(facilityCaretView)
+        }
+        guard let layoutManager, let textContainer else {
+            facilityCaretView.isHidden = true
+            return
+        }
+        let length = (string as NSString).length
+        guard length > 0, utf16Index >= 0, utf16Index < length else {
+            facilityCaretView.isHidden = true
+            return
+        }
+
+        layoutManager.ensureLayout(for: textContainer)
+        let charRange = NSRange(location: utf16Index, length: 1)
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+        guard glyphRange.length > 0 else {
+            facilityCaretView.isHidden = true
+            return
+        }
+        var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        let origin = textContainerOrigin
+        rect.origin.x += origin.x
+        rect.origin.y += origin.y
+
+        // Insert-point bar: left edge of the cell (before the character).
+        let barWidth: CGFloat = 2
+        // Nudge slightly left so the bar sits between cells when possible.
+        let x = max(0, rect.minX - barWidth * 0.5)
+        facilityCaretView.frame = NSRect(x: x, y: rect.minY, width: barWidth, height: max(rect.height, 1))
+        facilityCaretView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        facilityCaretView.isHidden = false
+    }
+
+    func hideFacilityLineCaret() {
+        facilityCaretView.isHidden = true
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if KernelBridge.shared.consumeEditorHotKeyIfNeeded(event) { return true }
         // ⌘X/C/V while SZ-EDITOR is open (menu may not claim them during KEY wait).
@@ -67,16 +122,140 @@ final class ConsoleNSTextView: NSTextView {
         super.scrollWheel(with: event)
     }
 
+    // MARK: - Facility context menu (Cut / Copy / Paste → SZ-EDITOR keys)
+
+    /// Custom Edit menu while SZ-EDITOR owns the facility terminal (not NSTextView’s system menu).
+    private lazy var facilityContextMenu: NSMenu = {
+        let menu = NSMenu(title: "Edit")
+        menu.autoenablesItems = false
+        let cut = NSMenuItem(title: "Cut", action: #selector(facilityCut(_:)), keyEquivalent: "x")
+        cut.keyEquivalentModifierMask = .command
+        cut.target = self
+        let copy = NSMenuItem(title: "Copy", action: #selector(facilityCopy(_:)), keyEquivalent: "c")
+        copy.keyEquivalentModifierMask = .command
+        copy.target = self
+        let paste = NSMenuItem(title: "Paste", action: #selector(facilityPaste(_:)), keyEquivalent: "v")
+        paste.keyEquivalentModifierMask = .command
+        paste.target = self
+        menu.addItem(cut)
+        menu.addItem(copy)
+        menu.addItem(paste)
+        return menu
+    }()
+
+    private var facilityEditorMenuActive: Bool {
+        KernelBridge.shared.isFacilityTerminalActive && KernelBridge.shared.isEvaluating
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        if facilityEditorMenuActive {
+            refreshFacilityContextMenuEnabled()
+            return facilityContextMenu
+        }
+        return super.menu(for: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        if facilityEditorMenuActive {
+            // Keep focus; do not let NSTextView select into the facility paint grid.
+            window?.makeFirstResponder(self)
+            refreshFacilityContextMenuEnabled()
+            NSMenu.popUpContextMenu(facilityContextMenu, with: event, for: self)
+            return
+        }
+        super.rightMouseDown(with: event)
+    }
+
+    /// Enable Cut/Copy when the system or editor clip might apply; Paste when pasteboard has text.
+    /// Forth still no-ops cleanly if there is no selection / empty clip.
+    private func refreshFacilityContextMenuEnabled() {
+        let hasPasteboardText: Bool = {
+            if let s = NSPasteboard.general.string(forType: .string), !s.isEmpty { return true }
+            return false
+        }()
+        // Cut/Copy stay enabled: SZ-DO-CUT/COPY use selection or word-under-cursor.
+        for item in facilityContextMenu.items {
+            switch item.action {
+            case #selector(facilityPaste(_:)):
+                item.isEnabled = hasPasteboardText
+            case #selector(facilityCut(_:)), #selector(facilityCopy(_:)):
+                item.isEnabled = true
+            default:
+                item.isEnabled = true
+            }
+        }
+    }
+
+    @objc private func facilityCut(_ sender: Any?) {
+        _ = KernelBridge.shared.pushEditorClipboardKey("x")
+    }
+
+    @objc private func facilityCopy(_ sender: Any?) {
+        _ = KernelBridge.shared.pushEditorClipboardKey("c")
+    }
+
+    @objc private func facilityPaste(_ sender: Any?) {
+        _ = KernelBridge.shared.pushEditorClipboardKey("v")
+    }
+
+    /// Facility drag-select tracking (plain / shift; not ⌘ VIEW or double-click word).
+    private var facilityDragTracking = false
+    private var facilityDragShift = false
+    private var facilityLastDragCol = -1
+    private var facilityLastDragRow = -1
+
     override func mouseDown(with event: NSEvent) {
         let pt = convert(event.locationInWindow, from: nil)
         let idx = characterIndexForInsertion(at: pt)
-        let cmd = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let cmd = mods.contains(.command)
+        let shift = mods.contains(.shift) && !cmd
+        let doubleClick = event.clickCount >= 2 && !cmd
 
         if KernelBridge.shared.isFacilityTerminalActive, KernelBridge.shared.isEvaluating {
-            // ⌘-click = VIEW word (SZ-EDITOR); plain click places caret.
-            KernelBridge.shared.reportFacilityClick(utf16Index: idx, extend: cmd)
             // Keep focus; do not change the document selection into the paint grid.
             window?.makeFirstResponder(self)
+            if cmd {
+                // ⌘-click = VIEW word (no drag).
+                facilityDragTracking = false
+                facilityDragShift = false
+                KernelBridge.shared.reportFacilityMouse(
+                    utf16Index: idx,
+                    phase: .down,
+                    command: true
+                )
+                return
+            }
+            if doubleClick {
+                // Double-click: select space-delimited word (handled on down).
+                facilityDragTracking = false
+                facilityDragShift = false
+                if let cell = KernelBridge.shared.facilityCell(fromUTF16: idx) {
+                    KernelBridge.shared.reportFacilityMouse(
+                        col: cell.col,
+                        row: cell.row,
+                        phase: .down,
+                        doubleClick: true
+                    )
+                }
+                return
+            }
+            // Plain or ⇧ press: track for drag / shift-extend.
+            facilityDragTracking = true
+            facilityDragShift = shift
+            if let cell = KernelBridge.shared.facilityCell(fromUTF16: idx) {
+                facilityLastDragCol = cell.col
+                facilityLastDragRow = cell.row
+                KernelBridge.shared.reportFacilityMouse(
+                    col: cell.col,
+                    row: cell.row,
+                    phase: .down,
+                    shift: shift
+                )
+            } else {
+                facilityDragTracking = false
+                facilityDragShift = false
+            }
             return
         }
 
@@ -88,6 +267,65 @@ final class ConsoleNSTextView: NSTextView {
         }
 
         super.mouseDown(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        if facilityDragTracking,
+           KernelBridge.shared.isFacilityTerminalActive,
+           KernelBridge.shared.isEvaluating {
+            let pt = convert(event.locationInWindow, from: nil)
+            let idx = characterIndexForInsertion(at: pt)
+            guard let cell = KernelBridge.shared.facilityCell(fromUTF16: idx) else { return }
+            // Throttle: only when the cell under the pointer changes.
+            if cell.col == facilityLastDragCol, cell.row == facilityLastDragRow {
+                return
+            }
+            facilityLastDragCol = cell.col
+            facilityLastDragRow = cell.row
+            KernelBridge.shared.reportFacilityMouse(
+                col: cell.col,
+                row: cell.row,
+                phase: .drag,
+                shift: facilityDragShift
+            )
+            return
+        }
+        super.mouseDragged(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if facilityDragTracking {
+            facilityDragTracking = false
+            let shift = facilityDragShift
+            facilityDragShift = false
+            if KernelBridge.shared.isFacilityTerminalActive,
+               KernelBridge.shared.isEvaluating {
+                let pt = convert(event.locationInWindow, from: nil)
+                let idx = characterIndexForInsertion(at: pt)
+                if let cell = KernelBridge.shared.facilityCell(fromUTF16: idx) {
+                    KernelBridge.shared.reportFacilityMouse(
+                        col: cell.col,
+                        row: cell.row,
+                        phase: .up,
+                        shift: shift
+                    )
+                } else if facilityLastDragCol >= 0 {
+                    // Release outside grid: finalize at last in-grid cell.
+                    KernelBridge.shared.reportFacilityMouse(
+                        col: facilityLastDragCol,
+                        row: facilityLastDragRow,
+                        phase: .up,
+                        shift: shift
+                    )
+                }
+                facilityLastDragCol = -1
+                facilityLastDragRow = -1
+                return
+            }
+            facilityLastDragCol = -1
+            facilityLastDragRow = -1
+        }
+        super.mouseUp(with: event)
     }
 }
 
@@ -168,6 +406,10 @@ struct ConsoleTextView: NSViewRepresentable {
             let coord = context.coordinator
             ctv.onCommandClickAtUTF16 = { [weak coord] idx in
                 coord?.parent.onCommandClickUTF16(idx)
+            }
+            // Facility caret is owned by ConsoleView paint; hide when editor exits.
+            if !KernelBridge.shared.isFacilityTerminalActive {
+                ctv.hideFacilityLineCaret()
             }
         }
 
@@ -537,6 +779,59 @@ struct ConsoleTextView: NSViewRepresentable {
 #else
 import UIKit
 
+private let facilityCaretViewTag = 0xFAC1_CA2E
+
+extension UITextView {
+    /// Thin vertical I-beam for the Facility / SZ-EDITOR insert point.
+    func showFacilityLineCaret(atUTF16 utf16Index: Int) {
+        let caret: UIView
+        if let existing = viewWithTag(facilityCaretViewTag) {
+            caret = existing
+        } else {
+            let v = UIView(frame: .zero)
+            v.tag = facilityCaretViewTag
+            v.backgroundColor = .systemBlue
+            v.isUserInteractionEnabled = false
+            v.isHidden = true
+            addSubview(v)
+            caret = v
+        }
+
+        let ns = (text ?? "") as NSString
+        let length = ns.length
+        guard length > 0, utf16Index >= 0, utf16Index < length,
+              let start = position(from: beginningOfDocument, offset: utf16Index),
+              let end = position(from: start, offset: 1),
+              let textRange = textRange(from: start, to: end) else {
+            caret.isHidden = true
+            // Keep system caret hidden while facility is active.
+            if KernelBridge.shared.isFacilityTerminalActive {
+                tintColor = .clear
+            }
+            return
+        }
+
+        let rect = firstRect(for: textRange)
+        guard rect.width > 0 || rect.height > 0 else {
+            caret.isHidden = true
+            return
+        }
+        let barWidth: CGFloat = 2
+        let x = max(0, rect.minX - barWidth * 0.5)
+        caret.frame = CGRect(x: x, y: rect.minY, width: barWidth, height: max(rect.height, 1))
+        caret.backgroundColor = .systemBlue
+        caret.isHidden = false
+        // Hide UITextView insertion point while we draw our own.
+        tintColor = .clear
+    }
+
+    func hideFacilityLineCaret() {
+        viewWithTag(facilityCaretViewTag)?.isHidden = true
+        // Restore default caret tint for normal REPL.
+        tintColor = .systemBlue
+    }
+}
+
 /// iOS console editor (UITextView). Core REPL input; facility/editor keys via pushKey.
 struct ConsoleTextView: UIViewRepresentable {
     @Binding var text: String
@@ -593,6 +888,9 @@ struct ConsoleTextView: UIViewRepresentable {
         }
         if isFocused, !tv.isFirstResponder {
             tv.becomeFirstResponder()
+        }
+        if !KernelBridge.shared.isFacilityTerminalActive {
+            tv.hideFacilityLineCaret()
         }
     }
 

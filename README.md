@@ -53,7 +53,7 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 
 ---
 
-## Status (v1.0.7)
+## Status (v1.0.8)
 
 - [x] Project folder and design doc  
 - [x] Kernel sources copied from PickleForth (`_kernel_cold_start` entry, not `_main`)  
@@ -90,8 +90,9 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 - [x] **v1.0.5:** `SYSTEM ( c-addr u -- n )` — run a shell command via `/bin/sh -c` in the logical cwd (`CHDIR`/`PWD`); stdout/stderr to the console; `n` = exit status (`0` ok, `-1` launch fail). Enables 64TCOM `SAVE-MACHO` auto-`cc` without a separate Terminal window.
 - [x] **v1.0.6:** Hyper/VIEW production polish — FORTH-visible `VIEW`/`LOCATE` (survive `ONLY FORTH`); multi-hit status `file(n/m)`; visit list vs multi-hit PgUp/PgDn fixed; path keys `AutoLoad/`/`Library/…`; case-insensitive hit dedup; editor status line trim; SZ-EDITOR/Hyper load path hardening; WORDLIST/REQUIRED fixes; ANS-VALIDATE green. Release: `64Forth/releases/64Forth-1.0.6-macOS.dmg`
 - [x] **v1.0.7:** Release reindex path fix — symlink-safe `Library/…` SPECS keys (no bare filenames / mass `HX: skip` on DMG); exclude HayesTest/ANSValidate by full path; quieter `HX: skip` when `MIN-HYPER-NOISE` on. Release: `64Forth/releases/64Forth-1.0.7-macOS.dmg`
+- [ ] **v1.0.8:** (in progress)
 
-### Hypertext + SZ-EDITOR (v1.0.7)
+### Hypertext + SZ-EDITOR (v1.0.8)
 
 | Area | Done |
 |------|------|

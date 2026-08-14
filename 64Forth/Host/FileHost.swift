@@ -360,7 +360,6 @@ final class FileHost {
     /// Expand `Config/HYPER.CFG` SPECS into NDX-style paths (`Kernel/…`, `Library/…`).
     /// Used when Forth opens `Config/HYPER.SPECS` (virtual file) during HYPER-REINDEX.
     func buildHyperSourceList() -> [String] {
-        let fm = FileManager.default
         var specs: [String] = []
         var excludes: [String] = []
 

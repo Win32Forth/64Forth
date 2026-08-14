@@ -186,10 +186,26 @@ VARIABLE SZ-GUT-U
    SZ-COLS @ 1- SWAP AT-XY  [CHAR] | EMIT
 ;
 
+\ Selection range for reverse-video paint (byte addresses; end exclusive).
+\ Set by sz-edit (click / drag / cut). 0 SZ-SEL-OK = no highlight.
+VARIABLE SZ-SEL-BEG
+VARIABLE SZ-SEL-END
+VARIABLE SZ-SEL-OK
+0 SZ-SEL-OK !
+
+\ True if buffer address `addr` lies in the active selection [beg,end).
+: SZ-IN-SEL?  ( addr -- flag )
+   SZ-SEL-OK @ 0= IF  DROP 0 EXIT  THEN
+   DUP SZ-SEL-BEG @ U< IF  DROP 0 EXIT  THEN
+   SZ-SEL-END @ U<
+;
+
 \ Paint one text row with horizontal scroll (SZ-HCOL = first visible column).
 \ No >R here — REDRAW is inside DO and must not nest return-stack temps.
+\ Selected bytes use FACILITY-REV so the host can reverse-video those cells.
 VARIABLE SZ-SKIP
 VARIABLE SZ-PAINTED
+VARIABLE SZ-REV-ON
 : SZ-SHOW-LINE  ( line-addr row -- )
    DUP SZ-CLEAR-TEXT-ROW
    SZ-TEXT-LEFT SWAP AT-XY
@@ -199,11 +215,21 @@ VARIABLE SZ-PAINTED
    SWAP SZ-SKIP @ + SWAP            ( a' u' )
    SZ-TEXT-WIDTH @ MIN
    DUP SZ-PAINTED !
+   0 SZ-REV-ON !
+   0 FACILITY-REV
    DUP 0= IF  2DROP EXIT  THEN
    0 DO
-      DUP I + C@ SZ-GLYPH EMIT
+      DUP I +                       ( a addr )
+      DUP SZ-IN-SEL?                ( a addr newrev )
+      DUP SZ-REV-ON @ = 0= IF       \ state change?
+         DUP SZ-REV-ON !            ( a addr newrev )
+         FACILITY-REV               ( a addr )  \ consume newrev — do not @ again
+      ELSE  DROP  THEN              ( a addr )
+      C@ SZ-GLYPH EMIT
    LOOP
    DROP
+   0 SZ-REV-ON !
+   0 FACILITY-REV
    \ Pad to full TEXT-WIDTH so the border never rides on leftover content
    SZ-TEXT-WIDTH @ SZ-PAINTED @ - 0 MAX 0 ?DO  BL EMIT  LOOP
 ;
@@ -256,7 +282,7 @@ CREATE SZ-FIND-STAT  18 ALLOT
    0 SZ-TEXT-BOT @ 2 + AT-XY
    ." Cmd-E VIEW word | Cmd-PgUp/Dn Hyper | Cmd-G/arrows find | wheel scroll"
    0 SZ-TEXT-BOT @ 3 + AT-XY
-   ." Cmd-X/C/V cut/copy/paste | gutter=line | Cmd-click VIEW | Cmd-S/W save/close"
+   ." drag/⇧-click select | dbl-click word | gutter=line | Cmd-click VIEW | Cmd-X/C/V/S/W"
 ;
 
 \ True if SZ-CUR lies on the logical line starting at `ls`.

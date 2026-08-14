@@ -18,12 +18,19 @@ final class FacilityTerminal {
     static let defaultCols = 88
     static let defaultRows = 25
 
+    /// Per-cell attribute: bit0 = reverse video (selection highlight).
+    static let attrReverse: UInt8 = 1
+
     private(set) var cols: Int = defaultCols
     private(set) var rows: Int = defaultRows
     private var cells: [UInt8] = Array(repeating: 32, count: defaultCols * defaultRows)
+    /// Parallel to `cells`; nonzero bits mark reverse-video (and future attrs).
+    private(set) var attrs: [UInt8] = Array(repeating: 0, count: defaultCols * defaultRows)
     private(set) var isActive = false
     private(set) var cursorCol = 0
     private(set) var cursorRow = 0
+    /// When true, subsequent `emit` marks the cell with reverse-video.
+    private var reverseOn = false
 
     /// Set when a paint is pending; host flushes via TERMINAL-REFRESH / flush.
     var refreshPending = false
@@ -36,15 +43,19 @@ final class FacilityTerminal {
         cols = c
         rows = r
         cells = Array(repeating: 32, count: c * r)
+        attrs = Array(repeating: 0, count: c * r)
         cursorCol = min(cursorCol, c - 1)
         cursorRow = min(cursorRow, r - 1)
+        reverseOn = false
     }
 
     func page() {
         isActive = true
         cells = Array(repeating: 32, count: cols * rows)
+        attrs = Array(repeating: 0, count: cols * rows)
         cursorCol = 0
         cursorRow = 0
+        reverseOn = false
         refreshPending = true
     }
 
@@ -52,6 +63,7 @@ final class FacilityTerminal {
         isActive = false
         cursorCol = 0
         cursorRow = 0
+        reverseOn = false
         refreshPending = false
     }
 
@@ -61,6 +73,11 @@ final class FacilityTerminal {
         cursorCol = min(max(col, 0), cols - 1)
         cursorRow = min(max(row, 0), rows - 1)
         refreshPending = true
+    }
+
+    /// Enable/disable reverse-video attribute on subsequent `emit` cells.
+    func setReverse(_ on: Bool) {
+        reverseOn = on
     }
 
     func emit(_ byte: UInt8) {
@@ -78,6 +95,7 @@ final class FacilityTerminal {
         let idx = cursorRow * cols + cursorCol
         if idx >= 0 && idx < cells.count {
             cells[idx] = (b >= 32 && b <= 126) ? b : 0x2E
+            attrs[idx] = reverseOn ? Self.attrReverse : 0
         }
         advanceCursor()
         refreshPending = true
@@ -122,5 +140,15 @@ final class FacilityTerminal {
             out.append("\n")
         }
         return out
+    }
+
+    /// True if any cell currently has reverse-video set.
+    var hasReverseAttrs: Bool {
+        attrs.contains { $0 & Self.attrReverse != 0 }
+    }
+
+    /// Copy of reverse-video mask (one byte per cell, bit0 = reverse).
+    func reverseMask() -> [UInt8] {
+        attrs
     }
 }

@@ -12,6 +12,9 @@
 \   Ctrl-End  / Cmd-End    end of file
 \   PgUp / PgDn     page up / down
 \   mouse click     word under click; gutter/col0 = whole line
+\   mouse drag      byte-range selection (reverse-video); Cmd-C/X use it
+\   double-click    select space-delimited word (reverse-video)
+\   Shift-click     extend selection from anchor to click (before or after)
 \   Cmd-click       VIEW word under click (same as click + Cmd-E)
 \   gutter after copy  paste-here (keeps prior clip); ⌘V pastes prior
 \   Cmd-X/C/V       cut / copy / paste (before/after line if paste-here)
@@ -90,6 +93,13 @@ VARIABLE SZ-DONE
    R@ SZ-TLEN +!
    R> DROP
    -1
+;
+
+\ Clear active multi-byte selection (motion / plain click). Paint uses SZ-SEL-OK
+\ (variables live in sz-screen so SZ-SHOW-LINE can reverse-video the range).
+: SZ-CLEAR-SEL  ( -- )
+   0 SZ-SEL-OK !
+   0 SZ-SEL-WORD C!
 ;
 
 : SZ-INSERT-CH  ( c -- )
@@ -171,12 +181,14 @@ VARIABLE SZ-DONE
 ;
 
 : SZ-GO-LEFT  ( -- )
+   SZ-CLEAR-SEL
    \ Use unsigned compare — heap buffer addresses must not use signed >
    SZ-CUR @ SZ-TBUF U> IF  -1 SZ-CUR +!  THEN
    SZ-REMEMBER-COL
 ;
 
 : SZ-GO-RIGHT  ( -- )
+   SZ-CLEAR-SEL
    \ Advance within the line, including the append point at true EOL (TEND
    \ when the last line has no trailing newline). Do not wrap to next line.
    SZ-CUR @
@@ -190,6 +202,7 @@ VARIABLE SZ-DONE
 \ after horizontal scroll CUR-COL can be huge and then MIN onto a short line is OK,
 \ but overwriting PREF from a short line destroyed the goal for the next long line.
 : SZ-GO-UP  ( -- )
+   SZ-CLEAR-SEL
    SZ-CUR-LINE DUP SZ-TBUF = IF  DROP EXIT  THEN
    SZ-PREV-LINE
    DUP SZ-PARSE-LINE NIP SZ-PREF-COL @ MIN +
@@ -206,6 +219,7 @@ VARIABLE SZ-DONE
 
 \ Down one line. Never invents phantom lines past EOF.
 : SZ-GO-DOWN  ( -- )
+   SZ-CLEAR-SEL
    SZ-CUR @ SZ-TEND = IF  EXIT  THEN       \ already at absolute end
    SZ-CUR-LINE DUP SZ-NEXT-LINE            \ ls nx
    2DUP = IF                               \ cannot advance
@@ -285,6 +299,7 @@ VARIABLE SZ-DONE
 ;
 
 : SZ-GO-HOME-LINE  ( -- )
+   SZ-CLEAR-SEL
    SZ-CUR-LINE SZ-CUR !
    0 SZ-HCOL !
    0 SZ-PREF-COL !
@@ -292,12 +307,14 @@ VARIABLE SZ-DONE
 
 \ Jump to true end of line and scroll horizontally so that end is visible.
 : SZ-GO-END-LINE  ( -- )
+   SZ-CLEAR-SEL
    SZ-CUR-LINE SZ-PARSE-LINE + SZ-CUR !
    SZ-REMEMBER-COL
    SZ-ENSURE-HVISIBLE
 ;
 
 : SZ-GO-HOME-FILE  ( -- )
+   SZ-CLEAR-SEL
    SZ-TBUF SZ-CUR !
    0 SZ-HCOL !
    0 SZ-PREF-COL !
@@ -305,6 +322,7 @@ VARIABLE SZ-DONE
 
 \ End of file = end of last *content* line (not a phantom empty row after a final EOL).
 : SZ-GO-END-FILE  ( -- )
+   SZ-CLEAR-SEL
    SZ-TLEN @ 0= IF  SZ-TBUF SZ-CUR !  0 SZ-HCOL !  0 SZ-PREF-COL !  EXIT  THEN
    SZ-TEND SZ-CUR !
    \ File ends with EOL → CUR-LINE is TEND (empty); sit on previous line's end instead.
@@ -472,20 +490,25 @@ VARIABLE SZ-MOUSE-XT
 0 SZ-MOUSE-XT !
 
 \ Selection / clipboard state (byte addresses into SZ-TBUF; end exclusive).
+\ SZ-SEL-BEG / SZ-SEL-END / SZ-SEL-OK live in sz-screen (paint needs them).
 VARIABLE SZ-ANCHOR-BEG                 \ last plain-click range start
 VARIABLE SZ-ANCHOR-END
-VARIABLE SZ-SEL-BEG                    \ active selection
-VARIABLE SZ-SEL-END
-VARIABLE SZ-SEL-OK                     \ nonzero if SZ-SEL-* is a real range
-VARIABLE SZ-CLICK-EXTEND               \ last click was ⌘-click range-extend (host flag)
+VARIABLE SZ-CLICK-EXTEND               \ last click was ⌘-click (VIEW)
+VARIABLE SZ-CLICK-SHIFT                \ last event had Shift (extend selection)
+VARIABLE SZ-CLICK-DBL                  \ last event was double-click
 VARIABLE SZ-CLICK-ZONE                 \ 0=body 1=gutter/before-line 2=after-eol
 VARIABLE SZ-ANCHOR-LINE                \ nonzero if anchor is whole-line based
 VARIABLE SZ-PASTE-WHERE                \ 0=normal 1=before-line 2=after-line
 VARIABLE SZ-PASTE-LS                  \ line-start for before/after paste
 VARIABLE SZ-PLACEHOLD                  \ nonzero: last click was paste placeholder only
 VARIABLE SZ-CLIP-HOLD-U                \ previous solid clip (two-level stack)
+VARIABLE SZ-DRAG-START                 \ buffer addr at mouse-down (free end moves from here)
+VARIABLE SZ-EXT-ANCHOR                 \ fixed end for shift-extend / after double-click
+VARIABLE SZ-DRAG-ACTIVE                \ nonzero while button held
+VARIABLE SZ-DRAG-MOVED                 \ nonzero if drag left the start cell
+VARIABLE SZ-SEL-DONE                   \ nonzero: selection finished on down (skip plain up)
 
-\ Host click flag: bit0=valid, bit1=Command (range-extend).
+\ Host click flag: bit0=valid bit1=⌘ bit2-3=phase bit4=⇧ bit5=double.
 \ Place caret without scrolling (line is already on-screen under the pointer).
 \ zone: 0=body  1=gutter/line-start  2=after last char on line
 \
@@ -538,14 +561,7 @@ VARIABLE SZ-CLIP-HOLD-U                \ previous solid clip (two-level stack)
    R> DROP
 ;
 
-\ Facility mouse click → buffer cursor (Phase 4a).
-\ Host key 25 then (SZ-CLICK) → col row flag (1=plain, 3=⌘-click VIEW).
-: SZ-DO-MOUSE  ( -- )
-   (SZ-CLICK) DUP 0= IF  DROP 2DROP EXIT  THEN
-   2 AND SZ-CLICK-EXTEND !                     \ ⌘ bit
-   SZ-MOUSE-PLACE
-   SZ-MOUSE-XT @ ?DUP IF  EXECUTE  THEN
-;
+\ SZ-DO-MOUSE / drag phases are defined after SZ-DO-VIEW-UNDER (need clip helpers).
 
 \ Hyper multi-hit status: (cur/tot) after filename. Hyper calls SZ-HYPER-HITS!
 \ before OPEN/GOTO; plain file open clears so the badge does not linger.
@@ -905,6 +921,86 @@ VARIABLE SZ-DR-N
    SZ-TOUCH
 ;
 
+\ If a real selection exists, delete [beg,end) and leave CUR at beg. flag=true if deleted.
+: SZ-DELETE-SEL-IF  ( -- flag )
+   SZ-SEL-OK @ 0= IF  0 EXIT  THEN
+   SZ-SEL-BEG @ SZ-SEL-END @
+   2DUP = IF  2DROP 0 SZ-SEL-OK ! 0 EXIT  THEN
+   SZ-DELETE-RANGE
+   0 SZ-SEL-OK !
+   0 SZ-SEL-WORD C!
+   -1
+;
+
+\ Redefine insert/delete so typing replaces the active drag/range selection.
+: SZ-INSERT-CH  ( c -- )
+   DUP BL < OVER 126 > OR IF  DROP EXIT  THEN
+   SZ-DELETE-SEL-IF DROP
+   1 SZ-OPEN-HOLE 0= IF  DROP EXIT  THEN
+   SZ-CUR @ C!
+   1 SZ-CUR +!
+   SZ-CUR-COL SZ-PREF-COL !
+   SZ-TOUCH
+;
+
+: SZ-INSERT-TAB  ( -- )
+   SZ-DELETE-SEL-IF DROP
+   4  SZ-CUR-COL 4 MOD -
+   BEGIN  DUP WHILE
+      BL SZ-INSERT-CH
+      1-
+   REPEAT  DROP
+;
+
+: SZ-INSERT-CRLF  ( -- )
+   SZ-DELETE-SEL-IF DROP
+   SZ-CLAMP-CUR
+   1 SZ-OPEN-HOLE 0= IF  EXIT  THEN
+   SZ-CH-LF SZ-CUR @ C!
+   1 SZ-CUR +!
+   0 SZ-PREF-COL !
+   0 SZ-HCOL !
+   SZ-TOUCH
+;
+
+: SZ-BACKSPACE  ( -- )
+   SZ-SEL-OK @ IF  SZ-DELETE-SEL-IF DROP EXIT  THEN
+   SZ-CUR @ SZ-TBUF = IF  EXIT  THEN
+   -1 SZ-CUR +!
+   SZ-TEND SZ-CUR @ - 1-
+   DUP 0> IF
+      SZ-CUR @ 1+  SZ-CUR @  ROT  MOVE
+   ELSE
+      DROP
+   THEN
+   -1 SZ-TLEN +!
+   SZ-TLEN @ 0< IF  0 SZ-TLEN !  THEN
+   SZ-TOUCH
+;
+
+: SZ-DELETE-FWD  ( -- )
+   SZ-SEL-OK @ IF  SZ-DELETE-SEL-IF DROP EXIT  THEN
+   SZ-CUR @ SZ-TEND = IF  EXIT  THEN
+   SZ-CUR @ C@ SZ-CH-CR =
+   SZ-CUR @ 1+ SZ-TEND U< AND
+   IF
+      SZ-CUR @ 1+ C@ SZ-CH-LF = IF
+         SZ-TEND SZ-CUR @ - 2 - DUP 0> IF
+            SZ-CUR @ 2 +  SZ-CUR @  ROT  MOVE
+         ELSE  DROP  THEN
+         -2 SZ-TLEN +!
+         SZ-TLEN @ 0< IF  0 SZ-TLEN !  THEN
+         SZ-TOUCH EXIT
+      THEN
+   THEN
+   SZ-TEND SZ-CUR @ - 1- DUP 0> IF
+      SZ-CUR @ 1+  SZ-CUR @  ROT  MOVE
+   ELSE  DROP  THEN
+   -1 SZ-TLEN +!
+   SZ-TLEN @ 0< IF  0 SZ-TLEN !  THEN
+   SZ-TOUCH
+;
+
 \ If CUR is inside a word, move to end of that word (paste target).
 : SZ-PASTE-POINT  ( -- )
    SZ-WORD-AT-CUR DUP IF
@@ -956,6 +1052,8 @@ VARIABLE SZ-DR-N
       SZ-CLIP-MAX MIN SZ-CLIP-U !
    THEN
    SZ-CLIP-U @ 0= IF  S" empty" SZ-FIND-SET-STAT EXIT  THEN
+   \ Replace active selection (drag/range) when not using paste-here placeholder.
+   SZ-PLACEHOLD @ 0= IF  SZ-DELETE-SEL-IF DROP  THEN
    \ Placeholder click: discard ephemeral line selection; paste solid clip
    SZ-PLACEHOLD @ IF
       0 SZ-PLACEHOLD !
@@ -986,12 +1084,179 @@ VARIABLE SZ-DR-N
    PAD FIND IF  EXECUTE  ELSE  DROP 2DROP  THEN
    PREVIOUS ;
 
-\ ⌘-click: place caret (already done) then VIEW — same as click + Cmd-E.
-\ (Replaces earlier stub; range-extend via ⌘-click is no longer used.)
+\ Plain click (no drag): word / line / placeholder. ⌘ is handled on mouse-down.
 : SZ-AFTER-MOUSE  ( -- )
-   SZ-CLICK-EXTEND @ IF  SZ-DO-VIEW-UNDER  ELSE  SZ-PLAIN-CLICK  THEN
+   SZ-PLAIN-CLICK
 ;
 ' SZ-AFTER-MOUSE SZ-MOUSE-XT !
+
+\ --- Click-drag / shift-extend / double-click word selection ----------------
+
+\ Apply [SZ-DRAG-START, SZ-CUR) as the live selection (order-independent).
+: SZ-DRAG-SET-SEL  ( -- )
+   SZ-DRAG-START @ SZ-CUR @
+   2DUP U> IF  SWAP  THEN
+   2DUP = IF  2DROP 0 SZ-SEL-OK ! EXIT  THEN
+   2DUP SZ-SEL-END ! SZ-SEL-BEG !
+   -1 SZ-SEL-OK !
+   SZ-SHOW-RANGE-SEL
+   S" select" SZ-FIND-SET-STAT
+;
+
+\ Space / blank separators only (double-click word — not assembly identifier rules).
+: SZ-SPACE-SEP?  ( c -- flag )  SZ-BLANK? ;
+
+\ Space-delimited word range at SZ-CUR → ( beg end ).  Point if none.
+: SZ-SPACE-WORD-RANGE  ( -- beg end )
+   SZ-CUR @ SZ-CLIP-ADDR
+   DUP SZ-TEND SZ-U>= IF
+      DROP
+      SZ-CUR @ SZ-TBUF U> IF  SZ-CUR @ 1-  ELSE  SZ-CUR @ DUP EXIT  THEN
+   THEN
+   \ If on a blank, try char before (so click in trailing space still grabs word).
+   DUP C@ SZ-SPACE-SEP? IF
+      DUP SZ-TBUF = IF  DUP EXIT  THEN
+      1-
+      DUP C@ SZ-SPACE-SEP? IF  1+ DUP EXIT  THEN
+   THEN
+   \ walk left → inclusive start
+   BEGIN
+      DUP SZ-TBUF = IF  TRUE
+      ELSE  DUP 1- C@ SZ-SPACE-SEP? IF  TRUE
+      ELSE  1- FALSE  THEN THEN
+   UNTIL                                          \ beg
+   >R
+   R@
+   BEGIN
+      DUP SZ-TEND SZ-U>= IF  TRUE
+      ELSE  DUP C@ SZ-SPACE-SEP? IF  TRUE
+      ELSE  1+ FALSE  THEN THEN
+   UNTIL                                          \ end
+   R> SWAP
+;
+
+\ Finalize [beg,end) as selection + clipboard; leave CUR at end; set extend anchor.
+: SZ-COMMIT-RANGE  ( beg end -- )
+   2DUP U> IF  SWAP  THEN
+   2DUP = IF  2DROP 0 SZ-SEL-OK ! EXIT  THEN
+   2DUP SZ-SEL-END ! SZ-SEL-BEG !
+   -1 SZ-SEL-OK !
+   2DUP SZ-SHOW-RANGE-SEL
+   2DUP SZ-CLIP-STORE
+   \ Fixed end for later Shift-click = start; free end = end (caret).
+   OVER SZ-EXT-ANCHOR !
+   OVER SZ-DRAG-START !
+   NIP SZ-CUR !
+;
+
+\ Double-click: select space-delimited word under pointer.
+: SZ-DBL-CLICK  ( col row -- )
+   0 SZ-DRAG-ACTIVE !
+   -1 SZ-SEL-DONE !
+   SZ-MOUSE-PLACE
+   0 SZ-PLACEHOLD !
+   0 SZ-PASTE-WHERE !
+   SZ-SPACE-WORD-RANGE                      \ beg end
+   2DUP = IF  2DROP 0 SZ-SEL-OK ! EXIT  THEN
+   SZ-COMMIT-RANGE
+   S" word" SZ-FIND-SET-STAT
+;
+
+\ Shift-click / shift-drag free end: selection is [EXT-ANCHOR, CUR].
+: SZ-SHIFT-SET-SEL  ( -- )
+   SZ-EXT-ANCHOR @ SZ-CUR @
+   2DUP U> IF  SWAP  THEN
+   2DUP = IF  2DROP 0 SZ-SEL-OK ! EXIT  THEN
+   2DUP SZ-SEL-END ! SZ-SEL-BEG !
+   -1 SZ-SEL-OK !
+   SZ-SHOW-RANGE-SEL
+   S" select" SZ-FIND-SET-STAT
+;
+
+\ mouse-down: ⌘ VIEW | double-click word | shift-extend | start drag.
+: SZ-MOUSE-DOWN  ( col row -- )
+   0 SZ-SEL-DONE !
+   SZ-CLICK-EXTEND @ IF
+      0 SZ-DRAG-ACTIVE !
+      SZ-MOUSE-PLACE
+      SZ-DO-VIEW-UNDER
+      EXIT
+   THEN
+   SZ-CLICK-DBL @ IF
+      SZ-DBL-CLICK EXIT
+   THEN
+   SZ-CLICK-SHIFT @ IF
+      \ Extend from fixed anchor (last plain down / selection start) to click.
+      SZ-MOUSE-PLACE
+      SZ-EXT-ANCHOR @ SZ-TBUF U< IF
+         SZ-CUR @ SZ-EXT-ANCHOR !
+      THEN
+      SZ-EXT-ANCHOR @ SZ-DRAG-START !
+      -1 SZ-DRAG-ACTIVE !
+      -1 SZ-DRAG-MOVED !                    \ already a selection gesture
+      0 SZ-PLACEHOLD !
+      0 SZ-PASTE-WHERE !
+      SZ-SHIFT-SET-SEL
+      EXIT
+   THEN
+   \ Plain press: start potential drag; remember extend anchor.
+   SZ-MOUSE-PLACE
+   SZ-CUR @ SZ-DRAG-START !
+   SZ-CUR @ SZ-EXT-ANCHOR !
+   -1 SZ-DRAG-ACTIVE !
+   0 SZ-DRAG-MOVED !
+   0 SZ-SEL-OK !
+   0 SZ-PLACEHOLD !
+   0 SZ-PASTE-WHERE !
+;
+
+\ mouse-drag: extend free end (plain drag or shift-drag).
+: SZ-MOUSE-DRAG  ( col row -- )
+   SZ-DRAG-ACTIVE @ 0= IF  2DROP EXIT  THEN
+   SZ-MOUSE-PLACE
+   SZ-CUR @ SZ-DRAG-START @ = IF  EXIT  THEN
+   -1 SZ-DRAG-MOVED !
+   SZ-CLICK-SHIFT @ IF  SZ-SHIFT-SET-SEL  ELSE  SZ-DRAG-SET-SEL  THEN
+;
+
+\ mouse-up: if moved → finalize; else plain word/line click (unless done on down).
+: SZ-MOUSE-UP  ( col row -- )
+   SZ-SEL-DONE @ IF  2DROP 0 SZ-SEL-DONE ! EXIT  THEN
+   SZ-DRAG-ACTIVE @ 0= IF  2DROP EXIT  THEN
+   0 SZ-DRAG-ACTIVE !
+   SZ-MOUSE-PLACE
+   SZ-DRAG-MOVED @ IF
+      SZ-CLICK-SHIFT @ IF  SZ-SHIFT-SET-SEL  ELSE  SZ-DRAG-SET-SEL  THEN
+      SZ-SEL-OK @ IF
+         SZ-SEL-BEG @ SZ-SEL-END @ SZ-CLIP-STORE
+         \ Keep the original fixed end as shift-extend anchor.
+         SZ-CLICK-SHIFT @ IF
+            SZ-EXT-ANCHOR @ SZ-DRAG-START !
+         ELSE
+            SZ-DRAG-START @ SZ-EXT-ANCHOR !
+         THEN
+         S" selected" SZ-FIND-SET-STAT
+      THEN
+   ELSE
+      SZ-MOUSE-XT @ ?DUP IF  EXECUTE  THEN
+      \ After plain click, extend-anchor stays at this caret for Shift-click.
+      SZ-CUR @ SZ-EXT-ANCHOR !
+   THEN
+;
+
+\ Facility mouse → buffer (key 25).
+\ (SZ-CLICK) → col row flag; bits: 0=valid 1=⌘ 2-3=phase 4=⇧ 5=double.
+: SZ-DO-MOUSE  ( -- )
+   (SZ-CLICK) DUP 0= IF  DROP 2DROP EXIT  THEN
+   DUP 2 AND SZ-CLICK-EXTEND !                 \ ⌘
+   DUP 16 AND SZ-CLICK-SHIFT !                 \ ⇧
+   DUP 32 AND SZ-CLICK-DBL !                   \ double
+   2 RSHIFT 3 AND                              \ col row phase
+   DUP 0= IF  DROP SZ-MOUSE-DOWN EXIT  THEN
+   DUP 1 = IF  DROP SZ-MOUSE-DRAG EXIT  THEN
+   DUP 2 = IF  DROP SZ-MOUSE-UP EXIT  THEN
+   DROP 2DROP
+;
 
 \ Case-insensitive char equal
 : SZ-CH=  ( c1 c2 -- flag )

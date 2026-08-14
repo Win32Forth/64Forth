@@ -43,7 +43,7 @@ extension Notification.Name {
     static let hyperNext = Notification.Name("SixtyFourForthHyperNext")
 }
 
-private let banner = "=== 64Forth 1.0.7 ===\n"
+private let banner = "=== 64Forth 1.0.8 ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner
@@ -120,7 +120,8 @@ struct ConsoleView: View {
             keepCursorVisible(followPrompt: true)
             DispatchQueue.main.async {
                 isProgrammaticConsoleAppend = false
-                // Reverse-video insert point (TZForth facility cursor).
+                // Selection reverse-video (if any) then I-beam caret.
+                applyFacilitySelectionHighlight()
                 applyFacilityCursorHighlight()
             }
         }
@@ -157,6 +158,7 @@ struct ConsoleView: View {
         // Facility PAGE/AT-XY paints replace the whole console body each frame.
         if kernel.isFacilityTerminalActive {
             keepCursorVisible()
+            applyFacilitySelectionHighlight()
             applyFacilityCursorHighlight()
             return
         }
@@ -621,46 +623,110 @@ struct ConsoleView: View {
         return token.isEmpty ? nil : token
     }
 
-    /// TZForth-style reverse-video cell at the Facility cursor (editor insert point).
-    private func applyFacilityCursorHighlight() {
+    /// Apply facility reverse-video cells (drag / range selection) onto the console storage.
+    private func applyFacilitySelectionHighlight() {
         guard kernel.isFacilityTerminalActive else { return }
+        let term = FacilityTerminal.shared
         #if os(macOS)
         guard let textView = consoleTextView, let storage = textView.textStorage else { return }
-
         let full = NSRange(location: 0, length: storage.length)
         if full.length > 0 {
             storage.removeAttribute(.backgroundColor, range: full)
             storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: full)
         }
+        guard term.hasReverseAttrs else { return }
+        let mask = term.reverseMask()
+        let cols = max(1, term.cols)
+        let rows = term.rows
+        let prefixLen = (kernel.facilityPaintPrefix as NSString).length
+        let stride = cols + 1
+        let accent = NSColor.controlAccentColor
+        let onAccent = NSColor.white
+        storage.beginEditing()
+        for r in 0..<rows {
+            let base = r * cols
+            for c in 0..<cols {
+                let i = base + c
+                guard i < mask.count, mask[i] & FacilityTerminal.attrReverse != 0 else { continue }
+                let loc = prefixLen + r * stride + c
+                guard loc >= 0, loc < storage.length else { continue }
+                let range = NSRange(location: loc, length: 1)
+                storage.addAttribute(.backgroundColor, value: accent, range: range)
+                storage.addAttribute(.foregroundColor, value: onAccent, range: range)
+            }
+        }
+        storage.endEditing()
+        #else
+        guard let textView = consoleTextView else { return }
+        let storage = textView.textStorage!
+        let full = NSRange(location: 0, length: storage.length)
+        if full.length > 0 {
+            storage.removeAttribute(.backgroundColor, range: full)
+            storage.addAttribute(.foregroundColor, value: UIColor.label, range: full)
+        }
+        guard term.hasReverseAttrs else { return }
+        let mask = term.reverseMask()
+        let cols = max(1, term.cols)
+        let rows = term.rows
+        let prefixLen = (kernel.facilityPaintPrefix as NSString).length
+        let stride = cols + 1
+        let accent = UIColor.systemBlue
+        let onAccent = UIColor.white
+        storage.beginEditing()
+        for r in 0..<rows {
+            let base = r * cols
+            for c in 0..<cols {
+                let i = base + c
+                guard i < mask.count, mask[i] & FacilityTerminal.attrReverse != 0 else { continue }
+                let loc = prefixLen + r * stride + c
+                guard loc >= 0, loc < storage.length else { continue }
+                let range = NSRange(location: loc, length: 1)
+                storage.addAttribute(.backgroundColor, value: accent, range: range)
+                storage.addAttribute(.foregroundColor, value: onAccent, range: range)
+            }
+        }
+        storage.endEditing()
+        #endif
+    }
 
+    /// Thin vertical I-beam at the Facility cursor (editor insert point).
+    /// SZ-EDITOR parks the cursor via AT-XY; we paint a line caret on that cell.
+    private func applyFacilityCursorHighlight() {
+        #if os(macOS)
+        guard let textView = consoleTextView as? ConsoleNSTextView else { return }
+        guard kernel.isFacilityTerminalActive else {
+            textView.hideFacilityLineCaret()
+            return
+        }
+        let storageLen = textView.textStorage?.length ?? (textView.string as NSString).length
         let prefixLen = (kernel.facilityPaintPrefix as NSString).length
         let cols = max(1, kernel.facilityCols)
         let row = kernel.facilityCursorRow
         let col = min(max(0, kernel.facilityCursorCol), cols - 1)
         // Each rendered line is `cols` ASCII glyphs + '\n'
         let loc = prefixLen + row * (cols + 1) + col
-        guard loc >= 0 && loc < storage.length else { return }
-
-        let range = NSRange(location: loc, length: 1)
-        storage.addAttribute(.backgroundColor, value: NSColor.controlAccentColor, range: range)
-        storage.addAttribute(.foregroundColor, value: NSColor.white, range: range)
+        guard loc >= 0 && loc < storageLen else {
+            textView.hideFacilityLineCaret()
+            return
+        }
+        textView.showFacilityLineCaret(atUTF16: loc)
         #else
         guard let textView = consoleTextView else { return }
-        let storage = textView.textStorage
-        let full = NSRange(location: 0, length: storage.length)
-        if full.length > 0 {
-            storage.removeAttribute(.backgroundColor, range: full)
-            storage.addAttribute(.foregroundColor, value: UIColor.label, range: full)
+        guard kernel.isFacilityTerminalActive else {
+            textView.hideFacilityLineCaret()
+            return
         }
+        let storageLen = textView.textStorage.length
         let prefixLen = (kernel.facilityPaintPrefix as NSString).length
         let cols = max(1, kernel.facilityCols)
         let row = kernel.facilityCursorRow
         let col = min(max(0, kernel.facilityCursorCol), cols - 1)
         let loc = prefixLen + row * (cols + 1) + col
-        guard loc >= 0 && loc < storage.length else { return }
-        let range = NSRange(location: loc, length: 1)
-        storage.addAttribute(.backgroundColor, value: UIColor.systemBlue, range: range)
-        storage.addAttribute(.foregroundColor, value: UIColor.white, range: range)
+        guard loc >= 0 && loc < storageLen else {
+            textView.hideFacilityLineCaret()
+            return
+        }
+        textView.showFacilityLineCaret(atUTF16: loc)
         #endif
     }
 

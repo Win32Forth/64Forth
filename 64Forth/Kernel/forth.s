@@ -56,7 +56,7 @@
 //
 // Core coverage (by area; stack comments intended to match ANS):
 //   Stack:    DUP DROP SWAP OVER ROT PICK ?DUP 2DUP 2DROP 2SWAP 2OVER DEPTH
-//   Return:   >R R> R@
+//   Return:   >R R> R@ (Generally it is BAD to mix return stack ops with locals)
 //   Arith:    + - * / MOD /MOD 1+ 1- NEGATE ABS MIN MAX LSHIFT RSHIFT
 //             */ */MOD  (symmetric intermediate divide via SM/REM)
 //   Double:   S>D 2* 2/ 2@ 2! UM* M* UM/MOD SM/REM FM/MOD
@@ -95,7 +95,7 @@
 // ----------------------------------------------------------------------------
 // ANS Core Extensions word set — implemented in 64Forth:
 //   .(  :NONAME  ?DO
-//   2>R  2R>  2R@
+//   2>R  2R>  2R@ (Generally it is BAD to mix return stack ops with locals)
 //   <>  0<>  0>  AGAIN
 //   BUFFER:  C"  COMPILE,  [COMPILE]
 //   CASE  OF  ENDOF  ENDCASE
@@ -230,7 +230,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #15                    // "64Forth v1.0.7\n"
+    mov x2, #15                    // "64Forth v1.0.8\n"
     mov x16, #4
     svc #0x80
 
@@ -588,6 +588,16 @@ XFACILITY_SIZE:
     ldr  x1, [x22], #8             // cols
     ldr  x20, [x22], #8
     mov  x0, #5
+    b    _facility_op_go
+
+// FACILITY-REV ( f -- )  nonzero → reverse-video attribute on subsequent EMITs
+
+    BOOT_WORD "FACILITY-REV", "FACILITY-REV ( f -- ) reverse-video on/off for facility EMIT", 0, XFACILITY_REV
+XFACILITY_REV:
+    mov  x1, x20                   // flag
+    ldr  x20, [x22], #8
+    mov  x0, #6
+    mov  x2, #0
     b    _facility_op_go
 
 _facility_op_go:
@@ -1666,20 +1676,20 @@ XROLL:
 _roll_done:
     NEXT
 
-    BOOT_WORD ">R", ">R ( n -- ) ( R: -- n ) to return stack", 0, XTOR
+    BOOT_WORD ">R", ">R ( n -- ) ( R: -- n ) to return stack, mix with locals BAD", 0, XTOR
 XTOR:
     str x20, [x23, #-8]!
     ldr x20, [x22], #8
     NEXT
 
-    BOOT_WORD "R>", "R> ( -- n ) ( R: n -- ) from return stack", 0, XRTO
+    BOOT_WORD "R>", "R> ( -- n ) ( R: n -- ) from return stack, mix with locals BAD", 0, XRTO
 XRTO:
     DPUSH
     ldr x0, [x23], #8
     mov x20, x0
     NEXT
 
-    BOOT_WORD "R@", "R@ ( -- n ) ( R: n -- n ) copy top of return stack", 0, XRFETCH
+    BOOT_WORD "R@", "R@ ( -- n ) ( R: n -- n ) copy top of return stack, mix with locals BAD", 0, XRFETCH
 XRFETCH:
     DPUSH
     ldr x0, [x23]
@@ -1688,7 +1698,7 @@ XRFETCH:
 
 // 2>R ( x1 x2 -- ) ( R: -- x1 x2 )  must be CODE (colon would clobber IP)
 
-    BOOT_WORD "2>R", "2>R ( n1 n2 -- ) (R: -- ) two to return stack", 0, X2TOR
+    BOOT_WORD "2>R", "2>R ( n1 n2 -- ) (R: -- ) two to return stack, mix with locals BAD", 0, X2TOR
 X2TOR:
     ldr x0, [x22], #8              // x1
     str x0, [x23, #-8]!            // R: x1
@@ -1698,7 +1708,7 @@ X2TOR:
 
 // 2R> ( -- x1 x2 ) ( R: x1 x2 -- )
 
-    BOOT_WORD "2R>", "2R> ( -- n1 n2 ) (R: -- ) two from return stack", 0, X2RTO
+    BOOT_WORD "2R>", "2R> ( -- n1 n2 ) (R: -- ) two from return stack, mix with locals BAD", 0, X2RTO
 X2RTO:
     str x20, [x22, #-8]!
     ldr x0, [x23], #8              // x2
@@ -1709,7 +1719,7 @@ X2RTO:
 
 // 2R@ ( -- x1 x2 ) ( R: x1 x2 -- x1 x2 )
 
-    BOOT_WORD "2R@", "2R@ ( -- n1 n2 ) (R: -- ) copy two from return stack", 0, X2RFETCH
+    BOOT_WORD "2R@", "2R@ ( -- n1 n2 ) (R: -- ) copy two from return stack, mix with locals BAD", 0, X2RFETCH
 X2RFETCH:
     str x20, [x22, #-8]!
     ldr x0, [x23]                  // x2
@@ -5165,6 +5175,8 @@ XBIISQRT:
 // ============================================================================
 // Locals (ANS-style minimal: {: … :}  TO  (LOCAL-INIT) (LOCAL@) (LOCAL!))
 // Runtime frames in BSS; compile-time names for current definition.
+// Generally it is BAD to mix return stack ops with Locals. If you do, you MUST
+// remove the return stack values before accessing any local variables.
 // ============================================================================
 .equ LOCAL_MAX, 32
 .equ LOCAL_NAME_STR, 32
@@ -12138,7 +12150,7 @@ env_n_file:     .asciz "FILE"
 env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
-str_hello:  .asciz "64Forth v1.0.7\n"
+str_hello:  .asciz "64Forth v1.0.8\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
 str_bye:    .asciz "Bye!\n"

@@ -455,7 +455,7 @@ private let kernelFloatOpTrampoline: @convention(c) (
     FloatHost.shared.dispatch(op: op, a: a, b: b, c: c, d: d, ptr: ptr, o1: o1, o2: o2, o3: o3)
 }
 
-/// Facility terminal: 1=PAGE 2=AT-XY 3=TERMINAL-REFRESH 4=FACILITY-OFF 5=resize
+/// Facility terminal: 1=PAGE 2=AT-XY 3=TERMINAL-REFRESH 4=FACILITY-OFF 5=resize 6=reverse
 private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> Void = { op, a, b in
     let term = FacilityTerminal.shared
     switch op {
@@ -479,6 +479,9 @@ private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> 
         term.deactivate()
     case 5:
         term.resize(cols: Int(a), rows: Int(b))
+    case 6:
+        // FACILITY-REV ( f -- ): nonzero → reverse-video on subsequent EMITs
+        term.setReverse(a != 0)
     default:
         break
     }
@@ -495,8 +498,13 @@ public func host_facility_xy(
     rowOut?.pointee = Int64(term.cursorRow)
 }
 
-/// (SZ-CLICK) — last mouse click in facility grid (Phase 4a). Clears pending.
-/// Returns 0 if none; else bit0=1 valid, bit1=1 if Command held (range-select).
+/// (SZ-CLICK) — last mouse event in facility grid. Clears one pending event.
+/// Returns 0 if none; else:
+///   bit0    = valid
+///   bit1    = Command held (⌘-click VIEW)
+///   bits2–3 = phase: 0=down, 1=drag, 2=up
+///   bit4    = Shift held (extend selection)
+///   bit5    = double-click (space-delimited word)
 /// Fills col/row (0-based facility cells).
 @_cdecl("host_sz_click")
 public func host_sz_click(
@@ -556,11 +564,29 @@ final class KernelBridge {
 
     var facilityCols: Int { FacilityTerminal.shared.cols }
 
-    /// Pending facility mouse click (col, row), set from ConsoleTextView.
-    private var pendingClickCol = 0
-    private var pendingClickRow = 0
-    private var pendingClickExtend = false
-    private var pendingClick = false
+    /// Facility mouse event phases for (SZ-CLICK) flag bits 2–3.
+    enum FacilityMousePhase: Int {
+        case down = 0
+        case drag = 1
+        case up = 2
+    }
+
+    private struct FacilityMouseEvent {
+        var col: Int
+        var row: Int
+        /// ⌘ — VIEW on down.
+        var command: Bool
+        /// ⇧ — extend selection from anchor to this cell.
+        var shift: Bool
+        /// Double-click — select space-delimited word.
+        var doubleClick: Bool
+        var phase: FacilityMousePhase
+    }
+
+    /// Pending facility mouse events (down / drag / up). Drag coalesces.
+    private var pendingMouseEvents: [FacilityMouseEvent] = []
+    /// True while a SZ-MOUSE key is in the KEY queue for an unconsumed event.
+    private var facilityMouseKeyQueued = false
 
     /// Editor clipboard mirrored to NSPasteboard (UTF-8 text).
     private var editorClipboard = Data()
@@ -627,49 +653,120 @@ final class KernelBridge {
         #endif
     }
 
-    /// Map a UTF-16 index in the console document to facility col/row and queue SZ-MOUSE.
-    /// - Parameter extend: ⌘-click → range select (flag bit1 in (SZ-CLICK)).
-    func reportFacilityClick(utf16Index: Int, extend: Bool = false) {
-        guard isFacilityTerminalActive, isEvaluating else { return }
+    /// Map a UTF-16 index in the console document to facility col/row, or nil.
+    func facilityCell(fromUTF16 utf16Index: Int) -> (col: Int, row: Int)? {
+        guard isFacilityTerminalActive else { return nil }
         let prefixLen = (facilityPaintPrefix as NSString).length
-        guard utf16Index >= prefixLen else { return }
+        guard utf16Index >= prefixLen else { return nil }
         let local = utf16Index - prefixLen
         let cols = max(1, facilityCols)
         let stride = cols + 1 // row body + '\n'
-        guard stride > 0 else { return }
+        guard stride > 0 else { return nil }
         let row = local / stride
         let col = local % stride
-        guard col < cols else { return } // click on the newline gap
+        guard col < cols else { return nil } // click on the newline gap
         let rows = FacilityTerminal.shared.rows
-        guard row >= 0, row < rows else { return }
-        lock.lock()
-        pendingClickCol = col
-        pendingClickRow = row
-        pendingClickExtend = extend
-        pendingClick = true
-        lock.unlock()
-        // 25 = SZ-MOUSE in sz-edit.fth
-        pushKey(25)
+        guard row >= 0, row < rows else { return nil }
+        return (col, row)
     }
 
-    /// Consume pending click for (SZ-CLICK). Returns 0, or 1, or 3 (1|2 = ⌘-extend).
+    /// Queue a facility mouse event (down / drag / up) and wake SZ-MOUSE (key 25).
+    /// Drag events coalesce so KEY is not flooded during a fast drag.
+    func reportFacilityMouse(
+        utf16Index: Int,
+        phase: FacilityMousePhase,
+        command: Bool = false,
+        shift: Bool = false,
+        doubleClick: Bool = false
+    ) {
+        guard isFacilityTerminalActive, isEvaluating else { return }
+        guard let cell = facilityCell(fromUTF16: utf16Index) else { return }
+        reportFacilityMouse(
+            col: cell.col,
+            row: cell.row,
+            phase: phase,
+            command: command,
+            shift: shift,
+            doubleClick: doubleClick
+        )
+    }
+
+    func reportFacilityMouse(
+        col: Int,
+        row: Int,
+        phase: FacilityMousePhase,
+        command: Bool = false,
+        shift: Bool = false,
+        doubleClick: Bool = false
+    ) {
+        guard isFacilityTerminalActive, isEvaluating else { return }
+        let ev = FacilityMouseEvent(
+            col: col,
+            row: row,
+            command: command,
+            shift: shift,
+            doubleClick: doubleClick,
+            phase: phase
+        )
+        var shouldPushKey = false
+        lock.lock()
+        if phase == .drag,
+           let last = pendingMouseEvents.last,
+           last.phase == .drag {
+            // Coalesce: keep only the latest drag position.
+            pendingMouseEvents[pendingMouseEvents.count - 1] = ev
+            // Key already queued for prior drag (or still waiting).
+            shouldPushKey = !facilityMouseKeyQueued
+            if shouldPushKey { facilityMouseKeyQueued = true }
+        } else {
+            pendingMouseEvents.append(ev)
+            shouldPushKey = !facilityMouseKeyQueued
+            if shouldPushKey { facilityMouseKeyQueued = true }
+        }
+        lock.unlock()
+        if shouldPushKey {
+            // 25 = SZ-MOUSE in sz-edit.fth
+            pushKey(25)
+        }
+    }
+
+    /// Compatibility: single-shot click (treated as mouse-down).
+    func reportFacilityClick(utf16Index: Int, extend: Bool = false) {
+        reportFacilityMouse(utf16Index: utf16Index, phase: .down, command: extend)
+    }
+
+    /// Consume one pending mouse event for (SZ-CLICK).
+    /// Returns 0, or flag bits (see host_sz_click). Pushes another SZ-MOUSE key if more remain.
     fileprivate func takeFacilityClick(
         colOut: UnsafeMutablePointer<Int64>?,
         rowOut: UnsafeMutablePointer<Int64>?
     ) -> Int32 {
         lock.lock()
-        defer { lock.unlock() }
-        guard pendingClick else {
+        guard !pendingMouseEvents.isEmpty else {
+            facilityMouseKeyQueued = false
+            lock.unlock()
             colOut?.pointee = 0
             rowOut?.pointee = 0
             return 0
         }
-        colOut?.pointee = Int64(pendingClickCol)
-        rowOut?.pointee = Int64(pendingClickRow)
-        let extend = pendingClickExtend
-        pendingClick = false
-        pendingClickExtend = false
-        return extend ? 3 : 1
+        let ev = pendingMouseEvents.removeFirst()
+        let more = !pendingMouseEvents.isEmpty
+        facilityMouseKeyQueued = more
+        lock.unlock()
+
+        colOut?.pointee = Int64(ev.col)
+        rowOut?.pointee = Int64(ev.row)
+        var flag: Int32 = 1
+        if ev.command { flag |= 2 }
+        flag |= Int32(ev.phase.rawValue) << 2
+        if ev.shift { flag |= 16 }
+        if ev.doubleClick { flag |= 32 }
+
+        // Drain remaining events one KEY at a time (down → drag* → up).
+        if more {
+            _ = pushKey(25)
+        }
+        return flag
     }
 
     func setEditorClipboard(ptr: UnsafeRawPointer?, length: Int) {
