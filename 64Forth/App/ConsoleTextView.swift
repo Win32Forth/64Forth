@@ -299,6 +299,77 @@ final class ConsoleNSTextView: NSTextView {
     private var facilityDragShift = false
     private var facilityLastDragCol = -1
     private var facilityLastDragRow = -1
+    /// Latest drag pointer (view coords) for edge auto-scroll.
+    private var facilityDragPoint = NSPoint.zero
+    /// Timer: pan view while pointer sits in a text-band edge zone during drag.
+    private var facilityEdgeScrollTimer: Timer?
+
+    private func stopFacilityEdgeScroll() {
+        facilityEdgeScrollTimer?.invalidate()
+        facilityEdgeScrollTimer = nil
+    }
+
+    /// Vertical/horizontal edge direction from a text-band cell (-1 / 0 / +1).
+    private func facilityEdgeDirections(col: Int, row: Int) -> (v: Int, h: Int) {
+        let band = KernelBridge.shared.facilityTextBand
+        let v: Int
+        if row <= band.textTop { v = -1 }
+        else if row >= band.textBot { v = 1 }
+        else { v = 0 }
+        let h: Int
+        if col <= band.textLeft { h = -1 }
+        else if col >= band.textRight { h = 1 }
+        else { h = 0 }
+        return (v, h)
+    }
+
+    private func startFacilityEdgeScrollIfNeeded(v: Int, h: Int) {
+        if v == 0 && h == 0 {
+            stopFacilityEdgeScroll()
+            return
+        }
+        if facilityEdgeScrollTimer != nil { return }
+        // ~10 Hz: pan + re-extend selection while held at the edge.
+        let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.facilityEdgeScrollTick()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        facilityEdgeScrollTimer = t
+        // Immediate first step so the user does not wait a full interval.
+        facilityEdgeScrollTick()
+    }
+
+    private func facilityEdgeScrollTick() {
+        guard facilityDragTracking,
+              KernelBridge.shared.isFacilityTerminalActive,
+              KernelBridge.shared.isEvaluating else {
+            stopFacilityEdgeScroll()
+            return
+        }
+        let idx = characterIndexForInsertion(at: facilityDragPoint)
+        guard let cell = KernelBridge.shared.facilityTextCellClamped(fromUTF16: idx) else {
+            stopFacilityEdgeScroll()
+            return
+        }
+        let (v, h) = facilityEdgeDirections(col: cell.col, row: cell.row)
+        if v == 0 && h == 0 {
+            stopFacilityEdgeScroll()
+            return
+        }
+        let band = KernelBridge.shared.facilityTextBand
+        // Free end stays on the edge cell of the text band after each pan.
+        let edgeCol = h < 0 ? band.textLeft : (h > 0 ? band.textRight : cell.col)
+        let edgeRow = v < 0 ? band.textTop : (v > 0 ? band.textBot : cell.row)
+        KernelBridge.shared.reportFacilityEdgeScroll(vertical: v, horizontal: h)
+        facilityLastDragCol = edgeCol
+        facilityLastDragRow = edgeRow
+        KernelBridge.shared.reportFacilityMouse(
+            col: edgeCol,
+            row: edgeRow,
+            phase: .drag,
+            shift: facilityDragShift
+        )
+    }
 
     override func mouseDown(with event: NSEvent) {
         let pt = convert(event.locationInWindow, from: nil)
@@ -313,6 +384,7 @@ final class ConsoleNSTextView: NSTextView {
         if KernelBridge.shared.isFacilityTerminalActive, KernelBridge.shared.isEvaluating {
             // Keep focus; do not change the document selection into the paint grid.
             window?.makeFirstResponder(self)
+            stopFacilityEdgeScroll()
             if cmd {
                 // ⌘-click = VIEW word (no drag).
                 facilityDragTracking = false
@@ -355,6 +427,7 @@ final class ConsoleNSTextView: NSTextView {
             // Plain or ⇧ press: track for drag / shift-extend.
             facilityDragTracking = true
             facilityDragShift = shift
+            facilityDragPoint = pt
             if let cell = KernelBridge.shared.facilityCell(fromUTF16: idx) {
                 facilityLastDragCol = cell.col
                 facilityLastDragRow = cell.row
@@ -386,9 +459,16 @@ final class ConsoleNSTextView: NSTextView {
            KernelBridge.shared.isFacilityTerminalActive,
            KernelBridge.shared.isEvaluating {
             let pt = convert(event.locationInWindow, from: nil)
+            facilityDragPoint = pt
             let idx = characterIndexForInsertion(at: pt)
-            guard let cell = KernelBridge.shared.facilityCell(fromUTF16: idx) else { return }
-            // Throttle: only when the cell under the pointer changes.
+            // Prefer clamped text-band cell so drags past the frame still track.
+            guard let cell = KernelBridge.shared.facilityTextCellClamped(fromUTF16: idx)
+                    ?? KernelBridge.shared.facilityCell(fromUTF16: idx) else {
+                return
+            }
+            let (v, h) = facilityEdgeDirections(col: cell.col, row: cell.row)
+            startFacilityEdgeScrollIfNeeded(v: v, h: h)
+            // Throttle: only when the cell under the pointer changes (or edge timer).
             if cell.col == facilityLastDragCol, cell.row == facilityLastDragRow {
                 return
             }
@@ -408,13 +488,15 @@ final class ConsoleNSTextView: NSTextView {
     override func mouseUp(with event: NSEvent) {
         if facilityDragTracking {
             facilityDragTracking = false
+            stopFacilityEdgeScroll()
             let shift = facilityDragShift
             facilityDragShift = false
             if KernelBridge.shared.isFacilityTerminalActive,
                KernelBridge.shared.isEvaluating {
                 let pt = convert(event.locationInWindow, from: nil)
                 let idx = characterIndexForInsertion(at: pt)
-                if let cell = KernelBridge.shared.facilityCell(fromUTF16: idx) {
+                if let cell = KernelBridge.shared.facilityTextCellClamped(fromUTF16: idx)
+                    ?? KernelBridge.shared.facilityCell(fromUTF16: idx) {
                     KernelBridge.shared.reportFacilityMouse(
                         col: cell.col,
                         row: cell.row,

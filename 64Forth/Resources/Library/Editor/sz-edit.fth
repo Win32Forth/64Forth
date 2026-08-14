@@ -56,6 +56,10 @@ DECIMAL
   3 CONSTANT SZ-VSCROLL-UP     \ mouse wheel / trackpad: view earlier lines
   7 CONSTANT SZ-VSCROLL-DN     \ mouse wheel / trackpad: view later lines
   9 CONSTANT SZ-TAB            \ Tab → expand to spaces (SZ-INSERT-TAB)
+ 12 CONSTANT SZ-HSCROLL-LEFT   \ drag-edge: pan left (SZ-HCOL only)
+128 CONSTANT SZ-HSCROLL-RIGHT  \ drag-edge: pan right (SZ-HCOL only)
+129 CONSTANT SZ-VIEW-UP        \ drag-edge: pan view up (TOP only, keep selection)
+130 CONSTANT SZ-VIEW-DN        \ drag-edge: pan view down (TOP only)
  25 CONSTANT SZ-MOUSE          \ host mouse click in facility (Phase 4a)
  26 CONSTANT SZ-HYPER-PREV     \ Cmd-PgUp — previous HYPER hit
  27 CONSTANT SZ-HYPER-NEXT     \ Cmd-PgDn — next HYPER hit
@@ -297,6 +301,30 @@ VARIABLE SZ-DONE
    SZ-CUR-CAN-DOWN? 0= IF  EXIT  THEN
    SZ-TOP @ SZ-NEXT-LINE SZ-TOP !
    SZ-GO-DOWN
+;
+
+\ View-only pan (do NOT move CUR / clear selection). Drag-edge scroll uses these
+\ so the selection free end can re-map to the edge cell after the view moves.
+\ Defined after TOP helpers; key dispatch is later (after SZ-DRAG-ACTIVE exists).
+4 CONSTANT SZ-HSCROLL-STEP
+
+: SZ-VIEW-LINE-UP  ( -- )
+   SZ-TOP @ SZ-TBUF = IF  EXIT  THEN
+   SZ-TOP @ SZ-PREV-LINE SZ-TOP !
+;
+
+: SZ-VIEW-LINE-DOWN  ( -- )
+   SZ-TOP-CAN-DOWN? 0= IF  EXIT  THEN
+   SZ-TOP @ SZ-NEXT-LINE SZ-TOP !
+;
+
+: SZ-VIEW-COL-LEFT  ( -- )
+   SZ-HCOL @ 0= IF  EXIT  THEN
+   SZ-HCOL @ SZ-HSCROLL-STEP - 0 MAX SZ-HCOL !
+;
+
+: SZ-VIEW-COL-RIGHT  ( -- )
+   SZ-HCOL @ SZ-HSCROLL-STEP + 8192 MIN SZ-HCOL !
 ;
 
 : SZ-GO-HOME-LINE  ( -- )
@@ -1596,6 +1624,10 @@ VARIABLE SZ-VIEW-NOTED                     \ nonzero: skip next HIST-NOTE
    DUP SZ-MOUSE = IF  DROP SZ-DO-MOUSE EXIT  THEN
    DUP SZ-VSCROLL-UP = IF  DROP SZ-SCROLL-UP EXIT  THEN
    DUP SZ-VSCROLL-DN = IF  DROP SZ-SCROLL-DOWN EXIT  THEN
+   DUP SZ-VIEW-UP = IF  DROP SZ-VIEW-LINE-UP EXIT  THEN
+   DUP SZ-VIEW-DN = IF  DROP SZ-VIEW-LINE-DOWN EXIT  THEN
+   DUP SZ-HSCROLL-LEFT = IF  DROP SZ-VIEW-COL-LEFT EXIT  THEN
+   DUP SZ-HSCROLL-RIGHT = IF  DROP SZ-VIEW-COL-RIGHT EXIT  THEN
    DUP SZ-HYPER-PREV = IF  DROP SZ-DO-HYPER-PREV EXIT  THEN
    DUP SZ-HYPER-NEXT = IF  DROP SZ-DO-HYPER-NEXT EXIT  THEN
    DUP SZ-CMD-OPEN = IF  DROP SZ-DO-MENU-OPEN EXIT  THEN

@@ -107,7 +107,7 @@ Selection storage already exists; wire it to drag:
 - [x] Forth: paint selection range on redraw (`FACILITY-REV` + host reverse attrs)
 - [x] Type / paste / delete replaces selection
 - [x] Preserve Cmd-click VIEW and word/line click modes
-- [ ] Optional: scroll-on-drag at edges
+- [x] Scroll-on-drag at edges (vertical TOP + horizontal HCOL; selection kept)
 - [x] Shift+click extend (from anchor; before or after)
 - [x] Double-click word (space-delimited)
 - [x] Triple-click line (whole logical line; host bit6, `SZ-TRI-CLICK`)
@@ -153,6 +153,14 @@ _Further design suggestions and decisions go below as work proceeds._
   forced collapsed selection at 0 while facility is active (stops top-left blink leak).
 - Our I-beam blinks on a 0.53s timer (common modes so it ticks during KEY pump); motion/redraw
   restarts visible phase like a normal editor.
+
+### 2026-08-14 — Scroll-on-drag at edges
+
+- While drag-selecting, holding the pointer on the top/bottom or left/right of the text band
+  auto-pans the view (~10 Hz) and re-extends the free end of the selection.
+- Vertical: `SZ-VIEW-UP` / `SZ-VIEW-DN` move `SZ-TOP` only (do not clear selection).
+- Horizontal: `SZ-HSCROLL-LEFT` / `RIGHT` adjust `SZ-HCOL` by `SZ-HSCROLL-STEP` (4).
+- Host: edge timer + clamped text-band cell; wheel scroll still moves caret with view.
 
 ### 2026-08-13 — Click-drag selection
 

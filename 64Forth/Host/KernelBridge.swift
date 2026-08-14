@@ -821,6 +821,71 @@ final class KernelBridge {
         return (col, row)
     }
 
+    /// Text-body band in facility cells (matches `sz-screen.fth` chrome).
+    /// Used for scroll-on-drag edge zones.
+    struct FacilityTextBand {
+        var textTop: Int
+        var textBot: Int
+        var textLeft: Int
+        /// Last column of the editable text body (inclusive).
+        var textRight: Int
+    }
+
+    /// Must match Forth: SZ-TEXT-TOP=2, SZ-TEXT-LEFT=7, SZ-SIDE-WIDTH=28,
+    /// facility rows = textHeight+5 → TEXT-BOT = rows-4.
+    var facilityTextBand: FacilityTextBand {
+        let rows = max(1, FacilityTerminal.shared.rows)
+        let cols = max(1, FacilityTerminal.shared.cols)
+        let side = 28
+        let textTop = 2
+        let textBot = max(textTop, rows - 4)
+        let textLeft = 7
+        // Outer '|' at cols-1; side panel is `side` cols; editor right '|' before side.
+        let textRight = max(textLeft, cols - side - 2)
+        return FacilityTextBand(
+            textTop: textTop,
+            textBot: textBot,
+            textLeft: textLeft,
+            textRight: textRight
+        )
+    }
+
+    /// Like `facilityCell`, but clamps into the text band (for drag outside the grid).
+    func facilityTextCellClamped(fromUTF16 utf16Index: Int) -> (col: Int, row: Int)? {
+        guard isFacilityTerminalActive else { return nil }
+        let band = facilityTextBand
+        let cols = max(1, facilityCols)
+        let rows = max(1, FacilityTerminal.shared.rows)
+        let prefixLen = (facilityPaintPrefix as NSString).length
+        let local: Int
+        if utf16Index < prefixLen {
+            local = 0
+        } else {
+            local = utf16Index - prefixLen
+        }
+        let stride = cols + 1
+        var row = local / stride
+        var col = local % stride
+        if col >= cols { col = cols - 1 }
+        row = min(max(0, row), rows - 1)
+        col = min(max(0, col), cols - 1)
+        // Prefer text body for selection free-end.
+        row = min(max(row, band.textTop), band.textBot)
+        col = min(max(col, band.textLeft), band.textRight)
+        return (col, row)
+    }
+
+    /// Push view-only pan keys for scroll-on-drag (does not clear selection).
+    /// `vertical` / `horizontal`: -1 / 0 / +1.
+    func reportFacilityEdgeScroll(vertical: Int, horizontal: Int) {
+        guard isFacilityTerminalActive, isEvaluating else { return }
+        // 129=SZ-VIEW-UP 130=SZ-VIEW-DN 12=SZ-HSCROLL-LEFT 128=SZ-HSCROLL-RIGHT
+        if vertical < 0 { _ = pushKey(129) }
+        if vertical > 0 { _ = pushKey(130) }
+        if horizontal < 0 { _ = pushKey(12) }
+        if horizontal > 0 { _ = pushKey(128) }
+    }
+
     /// Queue a facility mouse event (down / drag / up) and wake SZ-MOUSE (key 25).
     /// Drag events coalesce so KEY is not flooded during a fast drag.
     func reportFacilityMouse(
