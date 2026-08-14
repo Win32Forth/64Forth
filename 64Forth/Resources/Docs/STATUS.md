@@ -162,6 +162,12 @@ _Further design suggestions and decisions go below as work proceeds._
 - Horizontal: `SZ-HSCROLL-LEFT` / `RIGHT` adjust `SZ-HCOL` by `SZ-HSCROLL-STEP` (4).
 - Host: edge timer + clamped text-band cell; wheel scroll still moves caret with view.
 
+### 2026-08-14 — Fix dynamic window resize while editor open
+
+- `applyPreferredFacilityCellsIfChanged` skipped `pushKey(0)` when `isPumpingEvents`
+  (true during almost all KEY waits), so lastPreferred updated but SZ-SYNC-SIZE never ran.
+- Wake again on real cell-grid change; defer one main turn if already pumping layout.
+
 ### 2026-08-13 — Click-drag selection
 
 - Host: `mouseDown` / `mouseDragged` / `mouseUp` → `reportFacilityMouse` with phase; cell-change throttle; drag coalesce in event queue.
@@ -194,6 +200,14 @@ _Further design suggestions and decisions go below as work proceeds._
 - `SZ-SYNC-SIZE` at each `SZ-REDRAW` maps cells → `SET-EDIT-WINDOW` (width=cols-8, height=rows-5).
 - Window resize while editing wakes KEY (`pushKey 0`) so the grid updates live.
 - Cmd-W exit: no `SZ-EDITOR: done` / `SZ-.INFO` dump (modified warning kept).
+
+### 2026-08-14 — Fix dynamic window resize while editor open
+
+- Regression: `applyPreferredFacilityCellsIfChanged` skipped `pushKey(0)` when
+  `isPumpingEvents` (true during almost all KEY waits), so preferred size updated
+  but `SZ-SYNC-SIZE` never ran and the facility grid stayed fixed.
+- Fix: wake on real cell-grid change again; if already pumping, defer `pushKey(0)`
+  one main turn. `guard changed` still prevents a layout↔wake feedback loop.
 
 ### 2026-08-14 — Side panel file list
 

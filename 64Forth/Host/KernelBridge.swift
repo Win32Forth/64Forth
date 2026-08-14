@@ -706,10 +706,23 @@ final class KernelBridge {
         lastPreferredFacilityCols = cells.cols
         lastPreferredFacilityRows = cells.rows
         // Wake the editor so SZ-REDRAW → SZ-SYNC-SIZE can apply the new size.
-        // Skip while a facility paint is already in flight on main (avoids a
-        // pushKey(0) ↔ REDRAW ↔ layout feedback loop during wheel scroll).
-        if isEvaluating, isFacilityTerminalActive, !isPumpingEvents {
-            _ = pushKey(0)
+        // Must run even while isPumpingEvents: during KEY wait the main thread
+        // is almost always inside pumpUIForKeyInput, and skipping the wake left
+        // lastPreferred updated but the editor never re-synced (window resize
+        // appeared broken). pushKey(0) is a no-op in SZ-HANDLE-KEY then REDRAW.
+        // The `guard changed` above prevents a layout↔wake feedback loop.
+        if isEvaluating, isFacilityTerminalActive {
+            if Thread.isMainThread, isPumpingEvents {
+                // Defer one turn so we finish the current layout/event before KEY
+                // returns and REDRAW runs (avoids nested facility paint mid-layout).
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    guard self.isEvaluating, self.isFacilityTerminalActive else { return }
+                    _ = self.pushKey(0)
+                }
+            } else {
+                _ = pushKey(0)
+            }
         }
     }
 
