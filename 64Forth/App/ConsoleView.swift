@@ -144,7 +144,8 @@ struct ConsoleView: View {
                 consoleText += "\n"
             }
             markProtectedThroughEndOfText()
-            keepCursorVisible(followPrompt: true)
+            // Do NOT scroll-to-end on every facility paint — that fights mouse-wheel
+            // scroll (and can re-enter AppKit layout during evaluate's run-loop pump).
             DispatchQueue.main.async {
                 isProgrammaticConsoleAppend = false
                 // Selection reverse-video (if any) then I-beam caret.
@@ -183,8 +184,8 @@ struct ConsoleView: View {
             return
         }
         // Facility PAGE/AT-XY paints replace the whole console body each frame.
+        // Leave the NSScrollView scroll position alone (facility uses its own TOP).
         if kernel.isFacilityTerminalActive {
-            keepCursorVisible()
             applyFacilitySelectionHighlight()
             applyFacilityCursorHighlight()
             return
@@ -325,6 +326,10 @@ struct ConsoleView: View {
 
     @discardableResult
     private func handleReturnKey() -> Bool {
+        // Never start a nested evaluate while the facility editor owns the console.
+        if kernel.isFacilityTerminalActive || kernel.isEvaluating {
+            return true
+        }
         guard !isHandlingReturn else { return true }
         isHandlingReturn = true
         defer {

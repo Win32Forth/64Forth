@@ -390,6 +390,7 @@ CREATE HYPER-ORDER-TMP  16 CELLS ALLOT
 0 VALUE HYPER-ACTIVE-XT              \ SZ-EDITOR-ACTIVE variable xt
 0 VALUE HYPER-ORIGIN-XT              \ SZ-HYPER-ORIGIN
 0 VALUE HYPER-HITS-XT                \ SZ-HYPER-HITS! ( cur tot -- )
+0 VALUE HYPER-FL-XT                  \ SZ-FL-NOTE-PATH ( a u -- ) side file list
 
 \ -----------------------------------------------------------------------------
 \ Visit list — same entry store/load as the tested jump stack (PUSH/POP-ORIGIN).
@@ -452,6 +453,8 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    HYPER-CMD FIND IF  TO HYPER-ORIGIN-XT  ELSE  DROP 0 TO HYPER-ORIGIN-XT  THEN
    S" SZ-HYPER-HITS!" HYPER-CMD HYPER-PLACE
    HYPER-CMD FIND IF  TO HYPER-HITS-XT  ELSE  DROP 0 TO HYPER-HITS-XT  THEN
+   S" SZ-FL-NOTE-PATH" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  TO HYPER-FL-XT  ELSE  DROP 0 TO HYPER-FL-XT  THEN
    ONLY FORTH
    HYPER-EDIT-XT 0<> ;
 
@@ -470,13 +473,27 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    HYPER-ACTIVE-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
    HYPER-ACTIVE-XT IF  HYPER-ACTIVE-XT EXECUTE @  ELSE  FALSE  THEN ;
 
+\ Put hit path on the editor side list *before* SZ-HYPER-GOTO redraws so
+\ Library/Sources/forth.s (etc.) is visible and highlighted on first paint.
+: HYPER-NOTE-HIT  ( -- )
+   HYPER-FL-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
+   HYPER-FL-XT 0= IF  EXIT  THEN
+   HYPER-HIT C@ 0= IF  EXIT  THEN
+   HYPER-HIT COUNT HYPER-FL-XT EXECUTE
+;
+
 \ Goto / note / record — after BIND and ACTIVE? (no forward refs).
 : HYPER-V-GOTO  ( i -- )
    HYPER-V-LOAD
    HYPER-GOTO-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
    HYPER-GOTO-XT 0= IF  EXIT  THEN
+   HYPER-NOTE-HIT
    HYPER-HIT COUNT HYPER-LINE#
    HYPER-GOTO-XT EXECUTE
+   \ Visit walk is not multi-hit browse — clear (n/m) so Cmd-Pg* keep using visits.
+   0 TO HYPER-HN
+   0 TO HYPER-HI
+   HYPER-SYNC-HITS
 ;
 
 : HYPER-HIST-NOTE-HERE  ( -- )
@@ -534,6 +551,7 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    HYPER-EDITOR-ACTIVE? IF
       HYPER-GOTO-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
       HYPER-GOTO-XT 0= IF  EXIT  THEN
+      HYPER-NOTE-HIT
       HYPER-HIT COUNT HYPER-LINE#
       HYPER-GOTO-XT EXECUTE
    ELSE
@@ -546,17 +564,17 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    HYPER-EDITOR-ACTIVE? IF  EXIT  THEN
    HYPER-SHOW-HIT ;
 
-\ Cmd-PgDn / Cmd-PgUp
+\ Cmd-PgDn / Cmd-PgUp  (matches README / HYPER-HELP)
 \
 \ Two lists (same FIND as VIEW / Cmd-click / Cmd-E):
-\   1) Multi-hit (HN/HI) — all sites for the *current* search name.
-\      Status (n/m) tracks this. Prefer when HN > 1 so PgUp/Dn match the badge.
-\   2) Visit list (VN/VI) — prior VIEW/Cmd-E destinations (HIST-RECORD-DEST).
-\      Used only when the current search has a single hit (or none left).
+\   1) Visit list (VN/VI) — path+line trail from VIEW / Cmd-E / Cmd-click.
+\      PRIMARY: browser-style Back/Forward across files and positions.
+\   2) Multi-hit (HN/HI) — all sites for the *current* search name (n/m badge).
+\      Used when the visit list cannot move (only one visit, or at end/start).
 \
-\ Cmd-click = SZ-DO-VIEW-UNDER → HYPER-VIEW-NAME → same (HYPER-FIND) as VIEW,
-\ plus HIST-NOTE/RECORD. Preferring multi-hit avoids walking visit entries
-\ that are not part of (n/m).
+\ Older code preferred multi-hit whenever HN>1, which trapped you inside one
+\ name's hit list after a multi-site word and made Cmd-PgUp/Dn ignore visits.
+\ Visit-first matches IDE “go back” and the shipped Hyper README.
 
 : HYPER-HIT-NEXT  ( -- )
    HYPER-HN 0= IF
@@ -586,6 +604,20 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    HYPER-SHOW-HIT-SAFE
    HYPER-APPLY-HIT ;
 
+: HYPER-VISIT-NEXT  ( -- flag )
+   HYPER-VN 1 >  HYPER-VI 1+ HYPER-VN <  AND IF
+      HYPER-VI 1+ TO HYPER-VI
+      HYPER-VI HYPER-V-GOTO
+      TRUE
+   ELSE  FALSE  THEN ;
+
+: HYPER-VISIT-PREV  ( -- flag )
+   HYPER-VN 1 >  HYPER-VI 0>  AND IF
+      HYPER-VI 1- TO HYPER-VI
+      HYPER-VI HYPER-V-GOTO
+      TRUE
+   ELSE  FALSE  THEN ;
+
 \ Kernel SEE xt for FORTH SEE fallback (must find system SEE, not ours).
 ONLY FORTH
 ' SEE CONSTANT (SEE-OLD)
@@ -604,21 +636,11 @@ HYPER-BIND-EDITOR DROP
 ONLY FORTH DEFINITIONS ALSO HYPER-VOC
 
 : HYPER-NEXT  ( -- )
-   HYPER-HN 1 > IF  HYPER-HIT-NEXT EXIT  THEN
-   HYPER-VN 1 >  HYPER-VI 1+ HYPER-VN <  AND IF
-      HYPER-VI 1+ TO HYPER-VI
-      HYPER-VI HYPER-V-GOTO
-      EXIT
-   THEN
+   HYPER-VISIT-NEXT IF  EXIT  THEN
    HYPER-HIT-NEXT ;
 
 : HYPER-PREV  ( -- )
-   HYPER-HN 1 > IF  HYPER-HIT-PREV EXIT  THEN
-   HYPER-VN 1 >  HYPER-VI 0>  AND IF
-      HYPER-VI 1- TO HYPER-VI
-      HYPER-VI HYPER-V-GOTO
-      EXIT
-   THEN
+   HYPER-VISIT-PREV IF  EXIT  THEN
    HYPER-HIT-PREV ;
 
 : LOCATE  ( "name" -- )
@@ -710,9 +732,9 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC
    ." LOCATE <name>     print path:line  [n/m] if multiple" CR
    ." VIEW <name>       open in SZ-EDITOR at line" CR
    ." SEE <name>        VIEW if editor loaded, else decompile" CR
-   ." Cmd-PgUp/PgDn     multi-hit (n/m); visit list if single hit" CR
+   ." Cmd-PgUp/PgDn     visit history (back/forward); else multi-hit n/m" CR
    ." Cmd-Left/Right    prev/next occurrence in current editor file" CR
-   ." Cmd-E / Cmd-click VIEW word" CR
+   ." Cmd-E / Cmd-click VIEW word (side Files list = unique paths)" CR
    ." HYPER-REINDEX     rebuild Config/HYPER.NDX, reload" CR
    ." HYPER-RELOAD  .HYPER   |  ALSO HYPER-VOC WORDS  |  ORDER" CR ;
 

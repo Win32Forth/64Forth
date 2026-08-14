@@ -380,27 +380,128 @@ VARIABLE SZ-PAGE-N
    THEN
 ;
 
-\ Returns true if the editor should close (Cmd-W / Ctrl-Q / File→Close).
-\ Dirty buffer: S = save then close (if save ok); D = discard and close;
-\ any other key keeps the editor open.
-: SZ-CONFIRM-QUIT  ( -- flag )
-   SZ-MODIFIED @ 0= IF  -1 EXIT  THEN
-   SZ-MSG-LINE
-   ." Modified! Save or Discard? S/D "
+\ -----------------------------------------------------------------------------
+\ Centered Save / Discard / Cancel dialog (keyboard + click)
+\ -----------------------------------------------------------------------------
+VARIABLE SZ-DLG-C0                    \ box left column
+VARIABLE SZ-DLG-R0                    \ box top row
+VARIABLE SZ-DLG-W
+VARIABLE SZ-DLG-H
+VARIABLE SZ-DLG-BTN-R                 \ row of clickable buttons
+VARIABLE SZ-DLG-S0  VARIABLE SZ-DLG-S1   \ [S] Save  col range [s0,s1)
+VARIABLE SZ-DLG-D0  VARIABLE SZ-DLG-D1   \ [D] Discard
+VARIABLE SZ-DLG-X0  VARIABLE SZ-DLG-X1   \ [Esc] Cancel
+
+48 CONSTANT SZ-DLG-WIDTH
+ 7 CONSTANT SZ-DLG-HEIGHT
+
+VARIABLE SZ-DLG-T0
+VARIABLE SZ-DLG-T1
+VARIABLE SZ-DLG-T2
+
+\ ( row cleft cmid cright -- )
+: SZ-DLG-BORDER-ROW  ( row cleft cmid cright -- )
+   SZ-DLG-T2 !  SZ-DLG-T1 !  SZ-DLG-T0 !     \ right mid left
+   SZ-DLG-C0 @ SWAP AT-XY
+   SZ-DLG-T0 @ EMIT
+   SZ-DLG-W @ 2 - 0 MAX 0 DO  SZ-DLG-T1 @ EMIT  LOOP
+   SZ-DLG-T2 @ EMIT
+;
+
+: SZ-DLG-CLEAR-ROW  ( row -- )
+   SZ-DLG-C0 @ SWAP AT-XY
+   [CHAR] | EMIT
+   SZ-DLG-W @ 2 - 0 MAX 0 DO  BL EMIT  LOOP
+   [CHAR] | EMIT
+;
+
+: SZ-DRAW-DIRTY-DIALOG  ( -- )
+   SZ-DLG-WIDTH SZ-DLG-W !
+   SZ-DLG-HEIGHT SZ-DLG-H !
+   SZ-TEXT-WIDTH @ SZ-DLG-W @ - 2 / 0 MAX SZ-TEXT-LEFT + SZ-DLG-C0 !
+   SZ-TEXT-ROWS SZ-DLG-H @ - 2 / 0 MAX SZ-TEXT-TOP + SZ-DLG-R0 !
+   SZ-DLG-R0 @ [CHAR] + [CHAR] - [CHAR] + SZ-DLG-BORDER-ROW
+   SZ-DLG-R0 @ 1+
+   BEGIN  DUP SZ-DLG-R0 @ SZ-DLG-H @ + 1- < WHILE
+      DUP SZ-DLG-CLEAR-ROW  1+
+   REPEAT  DROP
+   SZ-DLG-R0 @ SZ-DLG-H @ + 1- [CHAR] + [CHAR] - [CHAR] + SZ-DLG-BORDER-ROW
+   SZ-DLG-C0 @ 2 +  SZ-DLG-R0 @ 2 +  AT-XY
+   ." Unsaved changes in this file"
+   SZ-DLG-R0 @ 4 + SZ-DLG-BTN-R !
+   \ [S] Save   [D] Discard   [Esc] Cancel
+   SZ-DLG-C0 @ 3 + DUP SZ-DLG-S0 !
+   SZ-DLG-BTN-R @ AT-XY  S" [S] Save" TYPE
+   SZ-DLG-S0 @ 8 + SZ-DLG-S1 !
+   SZ-DLG-S1 @ 3 + DUP SZ-DLG-D0 !
+   SZ-DLG-BTN-R @ AT-XY  S" [D] Discard" TYPE
+   SZ-DLG-D0 @ 11 + SZ-DLG-D1 !
+   SZ-DLG-D1 @ 3 + DUP SZ-DLG-X0 !
+   SZ-DLG-BTN-R @ AT-XY  S" [Esc] Cancel" TYPE
+   SZ-DLG-X0 @ 12 + SZ-DLG-X1 !
    TERMINAL-REFRESH
-   KEY 255 AND                           ( c )
-   DUP [CHAR] s = OVER [CHAR] S = OR IF
+;
+
+\ Map click to 0=none 1=save 2=discard 3=cancel
+: SZ-DLG-HIT  ( col row -- action )
+   SZ-DLG-BTN-R @ <> IF  2DROP 0 EXIT  THEN
+   DROP                                       \ col
+   DUP SZ-DLG-S0 @ >= OVER SZ-DLG-S1 @ < AND IF  DROP 1 EXIT  THEN
+   DUP SZ-DLG-D0 @ >= OVER SZ-DLG-D1 @ < AND IF  DROP 2 EXIT  THEN
+   DUP SZ-DLG-X0 @ >= OVER SZ-DLG-X1 @ < AND IF  DROP 3 EXIT  THEN
+   DROP 0
+;
+
+\ KEY char → action (0=ignore)
+: SZ-DLG-KEY  ( c -- action )
+   DUP [CHAR] s = OVER [CHAR] S = OR IF  DROP 1 EXIT  THEN
+   DUP [CHAR] d = OVER [CHAR] D = OR IF  DROP 2 EXIT  THEN
+   DUP 27 = OVER [CHAR] x = OR OVER [CHAR] X = OR IF  DROP 3 EXIT  THEN
+   DROP 0
+;
+
+\ Read next dialog action (1/2/3). Mouse key 25 uses (SZ-CLICK).
+: SZ-DLG-READ  ( -- action )
+   BEGIN
+      KEY 255 AND
+      DUP SZ-MOUSE = IF
+         DROP
+         (SZ-CLICK) 0= IF  DROP 2DROP 0
+         ELSE
+            \ col row flag — only mouse-down (phase 0)
+            DUP 2 RSHIFT 3 AND IF  DROP 2DROP 0
+            ELSE  DROP SZ-DLG-HIT  THEN
+         THEN
+      ELSE
+         SZ-DLG-KEY
+      THEN
+      DUP IF  EXIT  THEN
       DROP
-      SZ-DO-SAVE
-      SZ-MODIFIED @ 0=                   \ close only if save cleared dirty
-      EXIT
-   THEN
-   DUP [CHAR] d = OVER [CHAR] D = OR IF
-      DROP
-      SZ-CLEAN                           \ discard edits — no "still modified" warning
-      -1 EXIT
-   THEN
-   DROP 0                                \ cancel — stay in editor
+   AGAIN
+;
+
+\ True = proceed (buffer is clean: saved or discarded). False = cancel.
+: SZ-CONFIRM-DIRTY  ( -- flag )
+   SZ-MODIFIED @ 0= IF  -1 EXIT  THEN
+   BEGIN
+      SZ-DRAW-DIRTY-DIALOG
+      SZ-DLG-READ
+      DUP 1 = IF                           \ Save
+         DROP SZ-DO-SAVE
+         SZ-MODIFIED @ 0= IF  -1 EXIT  THEN
+      ELSE DUP 2 = IF                      \ Discard
+         DROP SZ-CLEAN  -1 EXIT
+      ELSE DUP 3 = IF                      \ Cancel
+         DROP 0 EXIT
+      ELSE
+         DROP
+      THEN THEN THEN
+   AGAIN
+;
+
+\ Returns true if the editor should close (Cmd-W / Ctrl-Q / File→Close).
+: SZ-CONFIRM-QUIT  ( -- flag )
+   SZ-CONFIRM-DIRTY
 ;
 
 : SZ-DO-QUIT  ( -- )
@@ -577,6 +678,9 @@ VARIABLE SZ-SEL-DONE                   \ nonzero: selection finished on down (sk
 \ Phase 5: load path + goto line for HYPER multi-hit ( a u line -- )
 \ Do not reference Hyper words here (editor loads before Hyper).
 \ Copy path to SZ-PATH-TMP so a/u may safely alias HYPER-HIT across SZ-LOAD.
+\ Always register PATH-TMP in the side list after a successful open (not only
+\ SZ-FNAME via NOTE-CURRENT) so assembly hits like Library/Sources/forth.s
+\ appear and stay highlighted across Cmd-PgUp/PgDn visit navigation.
 : SZ-HYPER-GOTO  ( c-addr u line -- )
    >R                                 \ R: line  ( a u )
    255 MIN SZ-PATH-TMP SZ-PLACE
@@ -587,9 +691,13 @@ VARIABLE SZ-SEL-DONE                   \ nonzero: selection finished on down (sk
       ." hyper: cannot open "
       TYPE
       TERMINAL-REFRESH
-      EXIT
+      2DROP EXIT
    THEN
    2DROP
+   \ Register the path we opened (PATH-TMP), then FNAME if present (may
+   \ differ only after SZ-ENSURE-FTH appends .fth). Second ADD is a CUR bump.
+   SZ-PATH-TMP COUNT SZ-FL-ADD
+   SZ-FL-NOTE-CURRENT
    R> SZ-GOTO-LINE
    SZ-REDRAW
 ;
@@ -1180,9 +1288,45 @@ VARIABLE SZ-DR-N
    S" select" SZ-FIND-SET-STAT
 ;
 
-\ mouse-down: ⌘ VIEW | double-click word | shift-extend | start drag.
+\ Redefine side-panel goto with dirty-buffer dialog (S/D/Esc or click).
+: SZ-FL-GOTO  ( i -- )
+   DUP 0< IF  DROP EXIT  THEN
+   DUP SZ-FL-N @ >= IF  DROP EXIT  THEN
+   DUP SZ-FL-CUR @ = IF  DROP EXIT  THEN
+   SZ-CONFIRM-DIRTY 0= IF  DROP SZ-REDRAW EXIT  THEN
+   SZ-FL-ENT COUNT
+   2DUP SZ-LOAD IF
+      ." cannot open " TYPE CR 2DROP EXIT
+   THEN
+   2DROP
+   SZ-FL-NOTE-CURRENT
+   SZ-VIEW-RESET
+   SZ-REDRAW
+;
+
+\ Must redefine after SZ-FL-GOTO so click uses the dirty-check version.
+: SZ-SIDE-CLICK  ( col row -- )
+   OVER SZ-EDIT-RIGHT > 0= IF  2DROP EXIT  THEN
+   OVER SZ-COLS @ 1- < 0= IF  2DROP EXIT  THEN
+   DUP SZ-TEXT-TOP < IF  2DROP EXIT  THEN
+   DUP SZ-TEXT-BOT @ > IF  2DROP EXIT  THEN
+   NIP
+   SZ-TEXT-TOP - SZ-FL-TOP @ +
+   DUP 0< IF  DROP EXIT  THEN
+   DUP SZ-FL-N @ >= IF  DROP EXIT  THEN
+   SZ-FL-GOTO
+;
+
+\ mouse-down: side-panel file | ⌘ VIEW | double-click | shift-extend | drag.
 : SZ-MOUSE-DOWN  ( col row -- )
    0 SZ-SEL-DONE !
+   \ Click in file list → switch file (no drag / selection).
+   OVER SZ-EDIT-RIGHT > IF
+      0 SZ-DRAG-ACTIVE !
+      -1 SZ-SEL-DONE !
+      SZ-SIDE-CLICK
+      EXIT
+   THEN
    SZ-CLICK-EXTEND @ IF
       0 SZ-DRAG-ACTIVE !
       SZ-MOUSE-PLACE
@@ -1435,9 +1579,10 @@ VARIABLE SZ-DR-N
    2DUP SZ-LOAD IF
       ." SZ-EDIT-FILE: load failed: " TYPE CR
       ."   try absolute path, or FROMLIB for Library-relative names" CR
-      EXIT
+      2DROP EXIT
    THEN
    2DROP
+   SZ-FL-NOTE-CURRENT
    SZ-EDIT-LOOP
 ;
 
@@ -1448,9 +1593,10 @@ VARIABLE SZ-DR-N
    2DUP SZ-LOAD IF
       R> DROP
       ." SZ-EDIT-FILE-AT: load failed: " TYPE CR
-      EXIT
+      2DROP EXIT
    THEN
    2DROP
+   SZ-FL-NOTE-CURRENT
    R> SZ-GOTO-LINE
    (SZ-EDIT-LOOP)
 ;

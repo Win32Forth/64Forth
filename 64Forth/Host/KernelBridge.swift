@@ -690,11 +690,13 @@ final class KernelBridge {
         let cells = preferredFacilityCells()
         let changed = cells.cols != lastPreferredFacilityCols
             || cells.rows != lastPreferredFacilityRows
+        guard changed else { return }
         lastPreferredFacilityCols = cells.cols
         lastPreferredFacilityRows = cells.rows
-        // Wake the editor loop so SZ-REDRAW → SZ-SYNC-SIZE can apply the new size.
-        // Use ASCII NUL (0): SZ-HANDLE-KEY drops c < BL as a no-op, then redraws.
-        if changed, isEvaluating, isFacilityTerminalActive {
+        // Wake the editor so SZ-REDRAW → SZ-SYNC-SIZE can apply the new size.
+        // Skip while a facility paint is already in flight on main (avoids a
+        // pushKey(0) ↔ REDRAW ↔ layout feedback loop during wheel scroll).
+        if isEvaluating, isFacilityTerminalActive, !isPumpingEvents {
             _ = pushKey(0)
         }
     }
@@ -1618,12 +1620,17 @@ final class KernelBridge {
             // Pump UI until the kernel finishes (KEY waits use keyAvailable + queue).
             // Service the main GCD queue so batched emit flushes, scroll events,
             // and off-main FLOAD/CHDIR panels can run — keeps the console live.
+            // Nested CFRunLoopRunInMode re-entry (e.g. from scroll/layout while
+            // already pumping) has trapped as EXC_BREAKPOINT on some macOS builds.
             while done.wait(timeout: .now() + 0.016) == .timedOut {
-                // Drain all ready main sources (emit batches, SwiftUI layout).
-                var more = true
-                while more {
-                    let r = CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0, true)
-                    more = (r == .handledSource)
+                if !self.isPumpingEvents {
+                    var more = true
+                    var steps = 0
+                    while more, steps < 8 {
+                        let r = CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0, true)
+                        more = (r == .handledSource)
+                        steps += 1
+                    }
                 }
                 self.pumpUIForKeyInput(seconds: 0.012)
             }
@@ -1799,7 +1806,48 @@ final class KernelBridge {
         host.endAllFromLibraryLoads()
         host.clearFromLibrary()
 
+        // Automated Editor side-list / Hyper-goto suite (TZForth-style FTEST path).
+        //   SZFLTEST=1 open 64Forth.app
+        // Captures console output to Application Support and /tmp, then exits.
+        if ProcessInfo.processInfo.environment["SZFLTEST"] == "1" {
+            runSzFlTestAndExit()
+        }
+
         return true
+    }
+
+    /// Run `Editor/sz-fl-test.fth`, write transcript, terminate (no GUI needed).
+    private func runSzFlTestAndExit() {
+        var log = ""
+        let prev = onEmit
+        onEmit = { s in
+            log += s
+            prev?(s)
+        }
+        handleEmitString("=== SZFLTEST=1 starting Editor/sz-fl-test.fth ===\n")
+        _ = evaluate("FROMLIB FLOAD Editor/sz-fl-test.fth")
+        handleEmitString("=== SZFLTEST=1 finished ===\n")
+        onEmit = prev
+
+        let fm = FileManager.default
+        let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("64Forth", isDirectory: true)
+        if let support {
+            try? fm.createDirectory(at: support, withIntermediateDirectories: true)
+            let out = support.appendingPathComponent("sz-fl-test-results.txt")
+            try? log.write(to: out, atomically: true, encoding: .utf8)
+            handleEmitString("SZFLTEST wrote \(out.path)\n")
+        }
+        let tmp = URL(fileURLWithPath: "/tmp/sz-fl-test-results.txt")
+        try? log.write(to: tmp, atomically: true, encoding: .utf8)
+        handleEmitString("SZFLTEST also wrote \(tmp.path)\n")
+
+        // Allow emit flush then exit with status based on failures.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            let failed = log.contains("*** SZ-FL-TEST FAILURES ***")
+                || !log.contains("ALL PASS")
+            Foundation.exit(failed ? 1 : 0)
+        }
     }
 
     @discardableResult

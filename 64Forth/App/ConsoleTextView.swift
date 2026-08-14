@@ -452,6 +452,8 @@ struct ConsoleTextView: NSViewRepresentable {
             context.coordinator.lastHandledPinCaretRequest = pinCaretRequest
         }
 
+        let facilityPaint = KernelBridge.shared.isFacilityTerminalActive
+
         if textView.string != text {
             let oldString = textView.string
             let selected = textView.selectedRange()
@@ -462,7 +464,12 @@ struct ConsoleTextView: NSViewRepresentable {
             let end = (text as NSString).length
             let oldEnd = (oldString as NSString).length
 
-            if needsPinCaret {
+            if facilityPaint {
+                // Facility owns the grid; keep selection at 0 and do not auto-scroll
+                // the NSScrollView (wheel scroll is handled as SZ-SCROLL-* keys).
+                textView.setSelectedRange(NSRange(location: 0, length: 0))
+                shouldScroll = false
+            } else if needsPinCaret {
                 textView.setSelectedRange(NSRange(location: end, length: 0))
                 shouldScroll = true
             } else if text.hasPrefix(oldString), end > oldEnd, selected.location >= oldEnd {
@@ -477,14 +484,14 @@ struct ConsoleTextView: NSViewRepresentable {
             }
 
             Self.resizeTextViewToFitContent(textView)
-        } else if needsPinCaret {
+        } else if needsPinCaret, !facilityPaint {
             let end = (text as NSString).length
             textView.setSelectedRange(NSRange(location: end, length: 0))
             shouldScroll = true
             Self.resizeTextViewToFitContent(textView)
         }
 
-        if shouldScroll {
+        if shouldScroll, !facilityPaint {
             Self.scheduleScrollToInsertionPoint(in: textView)
         }
 
@@ -764,6 +771,11 @@ struct ConsoleTextView: NSViewRepresentable {
             // Normal REPL (not waiting on KEY): Return submits the input line;
             // Up/Down recall history; Left stops at the protected prefix edge.
             // -----------------------------------------------------------------
+            // Facility grid still painted: never commit a REPL line (Return would
+            // re-enter evaluate while SZ-EDITOR may still be active, or race).
+            if KernelBridge.shared.isFacilityTerminalActive {
+                return true
+            }
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 return parent.onReturnPressed()
             }

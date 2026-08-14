@@ -4,15 +4,15 @@
 \ host paints the full screen (PAGE alone must not flush an empty buffer).
 \
 \ Layout (0-based rows; geometry from SET-EDIT-WINDOW / EDIT-WINDOW settings):
-\   row 0              status + "Files" in side panel
+\   row 0              status (full width)
 \   row 1              top border across editor + side
-\   rows 2..(1+H)      |NNNNN|body (W cols)...| side 16 cols |
+\   rows 2..(1+H)      |NNNNN|body (W cols)...| open files list |
 \   row (2+H)          bottom border
 \   row (3+H)          help line 1
 \   row (4+H)          help line 2
 \
 \ Text body is SZ-TEXT-WIDTH columns. Gutter/frame extra; SZ-SIDE-WIDTH (16)
-\ columns on the right for hyperlinked file names (panel shell only for now).
+\ columns on the right list leaf names of files opened / VIEW'd.
 \ Facility cols = W + 8 + SZ-SIDE-WIDTH + 1 (outer |); rows = H + 5.
 \ User:  width height SET-EDIT-WINDOW   (persists via settings)
 \ Query: EDIT-WINDOW  ( -- width height )
@@ -160,26 +160,209 @@ VARIABLE SZ-PREF-COL               \ sticky column for Up/Down (like most editor
    LOOP
 ;
 
-\ Empty right panel for hyperlinked files (16 content cols; outer | is COLS-1).
-\ Do not blank COLS-1 — that is the right-hand vertical border.
+\ -----------------------------------------------------------------------------
+\ Side panel file list: full paths stored; leaf name.ext shown (≤16 cols).
+\ One row per unique path (not per visit / line). Hyper visit history
+\ (Cmd-PgUp/PgDn) holds path+line; this list is the set of opened files.
+\ List is intentionally kept across editor exit / re-VIEW (session open files).
+\ Click a row to switch back to that file (SZ-FL-GOTO).
+\ -----------------------------------------------------------------------------
+ 48 CONSTANT SZ-FL-MAX
+256 CONSTANT SZ-FL-ESZ                       \ counted path (1 + 255)
+CREATE SZ-FL-TAB  SZ-FL-MAX SZ-FL-ESZ * ALLOT
+VARIABLE SZ-FL-N
+VARIABLE SZ-FL-CUR
+VARIABLE SZ-FL-TOP
+VARIABLE SZ-FL-P
+VARIABLE SZ-FL-Q
+VARIABLE SZ-FL-K
+VARIABLE SZ-FL-I
+0 SZ-FL-N !
+0 SZ-FL-CUR !
+0 SZ-FL-TOP !
+
+: SZ-FL-ENT  ( i -- addr )
+   SZ-FL-ESZ * SZ-FL-TAB +
+;
+
+\ Leaf after last / or \   ( a u -- a' u' )
+\ Store base/len in P/K then drop a u — must not leave the full path under
+\ the leaf (that stack leak broke ADD of a second file and side-panel paint).
+: SZ-FL-LEAF  ( c-addr u -- c-addr' u' )
+   DUP 0= IF  EXIT  THEN
+   OVER SZ-FL-P !
+   DUP SZ-FL-K !
+   2DROP
+   SZ-FL-K @
+   BEGIN  1- DUP 0< 0= WHILE
+      SZ-FL-P @ OVER + C@
+      DUP [CHAR] / = SWAP [CHAR] \ = OR IF
+         1+
+         DUP SZ-FL-P @ +
+         SWAP SZ-FL-K @ SWAP -
+         EXIT
+      THEN
+   REPEAT
+   DROP
+   SZ-FL-P @ SZ-FL-K @
+;
+
+\ Match full path (a u) to entry i. ( a u i -- flag )
+\ Uses only Q/I temps; path stays on the stack until done.
+: SZ-FL-MATCH  ( c-addr u i -- flag )
+   SZ-FL-ENT SZ-FL-Q !
+   SZ-FL-Q @ C@ OVER <> IF  2DROP FALSE EXIT  THEN
+   \ a u  lengths equal
+   0 SZ-FL-I !
+   BEGIN  SZ-FL-I @ OVER < WHILE
+      OVER SZ-FL-I @ + C@                 \ a u ch1
+      SZ-FL-Q @ 1+ SZ-FL-I @ + C@ <> IF  \ a u  (IF ate flag)
+         2DROP FALSE EXIT
+      THEN
+      1 SZ-FL-I +!
+   REPEAT
+   2DROP TRUE
+;
+
+\ Match leaf name of (a u) to leaf of entry i. ( a u i -- flag )
+: SZ-FL-LEAF-MATCH  ( c-addr u i -- flag )
+   >R                                     \ a u  R: i
+   SZ-FL-LEAF                             \ la lu
+   R> SZ-FL-ENT COUNT SZ-FL-LEAF          \ la lu ea eu
+   COMPARE 0=
+;
+
+: SZ-FL-FIND  ( c-addr u -- i )
+   SZ-FL-N @ 0= IF  2DROP -1 EXIT  THEN
+   0
+   BEGIN  DUP SZ-FL-N @ < WHILE
+      >R 2DUP R@ SZ-FL-MATCH IF
+         2DROP R> EXIT
+      THEN
+      R> 1+
+   REPEAT
+   DROP 2DROP -1
+;
+
+\ Find by leaf name only (same file under different path forms).
+: SZ-FL-FIND-LEAF  ( c-addr u -- i )
+   SZ-FL-N @ 0= IF  2DROP -1 EXIT  THEN
+   0
+   BEGIN  DUP SZ-FL-N @ < WHILE
+      >R 2DUP R@ SZ-FL-LEAF-MATCH IF
+         2DROP R> EXIT
+      THEN
+      R> 1+
+   REPEAT
+   DROP 2DROP -1
+;
+
+: SZ-FL-DROP0  ( -- )
+   SZ-FL-N @ 1 < IF  EXIT  THEN
+   SZ-FL-TAB SZ-FL-ESZ +  SZ-FL-TAB
+   SZ-FL-N @ 1- SZ-FL-ESZ *  MOVE
+   -1 SZ-FL-N +!
+   SZ-FL-CUR @ 0> IF  -1 SZ-FL-CUR +!  THEN
+   SZ-FL-CUR @ SZ-FL-N @ >= IF  0 SZ-FL-CUR !  THEN
+;
+
+\ Store full path as counted string at ent (u clamped ≤255).
+: SZ-FL-STORE  ( c-addr u ent -- )
+   SZ-FL-Q !
+   255 MIN
+   SZ-FL-K !  SZ-FL-P !
+   SZ-FL-K @ SZ-FL-Q @ C!
+   0 SZ-FL-I !
+   BEGIN  SZ-FL-I @ SZ-FL-K @ < WHILE
+      SZ-FL-P @ SZ-FL-I @ + C@
+      SZ-FL-Q @ 1+ SZ-FL-I @ + C!
+      1 SZ-FL-I +!
+   REPEAT
+;
+
+\ Remember full path; show leaf in panel. Stack empty on return.
+\ Full-path hit → set current. Leaf-only hit → refresh stored path + current.
+\ New path → append (drop oldest if full).
+: SZ-FL-ADD  ( c-addr u -- )
+   DUP 0= IF  2DROP EXIT  THEN
+   255 MIN
+   2DUP SZ-FL-FIND DUP 0< 0= IF
+      SZ-FL-CUR !  2DROP EXIT
+   THEN  DROP
+   2DUP SZ-FL-FIND-LEAF DUP 0< 0= IF
+      \ Same leaf, different full path — update store + highlight
+      DUP SZ-FL-CUR !
+      SZ-FL-ENT SZ-FL-STORE
+      EXIT
+   THEN  DROP
+   SZ-FL-N @ SZ-FL-MAX >= IF  SZ-FL-DROP0  THEN
+   2DUP SZ-FL-N @ SZ-FL-ENT SZ-FL-STORE
+   2DROP
+   SZ-FL-N @ SZ-FL-CUR !
+   1 SZ-FL-N +!
+;
+
+: SZ-FL-ENSURE-VIS  ( -- )
+   \ Keep CUR in range so reverse-video never points at a missing row.
+   SZ-FL-N @ 0= IF  0 SZ-FL-CUR !  0 SZ-FL-TOP !  EXIT  THEN
+   SZ-FL-CUR @ 0< IF  0 SZ-FL-CUR !  THEN
+   SZ-FL-CUR @ SZ-FL-N @ >= IF  SZ-FL-N @ 1- SZ-FL-CUR !  THEN
+   SZ-TEXT-ROWS >R
+   SZ-FL-CUR @ SZ-FL-TOP @ < IF
+      SZ-FL-CUR @ SZ-FL-TOP !
+   THEN
+   SZ-FL-CUR @ SZ-FL-TOP @ R@ + 1- > IF
+      SZ-FL-CUR @ R@ - 1+ 0 MAX SZ-FL-TOP !
+   THEN
+   SZ-FL-N @ R@ <= IF  0 SZ-FL-TOP !  THEN
+   R> DROP
+;
+
+\ Draw leaf name for entry i at facility row (highlight if current).
+: SZ-FL-SHOW1  ( i row -- )
+   OVER SZ-FL-N @ >= IF  2DROP EXIT  THEN
+   SZ-SIDE-LEFT SWAP AT-XY
+   DUP SZ-FL-CUR @ = IF  -1  ELSE  0  THEN FACILITY-REV
+   SZ-FL-ENT COUNT SZ-FL-LEAF                 \ leaf a u
+   SZ-SIDE-WIDTH MIN
+   DUP >R TYPE
+   SZ-SIDE-WIDTH R> - 0 MAX SZ-SPACES1
+   0 FACILITY-REV
+;
+
 : SZ-DRAW-SIDE  ( -- )
-   \ Title on status row in the side columns (not over outer |)
-   SZ-SIDE-LEFT 0 AT-XY
-   S" Files" TYPE
-   SZ-SIDE-WIDTH 5 - 0 MAX SZ-SPACES1
-   SZ-COLS @ 1- 0 AT-XY  [CHAR] | EMIT
-   \ Clear side body only (16 content cols); leave outer | alone
    SZ-TEXT-TOP
    BEGIN  DUP SZ-TEXT-BOT @ > 0= WHILE
       DUP SZ-SIDE-LEFT SWAP AT-XY
       SZ-SIDE-WIDTH SZ-SPACES1
       1+
    REPEAT  DROP
-   \ Re-assert outer right border (frame + text rows)
+   SZ-FL-N @ IF
+      SZ-FL-ENSURE-VIS
+      SZ-FL-TOP @
+      SZ-TEXT-TOP
+      BEGIN  DUP SZ-TEXT-BOT @ > 0= WHILE
+         OVER SZ-FL-N @ < IF  2DUP SZ-FL-SHOW1  THEN
+         >R 1+ R> 1+
+      REPEAT
+      2DROP
+   THEN
    SZ-FRAME-BOT @ 1+ SZ-FRAME-TOP DO
       SZ-COLS @ 1- I AT-XY  [CHAR] | EMIT
    LOOP
 ;
+
+\ Register path (a u) in the side list and mark it current.
+: SZ-FL-NOTE-PATH  ( c-addr u -- )
+   SZ-FL-ADD
+;
+
+\ Call after a successful SZ-LOAD / open (does not alter ior stack).
+: SZ-FL-NOTE-CURRENT  ( -- )
+   SZ-HAS-NAME? IF  SZ-GET-NAME SZ-FL-ADD  THEN
+;
+
+\ SZ-FL-GOTO / SZ-SIDE-CLICK are defined after final SZ-REDRAW (need that CFA).
 
 CREATE SZ-GUT-DIG  8 ALLOT
 VARIABLE SZ-GUT-N
@@ -461,6 +644,35 @@ EDIT-WINDOW SZ-APPLY-EDIT-WINDOW
 : SZ-REDRAW  ( -- )
    SZ-SYNC-SIZE
    SZ-REDRAW-CORE
+;
+
+\ Switch editor to list entry i (reload file). No-op if already current.
+\ Defined here so SZ-REDRAW is the final (sync+paint) version.
+: SZ-FL-GOTO  ( i -- )
+   DUP 0< IF  DROP EXIT  THEN
+   DUP SZ-FL-N @ >= IF  DROP EXIT  THEN
+   DUP SZ-FL-CUR @ = IF  DROP EXIT  THEN
+   SZ-FL-ENT COUNT                            \ a u
+   2DUP SZ-LOAD IF
+      ." cannot open " TYPE CR 2DROP EXIT
+   THEN
+   2DROP
+   SZ-FL-NOTE-CURRENT
+   SZ-VIEW-RESET
+   SZ-REDRAW
+;
+
+\ Click in side panel (col row) → open that list row's file.
+: SZ-SIDE-CLICK  ( col row -- )
+   OVER SZ-EDIT-RIGHT > 0= IF  2DROP EXIT  THEN
+   OVER SZ-COLS @ 1- < 0= IF  2DROP EXIT  THEN
+   DUP SZ-TEXT-TOP < IF  2DROP EXIT  THEN
+   DUP SZ-TEXT-BOT @ > IF  2DROP EXIT  THEN
+   NIP
+   SZ-TEXT-TOP - SZ-FL-TOP @ +
+   DUP 0< IF  DROP EXIT  THEN
+   DUP SZ-FL-N @ >= IF  DROP EXIT  THEN
+   SZ-FL-GOTO
 ;
 
 \ Apply current window size to facility grid at load

@@ -174,3 +174,24 @@ _Further design suggestions and decisions go below as work proceeds._
 - `SZ-SYNC-SIZE` at each `SZ-REDRAW` maps cells → `SET-EDIT-WINDOW` (width=cols-8, height=rows-5).
 - Window resize while editing wakes KEY (`pushKey 0`) so the grid updates live.
 - Cmd-W exit: no `SZ-EDITOR: done` / `SZ-.INFO` dump (modified warning kept).
+
+### 2026-08-14 — Side panel file list
+
+- 16-col panel right of editor (no "Files" title); status stays full width.
+- `SZ-FL-*` stores full paths; shows leaf `name.ext` (≤16 chars).
+- Recorded after successful open (EDIT / Hyper VIEW).
+- Current file reverse-video; list scrolls so the current entry stays visible.
+- Click a side-panel row → `SZ-FL-GOTO` reloads that file (same as Hyper switch).
+- Dirty buffer on switch: centered dialog Save / Discard / Cancel (`S`/`D`/`Esc` or click).
+- Hyper Cmd-click / Cmd-PgUp/PgDn: `HYPER-NOTE-HIT` + `SZ-HYPER-GOTO` register
+  the destination path (e.g. `Library/Sources/forth.s`) before redraw so the
+  side list and highlight stay in sync; leaf-name match merges path variants.
+- **Bugfix:** `SZ-FL-LEAF` left the full path under the leaf `a u` (stack leak).
+  Every side-panel paint and leaf find polluted the stack, so a second file
+  (`forth.s`) never stayed on the list / highlight broke. Fixed with `2DROP`
+  after saving base/len in temps. Automated suite: `Editor/sz-fl-test.fth`
+  (host: `SZFLTEST=1`).
+- Side Files list: **one row per unique path** (positions live in Hyper visit
+  history). List **persists** across editor exit / `VIEW` re-entry (session).
+- Cmd-PgUp/PgDn: **visit history first**, multi-hit `(n/m)` only when the visit
+  list cannot move (matches README; fixes trap after multi-site words).
