@@ -534,6 +534,10 @@ VARIABLE SZ-SEL-DONE                   \ nonzero: selection finished on down (sk
       SZ-REMEMBER-COL SZ-ENSURE-HVISIBLE
       R> DROP EXIT
    THEN
+   \ Right file-list panel: ignore for caret (names later).
+   DUP SZ-EDIT-RIGHT > IF
+      2DROP R> DROP EXIT
+   THEN
    \ Text body column
    SZ-TEXT-LEFT - SZ-HCOL @ +                  \ row buf-col
    NIP                                         \ buf-col
@@ -1417,9 +1421,8 @@ VARIABLE SZ-DR-N
    \ Reset data stack without probing DSP. BEGIN DEPTH WHILE DROP can crash in
    \ DEPTH if a prior underflow left DSP past SP0 (SP0 is also return_stack[0]).
    CLEARSTACK
-   ." SZ-EDITOR: done" CR
+   \ Quiet exit: no "SZ-EDITOR: done" / SZ-.INFO path dump (user can SZ-.INFO).
    SZ-MODIFIED @ IF  ." warning: buffer still modified" CR  THEN
-   SZ-.INFO
 ;
 
 : SZ-EDIT-LOOP  ( -- )

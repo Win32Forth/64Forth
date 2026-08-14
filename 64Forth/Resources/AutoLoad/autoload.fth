@@ -5,7 +5,8 @@
 \ by default, we are loading the editor and the hyper text system as part of
 \ what the user has available when they start using 64Forth
     FROMLIB REQUIRE EDITOR/SZ-EDITOR.fth
-    EDITOR 100 50 SET-EDIT-WINDOW FORTH
+    \ Size follows the graphic window on each SZ-REDRAW (SZ-SYNC-SIZE).
+    EDITOR 80 20 SET-EDIT-WINDOW FORTH
     FROMLIB REQUIRE HYPER/HYPER.fth
     HYPER-VOC MIN-HYPER-NOISE ON FORTH
     HYPER-REINDEX

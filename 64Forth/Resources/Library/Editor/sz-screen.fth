@@ -4,15 +4,16 @@
 \ host paints the full screen (PAGE alone must not flush an empty buffer).
 \
 \ Layout (0-based rows; geometry from SET-EDIT-WINDOW / EDIT-WINDOW settings):
-\   row 0              status
-\   row 1              top border  +----...----+
-\   rows 2..(1+H)      text        |NNNNN|body (W cols)...|
+\   row 0              status + "Files" in side panel
+\   row 1              top border across editor + side
+\   rows 2..(1+H)      |NNNNN|body (W cols)...| side 16 cols |
 \   row (2+H)          bottom border
 \   row (3+H)          help line 1
 \   row (4+H)          help line 2
 \
-\ Text body is SZ-TEXT-WIDTH columns (default 80). Gutter/frame are extra.
-\ Facility rows = H + 5 (status, 2 borders, 2 help).
+\ Text body is SZ-TEXT-WIDTH columns. Gutter/frame extra; SZ-SIDE-WIDTH (16)
+\ columns on the right for hyperlinked file names (panel shell only for now).
+\ Facility cols = W + 8 + SZ-SIDE-WIDTH + 1 (outer |); rows = H + 5.
 \ User:  width height SET-EDIT-WINDOW   (persists via settings)
 \ Query: EDIT-WINDOW  ( -- width height )
 \
@@ -27,12 +28,14 @@ DECIMAL
    5 CONSTANT SZ-LN-WIDTH       \ digits (right-justified; blank if past EOF)
    6 CONSTANT SZ-LN-SEP         \ column of | between gutter and text
    7 CONSTANT SZ-TEXT-LEFT      \ first column of text body
+  16 CONSTANT SZ-SIDE-WIDTH     \ right panel (filename.ext; list later)
 
 \ Dynamic geometry (set by SZ-APPLY-EDIT-WINDOW)
 VARIABLE SZ-TEXT-WIDTH          \ editable text columns
 VARIABLE SZ-TEXT-BOT            \ last text row
 VARIABLE SZ-FRAME-BOT           \ bottom border row
-VARIABLE SZ-COLS                \ full facility width
+VARIABLE SZ-COLS                \ full facility width (editor + side panel)
+VARIABLE SZ-EDIT-COLS           \ editor portion through its right '|'
 
 \ SZ-CUR / SZ-TOP are defined in sz-buffer.fth (needed by SZ-ENSURE-CAP).
 
@@ -40,13 +43,25 @@ VARIABLE SZ-HCOL                   \ leftmost visible text column (horizontal sc
 VARIABLE SZ-DRAW-LNO               \ running 1-based line # while painting (not on R stack)
 VARIABLE SZ-SAVE-BASE              \ BASE save for gutter (avoid R stack inside DO)
 
+\ Column of editor right border '|' (left edge of side panel is +1).
+: SZ-EDIT-RIGHT  ( -- col )
+   SZ-TEXT-LEFT SZ-TEXT-WIDTH @ +
+;
+
+\ First column of side panel content (after editor right border).
+: SZ-SIDE-LEFT  ( -- col )
+   SZ-EDIT-RIGHT 1+
+;
+
 \ ( width height -- )  apply text-body size to layout variables (host has clamped).
 : SZ-APPLY-EDIT-WINDOW  ( width height -- )
    SWAP SZ-TEXT-WIDTH !
    SZ-TEXT-TOP + 1- SZ-TEXT-BOT !
    SZ-TEXT-BOT @ 1+ SZ-FRAME-BOT !
-   \ cols = TEXT-LEFT + width + 1 (right border) = width + 8
-   SZ-TEXT-WIDTH @ SZ-TEXT-LEFT + 1+ SZ-COLS !
+   \ editor cols = TEXT-LEFT + width + 1 (right border) = width + 8
+   SZ-TEXT-WIDTH @ SZ-TEXT-LEFT + 1+ DUP SZ-EDIT-COLS !
+   \ full facility = editor + side content (16) + outer right '|'
+   SZ-SIDE-WIDTH + 1+ SZ-COLS !
 ;
 
 : SZ-TEXT-ROWS  ( -- n )  SZ-TEXT-BOT @ SZ-TEXT-TOP - 1+ ;
@@ -128,19 +143,42 @@ VARIABLE SZ-PREF-COL               \ sticky column for Up/Down (like most editor
    [CHAR] + EMIT
 ;
 
+\ Emit n spaces (no DO — safe inside REDRAW's DO/LOOP and SZ-DRAW-SIDE).
+: SZ-SPACES1  ( n -- )
+   BEGIN  DUP 0> WHILE  1- BL EMIT  REPEAT  DROP
+;
+
 : SZ-DRAW-FRAME  ( -- )
    SZ-FRAME-TOP SZ-DRAW-HBAR
    SZ-FRAME-BOT @ SZ-DRAW-HBAR
-   SZ-TEXT-BOT @ 1+ SZ-TEXT-TOP DO
+   \ Verticals on all rows between (and on) the horizontal bars
+   SZ-FRAME-BOT @ 1+ SZ-FRAME-TOP DO
       0 I AT-XY  [CHAR] | EMIT
       SZ-LN-SEP I AT-XY  [CHAR] | EMIT
-      SZ-COLS @ 1- I AT-XY  [CHAR] | EMIT
+      SZ-EDIT-RIGHT I AT-XY  [CHAR] | EMIT
+      SZ-COLS @ 1- I AT-XY  [CHAR] | EMIT   \ outer right of Files panel
    LOOP
 ;
 
-\ Emit n spaces (no DO — safe inside REDRAW's DO/LOOP).
-: SZ-SPACES1  ( n -- )
-   BEGIN  DUP 0> WHILE  1- BL EMIT  REPEAT  DROP
+\ Empty right panel for hyperlinked files (16 content cols; outer | is COLS-1).
+\ Do not blank COLS-1 — that is the right-hand vertical border.
+: SZ-DRAW-SIDE  ( -- )
+   \ Title on status row in the side columns (not over outer |)
+   SZ-SIDE-LEFT 0 AT-XY
+   S" Files" TYPE
+   SZ-SIDE-WIDTH 5 - 0 MAX SZ-SPACES1
+   SZ-COLS @ 1- 0 AT-XY  [CHAR] | EMIT
+   \ Clear side body only (16 content cols); leave outer | alone
+   SZ-TEXT-TOP
+   BEGIN  DUP SZ-TEXT-BOT @ > 0= WHILE
+      DUP SZ-SIDE-LEFT SWAP AT-XY
+      SZ-SIDE-WIDTH SZ-SPACES1
+      1+
+   REPEAT  DROP
+   \ Re-assert outer right border (frame + text rows)
+   SZ-FRAME-BOT @ 1+ SZ-FRAME-TOP DO
+      SZ-COLS @ 1- I AT-XY  [CHAR] | EMIT
+   LOOP
 ;
 
 CREATE SZ-GUT-DIG  8 ALLOT
@@ -179,11 +217,11 @@ VARIABLE SZ-GUT-U
    DROP [CHAR] .
 ;
 
-\ Clear text field + redraw right border for one row (prevents leftover glyphs).
+\ Clear text field + redraw editor right border for one row (not the side panel).
 : SZ-CLEAR-TEXT-ROW  ( row -- )
    SZ-TEXT-LEFT OVER AT-XY
    SZ-TEXT-WIDTH @ 0 DO  BL EMIT  LOOP
-   SZ-COLS @ 1- SWAP AT-XY  [CHAR] | EMIT
+   SZ-EDIT-RIGHT SWAP AT-XY  [CHAR] | EMIT
 ;
 
 \ Selection range for reverse-video paint (byte addresses; end exclusive).
@@ -339,13 +377,15 @@ VARIABLE SZ-DID-EMPTY-TEND             \ painted empty append line at TEND once
 
 VARIABLE SZ-PAINT-ROW                  \ current facility row while painting
 
-: SZ-REDRAW  ( -- )
+\ Paint path without size-sync (SZ-REDRAW redefined after SET-EDIT-WINDOW).
+: SZ-REDRAW-CORE  ( -- )
    SZ-ENSURE-VISIBLE
    0 SZ-HAVE-AT !
    0 SZ-DID-EMPTY-TEND !
    PAGE
    SZ-SHOW-STATUS
    SZ-DRAW-FRAME
+   SZ-DRAW-SIDE
    SZ-TOP @ SZ-LINE-NO SZ-DRAW-LNO !
    SZ-TOP @                               \ addr of first visible line
    SZ-TEXT-TOP SZ-PAINT-ROW !
@@ -379,6 +419,8 @@ VARIABLE SZ-PAINT-ROW                  \ current facility row while painting
    TERMINAL-REFRESH
 ;
 
+: SZ-REDRAW  ( -- )  SZ-REDRAW-CORE ;
+
 : SZ-SCREEN-SMOKE  ( -- )
    S" sz-smoke-out.txt" SZ-LOAD DROP
    SZ-VIEW-RESET
@@ -397,9 +439,29 @@ EDIT-WINDOW SZ-APPLY-EDIT-WINDOW
 : SET-EDIT-WINDOW  ( width height -- )
    SZ-WIN-H !  SZ-WIN-W !
    SZ-WIN-W @  SZ-WIN-H @  SZ-APPLY-EDIT-WINDOW
-   \ Facility chrome: width+8 cols, height+5 rows (status, borders, 2 help)
-   SZ-WIN-W @ 8 +  SZ-WIN-H @ 5 +  (FACILITY-SIZE)
+   \ Facility: editor (W+8) + side content + outer | + height (H+5)
+   SZ-WIN-W @ 8 + SZ-SIDE-WIDTH + 1+  SZ-WIN-H @ 5 +  (FACILITY-SIZE)
+;
+
+\ Match facility size to the graphic window (host monospaced metrics).
+\ Defined after SET-EDIT-WINDOW so it calls the full version (layout + grid resize),
+\ not the sz-host stub that only stores W/H.
+\ (SZ-VIEW-CELLS) → full facility cols/rows (editor + side + outer |); 5 cmd lines below.
+\ Text body: width = cols - 8 - SIDE - 1, height = rows - 5.
+: SZ-SYNC-SIZE  ( -- )
+   (SZ-VIEW-CELLS)                            \ fcols frows
+   SWAP 8 - SZ-SIDE-WIDTH - 1- 16 MAX         \ frows twidth
+   SWAP 5 - 5 MAX                             \ twidth theight
+   OVER SZ-WIN-W @ =
+   OVER SZ-WIN-H @ = AND IF  2DROP EXIT  THEN
+   SET-EDIT-WINDOW
+;
+
+\ Final REDRAW: sync window size then paint (redefines earlier stub).
+: SZ-REDRAW  ( -- )
+   SZ-SYNC-SIZE
+   SZ-REDRAW-CORE
 ;
 
 \ Apply current window size to facility grid at load
-SZ-WIN-W @ 8 +  SZ-WIN-H @ 5 +  (FACILITY-SIZE)
+SZ-WIN-W @ 8 + SZ-SIDE-WIDTH + 1+  SZ-WIN-H @ 5 +  (FACILITY-SIZE)

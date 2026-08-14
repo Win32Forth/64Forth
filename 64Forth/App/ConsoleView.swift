@@ -98,10 +98,37 @@ struct ConsoleView: View {
             }
         )
         .focused($isFocused)
+        // Reliable window size for SZ-EDITOR (NSScrollView layout alone can lag).
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear {
+                        reportConsoleGeometry(geo.size)
+                    }
+                    .onChange(of: geo.size) { _, newSize in
+                        reportConsoleGeometry(newSize)
+                    }
+            }
+        )
         .onAppear(perform: handleConsoleAppear)
         .onChange(of: consoleText) { oldValue, newValue in
             handleConsoleTextChange(oldValue: oldValue, newValue: newValue)
         }
+    }
+
+    /// Push visible console size to the kernel so SZ-SYNC-SIZE can match the window.
+    private func reportConsoleGeometry(_ size: CGSize) {
+        #if os(macOS)
+        // Prefer live scroll/text view metrics (insets, padding, scroller).
+        if let tv = consoleTextView, let sv = tv.enclosingScrollView {
+            kernel.updateConsoleMetrics(scrollView: sv, textView: tv)
+            return
+        }
+        let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        kernel.updateConsoleVisibleSize(size, font: font)
+        #else
+        kernel.updateConsoleVisibleSize(size, font: nil)
+        #endif
     }
 
     private func handleConsoleAppear() {

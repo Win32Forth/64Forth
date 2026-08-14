@@ -166,3 +166,11 @@ _Further design suggestions and decisions go below as work proceeds._
 - Line-number column click only places the caret at line start (`SZ-CLICK-ZONE` 1).
 - Whole-line select / gutter paste-here unbound; `SZ-LINE-SELECT` remains for later use.
 - Gutter reserved (e.g. breakpoints).
+
+### 2026-08-13 — Dynamic editor size + quiet exit
+
+- Host reports console visible size in monospaced cells (`updateConsoleVisibleSize`).
+- `(SZ-VIEW-CELLS)` → facility cols/rows; **5 lines reserved** below facility for command entry.
+- `SZ-SYNC-SIZE` at each `SZ-REDRAW` maps cells → `SET-EDIT-WINDOW` (width=cols-8, height=rows-5).
+- Window resize while editing wakes KEY (`pushKey 0`) so the grid updates live.
+- Cmd-W exit: no `SZ-EDITOR: done` / `SZ-.INFO` dump (modified warning kept).

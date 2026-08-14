@@ -23,6 +23,24 @@ final class ConsoleNSScrollView: NSScrollView {
         }
         super.scrollWheel(with: event)
     }
+
+    /// Report visible size in monospaced cells so SZ-EDITOR can match the window.
+    override func layout() {
+        super.layout()
+        reportVisibleCellMetrics()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        reportVisibleCellMetrics()
+    }
+
+    private func reportVisibleCellMetrics() {
+        guard let textView = documentView as? NSTextView else { return }
+        let clip = contentView.bounds.size
+        guard clip.width > 1, clip.height > 1 else { return }
+        KernelBridge.shared.updateConsoleMetrics(scrollView: self, textView: textView)
+    }
 }
 
 /// NSTextView that reports mouse clicks in facility/SZ-EDITOR mode (Phase 4a).
@@ -396,12 +414,27 @@ struct ConsoleTextView: NSViewRepresentable {
 
         context.coordinator.textView = textView
         onTextViewReady(textView)
+        // Initial cell metrics before first layout pass.
+        DispatchQueue.main.async {
+            scrollView.layoutSubtreeIfNeeded()
+            if let sv = scrollView as? ConsoleNSScrollView {
+                // layout() reports metrics; force one more pass after window attach
+                sv.layout()
+            }
+        }
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
         context.coordinator.parent = self
+        // Keep facility size in sync when SwiftUI re-lays out the window.
+        if let sv = scrollView as? ConsoleNSScrollView {
+            let clip = sv.contentView.bounds.size
+            if clip.width > 1, clip.height > 1 {
+                KernelBridge.shared.updateConsoleMetrics(scrollView: sv, textView: textView)
+            }
+        }
         if let ctv = textView as? ConsoleNSTextView {
             let coord = context.coordinator
             ctv.onCommandClickAtUTF16 = { [weak coord] idx in

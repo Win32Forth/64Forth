@@ -514,6 +514,18 @@ public func host_sz_click(
     KernelBridge.shared.takeFacilityClick(colOut: colOut, rowOut: rowOut)
 }
 
+/// (SZ-VIEW-CELLS) — preferred facility grid size from the console window.
+/// cols/rows in monospaced cells; rows already reserve 5 lines for the command area.
+@_cdecl("host_sz_view_cells")
+public func host_sz_view_cells(
+    _ colsOut: UnsafeMutablePointer<Int64>?,
+    _ rowsOut: UnsafeMutablePointer<Int64>?
+) {
+    let cells = KernelBridge.shared.preferredFacilityCells()
+    colsOut?.pointee = Int64(cells.cols)
+    rowsOut?.pointee = Int64(cells.rows)
+}
+
 /// (SZ-CLIP!) ( c-addr u -- ) set host/system clipboard from Forth bytes.
 @_cdecl("host_sz_clip_set")
 public func host_sz_clip_set(_ ptr: UnsafeRawPointer?, _ len: Int) {
@@ -563,6 +575,129 @@ final class KernelBridge {
     var isFacilityTerminalActive: Bool { FacilityTerminal.shared.isActive }
 
     var facilityCols: Int { FacilityTerminal.shared.cols }
+
+    /// Monospaced cell metrics for SZ-EDITOR sizing (updated from console layout).
+    /// Command-area reserve: lines kept below the facility paint for REPL entry.
+    static let facilityCommandAreaLines = 5
+    /// Extra columns relative to measured fit. +10 widens overall by ~12 vs the
+    /// prior −2 setting (user: still ~12 cols too narrow with side panel).
+    private static let facilityColAdjust = 10
+    private static let facilityRowSafety = 1
+    /// Right-hand file-list panel content width (filename.ext); +1 outer '|' in Forth.
+    static let facilitySidePanelCols = 16
+    private var consoleVisibleSize = CGSize(width: 640, height: 400)
+    /// Usable content area after insets/padding/scroller (preferred for cell math).
+    private var consoleUsableSize = CGSize(width: 640, height: 400)
+    private var consoleCellWidth: CGFloat = 8
+    private var consoleLineHeight: CGFloat = 16
+    private var lastPreferredFacilityCols = 0
+    private var lastPreferredFacilityRows = 0
+
+    /// Preferred facility grid (cols × rows) from the visible console, reserving
+    /// `facilityCommandAreaLines` rows below the editor for command entry.
+    func preferredFacilityCells() -> (cols: Int, rows: Int) {
+        // Ceil cell size so we never over-count columns/rows (under-size → wrap).
+        let cw = max(consoleCellWidth, 1)
+        let lh = max(consoleLineHeight, 1)
+        let usable = consoleUsableSize.width > 1 ? consoleUsableSize : consoleVisibleSize
+        let cols = max(24, Int(floor(usable.width / cw)) + Self.facilityColAdjust)
+        let totalRows = max(1, Int(floor(usable.height / lh)))
+        let rows = max(
+            10,
+            totalRows - Self.facilityCommandAreaLines - Self.facilityRowSafety
+        )
+        return (cols, rows)
+    }
+
+    /// Called from the console scroll view when its visible area or font changes.
+    /// Wakes SZ-EDITOR (KEY) when the preferred cell grid changes so REDRAW can sync.
+    func updateConsoleVisibleSize(_ size: CGSize, font: Any?) {
+        #if os(macOS)
+        // Prefer full metrics from the live text view when available.
+        if let font = font as? NSFont {
+            updateConsoleMetrics(
+                visibleSize: size,
+                font: font,
+                textContainerInset: NSSize(width: 0, height: 0),
+                lineFragmentPadding: 5,
+                scrollerWidth: 0
+            )
+            return
+        }
+        #endif
+        guard size.width > 1, size.height > 1 else { return }
+        consoleVisibleSize = size
+        consoleUsableSize = size
+        applyPreferredFacilityCellsIfChanged()
+    }
+
+    #if os(macOS)
+    /// Accurate metrics from the live `NSScrollView` / `NSTextView` (insets, padding, scroller).
+    func updateConsoleMetrics(scrollView: NSScrollView, textView: NSTextView) {
+        let clip = scrollView.contentView.bounds.size
+        guard clip.width > 1, clip.height > 1 else { return }
+        let font = textView.font
+            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        let pad = textView.textContainer?.lineFragmentPadding ?? 5
+        // Reserve vertical scroller width even when overlay (content can still clip).
+        let scrollerW = NSScroller.scrollerWidth(
+            for: scrollView.verticalScroller?.controlSize ?? .regular,
+            scrollerStyle: scrollView.scrollerStyle
+        )
+        updateConsoleMetrics(
+            visibleSize: clip,
+            font: font,
+            textContainerInset: textView.textContainerInset,
+            lineFragmentPadding: pad,
+            scrollerWidth: scrollerW
+        )
+    }
+
+    private func updateConsoleMetrics(
+        visibleSize: CGSize,
+        font: NSFont,
+        textContainerInset: NSSize,
+        lineFragmentPadding: CGFloat,
+        scrollerWidth: CGFloat
+    ) {
+        guard visibleSize.width > 1, visibleSize.height > 1 else { return }
+        consoleVisibleSize = visibleSize
+
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        // Ceil so floor(usable/cell) never overshoots real glyph width/height.
+        let charW = ceil(max(1, ("M" as NSString).size(withAttributes: attrs).width))
+        let lm = NSLayoutManager()
+        let lineH = ceil(max(1, lm.defaultLineHeight(for: font)))
+        consoleCellWidth = charW
+        consoleLineHeight = lineH
+
+        // Usable text-container width/height (must match what NSTextView can show
+        // without wrapping a full facility row of `cols` monospaced glyphs).
+        let usableW = visibleSize.width
+            - textContainerInset.width * 2
+            - lineFragmentPadding * 2
+            - scrollerWidth
+            - 4 // pt safety for fractional layout / anti-alias
+        let usableH = visibleSize.height
+            - textContainerInset.height * 2
+            - 4
+        consoleUsableSize = CGSize(width: max(1, usableW), height: max(1, usableH))
+        applyPreferredFacilityCellsIfChanged()
+    }
+    #endif
+
+    private func applyPreferredFacilityCellsIfChanged() {
+        let cells = preferredFacilityCells()
+        let changed = cells.cols != lastPreferredFacilityCols
+            || cells.rows != lastPreferredFacilityRows
+        lastPreferredFacilityCols = cells.cols
+        lastPreferredFacilityRows = cells.rows
+        // Wake the editor loop so SZ-REDRAW → SZ-SYNC-SIZE can apply the new size.
+        // Use ASCII NUL (0): SZ-HANDLE-KEY drops c < BL as a no-op, then redraws.
+        if changed, isEvaluating, isFacilityTerminalActive {
+            _ = pushKey(0)
+        }
+    }
 
     /// Facility mouse event phases for (SZ-CLICK) flag bits 2–3.
     enum FacilityMousePhase: Int {

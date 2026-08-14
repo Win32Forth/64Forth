@@ -489,6 +489,7 @@ XAT_XY:
 // Not ANSI DSR — works with the SwiftUI cell grid console.
 .extern _host_facility_xy
 .extern _host_sz_click
+.extern _host_sz_view_cells
 .extern _host_sz_clip_set
 .extern _host_sz_clip_get
 
@@ -512,6 +513,30 @@ XAT_XY_Q:
     mov  x20, x1                   // col under
     str  x20, [x22, #-8]!
     mov  x20, x2                   // row TOS
+    NEXT
+
+// (SZ-VIEW-CELLS) ( -- cols rows )  preferred facility grid from host window
+// Host reserves 5 monospaced lines below the facility for command entry.
+    BOOT_WORD "(SZ-VIEW-CELLS)", "(SZ-VIEW-CELLS) ( -- cols rows ) preferred facility size from window", 0, XSZ_VIEW_CELLS
+XSZ_VIEW_CELLS:
+    stp  x29, x30, [sp, #-16]!
+    mov  x29, sp
+    sub  sp, sp, #16
+    add  x0, sp, #0                // &cols
+    add  x1, sp, #8                // &rows
+    str  xzr, [sp]
+    str  xzr, [sp, #8]
+    SAVE_VM
+    bl   _host_sz_view_cells
+    RESTORE_VM
+    ldr  x1, [sp]                  // cols
+    ldr  x2, [sp, #8]              // rows
+    add  sp, sp, #16
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    mov  x20, x1                   // cols under
+    str  x20, [x22, #-8]!
+    mov  x20, x2                   // rows TOS
     NEXT
 
 // (SZ-CLICK) ( -- col row flag )  last facility mouse click (Phase 4a); clears pending
