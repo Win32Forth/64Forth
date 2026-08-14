@@ -209,6 +209,13 @@ _Further design suggestions and decisions go below as work proceeds._
 - Fix: wake on real cell-grid change again; if already pumping, defer `pushKey(0)`
   one main turn. `guard changed` still prevents a layout↔wake feedback loop.
 
+### 2026-08-14 — Multi-hit nav updates visit / Files list
+
+- Cmd-PgUp/Dn multi-hit (e.g. VIEW MAIN then walk 1/7…7/7) only did GOTO; side list
+  stayed on the first hit.
+- `HYPER-HIST-ENSURE-HIT`: if path+line already in VTAB, select it; else RECORD
+  after current. Called from `HYPER-APPLY-HIT` so each multi-hit appears with line#.
+
 ### 2026-08-14 — Side panel file list
 
 - 16-col panel right of editor (no "Files" title); status stays full width.

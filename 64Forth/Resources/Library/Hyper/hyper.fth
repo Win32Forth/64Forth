@@ -705,6 +705,44 @@ VARIABLE HYPER-FL-IX
    HYPER-FL-REBUILD
 ;
 
+\ True if VTAB[i] matches path a u and line. ( a u line i -- flag )
+: HYPER-V-SAME?  ( c-addr u line i -- flag )
+   >R                                         \ R: i  a u line
+   R@ HYPER-VENT HYPER-HOFF + @ <> IF
+      R> DROP 2DROP FALSE EXIT
+   THEN
+   R> HYPER-VENT COUNT                        \ a u ea eu
+   HYPER-NAME=
+;
+
+\ Index of path+line in VTAB, or -1. ( a u line -- i )
+: HYPER-V-FIND  ( c-addr u line -- i )
+   HYPER-TMP-LINE !
+   HYPER-VN 0= IF  2DROP -1 EXIT  THEN
+   0
+   BEGIN  DUP HYPER-VN < WHILE
+      >R 2DUP HYPER-TMP-LINE @ R@ HYPER-V-SAME? IF
+         2DROP R> EXIT
+      THEN
+      R> 1+
+   REPEAT
+   DROP 2DROP -1
+;
+
+\ Ensure HYPER-HIT:line is a visit and current (for multi-hit Cmd-PgUp/Dn).
+\ Already present → select that row; else insert after current (RECORD-DEST).
+: HYPER-HIST-ENSURE-HIT  ( -- )
+   HYPER-HIT C@ 0= IF  EXIT  THEN
+   HYPER-HIT COUNT HYPER-LINE# HYPER-V-FIND
+   DUP 0< IF
+      DROP
+      HYPER-HIST-RECORD-DEST
+   ELSE
+      TO HYPER-VI
+      HYPER-VI HYPER-FL-SET-CUR
+   THEN
+;
+
 \ ( c-addr u line -- ) open in SZ-EDITOR; rebinds if needed
 : HYPER-OPEN-AT  ( c-addr u line -- )
    HYPER-EDIT-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
@@ -718,15 +756,17 @@ VARIABLE HYPER-FL-IX
    HYPER-EDIT-XT EXECUTE ;
 
 \ In-editor: SZ-HYPER-GOTO ( a u line )
+\ Multi-hit next/prev must also land in the visit / Files list (path+line).
 : HYPER-APPLY-HIT  ( -- )
    HYPER-HN 0= IF  EXIT  THEN
    HYPER-SYNC-HITS
    HYPER-EDITOR-ACTIVE? IF
       HYPER-GOTO-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
       HYPER-GOTO-XT 0= IF  EXIT  THEN
+      \ Record or select this hit in VTAB/side list before load+paint.
+      HYPER-HIST-ENSURE-HIT
       HYPER-HIT COUNT HYPER-LINE#
       HYPER-GOTO-XT EXECUTE
-      \ SZ-HYPER-GOTO already ENSURE-VISITs; do not CLEAR/rebuild (wiped the list).
    ELSE
       HYPER-VIEWING IF
          HYPER-HIT COUNT HYPER-LINE# HYPER-OPEN-AT
