@@ -1,7 +1,7 @@
 # 64Forth development status
 
-**Version in progress:** 1.0.8  
-**Last updated:** 2026-08-13  
+**Version in progress:** 1.0.9  
+**Last updated:** 2026-08-15  
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
@@ -263,3 +263,11 @@ _Further design suggestions and decisions go below as work proceeds._
 - **Bug fix (Cmd-W exit looks stuck):** `FACILITY-OFF` now restores the pre-editor
   console transcript (snapshot on first facility paint). Previously the last
   SZ-EDITOR frame stayed on screen until Return; exit worked but was not obvious.
+
+### 2026-08-15 — Find next/prev: SM/REM, selection, highlight (1.0.9)
+
+- Assembly name chars include `/` so `SM/REM` is one find token (was `REM` only).
+- Cmd-← / Cmd-→ / ⌘G prefer active multi-byte selection; else word at cursor.
+- Match is reverse-video selected; caret at match start; Selected: shows query.
+- `SZ-FIND-GOTO` no longer re-expands the token (avoids splitting at `/`).
+

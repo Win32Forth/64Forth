@@ -784,6 +784,8 @@ VARIABLE SZ-WORD-END                   \ exclusive end of word under cursor
 \ --- Word boundaries: Forth = whitespace; assembly = non-identifier ----------
 \ Assembly (.s .S .inc .asm): labels like XROT: and uses like bl XROT / adrp x0,X@page
 \ so ":" "@" "," are separators — Cmd-←/→ can find the next label occurrence.
+\ "/" is part of the name (SM/REM); spaced "/" between words remains a separator
+\ only when not adjacent to identifier chars on both sides (word expand is greedy).
 
 : SZ-CH-UPC  ( c -- c' )
    DUP [CHAR] a [CHAR] z 1+ WITHIN IF  32 -  THEN ;
@@ -815,6 +817,8 @@ VARIABLE SZ-WORD-END                   \ exclusive end of word under cursor
    2R> 2DROP FALSE ;
 
 \ Identifier char for assembly labels / symbols (not "@" — Mach-O @page suffix).
+\ Include '/' so Forth kernel names like SM/REM stay one token (spaces still
+\ separate "bl XROT / adrp" when '/' is spaced).
 : SZ-ASM-NAME-CHAR?  ( c -- flag )
    DUP [CHAR] 0 [CHAR] 9 1+ WITHIN IF  DROP TRUE EXIT  THEN
    DUP [CHAR] A [CHAR] Z 1+ WITHIN IF  DROP TRUE EXIT  THEN
@@ -822,6 +826,7 @@ VARIABLE SZ-WORD-END                   \ exclusive end of word under cursor
    DUP [CHAR] _ = IF  DROP TRUE EXIT  THEN
    DUP [CHAR] . = IF  DROP TRUE EXIT  THEN
    DUP [CHAR] $ = IF  DROP TRUE EXIT  THEN
+   DUP [CHAR] / = IF  DROP TRUE EXIT  THEN
    DROP FALSE ;
 
 \ True if c ends a "word" for expand/search (separator).
@@ -1665,11 +1670,48 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
 
 \ Status: Selected: "word"  [optional note to the right — SZ-FIND-STAT in sz-screen]
 
+\ Put SZ-TOKEN (already loaded) into Selected: status (max 16), clear find note.
+: SZ-FIND-SHOW-TOKEN  ( -- )
+   SZ-FIND-CLEAR-STAT
+   SZ-TOKEN COUNT 16 MIN
+   DUP SZ-SEL-WORD C!
+   DUP 0= IF  DROP EXIT  THEN
+   >R SZ-TOKEN 1+ SZ-SEL-WORD 1+ R> CMOVE
+;
+
+\ Load search token into SZ-TOKEN; set WORD-BEG/END. True if non-empty.
+\ Prefer active multi-byte selection (what the user highlighted); else word at CUR.
+: SZ-FIND-LOAD-TOKEN  ( -- flag )
+   SZ-SEL-OK @ IF
+      SZ-SEL-BEG @ SZ-SEL-END @
+      2DUP U> IF  SWAP  THEN                  \ beg end
+      2DUP = IF  2DROP FALSE EXIT  THEN
+      OVER SZ-WORD-BEG !
+      DUP SZ-WORD-END !
+      OVER - 63 MIN                           \ beg u
+      DUP 0= IF  DROP DROP FALSE EXIT  THEN
+      DUP SZ-TOKEN C!
+      >R SZ-WORD-BEG @ SZ-TOKEN 1+ R> CMOVE
+      TRUE EXIT
+   THEN
+   SZ-WORD-AT-CUR NIP 0<>
+;
+
 : SZ-FIND-GOTO  ( addr -- )
-   SZ-CUR !
+   \ Place caret at match start; keep TOKEN as the query (do not re-expand —
+   \ re-expand used to turn SM/REM into REM when '/' was a separator).
+   \ Reverse-video the match so Cmd-←/→ hits are easy to see.
+   DUP SZ-CUR !
+   DUP SZ-WORD-BEG !
+   DUP SZ-TOKEN C@ +                          \ beg end
+   DUP SZ-WORD-END !
+   2DUP SZ-SEL-END ! SZ-SEL-BEG !
+   -1 SZ-SEL-OK !
+   OVER SZ-EXT-ANCHOR !                       \ shift-extend from match start
+   2DROP
    SZ-REMEMBER-COL
    SZ-ENSURE-VISIBLE
-   SZ-UPDATE-SEL-WORD                       \ also clears find note
+   SZ-FIND-SHOW-TOKEN
 ;
 
 : SZ-FIND-NO-WORD  ( -- )
@@ -1677,33 +1719,28 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    S" no word" SZ-FIND-SET-STAT
 ;
 
-\ Keep Selected: word; set note to its right (no next / no prev).
-\ ( note-addr note-u -- )
+\ Keep Selected: from TOKEN; set note to its right (no next / no prev).
 : SZ-FIND-KEEP-SEL  ( c-addr u -- )
    2>R
-   SZ-WORD-AT-CUR 16 MIN
-   DUP SZ-SEL-WORD C!
-   DUP IF  >R SZ-SEL-WORD 1+ R> CMOVE  ELSE  2DROP  THEN
+   SZ-FIND-SHOW-TOKEN
    2R>
    SZ-FIND-SET-STAT
 ;
 
-\ Cmd-Right / ⌘G: next occurrence of full word under cursor (same buffer)
+\ Cmd-Right / ⌘G: next occurrence of selection or word under cursor (same buffer)
 : SZ-DO-FIND-NEXT  ( -- )
-   SZ-WORD-AT-CUR DUP 0= IF  2DROP SZ-FIND-NO-WORD EXIT  THEN
-   2DROP
-   SZ-WORD-END @                             \ search after current word range
+   SZ-FIND-LOAD-TOKEN 0= IF  SZ-FIND-NO-WORD EXIT  THEN
+   SZ-WORD-END @                             \ search after current token range
    SZ-SEARCH-FWD
    DUP 0= IF
       DROP S" no next" SZ-FIND-KEEP-SEL EXIT
    THEN
    SZ-FIND-GOTO ;
 
-\ Cmd-Left / ⌘⇧G: previous occurrence of full word under cursor (same buffer)
+\ Cmd-Left / ⌘⇧G: previous occurrence of selection or word under cursor
 : SZ-DO-FIND-PREV  ( -- )
-   SZ-WORD-AT-CUR DUP 0= IF  2DROP SZ-FIND-NO-WORD EXIT  THEN
-   2DROP
-   SZ-WORD-BEG @                             \ search before current word range
+   SZ-FIND-LOAD-TOKEN 0= IF  SZ-FIND-NO-WORD EXIT  THEN
+   SZ-WORD-BEG @                             \ search before current token range
    SZ-SEARCH-BWD
    DUP 0= IF
       DROP S" no prev" SZ-FIND-KEEP-SEL EXIT
