@@ -678,6 +678,10 @@ VARIABLE SZ-REV-ON
 \ Selected / find query shown in status (counted; room for long typed find).
 CREATE SZ-SEL-WORD  66 ALLOT
 0 SZ-SEL-WORD C!
+\ Find search token (body of query; kept in sync with SEL-WORD). Defined here
+\ so SZ-SHOW-STATUS can paint it (sz-screen loads before sz-edit).
+CREATE SZ-TOKEN  64 ALLOT
+0 SZ-TOKEN C!
 \ Find note shown after the query (e.g. no next / no prev / type).
 CREATE SZ-FIND-STAT  18 ALLOT
 0 SZ-FIND-STAT C!
@@ -800,7 +804,12 @@ VARIABLE SZ-NUMN
    SZ-SIDE-LEFT SZ-STAT-ROW AT-XY
    SZ-SEL-FIELD-W SZ-ROOM !
    0 SZ-ROOM-KEEP !
-   SZ-SEL-WORD COUNT SZ-SEL-TEXT-MAX MIN SZ-ROOM-TYPE
+   \ Prefer SZ-TOKEN when set (find query survives scroll/motion); else SEL-WORD.
+   SZ-TOKEN C@ IF
+      SZ-TOKEN COUNT SZ-SEL-TEXT-MAX MIN SZ-ROOM-TYPE
+   ELSE
+      SZ-SEL-WORD COUNT SZ-SEL-TEXT-MAX MIN SZ-ROOM-TYPE
+   THEN
    \ Find-edit notes (e.g. "(no next)") flush-right at end of field, not after query
    SZ-FIND-EDIT @ IF
       SZ-FIND-STAT C@ IF
