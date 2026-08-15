@@ -850,16 +850,17 @@ final class KernelBridge {
         var textRight: Int
     }
 
-    /// Must match Forth: SZ-TEXT-TOP=2, SZ-TEXT-LEFT=7, SZ-SIDE-WIDTH=28,
-    /// facility rows = textHeight+5 → TEXT-BOT = rows-4.
+    /// Must match Forth: SZ-TEXT-TOP=3, SZ-TEXT-LEFT=7, SZ-SIDE-WIDTH=28,
+    /// facility rows = textHeight+7 → TEXT-BOT = rows-5
+    /// (outer top, status, col-top, …, col-bot, help1, help2, outer bot).
     var facilityTextBand: FacilityTextBand {
         let rows = max(1, FacilityTerminal.shared.rows)
         let cols = max(1, FacilityTerminal.shared.cols)
         let side = 28
-        let textTop = 2
-        let textBot = max(textTop, rows - 4)
+        let textTop = 3
+        let textBot = max(textTop, rows - 5)
         let textLeft = 7
-        // Outer '|' at cols-1; side panel is `side` cols; editor right '|' before side.
+        // Outer '│' at cols-1; side panel is `side` cols; editor right '│' before side.
         let textRight = max(textLeft, cols - side - 2)
         return FacilityTextBand(
             textTop: textTop,
@@ -1567,7 +1568,7 @@ final class KernelBridge {
                 return nil
             }
 
-            // Phase 5: ⌘E → VIEW; ⌘G / ⌘⇧G → find next/prev (letter keys, reliable)
+            // Phase 5: ⌘E → VIEW; ⌘F find field; ⌘G / ⌘⇧G → find next/prev
             if mods.contains(.command) {
                 let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
                 if ch == "e", !mods.contains(.shift) {
@@ -1579,6 +1580,11 @@ final class KernelBridge {
                         self.viewWordUnderConsoleCursor()
                         return nil
                     }
+                }
+                if ch == "f", active && facilityOn, !mods.contains(.shift) {
+                    // ⌘F — type find string in status Sel/Find field (key 131)
+                    self.pushKey(131)
+                    return nil
                 }
                 if ch == "g", active && facilityOn {
                     // ⌘G next, ⌘⇧G previous (same as Tools menu)

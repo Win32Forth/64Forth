@@ -23,6 +23,9 @@
 \   Cmd-PgUp/PgDn   previous/next Hyper hit
 \   Cmd-Left/Right  prev/next occurrence of word under cursor (same file)
 \                   assembly (.s/.inc/.asm): identifier bounds (labels / XROT:)
+\   Cmd-F           type find string in status Select/Find type-in field
+\   click find field  enter/stay find-edit (place caret); click document → edit again
+\   Cmd-G / Cmd-→   find next; Cmd-⇧G / Cmd-← find previous
 \   Cmd-S / Ctrl-S  save
 \   Cmd-W / Ctrl-Q  quit
 \
@@ -65,6 +68,7 @@ DECIMAL
  27 CONSTANT SZ-HYPER-NEXT     \ Cmd-PgDn — next HYPER hit
  30 CONSTANT SZ-CMD-OPEN       \ host File→Open while KEY waiting
  31 CONSTANT SZ-CMD-NEW        \ host File→New while KEY waiting
+131 CONSTANT SZ-FIND-EDIT-KEY  \ Cmd-F — type find string in status field
 127 CONSTANT SZ-DEL            \ also delete-forward (legacy)
 
 VARIABLE SZ-DONE
@@ -428,20 +432,20 @@ VARIABLE SZ-DLG-T0
 VARIABLE SZ-DLG-T1
 VARIABLE SZ-DLG-T2
 
-\ ( row cleft cmid cright -- )
+\ ( row cleft cmid cright -- )  xchars via XEMIT (box-drawing outline)
 : SZ-DLG-BORDER-ROW  ( row cleft cmid cright -- )
    SZ-DLG-T2 !  SZ-DLG-T1 !  SZ-DLG-T0 !     \ right mid left
    SZ-DLG-C0 @ SWAP AT-XY
-   SZ-DLG-T0 @ EMIT
-   SZ-DLG-W @ 2 - 0 MAX 0 DO  SZ-DLG-T1 @ EMIT  LOOP
-   SZ-DLG-T2 @ EMIT
+   SZ-DLG-T0 @ XEMIT
+   SZ-DLG-W @ 2 - 0 MAX 0 DO  SZ-DLG-T1 @ XEMIT  LOOP
+   SZ-DLG-T2 @ XEMIT
 ;
 
 : SZ-DLG-CLEAR-ROW  ( row -- )
    SZ-DLG-C0 @ SWAP AT-XY
-   [CHAR] | EMIT
+   SZ-BOX-V XEMIT
    SZ-DLG-W @ 2 - 0 MAX 0 DO  BL EMIT  LOOP
-   [CHAR] | EMIT
+   SZ-BOX-V XEMIT
 ;
 
 : SZ-DRAW-DIRTY-DIALOG  ( -- )
@@ -449,12 +453,12 @@ VARIABLE SZ-DLG-T2
    SZ-DLG-HEIGHT SZ-DLG-H !
    SZ-TEXT-WIDTH @ SZ-DLG-W @ - 2 / 0 MAX SZ-TEXT-LEFT + SZ-DLG-C0 !
    SZ-TEXT-ROWS SZ-DLG-H @ - 2 / 0 MAX SZ-TEXT-TOP + SZ-DLG-R0 !
-   SZ-DLG-R0 @ [CHAR] + [CHAR] - [CHAR] + SZ-DLG-BORDER-ROW
+   SZ-DLG-R0 @ SZ-BOX-TL SZ-BOX-H SZ-BOX-TR SZ-DLG-BORDER-ROW
    SZ-DLG-R0 @ 1+
    BEGIN  DUP SZ-DLG-R0 @ SZ-DLG-H @ + 1- < WHILE
       DUP SZ-DLG-CLEAR-ROW  1+
    REPEAT  DROP
-   SZ-DLG-R0 @ SZ-DLG-H @ + 1- [CHAR] + [CHAR] - [CHAR] + SZ-DLG-BORDER-ROW
+   SZ-DLG-R0 @ SZ-DLG-H @ + 1- SZ-BOX-BL SZ-BOX-H SZ-BOX-BR SZ-DLG-BORDER-ROW
    SZ-DLG-C0 @ 2 +  SZ-DLG-R0 @ 2 +  AT-XY
    ." Unsaved changes in this file"
    SZ-DLG-R0 @ 4 + SZ-DLG-BTN-R !
@@ -544,7 +548,10 @@ VARIABLE SZ-DLG-T2
 
 \ Host menu / session flags (see TZForth host primitives SZ-HOST-EDITOR-ACTIVE!)
 : SZ-EDITOR-ENTER  ( -- )  -1 SZ-HOST-EDITOR-ACTIVE! ;
-: SZ-EDITOR-LEAVE  ( -- )   0 SZ-HOST-EDITOR-ACTIVE! ;
+: SZ-EDITOR-LEAVE  ( -- )
+   0 SZ-FIND-EDIT !
+   0 SZ-HOST-EDITOR-ACTIVE!
+;
 
 \ Hyper multi-hit badge (values live in sz-screen). Defined early so menu open/new
 \ can clear the (n/m) status without a forward reference.
@@ -969,11 +976,14 @@ VARIABLE SZ-CLIP-HOLD-U
    -1 SZ-ANCHOR-LINE !
 ;
 
-\ Placeholder click: keep solid clip; only mark paste target + preview Selected.
+\ Placeholder click: keep solid clip; mark paste target only.
+\ Never copy line/document text into the find type-in field (SZ-SEL-WORD).
 : SZ-PLACEHOLDER-CLICK  ( -- )
    -1 SZ-PLACEHOLD !
-   SZ-LINE-RANGE-AT-CUR                    \ beg end
-   2DUP SZ-SHOW-RANGE-SEL
+   0 SZ-SEL-OK !
+   0 SZ-SEL-WORD C!
+   SZ-FIND-CLEAR-STAT
+   SZ-LINE-RANGE-AT-CUR                    \ beg end (for paste locus)
    SZ-CLICK-ZONE @ 2 = IF
       2 SZ-PASTE-WHERE !                   \ after this line
       NIP SZ-PASTE-LS !                  \ end = next line start = after
@@ -981,7 +991,6 @@ VARIABLE SZ-CLIP-HOLD-U
       1 SZ-PASTE-WHERE !                   \ before this line
       DROP SZ-PASTE-LS !                  \ beg
    THEN
-   S" paste here" SZ-FIND-SET-STAT
 ;
 
 \ Whole-line select + copy (kept for future / programmatic use; not bound to gutter).
@@ -1002,9 +1011,18 @@ VARIABLE SZ-CLIP-HOLD-U
       SZ-FIND-CLEAR-STAT
       EXIT
    THEN
-   \ After EOL with existing solid clip → placeholder paste-after
-   SZ-CLICK-ZONE @ 2 = SZ-CLIP-U @ AND IF
-      SZ-PLACEHOLDER-CLICK EXIT
+   \ White space after EOL: place caret only — never fill find field from the line
+   SZ-CLICK-ZONE @ 2 = IF
+      0 SZ-SEL-OK !
+      0 SZ-SEL-WORD C!
+      SZ-FIND-CLEAR-STAT
+      SZ-CLIP-U @ IF
+         SZ-PLACEHOLDER-CLICK               \ paste-after locus if clip non-empty
+      ELSE
+         0 SZ-PLACEHOLD !
+         0 SZ-PASTE-WHERE !
+      THEN
+      EXIT
    THEN
    \ Body: word under cursor in status (not a reverse-video range)
    0 SZ-SEL-OK !
@@ -1515,9 +1533,37 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    THEN
 ;
 
-\ mouse-down: side-panel | ⌘ VIEW | triple-line | double-word | ⇧-extend | drag.
+\ Leave find-edit mode (defined early: mouse-down uses it before find section).
+: SZ-FIND-EDIT-OFF  ( -- )  0 SZ-FIND-EDIT ! ;
+
+\ True if facility (col row) is in the status type-in find field.
+: SZ-FIND-FIELD-HIT?  ( col row -- flag )
+   SZ-STAT-ROW <> IF  DROP FALSE EXIT  THEN
+   DUP SZ-SIDE-LEFT < IF  DROP FALSE EXIT  THEN
+   SZ-COLS @ 1- <                            \ col < outer border
+;
+
+\ Click in status type-in area: capture caret for find edit (stay modal).
+: SZ-FIND-FIELD-CLICK  ( col -- )
+   -1 SZ-FIND-EDIT !
+   -1 SZ-FIND-TYPED !
+   SZ-SIDE-LEFT - 0 MAX
+   SZ-TOKEN C@ MIN
+   SZ-FIND-ICOL !
+   0 SZ-DRAG-ACTIVE !
+   -1 SZ-SEL-DONE !                          \ ignore mouse-up word-select
+;
+
+\ mouse-down: find field | side-panel | ⌘ VIEW | triple | double | ⇧-extend | drag.
 : SZ-MOUSE-DOWN  ( col row -- )
    0 SZ-SEL-DONE !
+   \ Status find type-in → enter/stay in find-edit; place field caret
+   2DUP SZ-FIND-FIELD-HIT? IF
+      DROP SZ-FIND-FIELD-CLICK
+      EXIT
+   THEN
+   \ Any other click leaves find-edit and resumes document/side handling
+   SZ-FIND-EDIT @ IF  SZ-FIND-EDIT-OFF  THEN
    \ Click in file list → switch file (no drag / selection).
    OVER SZ-EDIT-RIGHT > IF
       0 SZ-DRAG-ACTIVE !
@@ -1668,19 +1714,53 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
       DUP SZ-WORD-HIT? IF  EXIT  THEN
    AGAIN ;
 
-\ Status: Selected: "word"  [optional note to the right — SZ-FIND-STAT in sz-screen]
+\ Status: Sel:/Find: field (sz-screen) holds query + optional note.
 
-\ Put SZ-TOKEN (already loaded) into Selected: status (max 16), clear find note.
+\ SZ-FIND-TYPED lives in sz-screen (with SZ-FIND-EDIT / SZ-FIND-ICOL).
+
+\ Put SZ-TOKEN into status Sel/Find text (up to field capacity), clear note.
 : SZ-FIND-SHOW-TOKEN  ( -- )
    SZ-FIND-CLEAR-STAT
-   SZ-TOKEN COUNT 16 MIN
+   SZ-TOKEN COUNT SZ-SEL-TEXT-MAX MIN 63 MIN
    DUP SZ-SEL-WORD C!
    DUP 0= IF  DROP EXIT  THEN
    >R SZ-TOKEN 1+ SZ-SEL-WORD 1+ R> CMOVE
 ;
 
+\ Sync SEL-WORD from TOKEN without clearing find note (live typing).
+: SZ-FIND-SYNC-SEL  ( -- )
+   SZ-TOKEN COUNT SZ-SEL-TEXT-MAX MIN 63 MIN
+   DUP SZ-SEL-WORD C!
+   DUP 0= IF  DROP EXIT  THEN
+   >R SZ-TOKEN 1+ SZ-SEL-WORD 1+ R> CMOVE
+;
+
+\ Substring search (typed / selection query) — no whole-word bounds.
+: SZ-SEARCH-FWD-SUB  ( start -- addr|0 )
+   SZ-TOKEN C@ 0= IF  DROP 0 EXIT  THEN
+   BEGIN
+      DUP SZ-TOKEN C@ + SZ-TEND U> IF  DROP 0 EXIT  THEN
+      DUP SZ-MATCH-AT IF  EXIT  THEN
+      1+
+   AGAIN ;
+
+: SZ-SEARCH-BWD-SUB  ( limit -- addr|0 )
+   SZ-TOKEN C@ 0= IF  DROP 0 EXIT  THEN
+   BEGIN
+      DUP SZ-TBUF = IF  DROP 0 EXIT  THEN
+      1-
+      DUP SZ-MATCH-AT IF  EXIT  THEN
+   AGAIN ;
+
+: SZ-SEARCH-FWD-Q  ( start -- addr|0 )
+   SZ-FIND-TYPED @ IF  SZ-SEARCH-FWD-SUB  ELSE  SZ-SEARCH-FWD  THEN
+;
+: SZ-SEARCH-BWD-Q  ( limit -- addr|0 )
+   SZ-FIND-TYPED @ IF  SZ-SEARCH-BWD-SUB  ELSE  SZ-SEARCH-BWD  THEN
+;
+
 \ Load search token into SZ-TOKEN; set WORD-BEG/END. True if non-empty.
-\ Prefer active multi-byte selection (what the user highlighted); else word at CUR.
+\ Prefer active multi-byte selection; else word at CUR.
 : SZ-FIND-LOAD-TOKEN  ( -- flag )
    SZ-SEL-OK @ IF
       SZ-SEL-BEG @ SZ-SEL-END @
@@ -1692,15 +1772,17 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
       DUP 0= IF  DROP DROP FALSE EXIT  THEN
       DUP SZ-TOKEN C!
       >R SZ-WORD-BEG @ SZ-TOKEN 1+ R> CMOVE
+      -1 SZ-FIND-TYPED !                      \ selection → substring
       TRUE EXIT
    THEN
+   0 SZ-FIND-TYPED !
    SZ-WORD-AT-CUR NIP 0<>
 ;
 
 : SZ-FIND-GOTO  ( addr -- )
    \ Place caret at match start; keep TOKEN as the query (do not re-expand —
    \ re-expand used to turn SM/REM into REM when '/' was a separator).
-   \ Reverse-video the match so Cmd-←/→ hits are easy to see.
+   \ Reverse-video the match so find hits are easy to see.
    DUP SZ-CUR !
    DUP SZ-WORD-BEG !
    DUP SZ-TOKEN C@ +                          \ beg end
@@ -1719,7 +1801,7 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    S" no word" SZ-FIND-SET-STAT
 ;
 
-\ Keep Selected: from TOKEN; set note to its right (no next / no prev).
+\ Keep status query from TOKEN; set note to its right (no next / no prev).
 : SZ-FIND-KEEP-SEL  ( c-addr u -- )
    2>R
    SZ-FIND-SHOW-TOKEN
@@ -1727,28 +1809,171 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    SZ-FIND-SET-STAT
 ;
 
-\ Cmd-Right / ⌘G: next occurrence of selection or word under cursor (same buffer)
+\ Run next/prev using current SZ-TOKEN (no re-load from word).
+: SZ-DO-FIND-NEXT-TOKEN  ( -- )
+   SZ-TOKEN C@ 0= IF  SZ-FIND-NO-WORD EXIT  THEN
+   SZ-WORD-END @ DUP 0= IF  DROP SZ-CUR @  THEN
+   SZ-SEARCH-FWD-Q
+   DUP 0= IF
+      DROP S" no next" SZ-FIND-KEEP-SEL EXIT
+   THEN
+   SZ-FIND-GOTO
+;
+
+: SZ-DO-FIND-PREV-TOKEN  ( -- )
+   SZ-TOKEN C@ 0= IF  SZ-FIND-NO-WORD EXIT  THEN
+   SZ-WORD-BEG @ DUP 0= IF  DROP SZ-CUR @  THEN
+   SZ-SEARCH-BWD-Q
+   DUP 0= IF
+      DROP S" no prev" SZ-FIND-KEEP-SEL EXIT
+   THEN
+   SZ-FIND-GOTO
+;
+
+\ Live preview while typing: first match from buffer start (or no match note).
+: SZ-FIND-LIVE  ( -- )
+   SZ-TOKEN C@ 0= IF
+      0 SZ-SEL-OK !
+      SZ-FIND-CLEAR-STAT
+      EXIT
+   THEN
+   SZ-TBUF SZ-SEARCH-FWD-Q
+   DUP 0= IF
+      DROP
+      SZ-FIND-SYNC-SEL
+      S" no match" SZ-FIND-SET-STAT
+      0 SZ-SEL-OK !
+      EXIT
+   THEN
+   SZ-FIND-GOTO
+;
+
+\ --- Cmd-F: type query in status Find field (modal until Esc / Enter) --------
+\ While open, keys never reach the document.  Arrows move the find caret only.
+\ SZ-FIND-ICOL lives in sz-screen (status caret).
+\ SZ-FIND-EDIT-OFF is defined earlier (before mouse-down).
+
+: SZ-FIND-CLAMP-ICOL  ( -- )
+   SZ-FIND-ICOL @ 0 MAX
+   SZ-TOKEN C@ MIN
+   SZ-FIND-ICOL !
+;
+
+\ Delete one char at index i (0-based); shrink length. Does not change ICOL.
+: SZ-FIND-DEL-AT  ( i -- )
+   DUP SZ-TOKEN C@ >= IF  DROP EXIT  THEN
+   >R
+   \ move body[i+1 .. len) → body[i ..)
+   SZ-TOKEN 1+ R@ + 1+                      \ src
+   SZ-TOKEN 1+ R@ +                         \ dst
+   SZ-TOKEN C@ R> - 1- 0 MAX                \ n
+   CMOVE
+   SZ-TOKEN C@ 1- 0 MAX SZ-TOKEN C!
+;
+
+: SZ-FIND-EDIT-BS  ( -- )
+   SZ-FIND-ICOL @ 0= IF  EXIT  THEN
+   -1 SZ-FIND-ICOL +!
+   SZ-FIND-ICOL @ SZ-FIND-DEL-AT
+   SZ-FIND-SYNC-SEL
+   SZ-FIND-LIVE
+;
+
+: SZ-FIND-EDIT-DEL  ( -- )
+   SZ-FIND-ICOL @ SZ-TOKEN C@ >= IF  EXIT  THEN
+   SZ-FIND-ICOL @ SZ-FIND-DEL-AT
+   SZ-FIND-SYNC-SEL
+   SZ-FIND-LIVE
+;
+
+\ Insert c at SZ-FIND-ICOL; advance caret.
+: SZ-FIND-EDIT-INS  ( c -- )
+   SZ-TOKEN C@ 63 >= IF  DROP EXIT  THEN
+   SZ-TOKEN C@ SZ-SEL-TEXT-MAX >= IF  DROP EXIT  THEN
+   SZ-FIND-CLAMP-ICOL
+   >R
+   \ open a hole at ICOL: move body[icol .. len) right by 1
+   SZ-TOKEN 1+ SZ-FIND-ICOL @ +             \ src = dst-hole
+   DUP 1+                                   \ src dst
+   SZ-TOKEN C@ SZ-FIND-ICOL @ - 0 MAX       \ n
+   CMOVE>
+   R> SZ-TOKEN 1+ SZ-FIND-ICOL @ + C!
+   SZ-TOKEN C@ 1+ SZ-TOKEN C!
+   1 SZ-FIND-ICOL +!
+   SZ-FIND-SYNC-SEL
+   SZ-FIND-LIVE
+;
+
+: SZ-FIND-CARET-LEFT  ( -- )
+   SZ-FIND-ICOL @ 1- 0 MAX SZ-FIND-ICOL !
+;
+: SZ-FIND-CARET-RIGHT  ( -- )
+   SZ-FIND-ICOL @ 1+ SZ-TOKEN C@ MIN SZ-FIND-ICOL !
+;
+: SZ-FIND-CARET-HOME  ( -- )  0 SZ-FIND-ICOL ! ;
+: SZ-FIND-CARET-END   ( -- )  SZ-TOKEN C@ SZ-FIND-ICOL ! ;
+
+\ Cmd-F: open status type-in field right of Files separator.
+\ If a selection is active, seed the query from it; otherwise start empty
+\ (do not grab word-under-cursor or auto-highlight a match).
+: SZ-DO-FIND-EDIT  ( -- )
+   -1 SZ-FIND-EDIT !
+   -1 SZ-FIND-TYPED !
+   SZ-SEL-OK @ IF
+      SZ-FIND-LOAD-TOKEN DROP
+      SZ-FIND-SYNC-SEL
+      SZ-FIND-CLEAR-STAT
+      SZ-TOKEN C@ SZ-FIND-ICOL !
+      SZ-TOKEN C@ IF  SZ-FIND-LIVE  THEN
+   ELSE
+      0 SZ-TOKEN C!
+      0 SZ-SEL-WORD C!
+      0 SZ-SEL-OK !
+      0 SZ-FIND-ICOL !
+      SZ-FIND-CLEAR-STAT
+   THEN
+;
+
+\ Enter in find field: find next match, stay in the field (do not return to document).
+: SZ-FIND-EDIT-COMMIT  ( -- )
+   SZ-TOKEN C@ 0= IF  S" no word" SZ-FIND-SET-STAT EXIT  THEN
+   -1 SZ-FIND-TYPED !
+   SZ-DO-FIND-NEXT-TOKEN
+;
+
+\ Cmd-Right / ⌘G: next occurrence.
+\ Prefer active Cmd-F / last typed query; else selection or word under cursor.
 : SZ-DO-FIND-NEXT  ( -- )
+   SZ-FIND-EDIT @ IF  SZ-DO-FIND-NEXT-TOKEN EXIT  THEN
+   SZ-FIND-TYPED @ SZ-TOKEN C@ 0<> AND IF
+      SZ-DO-FIND-NEXT-TOKEN EXIT
+   THEN
    SZ-FIND-LOAD-TOKEN 0= IF  SZ-FIND-NO-WORD EXIT  THEN
    SZ-WORD-END @                             \ search after current token range
-   SZ-SEARCH-FWD
+   SZ-SEARCH-FWD-Q
    DUP 0= IF
       DROP S" no next" SZ-FIND-KEEP-SEL EXIT
    THEN
    SZ-FIND-GOTO ;
 
-\ Cmd-Left / ⌘⇧G: previous occurrence of selection or word under cursor
+\ Cmd-Left / ⌘⇧G: previous occurrence
 : SZ-DO-FIND-PREV  ( -- )
+   SZ-FIND-EDIT @ IF  SZ-DO-FIND-PREV-TOKEN EXIT  THEN
+   SZ-FIND-TYPED @ SZ-TOKEN C@ 0<> AND IF
+      SZ-DO-FIND-PREV-TOKEN EXIT
+   THEN
    SZ-FIND-LOAD-TOKEN 0= IF  SZ-FIND-NO-WORD EXIT  THEN
-   SZ-WORD-BEG @                             \ search before current token range
-   SZ-SEARCH-BWD
+   SZ-WORD-BEG @
+   SZ-SEARCH-BWD-Q
    DUP 0= IF
       DROP S" no prev" SZ-FIND-KEEP-SEL EXIT
    THEN
    SZ-FIND-GOTO ;
 
-: SZ-HANDLE-KEY  ( c -- )
-   255 AND
+\ Normal key path (no Cmd-F field). Defined before DISPATCH so find-mode
+\ can leave the field and reprocess a key without a forward reference.
+: SZ-HANDLE-KEY-BODY  ( c -- )
+   DUP SZ-FIND-EDIT-KEY = IF  DROP SZ-DO-FIND-EDIT EXIT  THEN
    DUP SZ-CTRL-Q = IF  DROP SZ-DO-QUIT EXIT  THEN
    DUP SZ-CTRL-S = IF  DROP SZ-DO-SAVE EXIT  THEN
    DUP SZ-CUT = IF  DROP SZ-DO-CUT EXIT  THEN
@@ -1787,6 +2012,38 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    DUP BL < IF  DROP EXIT  THEN
    DUP 127 < IF  SZ-INSERT-CH EXIT  THEN
    DROP
+;
+
+\ Modal find-field keys.  Only Esc or click-out leave; Enter finds next and stays.
+\ Arrows move the find caret; other keys do not reach the document.
+: SZ-FIND-EDIT-DISPATCH  ( c -- )
+   DUP 27 = IF  DROP SZ-FIND-EDIT-OFF EXIT  THEN          \ Esc → document
+   DUP SZ-ENTER = OVER SZ-LF-KEY = OR IF
+      DROP SZ-FIND-EDIT-COMMIT EXIT                       \ Enter → next match, stay
+   THEN
+   DUP SZ-MOUSE = IF  DROP SZ-DO-MOUSE EXIT  THEN         \ field vs document
+   DUP SZ-BS = IF  DROP SZ-FIND-EDIT-BS EXIT  THEN
+   DUP SZ-DEL-FWD = OVER SZ-DEL = OR IF
+      DROP SZ-FIND-EDIT-DEL EXIT
+   THEN
+   DUP SZ-LEFT = IF  DROP SZ-FIND-CARET-LEFT EXIT  THEN
+   DUP SZ-RIGHT = IF  DROP SZ-FIND-CARET-RIGHT EXIT  THEN
+   DUP SZ-HOME-LINE = IF  DROP SZ-FIND-CARET-HOME EXIT  THEN
+   DUP SZ-END-LINE = IF  DROP SZ-FIND-CARET-END EXIT  THEN
+   \ ⌘G / ⌘←→: next/prev match, stay in field (caret stays on status)
+   DUP SZ-FIND-NEXT = IF  DROP SZ-DO-FIND-NEXT-TOKEN EXIT  THEN
+   DUP SZ-FIND-PREV = IF  DROP SZ-DO-FIND-PREV-TOKEN EXIT  THEN
+   DUP SZ-FIND-EDIT-KEY = IF  DROP EXIT  THEN             \ Cmd-F: stay
+   DUP BL 1- > OVER 127 < AND IF                          \ printable → field
+      SZ-FIND-EDIT-INS EXIT
+   THEN
+   DROP                                                   \ swallow all else
+;
+
+: SZ-HANDLE-KEY  ( c -- )
+   255 AND
+   SZ-FIND-EDIT @ IF  SZ-FIND-EDIT-DISPATCH EXIT  THEN
+   SZ-HANDLE-KEY-BODY
 ;
 
 \ Core interactive loop; does not reset cursor (caller sets SZ-CUR / view).

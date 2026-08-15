@@ -37,7 +37,7 @@ FLOAD sz-edit.fth
    ." === SZ-EDITOR ===" CR
    ." SZEDIT 'file' or 'pathed/file'  (.fth added if no extension)" CR
    ." Keys: arrows  Home/End  PgUp/Dn  BS Del or typed text" CR
-   ." Size: width height SET-EDIT-WINDOW  - default 88 25" CR
+   ." Size: width height SET-EDIT-WINDOW  - text body; facility adds 7 chrome rows" CR
    ." Cmd-W closes editor with save prompt if changes" CR
    CR
 ;

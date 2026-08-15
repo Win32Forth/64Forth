@@ -4,16 +4,20 @@
 \ host paints the full screen (PAGE alone must not flush an empty buffer).
 \
 \ Layout (0-based rows; geometry from SET-EDIT-WINDOW / EDIT-WINDOW settings):
-\   row 0              status (full width)
-\   row 1              top border across editor + side
-\   rows 2..(1+H)      |NNNNN|body (W cols)...| open files list |
-\   row (2+H)          bottom border
-\   row (3+H)          help line 1
-\   row (4+H)          help line 2
+\   row 0              outer top     ╭──────────────── full width ────────────────╮
+\   row 1              status        │ path L: C: … (full width after zoom)       │
+\   row 2              col top       ├─────┬──────────────────────┬───────────────┤
+\   rows 3..(2+H)      body          │ NNN │ text (W cols)        │ visit list    │
+\   row (3+H)          col bottom    ├─────┴──────────────────────┴───────────────┤
+\   row (4+H)          help 1        │ shortcuts…                                 │
+\   row (5+H)          help 2        │ …                                          │
+\   row (6+H)          outer bottom  ╰──────────────── full width ────────────────╯
 \
-\ Text body is SZ-TEXT-WIDTH columns. Gutter/frame extra; SZ-SIDE-WIDTH (16)
+\ Outline uses Unicode box-drawing (XEMIT); host stores one scalar per cell.
+\ Column separators (gutter / side) align with ┬/┴ on the mid rules only.
+\ Text body is SZ-TEXT-WIDTH columns. Gutter/frame extra; SZ-SIDE-WIDTH
 \ columns on the right list leaf names of files opened / VIEW'd.
-\ Facility cols = W + 8 + SZ-SIDE-WIDTH + 1 (outer |); rows = H + 5.
+\ Facility cols = W + 8 + SZ-SIDE-WIDTH + 1 (outer │); rows = H + 7.
 \ User:  width height SET-EDIT-WINDOW   (persists via settings)
 \ Query: EDIT-WINDOW  ( -- width height )
 \
@@ -22,18 +26,24 @@
 DECIMAL
 
 \ Fixed chrome (not changed by SET-EDIT-WINDOW)
-   1 CONSTANT SZ-FRAME-TOP
-   2 CONSTANT SZ-TEXT-TOP
+   0 CONSTANT SZ-OUTER-TOP      \ full-width top border row
+   1 CONSTANT SZ-STAT-ROW       \ status content (boxed)
+   2 CONSTANT SZ-FRAME-TOP      \ column tee bar above text
+   3 CONSTANT SZ-TEXT-TOP       \ first text body row
    1 CONSTANT SZ-LN-COL         \ first column of line-number gutter
    5 CONSTANT SZ-LN-WIDTH       \ digits (right-justified; blank if past EOF)
-   6 CONSTANT SZ-LN-SEP         \ column of | between gutter and text
+   6 CONSTANT SZ-LN-SEP         \ column of │ between gutter and text
    7 CONSTANT SZ-TEXT-LEFT      \ first column of text body
   28 CONSTANT SZ-SIDE-WIDTH     \ visit list: leaf + line# + X
+   7 CONSTANT SZ-CHROME-ROWS    \ facility rows = text height + this
 
 \ Dynamic geometry (set by SZ-APPLY-EDIT-WINDOW)
 VARIABLE SZ-TEXT-WIDTH          \ editable text columns
 VARIABLE SZ-TEXT-BOT            \ last text row
-VARIABLE SZ-FRAME-BOT           \ bottom border row
+VARIABLE SZ-FRAME-BOT           \ column tee bar below text
+VARIABLE SZ-HELP1               \ help line 1 row
+VARIABLE SZ-HELP2               \ help line 2 row
+VARIABLE SZ-OUTER-BOT           \ full-width bottom border row
 VARIABLE SZ-COLS                \ full facility width (editor + side panel)
 VARIABLE SZ-EDIT-COLS           \ editor portion through its right '|'
 
@@ -58,6 +68,9 @@ VARIABLE SZ-SAVE-BASE              \ BASE save for gutter (avoid R stack inside 
    SWAP SZ-TEXT-WIDTH !
    SZ-TEXT-TOP + 1- SZ-TEXT-BOT !
    SZ-TEXT-BOT @ 1+ SZ-FRAME-BOT !
+   SZ-FRAME-BOT @ 1+ SZ-HELP1 !
+   SZ-HELP1 @ 1+ SZ-HELP2 !
+   SZ-HELP2 @ 1+ SZ-OUTER-BOT !
    \ editor cols = TEXT-LEFT + width + 1 (right border) = width + 8
    SZ-TEXT-WIDTH @ SZ-TEXT-LEFT + 1+ DUP SZ-EDIT-COLS !
    \ full facility = editor + side content + outer right '|'
@@ -135,12 +148,71 @@ VARIABLE SZ-PREF-COL               \ sticky column for Up/Down (like most editor
    0 SWAP AT-XY
    SZ-COLS @ 0 DO  BL EMIT  LOOP ;
 
-\ Horizontal rule: +----...----+  (width SZ-COLS)
-: SZ-DRAW-HBAR  ( row -- )
+\ Box-drawing outline (Unicode light arcs + tees; same family as Grok prompt box).
+\ Facility host stores one Unicode scalar per cell (UTF-8 via XEMIT).
+HEX
+256D CONSTANT SZ-BOX-TL     \ ╭  arc down-right
+256E CONSTANT SZ-BOX-TR     \ ╮  arc down-left
+2570 CONSTANT SZ-BOX-BL     \ ╰  arc up-right
+256F CONSTANT SZ-BOX-BR     \ ╯  arc up-left
+2500 CONSTANT SZ-BOX-H      \ ─  horizontal
+2502 CONSTANT SZ-BOX-V      \ │  vertical
+252C CONSTANT SZ-BOX-TD     \ ┬  tee down (column top junctions)
+2534 CONSTANT SZ-BOX-BU     \ ┴  tee up (column bottom junctions)
+251C CONSTANT SZ-BOX-LT     \ ├  left tee (outer continues past mid bar)
+2524 CONSTANT SZ-BOX-RT     \ ┤  right tee
+DECIMAL
+
+VARIABLE SZ-BOX-T0
+VARIABLE SZ-BOX-T1
+VARIABLE SZ-BOX-T2
+
+: SZ-XEMIT  ( xchar -- )  XEMIT ;
+
+\ Emit n horizontal bar segments (─).
+: SZ-BOX-H-N  ( n -- )
+   BEGIN  DUP 0> WHILE  1- SZ-BOX-H SZ-XEMIT  REPEAT  DROP
+;
+
+\ Full-width rule with NO column tees (status top / help bottom).
+\ ( row left right -- )  left/right are corner xchars (╭╮ or ╰╯).
+: SZ-DRAW-HBAR-PLAIN  ( row left right -- )
+   SZ-BOX-T2 !  SZ-BOX-T0 !                   \ right left
    0 SWAP AT-XY
-   [CHAR] + EMIT
-   SZ-COLS @ 2 - 0 DO  [CHAR] - EMIT  LOOP
-   [CHAR] + EMIT
+   SZ-BOX-T0 @ SZ-XEMIT
+   SZ-COLS @ 2 - 0 MAX SZ-BOX-H-N
+   SZ-BOX-T2 @ SZ-XEMIT
+;
+
+\ Mid rule WITH tees at gutter and editor/side columns (aligned separators).
+\ ( row left mid-tee right -- )  left/right typically ├ ┤ ; mid ┬ or ┴.
+: SZ-DRAW-HBAR  ( row left mid right -- )
+   SZ-BOX-T2 !  SZ-BOX-T1 !  SZ-BOX-T0 !     \ right mid left temps
+   0 SWAP AT-XY
+   SZ-BOX-T0 @ SZ-XEMIT                      \ left (├ or corner)
+   \ ─ run to gutter sep (col 1 .. LN-SEP-1)
+   SZ-LN-SEP 1 - 0 MAX SZ-BOX-H-N
+   SZ-BOX-T1 @ SZ-XEMIT                      \ tee at LN-SEP
+   \ ─ run across text (LN-SEP+1 .. EDIT-RIGHT-1)
+   SZ-EDIT-RIGHT SZ-LN-SEP - 1- 0 MAX SZ-BOX-H-N
+   SZ-BOX-T1 @ SZ-XEMIT                      \ tee at EDIT-RIGHT
+   \ ─ run across side panel (EDIT-RIGHT+1 .. COLS-2)
+   SZ-COLS @ 1- SZ-EDIT-RIGHT - 1- 0 MAX SZ-BOX-H-N
+   SZ-BOX-T2 @ SZ-XEMIT                      \ right (┤ or corner)
+;
+
+\ Outer │ only (status / help rows — full-width panels, no column seps).
+: SZ-DRAW-V-OUTER  ( row -- )
+   0 OVER AT-XY  SZ-BOX-V SZ-XEMIT
+   SZ-COLS @ 1- SWAP AT-XY  SZ-BOX-V SZ-XEMIT
+;
+
+\ Column verticals │ on a text-body row (gutter + side + outer).
+: SZ-DRAW-V-COLS  ( row -- )
+   0 OVER AT-XY  SZ-BOX-V SZ-XEMIT
+   SZ-LN-SEP OVER AT-XY  SZ-BOX-V SZ-XEMIT
+   SZ-EDIT-RIGHT OVER AT-XY  SZ-BOX-V SZ-XEMIT
+   SZ-COLS @ 1- SWAP AT-XY  SZ-BOX-V SZ-XEMIT
 ;
 
 \ Emit n spaces (no DO — safe inside REDRAW's DO/LOOP and SZ-DRAW-SIDE).
@@ -148,16 +220,24 @@ VARIABLE SZ-PREF-COL               \ sticky column for Up/Down (like most editor
    BEGIN  DUP 0> WHILE  1- BL EMIT  REPEAT  DROP
 ;
 
+\ Full chrome: outer box + status/help sides + column mid-bars with aligned tees.
 : SZ-DRAW-FRAME  ( -- )
-   SZ-FRAME-TOP SZ-DRAW-HBAR
-   SZ-FRAME-BOT @ SZ-DRAW-HBAR
-   \ Verticals on all rows between (and on) the horizontal bars
-   SZ-FRAME-BOT @ 1+ SZ-FRAME-TOP DO
-      0 I AT-XY  [CHAR] | EMIT
-      SZ-LN-SEP I AT-XY  [CHAR] | EMIT
-      SZ-EDIT-RIGHT I AT-XY  [CHAR] | EMIT
-      SZ-COLS @ 1- I AT-XY  [CHAR] | EMIT   \ outer right of Files panel
+   \ Text-band column verticals first (mid bars overwrite tees afterward)
+   SZ-TEXT-BOT @ 1+ SZ-TEXT-TOP DO
+      I SZ-DRAW-V-COLS
    LOOP
+   \ Status + help outer sides
+   SZ-STAT-ROW SZ-DRAW-V-OUTER
+   SZ-HELP1 @ SZ-DRAW-V-OUTER
+   SZ-HELP2 @ SZ-DRAW-V-OUTER
+   \ Files-column │ through the status row (between "Select/Find" and type-in)
+   SZ-EDIT-RIGHT SZ-STAT-ROW AT-XY  SZ-BOX-V SZ-XEMIT
+   \ Outer top (full width); help-grid bottom is SZ-DRAW-HELP-BOT (after help paint)
+   SZ-OUTER-TOP SZ-BOX-TL SZ-BOX-TR SZ-DRAW-HBAR-PLAIN
+   \ Column top: ├─────┬──────────┬─────────────┤  (tees align with body │)
+   SZ-FRAME-TOP SZ-BOX-LT SZ-BOX-TD SZ-BOX-RT SZ-DRAW-HBAR
+   \ Column bottom (editor): ├─────┴──────────┴─────────────┤
+   SZ-FRAME-BOT @ SZ-BOX-LT SZ-BOX-BU SZ-BOX-RT SZ-DRAW-HBAR
 ;
 
 \ -----------------------------------------------------------------------------
@@ -486,9 +566,9 @@ CREATE SZ-FL-LDIG  8 ALLOT
          1 SZ-FL-DR +!
       REPEAT
    THEN
-   \ Outer right border on all frame rows (not over status row 0)
-   SZ-FRAME-BOT @ 1+ SZ-FRAME-TOP DO
-      SZ-COLS @ 1- I AT-XY  [CHAR] | EMIT
+   \ Outer right │ on text rows only (leave top/bottom ╮╯ corners intact)
+   SZ-TEXT-BOT @ 1+ SZ-TEXT-TOP DO
+      SZ-COLS @ 1- I AT-XY  SZ-BOX-V SZ-XEMIT
    LOOP
 ;
 
@@ -544,7 +624,7 @@ VARIABLE SZ-GUT-U
 : SZ-CLEAR-TEXT-ROW  ( row -- )
    SZ-TEXT-LEFT OVER AT-XY
    SZ-TEXT-WIDTH @ 0 DO  BL EMIT  LOOP
-   SZ-EDIT-RIGHT SWAP AT-XY  [CHAR] | EMIT
+   SZ-EDIT-RIGHT SWAP AT-XY  SZ-BOX-V SZ-XEMIT
 ;
 
 \ Selection range for reverse-video paint (byte addresses; end exclusive).
@@ -595,55 +675,230 @@ VARIABLE SZ-REV-ON
    SZ-TEXT-WIDTH @ SZ-PAINTED @ - 0 MAX 0 ?DO  BL EMIT  LOOP
 ;
 
-\ Selected word under cursor (click / find). Counted string, max 16 chars.
-CREATE SZ-SEL-WORD  18 ALLOT
+\ Selected / find query shown in status (counted; room for long typed find).
+CREATE SZ-SEL-WORD  66 ALLOT
 0 SZ-SEL-WORD C!
-\ Find note shown to the right of Selected: (e.g. no next / no prev).
+\ Find note shown after the query (e.g. no next / no prev / type).
 CREATE SZ-FIND-STAT  18 ALLOT
 0 SZ-FIND-STAT C!
+\ Nonzero while Cmd-F status-field find edit is active (sz-edit).
+VARIABLE SZ-FIND-EDIT
+0 SZ-FIND-EDIT !
+\ Insert index within the type-in field (0-based; used by caret + editing).
+VARIABLE SZ-FIND-ICOL
+0 SZ-FIND-ICOL !
+\ Nonzero: query from type-in/selection → substring search (not whole-word).
+VARIABLE SZ-FIND-TYPED
+0 SZ-FIND-TYPED !
 \ Hyper multi-hit: 1-based index and total (0 total = hide). Set by Hyper via
 \ SZ-HYPER-HITS! so status can show (1/4) after the filename.
 0 VALUE SZ-HH-CUR
 0 VALUE SZ-HH-TOT
 
-\ Status must fit on one facility row (no wrap). Long paths used to wrap past
-\ cols, scroll the facility buffer, wipe the status, and shift the caret down.
-: SZ-SHOW-STATUS  ( -- )
-   0 SZ-BLANK-ROW
-   0 0 AT-XY
-   SZ-HAS-NAME? IF
-      SZ-GET-NAME
-      \ Path tail; 33 chars (was 16, +17) — room for (n/m) L: C: size Sel:
-      DUP 33 > IF  33 - + 33  THEN
-      TYPE
-   ELSE
-      ." untitled"
-   THEN
-   \ Multi-hit progress immediately after the name: file.fth(2/13)
-   SZ-HH-TOT 1 > IF
-      [CHAR] ( EMIT  SZ-HH-CUR 0 .R  [CHAR] / EMIT  SZ-HH-TOT 0 .R  [CHAR] ) EMIT
-   THEN
-   SZ-MODIFIED @ IF  ." *"  THEN
-   ."  L:" SZ-CUR-LINE-NO 0 .R
-   ."  C:" SZ-CUR-COL 1+ 0 .R
-   ."  " SZ-TLEN @ 0 .R ." b/"
-   SZ-TBUF-CAP @ 0 .R
-   ."  Sel: "
-   [CHAR] " EMIT
-   SZ-SEL-WORD COUNT TYPE
-   [CHAR] " EMIT
-   SZ-FIND-STAT C@ IF  SPACE SZ-FIND-STAT COUNT TYPE  THEN
+\ Status / help content must not wrap (would spill into the next chrome row).
+\ Room for text inside the outer box = SZ-COLS - 2 (left/right │).
+VARIABLE SZ-ROOM                          \ remaining printable cols on the row
+VARIABLE SZ-ROOM-KEEP                     \ cols to leave unused (status: Sel: reserve)
+
+: SZ-ROOM-SET  ( -- )
+   SZ-COLS @ 2 - 0 MAX SZ-ROOM !
+   0 SZ-ROOM-KEEP !
 ;
 
-\ Two help rows below the bottom border (TEXT-BOT+2 and TEXT-BOT+3).
-\ ASCII only — facility is a byte grid.
+: SZ-ROOM-EMIT  ( c -- )
+   \ Stop when only the reserved tail (e.g. Selected:) remains
+   SZ-ROOM @ SZ-ROOM-KEEP @ <= IF  DROP EXIT  THEN
+   EMIT  -1 SZ-ROOM +!
+;
+
+: SZ-ROOM-TYPE  ( c-addr u -- )
+   BEGIN  DUP 0>  SZ-ROOM @ 0>  AND WHILE
+      OVER C@ SZ-ROOM-EMIT
+      1 /STRING
+   REPEAT  2DROP
+;
+
+\ Type a decimal number without trailing space (0 .R style) into SZ-ROOM.
+CREATE SZ-NUMBUF  16 ALLOT
+VARIABLE SZ-NUMN
+: SZ-ROOM-U.  ( u -- )
+   0 SZ-NUMN !
+   DUP 0= IF
+      [CHAR] 0 SZ-ROOM-EMIT  DROP EXIT
+   THEN
+   BEGIN  DUP WHILE
+      10 /MOD                               \ rem quot
+      SWAP [CHAR] 0 +
+      SZ-NUMN @ 16 < IF
+         SZ-NUMBUF SZ-NUMN @ + C!
+         1 SZ-NUMN +!
+      ELSE  DROP  THEN
+   REPEAT  DROP
+   SZ-NUMN @
+   BEGIN  DUP WHILE
+      1-
+      DUP SZ-NUMBUF + C@ SZ-ROOM-EMIT
+   REPEAT  DROP
+;
+
+\ Path leaf shown in status: at most 30 chars (tail).
+30 CONSTANT SZ-STAT-PATHMAX
+
+\ Title left of the Files separator: "Select/Find" (ends at EDIT-RIGHT).
+11 CONSTANT SZ-SEL-LABW
+
+\ Type-in / highlight area: under visit list (SIDE-LEFT .. COLS-2).
+: SZ-SEL-FIELD-W  ( -- n )
+   SZ-COLS @ 1- SZ-SIDE-LEFT - 0 MAX
+;
+
+\ Max query chars in the type-in area (full side width).
+: SZ-SEL-TEXT-MAX  ( -- n )  SZ-SEL-FIELD-W ;
+
+\ First column of the "Select/Find" title (title ends at EDIT-RIGHT).
+: SZ-SEL-TITLE-COL  ( -- col )
+   SZ-EDIT-RIGHT SZ-SEL-LABW - 1 MAX
+;
+
+\ Status row:
+\   cols 1 .. title-1     path + meta
+\   title .. EDIT-RIGHT-1 "Select/Find"
+\   EDIT-RIGHT            │  (Files separator extended up)
+\   SIDE-LEFT .. COLS-2   type-in / highlighted find text
+: SZ-SHOW-STATUS  ( -- )
+   SZ-STAT-ROW SZ-BLANK-ROW
+   \ --- path + meta (must not run into the Select/Find title) ---
+   1 SZ-STAT-ROW AT-XY
+   SZ-SEL-TITLE-COL 1 - 0 MAX SZ-ROOM !
+   0 SZ-ROOM-KEEP !
+   SZ-HAS-NAME? IF
+      SZ-GET-NAME                             \ a u
+      DUP SZ-STAT-PATHMAX > IF
+         SZ-STAT-PATHMAX - +  SZ-STAT-PATHMAX
+      THEN
+      SZ-ROOM-TYPE
+   ELSE
+      S" untitled" SZ-ROOM-TYPE
+   THEN
+   SZ-HH-TOT 1 > IF
+      [CHAR] ( SZ-ROOM-EMIT
+      SZ-HH-CUR SZ-ROOM-U.
+      [CHAR] / SZ-ROOM-EMIT
+      SZ-HH-TOT SZ-ROOM-U.
+      [CHAR] ) SZ-ROOM-EMIT
+   THEN
+   SZ-MODIFIED @ IF  [CHAR] * SZ-ROOM-EMIT  THEN
+   S"  L:" SZ-ROOM-TYPE  SZ-CUR-LINE-NO SZ-ROOM-U.
+   S"  C:" SZ-ROOM-TYPE  SZ-CUR-COL 1+ SZ-ROOM-U.
+   S"  " SZ-ROOM-TYPE  SZ-TLEN @ SZ-ROOM-U.
+   S" b/" SZ-ROOM-TYPE  SZ-TBUF-CAP @ SZ-ROOM-U.
+   \ --- title ends at the Files-column vertical ---
+   SZ-SEL-TITLE-COL SZ-STAT-ROW AT-XY
+   S" Select/Find" TYPE
+   \ --- type-in area right of the Files separator (query text only) ---
+   \ Do not paint SZ-FIND-STAT here (e.g. "paste here", "selected") — those notes
+   \ clutter the find box. Find-edit feedback ("no match") is shown while FIND-EDIT.
+   SZ-SIDE-LEFT SZ-STAT-ROW AT-XY
+   SZ-SEL-FIELD-W SZ-ROOM !
+   0 SZ-ROOM-KEEP !
+   SZ-SEL-WORD COUNT SZ-SEL-TEXT-MAX MIN SZ-ROOM-TYPE
+   SZ-FIND-EDIT @ IF
+      SZ-FIND-STAT C@ IF
+         BL SZ-ROOM-EMIT
+         SZ-FIND-STAT COUNT SZ-ROOM-TYPE
+      THEN
+   THEN
+   \ Pad remainder of field (plain spaces; I-beam shows insert point)
+   BEGIN  SZ-ROOM @ 0> WHILE  BL SZ-ROOM-EMIT  REPEAT
+;
+
+\ -----------------------------------------------------------------------------
+\ Help panel: 4 columns with graphic │ separators aligned on both rows.
+\ Fixed field widths so row1/row2 separators line up; last col takes the rest.
+\ Outer bottom bar uses matching ┴ tees so the help grid is fully boxed.
+\ -----------------------------------------------------------------------------
+ 16 CONSTANT SZ-HELP-W1          \ "Cmd-E/click VIEW" / "drag/Shift-click" + pad
+ 18 CONSTANT SZ-HELP-W2          \ "Cmd-PgUp/Dn visits" / "dbl-word tri-line"
+ 15 CONSTANT SZ-HELP-W3          \ "side: line# [X]" / "Cmd-click VIEW"
+\ W4 = remaining inner width after W1+W2+W3 + 3 separators
+
+VARIABLE SZ-HELP-R
+VARIABLE SZ-HELP-A1  VARIABLE SZ-HELP-U1
+VARIABLE SZ-HELP-A2  VARIABLE SZ-HELP-U2
+VARIABLE SZ-HELP-A3  VARIABLE SZ-HELP-U3
+VARIABLE SZ-HELP-A4  VARIABLE SZ-HELP-U4
+
+: SZ-HELP-INNER  ( -- n )  SZ-COLS @ 2 - 0 MAX ;
+
+: SZ-HELP-W4  ( -- n )
+   SZ-HELP-INNER SZ-HELP-W1 - SZ-HELP-W2 - SZ-HELP-W3 - 3 - 0 MAX
+;
+
+\ Absolute facility columns of the three help separators (for tees / verticals).
+: SZ-HELP-SEP1  ( -- col )  1 SZ-HELP-W1 + ;
+: SZ-HELP-SEP2  ( -- col )  SZ-HELP-SEP1 1+ SZ-HELP-W2 + ;
+: SZ-HELP-SEP3  ( -- col )  SZ-HELP-SEP2 1+ SZ-HELP-W3 + ;
+
+\ Type field left-justified in `width` cols (clipped + space pad). Uses SZ-ROOM.
+: SZ-HELP-FIELD  ( c-addr u width -- )
+   >R                                         \ a u  R:width
+   R@ MIN                                     \ a u'
+   DUP >R SZ-ROOM-TYPE                        \ R:width u'
+   R> R> SWAP - 0 MAX                         \ pad
+   BEGIN  DUP 0> WHILE  1- BL SZ-ROOM-EMIT  REPEAT  DROP
+;
+
+: SZ-HELP-V  ( -- )
+   SZ-BOX-V SZ-XEMIT
+   SZ-ROOM @ 0> IF  -1 SZ-ROOM +!  THEN
+;
+
+\ Paint four fixed-width help fields + │ seps on `row`.
+: SZ-HELP-LINE  ( a1 u1 a2 u2 a3 u3 a4 u4 row -- )
+   SZ-HELP-R !                                \ row
+   SZ-HELP-U4 !  SZ-HELP-A4 !
+   SZ-HELP-U3 !  SZ-HELP-A3 !
+   SZ-HELP-U2 !  SZ-HELP-A2 !
+   SZ-HELP-U1 !  SZ-HELP-A1 !
+   SZ-HELP-R @ SZ-BLANK-ROW
+   1 SZ-HELP-R @ AT-XY
+   SZ-ROOM-SET
+   SZ-HELP-A1 @ SZ-HELP-U1 @ SZ-HELP-W1 SZ-HELP-FIELD  SZ-HELP-V
+   SZ-HELP-A2 @ SZ-HELP-U2 @ SZ-HELP-W2 SZ-HELP-FIELD  SZ-HELP-V
+   SZ-HELP-A3 @ SZ-HELP-U3 @ SZ-HELP-W3 SZ-HELP-FIELD  SZ-HELP-V
+   SZ-HELP-A4 @ SZ-HELP-U4 @ SZ-HELP-W4 SZ-HELP-FIELD
+   \ Outer + column │ (blank wiped them)
+   SZ-HELP-R @ SZ-DRAW-V-OUTER
+   SZ-HELP-SEP1 SZ-HELP-R @ AT-XY  SZ-BOX-V SZ-XEMIT
+   SZ-HELP-SEP2 SZ-HELP-R @ AT-XY  SZ-BOX-V SZ-XEMIT
+   SZ-HELP-SEP3 SZ-HELP-R @ AT-XY  SZ-BOX-V SZ-XEMIT
+;
+
+\ Bottom outer bar with ┴ at help-column separators (aligned with help │).
+: SZ-DRAW-HELP-BOT  ( -- )
+   0 SZ-OUTER-BOT @ AT-XY
+   SZ-BOX-BL SZ-XEMIT
+   SZ-HELP-W1 0 MAX SZ-BOX-H-N
+   SZ-BOX-BU SZ-XEMIT                         \ ┴ under sep1
+   SZ-HELP-W2 0 MAX SZ-BOX-H-N
+   SZ-BOX-BU SZ-XEMIT
+   SZ-HELP-W3 0 MAX SZ-BOX-H-N
+   SZ-BOX-BU SZ-XEMIT
+   SZ-HELP-W4 SZ-BOX-H-N
+   SZ-BOX-BR SZ-XEMIT
+;
+
+\ Two help rows with aligned │ columns + bottom tees.
 : SZ-SHOW-HELP  ( -- )
-   SZ-TEXT-BOT @ 2 + SZ-BLANK-ROW
-   SZ-TEXT-BOT @ 3 + SZ-BLANK-ROW
-   0 SZ-TEXT-BOT @ 2 + AT-XY
-   ." Cmd-E/click VIEW | Cmd-PgUp/Dn visits | side: line# [X] | find Cmd-G"
-   0 SZ-TEXT-BOT @ 3 + AT-XY
-   ." drag/⇧-click | dbl-word tri-line | Cmd-click VIEW | Cmd-X/C/V/S/W"
+   \ Row1 — W1 matches "Cmd-E/click VIEW" (16); row2 pads to same width
+   S" Cmd-E/click VIEW" S" Cmd-PgUp/Dn visits"
+   S" side: line# [X]" S" find Cmd-F/G"
+   SZ-HELP1 @ SZ-HELP-LINE
+   \ Row2 — "drag/Shift-click" (15) padded to W1=16 so │ lines up under row1
+   S" drag/Shift-click" S" dbl-word tri-line"
+   S" Cmd-click VIEW" S" Cmd-X/C/V/S/W"
+   SZ-HELP2 @ SZ-HELP-LINE
+   SZ-DRAW-HELP-BOT
 ;
 
 \ True if SZ-CUR lies on the logical line starting at `ls`.
@@ -676,6 +931,13 @@ VARIABLE SZ-HAVE-AT
 ;
 
 : SZ-PLACE-CURSOR  ( -- )
+   \ Cmd-F: caret stays in the type-in area until Esc/Enter (never in document)
+   SZ-FIND-EDIT @ IF
+      SZ-SIDE-LEFT SZ-FIND-ICOL @ +
+      SZ-COLS @ 2 - MIN  SZ-SIDE-LEFT MAX
+      SZ-STAT-ROW AT-XY
+      EXIT
+   THEN
    SZ-HAVE-AT @ IF
       SZ-AT-COL @ SZ-AT-ROW @ AT-XY
    ELSE
@@ -706,7 +968,9 @@ VARIABLE SZ-PAINT-ROW                  \ current facility row while painting
    0 SZ-HAVE-AT !
    0 SZ-DID-EMPTY-TEND !
    PAGE
+   \ Content first (may blank whole rows), then chrome so outer │ / ─ win.
    SZ-SHOW-STATUS
+   SZ-SHOW-HELP
    SZ-DRAW-FRAME
    SZ-DRAW-SIDE
    SZ-TOP @ SZ-LINE-NO SZ-DRAW-LNO !
@@ -737,7 +1001,6 @@ VARIABLE SZ-PAINT-ROW                  \ current facility row while painting
       1 SZ-PAINT-ROW +!
    REPEAT
    DROP
-   SZ-SHOW-HELP
    SZ-PLACE-CURSOR
    TERMINAL-REFRESH
 ;
@@ -762,19 +1025,19 @@ EDIT-WINDOW SZ-APPLY-EDIT-WINDOW
 : SET-EDIT-WINDOW  ( width height -- )
    SZ-WIN-H !  SZ-WIN-W !
    SZ-WIN-W @  SZ-WIN-H @  SZ-APPLY-EDIT-WINDOW
-   \ Facility: editor (W+8) + side content + outer | + height (H+5)
-   SZ-WIN-W @ 8 + SZ-SIDE-WIDTH + 1+  SZ-WIN-H @ 5 +  (FACILITY-SIZE)
+   \ Facility: editor (W+8) + side content + outer │ + height (H+7 chrome)
+   SZ-WIN-W @ 8 + SZ-SIDE-WIDTH + 1+  SZ-WIN-H @ SZ-CHROME-ROWS +  (FACILITY-SIZE)
 ;
 
 \ Match facility size to the graphic window (host monospaced metrics).
 \ Defined after SET-EDIT-WINDOW so it calls the full version (layout + grid resize),
 \ not the sz-host stub that only stores W/H.
-\ (SZ-VIEW-CELLS) → full facility cols/rows (editor + side + outer |); 5 cmd lines below.
-\ Text body: width = cols - 8 - SIDE - 1, height = rows - 5.
+\ (SZ-VIEW-CELLS) → full facility cols/rows (editor + side + outer │); 5 cmd lines below.
+\ Text body: width = cols - 8 - SIDE - 1, height = rows - SZ-CHROME-ROWS.
 : SZ-SYNC-SIZE  ( -- )
    (SZ-VIEW-CELLS)                            \ fcols frows
    SWAP 8 - SZ-SIDE-WIDTH - 1- 16 MAX         \ frows twidth
-   SWAP 5 - 5 MAX                             \ twidth theight
+   SWAP SZ-CHROME-ROWS - 5 MAX                \ twidth theight
    OVER SZ-WIN-W @ =
    OVER SZ-WIN-H @ = AND IF  2DROP EXIT  THEN
    SET-EDIT-WINDOW
@@ -824,4 +1087,4 @@ EDIT-WINDOW SZ-APPLY-EDIT-WINDOW
 ;
 
 \ Apply current window size to facility grid at load
-SZ-WIN-W @ 8 + SZ-SIDE-WIDTH + 1+  SZ-WIN-H @ 5 +  (FACILITY-SIZE)
+SZ-WIN-W @ 8 + SZ-SIDE-WIDTH + 1+  SZ-WIN-H @ SZ-CHROME-ROWS +  (FACILITY-SIZE)

@@ -8,6 +8,20 @@ Append new design sections as we go; mark items done when implemented.
 
 ---
 
+## v1.0.9 summary (in progress)
+
+| Area | Status |
+|------|--------|
+| Find next/prev: `SM/REM`, selection token, reverse-video match | **Done** |
+| Cmd-F type-in find in status Sel/Find field (aligned with visit list) | **Done** |
+| Facility Unicode cells + UTF-8 decode (`XEMIT` box-drawing) | **Done** |
+| SZ-EDITOR full chrome: status + text columns + help grid | **Done** |
+| Status: path ≤30; Sel/Find from side-panel column | **Done** |
+| Help: 4 columns, aligned `│`, bottom `┴` tees | **Done** |
+| Version strings 1.0.9 / build 16 | **Done** (product); DMG/GitHub release not cut yet |
+
+---
+
 ## Editor UX: caret and selection (1.0.8+)
 
 ### Short answer
@@ -270,4 +284,76 @@ _Further design suggestions and decisions go below as work proceeds._
 - Cmd-← / Cmd-→ / ⌘G prefer active multi-byte selection; else word at cursor.
 - Match is reverse-video selected; caret at match start; Selected: shows query.
 - `SZ-FIND-GOTO` no longer re-expands the token (avoids splitting at `/`).
+- Files: `sz-edit.fth` (`SZ-ASM-NAME-CHAR?`, `SZ-FIND-LOAD-TOKEN`, `SZ-FIND-GOTO`,
+  `SZ-FIND-SHOW-TOKEN`).
+
+### 2026-08-15 — Facility Unicode + box-drawing editor chrome (1.0.9)
+
+**Host (`FacilityTerminal.swift`)**
+
+- Cells store one **Unicode scalar** each (was ASCII-only `UInt8` → `.` for non-ASCII).
+- UTF-8 decode across `EMIT` / `TYPE` / `XEMIT` byte streams so multi-byte glyphs
+  (box-drawing) occupy a single monospaced cell.
+- `render()` emits full scalars; selection/caret still assume BMP (1 UTF-16 unit/cell).
+
+**Layout (`sz-screen.fth`) — facility rows = text height + 7 chrome**
+
+```
+row 0     ╭──────────────── full width ────────────────╮
+row 1     │ status (path, L/C, size, Sel: …)           │
+row 2     ├─────┬──────────────────────┬───────────────┤
+rows 3…   │ NNN │ text body            │ visit list    │
+          ├─────┴──────────────────────┴───────────────┤
+          │ help col │ help col │ help col │ help col  │
+          │ help col │ help col │ help col │ help col  │
+          ╰──────────┴──────────┴──────────┴───────────╯
+```
+
+- Outer box: light arcs `╭╮╰╯`, edges `─│`, mid rules `├┤` with column tees `┬┴`
+  aligned to gutter / text / side-panel separators.
+- Dirty Save/Discard dialog uses the same box characters (`sz-edit.fth`).
+- `SZ-CHROME-ROWS = 7`; `SZ-TEXT-TOP = 3`; host `facilityTextBand` matches
+  (`KernelBridge.swift`).
+
+### 2026-08-15 — Status path + Selected: (1.0.9)
+
+- Path **tail at most 30** characters (`SZ-STAT-PATHMAX`); longer paths show the
+  useful suffix (not a 3-dot ellipsis).
+- **Bug fix:** early tail math subtracted 30 from the **address** (`>R R@ - +`)
+  after `MIN` had already replaced `u`, producing garbage / “…”-looking junk.
+  Correct form: `DUP 30 > IF  30 - + 30  THEN` (same pattern as the old 33-char clip).
+- `SZ-ROOM-KEEP` reserves width for `Sel: "word"` [find note] so path/meta cannot
+  clip it; then pad and draw **Selected: flush right** in the status box.
+- Status/help content uses room-limited emit so text never wraps into chrome rows.
+
+### 2026-08-15 — Help grid with aligned separators (1.0.9)
+
+- Four fixed-width help fields + graphic `│` (not ASCII `|`); both help rows share
+  widths so separators line up vertically.
+  - W1=16 `Cmd-E/click VIEW` / `drag/Shift-click` (padded)
+  - W2=18 `Cmd-PgUp/Dn visits` / `dbl-word tri-line`
+  - W3=15 `side: line# [X]` / `Cmd-click VIEW`
+  - W4 = remaining inner width / `find Cmd-F/G` / `Cmd-X/C/V/S/W`
+- Outer bottom bar `SZ-DRAW-HELP-BOT` places `┴` under each help separator so the
+  help area is a closed grid (last col grows with window zoom).
+
+### 2026-08-15 — Cmd-F type-in find on status line (1.0.9)
+
+- **⌘F** opens status type-in find (key 131); host wires letter `f` like ⌘G.
+- Status layout:
+  - path/meta on the left
+  - **`Select/Find` title ends at the Files-column `│`** (`SZ-EDIT-RIGHT`)
+  - type-in / highlighted query is **right of that `│`** (under the visit list)
+  - Files `│` is drawn on the status row between title and type-in area
+- ⌘F with **no selection**: empty field, no word-under-cursor seed, no auto-highlight.
+  With a selection: seed query and live-match as before.
+- Typing edits `SZ-TOKEN` (reverse-video in type-in area); caret blinks there.
+- **Modal until Esc or document click:** arrows move the find caret only; other
+  keys are swallowed (never reach the document). **Click** in the type-in field
+  enters/stays in find-edit and places the caret; **click in the document** leaves
+  find-edit and resumes normal editing. **Enter** = find next and **stay** in the
+  field (avoids Return deleting a match in the buffer); **Esc** = leave; **⌘G /
+  ⌘←→** next/prev while staying in the field.
+- Typed / selection queries use **substring** search (`SZ-FIND-TYPED`); word-under-
+  cursor find stays **whole-word**.
 
