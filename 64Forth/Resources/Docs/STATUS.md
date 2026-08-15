@@ -1,6 +1,6 @@
 # 64Forth development status
 
-**Version in progress:** 1.0.9  
+**Version in progress:** 1.1.0  
 **Last updated:** 2026-08-15  
 
 This file tracks design notes and progress for work after 1.0.7.  
@@ -8,17 +8,24 @@ Append new design sections as we go; mark items done when implemented.
 
 ---
 
-## v1.0.9 summary (in progress)
+## v1.0.9 summary (released)
+
+Shipped with DMG and GitHub release `v1.0.9`.
 
 | Area | Status |
 |------|--------|
 | Find next/prev: `SM/REM`, selection token, reverse-video match | **Done** |
-| Cmd-F type-in find in status Sel/Find field (aligned with visit list) | **Done** |
-| Facility Unicode cells + UTF-8 decode (`XEMIT` box-drawing) | **Done** |
-| SZ-EDITOR full chrome: status + text columns + help grid | **Done** |
-| Status: path ≤30; Sel/Find from side-panel column | **Done** |
-| Help: 4 columns, aligned `│`, bottom `┴` tees | **Done** |
-| Version strings 1.0.9 / build 16 | **Done** (product); DMG/GitHub release not cut yet |
+| Cmd-F type-in find in status Sel/Find field | **Done** |
+| Facility Unicode cells + box-drawing editor chrome | **Done** |
+| Help grid; status Select/Find layout | **Done** |
+| Version 1.0.9 / build 16; DMG + GitHub release | **Done** |
+
+## v1.1.0 summary (in progress)
+
+| Area | Status |
+|------|--------|
+| Version strings 1.1.0 / build 17 | **Done** (product) |
+| Status-bar top-border `[X]` close (⌘W) | **Done** |
 
 ---
 

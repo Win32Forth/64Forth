@@ -1544,6 +1544,13 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
 \ Leave find-edit mode (defined early: mouse-down uses it before find section).
 : SZ-FIND-EDIT-OFF  ( -- )  0 SZ-FIND-EDIT ! ;
 
+\ True if facility (col row) is the outer-top-border [X] close control.
+: SZ-CLOSE-HIT?  ( col row -- flag )
+   SZ-OUTER-TOP <> IF  DROP FALSE EXIT  THEN
+   DUP SZ-CLOSE-COL < IF  DROP FALSE EXIT  THEN
+   SZ-CLOSE-COL SZ-CLOSE-XW + <              \ col < first after [X]
+;
+
 \ True if facility (col row) is in the status type-in find field.
 : SZ-FIND-FIELD-HIT?  ( col row -- flag )
    SZ-STAT-ROW <> IF  DROP FALSE EXIT  THEN
@@ -1577,9 +1584,18 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    -1 SZ-SEL-DONE !                          \ ignore mouse-up word-select
 ;
 
-\ mouse-down: find field | side-panel | ⌘ VIEW | triple | double | ⇧-extend | drag.
+\ mouse-down: status [X] close | find field | side-panel | ⌘ VIEW | …
 : SZ-MOUSE-DOWN  ( col row -- )
    0 SZ-SEL-DONE !
+   \ Status [X] → close editor (same as ⌘W / SZ-DO-QUIT)
+   2DUP SZ-CLOSE-HIT? IF
+      2DROP
+      0 SZ-DRAG-ACTIVE !
+      -1 SZ-SEL-DONE !
+      SZ-FIND-EDIT @ IF  SZ-FIND-EDIT-OFF  THEN
+      SZ-DO-QUIT
+      EXIT
+   THEN
    \ Status find type-in → enter/stay in find-edit; place field caret
    2DUP SZ-FIND-FIELD-HIT? IF
       DROP SZ-FIND-FIELD-CLICK
