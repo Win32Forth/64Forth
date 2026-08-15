@@ -546,12 +546,38 @@ VARIABLE SZ-DLG-T2
 : SZ-EDITOR-ENTER  ( -- )  -1 SZ-HOST-EDITOR-ACTIVE! ;
 : SZ-EDITOR-LEAVE  ( -- )   0 SZ-HOST-EDITOR-ACTIVE! ;
 
+\ Hyper multi-hit badge (values live in sz-screen). Defined early so menu open/new
+\ can clear the (n/m) status without a forward reference.
+: SZ-HYPER-HITS!  ( cur1based tot -- )
+   TO SZ-HH-TOT  TO SZ-HH-CUR ;
+
+: SZ-HYPER-HITS-OFF  ( -- )
+   0 TO SZ-HH-CUR  0 TO SZ-HH-TOT ;
+
 \ Menu-injected commands (host provideKey while KEY is waiting; path via SZ-HOST-TAKE-PATH)
+\ Cmd-O / File→Open: host shows panel, stages path with (SZ-PATH@), then key 30.
 : SZ-DO-MENU-OPEN  ( -- )
+   SZ-CONFIRM-DIRTY 0= IF
+      \ Discard host-staged path so a cancelled dirty dialog does not leak.
+      SZ-PENDING-PATH 511 (SZ-PATH@) DROP
+      EXIT
+   THEN
    SZ-HOST-TAKE-PATH
-   DUP 0= IF  2DROP EXIT  THEN
-   SZ-LOAD IF  ." SZ-EDITOR: open failed" CR EXIT  THEN
+   DUP 0= IF  2DROP EXIT  THEN                \ cancelled / no path
+   \ Copy off the host staging buffer immediately (stable for LOAD/RECORD).
+   255 MIN SZ-PATH-TMP SZ-PLACE
+   SZ-PATH-TMP COUNT
+   2DUP SZ-LOAD IF
+      ." SZ-EDITOR: open failed: " TYPE CR
+      2DROP EXIT
+   THEN
+   2DROP
    SZ-VIEW-RESET
+   SZ-HYPER-HITS-OFF
+   \ Side list only. Hyper multi-hit ENSURE will re-attach visits when needed.
+   SZ-HAS-NAME? IF
+      SZ-PATH-TMP COUNT 1 SZ-FL-RECORD
+   THEN
 ;
 
 : SZ-DO-MENU-NEW  ( -- )
@@ -696,14 +722,7 @@ VARIABLE SZ-SEL-DONE                   \ nonzero: selection finished on down (sk
 ;
 
 \ SZ-DO-MOUSE / drag phases are defined after SZ-DO-VIEW-UNDER (need clip helpers).
-
-\ Hyper multi-hit status: (cur/tot) after filename. Hyper calls SZ-HYPER-HITS!
-\ before OPEN/GOTO; plain file open clears so the badge does not linger.
-: SZ-HYPER-HITS!  ( cur1based tot -- )
-   TO SZ-HH-TOT  TO SZ-HH-CUR ;
-
-: SZ-HYPER-HITS-OFF  ( -- )
-   0 TO SZ-HH-CUR  0 TO SZ-HH-TOT ;
+\ SZ-HYPER-HITS! / SZ-HYPER-HITS-OFF are defined earlier (before menu open).
 
 \ Phase 5: load path + goto line for HYPER multi-hit ( a u line -- )
 \ Do not reference Hyper words here (editor loads before Hyper).
@@ -1386,6 +1405,96 @@ VARIABLE SZ-VIEW-NOTED                     \ nonzero: skip next HIST-NOTE
    SZ-REDRAW
 ;
 
+\ Close visit i ([X]): if it is the current buffer, confirm dirty then switch
+\ to the previous visit (or empty untitled if none left). Non-current rows
+\ only drop the list entry (buffer is not that file).
+: SZ-FL-GOTO-FORCE  ( i -- )
+   \ Like SZ-FL-GOTO but no dirty dialog (caller already confirmed).
+   DUP 0< IF  DROP EXIT  THEN
+   DUP SZ-FL-N @ >= IF  DROP EXIT  THEN
+   DUP SZ-FL-ENT C@ 0= IF  DROP EXIT  THEN
+   DUP SZ-FL-CUR !
+   DUP SZ-FL-ENT COUNT                        \ i a u
+   2DUP SZ-LOAD IF
+      ." cannot open " TYPE CR 2DROP DROP EXIT
+   THEN
+   2DROP
+   DUP SZ-FL-LINE@ SZ-GOTO-LINE
+   DROP
+   S" HYPER-VOC" PAD SZ-PLACE
+   PAD FIND IF
+      EXECUTE
+      S" HYPER-SET-VI" PAD SZ-PLACE
+      PAD FIND IF  SZ-FL-CUR @ SWAP EXECUTE  ELSE  DROP  THEN
+      PREVIOUS
+   ELSE  DROP  THEN
+   SZ-HYPER-HITS-OFF
+   SZ-REDRAW
+;
+
+VARIABLE SZ-FL-CI                             \ close: index
+VARIABLE SZ-FL-CW                             \ close: was current (flag)
+VARIABLE SZ-FL-CN0                            \ close: N before remove
+
+\ Empty editor after last visit closed (safe CUR/TOP, no Hyper FIND).
+: SZ-EDIT-UNTITLED  ( -- )
+   SZ-CLEAR-BUF
+   0 SZ-FNAME C!
+   SZ-TBUF-ADDR @ 0= IF  SZ-BUF-BOOT  THEN
+   SZ-VIEW-RESET
+   SZ-HYPER-HITS-OFF
+   0 SZ-SEL-OK !
+   0 SZ-PLACEHOLD !
+   0 SZ-PASTE-WHERE !
+;
+
+\ Close visit i ([X]).
+\ - Current row: dirty confirm, remove, show previous visit or untitled.
+\ - Other row: remove from list only.
+\ Hyper VTAB: try HYPER-V-REMOVE (rebuilds FL); if that no-ops (desync), FL-REMOVE.
+: SZ-FL-CLOSE  ( i -- )
+   DUP 0< IF  DROP EXIT  THEN
+   DUP SZ-FL-N @ >= IF  DROP EXIT  THEN
+   DUP SZ-FL-CI !
+   SZ-FL-CUR @ = SZ-FL-CW !
+   SZ-FL-CW @ IF
+      SZ-CONFIRM-DIRTY 0= IF  SZ-REDRAW EXIT  THEN
+   THEN
+   SZ-FL-N @ SZ-FL-CN0 !
+   \ Prefer Hyper remove when present (keeps VTAB/FL together via REBUILD).
+   SZ-FL-CI @                                 \ i
+   S" HYPER-VOC" PAD SZ-PLACE
+   PAD FIND IF
+      EXECUTE                                 \ PUSH-ORDER HYPER-VOC  ( i )
+      S" HYPER-V-REMOVE" PAD SZ-PLACE
+      PAD FIND IF
+         EXECUTE                              \ ( i xt ) → V-REMOVE ( i )
+      ELSE
+         DROP SZ-FL-REMOVE                    \ ( i )
+      THEN
+      PREVIOUS
+   ELSE
+      DROP SZ-FL-REMOVE                       \ ( caddr ) was FIND miss under i?
+   THEN
+   \ If Hyper V-REMOVE no-op'd (i was past VN), FL still has the row — remove it.
+   SZ-FL-N @ SZ-FL-CN0 @ = IF
+      SZ-FL-CI @ SZ-FL-N @ < IF
+         SZ-FL-CI @ SZ-FL-REMOVE
+      THEN
+   THEN
+   SZ-FL-N @ 0= IF
+      SZ-EDIT-UNTITLED
+      SZ-REDRAW
+      EXIT
+   THEN
+   SZ-FL-CW @ IF
+      SZ-FL-CI @ 1- 0 MAX SZ-FL-N @ 1- MIN
+      SZ-FL-GOTO-FORCE
+   ELSE
+      SZ-REDRAW
+   THEN
+;
+
 : SZ-SIDE-CLICK  ( col row -- )
    OVER SZ-EDIT-RIGHT > 0= IF  2DROP EXIT  THEN
    OVER SZ-COLS @ 1- < 0= IF  2DROP EXIT  THEN
@@ -1395,17 +1504,7 @@ VARIABLE SZ-VIEW-NOTED                     \ nonzero: skip next HIST-NOTE
    DUP 0< IF  2DROP EXIT  THEN
    DUP SZ-FL-N @ >= IF  2DROP EXIT  THEN
    SWAP SZ-FL-X-COL? IF
-      \ Hyper owns visit table; V-REMOVE rebuilds the side list.
-      S" HYPER-VOC" PAD SZ-PLACE
-      PAD FIND IF
-         EXECUTE
-         S" HYPER-V-REMOVE" PAD SZ-PLACE
-         PAD FIND IF  EXECUTE  ELSE  DROP SZ-FL-REMOVE  THEN
-         PREVIOUS
-      ELSE
-         DROP SZ-FL-REMOVE
-      THEN
-      SZ-REDRAW
+      SZ-FL-CLOSE
    ELSE
       SZ-FL-GOTO
    THEN

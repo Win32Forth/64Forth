@@ -492,6 +492,7 @@ XAT_XY:
 .extern _host_sz_view_cells
 .extern _host_sz_clip_set
 .extern _host_sz_clip_get
+.extern _host_sz_path_get
 
     BOOT_WORD "AT-XY?", "AT-XY? ( -- col row ) facility cursor position (0-based)", 0, XAT_XY_Q
 XAT_XY_Q:
@@ -583,6 +584,17 @@ XSZ_CLIP_FETCH:
     ldr  x0, [x22], #8             // c-addr
     SAVE_VM
     bl   _host_sz_clip_get         // x0 = length
+    RESTORE_VM
+    mov  x20, x0
+    NEXT
+
+// (SZ-PATH@) ( c-addr max -- u )  take host-staged open path (Cmd-O while KEY waits)
+    BOOT_WORD "(SZ-PATH@)", "(SZ-PATH@) ( c-addr max -- u ) take staged editor open path", 0, XSZ_PATH_FETCH
+XSZ_PATH_FETCH:
+    mov  x1, x20                   // max
+    ldr  x0, [x22], #8             // c-addr
+    SAVE_VM
+    bl   _host_sz_path_get         // x0 = length
     RESTORE_VM
     mov  x20, x0
     NEXT

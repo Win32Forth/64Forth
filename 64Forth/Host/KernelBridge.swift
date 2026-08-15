@@ -550,6 +550,12 @@ public func host_sz_clip_get(_ ptr: UnsafeMutableRawPointer?, _ maxLen: Int) -> 
     KernelBridge.shared.getEditorClipboard(into: ptr, maxLength: maxLen)
 }
 
+/// (SZ-PATH@) ( c-addr max -- u ) take host-staged open path (Cmd-O while KEY waits).
+@_cdecl("host_sz_path_get")
+public func host_sz_path_get(_ ptr: UnsafeMutableRawPointer?, _ maxLen: Int) -> Int {
+    KernelBridge.shared.takeStagedEditorOpenPath(into: ptr, maxLength: maxLen)
+}
+
 // MARK: - Bridge
 
 final class KernelBridge {
@@ -1032,6 +1038,83 @@ final class KernelBridge {
             editorClipboard.copyBytes(to: ptr.assumingMemoryBound(to: UInt8.self), count: n)
         }
         return n
+    }
+
+    // MARK: - Editor open path staging (Cmd-O while KEY waits)
+
+    /// Path staged by the host open panel for the next `SZ-DO-MENU-OPEN` / `(SZ-PATH@)`.
+    private var stagedEditorOpenPath: String = ""
+    /// Last successful editor file (absolute or Library-relative). Drives open-panel start dir.
+    private(set) var lastEditorFilePath: String?
+    /// True if the current editor session was opened under FROMLIB (panel starts at Library).
+    private(set) var editorOpenedFromLibrary = false
+
+    /// Stage a path for Forth `(SZ-PATH@)` / `SZ-HOST-TAKE-PATH` (no nested evaluate).
+    /// Prefer Library-relative form when the file is under the bundle Library so
+    /// SZ-FNAME / visit slots stay short (absolute DerivedData paths are huge).
+    func stageEditorOpenPath(_ path: String) {
+        let staged: String
+        if let lib = FileHost.shared.libraryURL {
+            let libPath = lib.standardizedFileURL.path
+            let full = URL(fileURLWithPath: path).standardizedFileURL.path
+            if full == libPath || full.hasPrefix(libPath + "/") {
+                let rest = String(full.dropFirst(libPath.count))
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                staged = rest.isEmpty ? "Library" : "Library/" + rest
+            } else {
+                staged = path
+            }
+        } else {
+            staged = path
+        }
+        stagedEditorOpenPath = staged
+        noteEditorFilePath(staged)
+    }
+
+    /// Copy staged open path into Forth buffer and clear it. Returns byte length.
+    func takeStagedEditorOpenPath(into ptr: UnsafeMutableRawPointer?, maxLength: Int) -> Int {
+        let data = Data(stagedEditorOpenPath.utf8)
+        stagedEditorOpenPath = ""
+        let n = min(max(0, maxLength), data.count)
+        if n > 0, let ptr {
+            data.copyBytes(to: ptr.assumingMemoryBound(to: UInt8.self), count: n)
+        }
+        return n
+    }
+
+    /// Remember the file currently being edited (for Cmd-O start directory).
+    func noteEditorFilePath(_ path: String) {
+        let t = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        lastEditorFilePath = t
+    }
+
+    /// Directory for NSOpenPanel: current file's folder, else Library if FROMLIB session, else cwd.
+    func editorOpenStartDirectory() -> URL {
+        if let p = lastEditorFilePath, !p.isEmpty {
+            // Absolute path on disk
+            if p.hasPrefix("/") {
+                let parent = URL(fileURLWithPath: p).deletingLastPathComponent()
+                if FileManager.default.fileExists(atPath: parent.path) {
+                    return parent
+                }
+            }
+            // HYPER / Library-relative (Library/…, Hyper/…, Editor/…)
+            if let resolved = FileHost.shared.resolveHyperStylePath(p)
+                ?? FileHost.shared.resolveLoadPath(p, switchCwdForFromLib: false) {
+                let parent = resolved.deletingLastPathComponent()
+                if FileManager.default.fileExists(atPath: parent.path) {
+                    return parent
+                }
+            }
+        }
+        if editorOpenedFromLibrary, let lib = FileHost.shared.libraryURL {
+            return lib
+        }
+        if FileHost.shared.fromLibraryArmed, let lib = FileHost.shared.libraryURL {
+            return lib
+        }
+        return URL(fileURLWithPath: FileHost.shared.logicalCurrentDirectory, isDirectory: true)
     }
 
     /// ⌘X / ⌘C / ⌘V while SZ-EDITOR KEY is waiting.
@@ -1771,6 +1854,7 @@ final class KernelBridge {
     /// Open a path in SZ-EDITOR (EDITOR vocabulary). Path is absolute or relative.
     @discardableResult
     func openInSzEditor(path: String) -> Int32 {
+        noteEditorFilePath(path)
         // Escape for S" … " — use a counted path via evaluate of SET-PATH + OPEN-EDIT
         let escaped = path
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -1811,8 +1895,10 @@ final class KernelBridge {
             if FileHost.shared.fromLibraryArmed, let lib = FileHost.shared.libraryURL {
                 FileHost.shared.clearFromLibrary()
                 szEditorOpenStartDirectory = lib
+                editorOpenedFromLibrary = true
             } else {
                 szEditorOpenStartDirectory = nil
+                editorOpenedFromLibrary = false
             }
         }
 

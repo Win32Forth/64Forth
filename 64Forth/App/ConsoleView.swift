@@ -26,6 +26,8 @@ extension Notification.Name {
     static let toolsEdit = Notification.Name("SixtyFourForthToolsEdit")
     /// File → Save (⌘S) while SZ-EDITOR is active → inject save key (19).
     static let fileSave = Notification.Name("SixtyFourForthFileSave")
+    /// File → Open… (⌘O) → open panel (into SZ-EDITOR when active, else start editor).
+    static let fileOpen = Notification.Name("SixtyFourForthFileOpen")
     /// File → Close (⌘W) while SZ-EDITOR is active → inject quit-editor key (17).
     /// Must not quit the app; ⌘Q does that.
     static let fileClose = Notification.Name("SixtyFourForthFileClose")
@@ -218,6 +220,9 @@ struct ConsoleView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .fileSave)) { _ in
                 handleFileSave()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fileOpen)) { _ in
+                handleFileOpen()
             }
             .onReceive(NotificationCenter.default.publisher(for: .fileClose)) { _ in
                 handleFileClose()
@@ -466,7 +471,7 @@ struct ConsoleView: View {
     private func handleSzEditorOpenRequestIfNeeded() {
         guard kernel.takeSzEditorOpenRequest() else { return }
         let startDir = kernel.szEditorOpenStartDirectory
-            ?? URL(fileURLWithPath: host.logicalCurrentDirectory, isDirectory: true)
+            ?? kernel.editorOpenStartDirectory()
         kernel.szEditorOpenStartDirectory = nil
 
         presentSzEditorOpenPanel(startDirectory: startDir) { url in
@@ -590,7 +595,46 @@ struct ConsoleView: View {
         keepCursorVisible(followPrompt: true)
     }
 
-    // MARK: - File menu while SZ-EDITOR is open (⌘S / ⌘W)
+    // MARK: - File menu (⌘O / ⌘S / ⌘W)
+
+    /// ⌘O / File→Open… — panel starts at current file folder, FROMLIB Library, or cwd.
+    private func handleFileOpen() {
+        #if os(macOS)
+        let startDir = kernel.editorOpenStartDirectory()
+        if kernel.isEvaluating, kernel.isFacilityTerminalActive {
+            // In SZ-EDITOR KEY loop: stage path + push key 30 (SZ-CMD-OPEN).
+            presentSzEditorOpenPanel(startDirectory: startDir) { url in
+                guard let url else { return }
+                self.kernel.stageEditorOpenPath(url.path)
+                _ = self.kernel.pushKey(30)
+            }
+            return
+        }
+        if kernel.isEvaluating {
+            // Busy with non-editor work — don't nest.
+            appendEngineOutput("? Open: finish the current command first\n")
+            markProtectedThroughEndOfText()
+            return
+        }
+        // Idle console: open panel then enter SZ-EDITOR (same as bare SZEDIT).
+        presentSzEditorOpenPanel(startDirectory: startDir) { url in
+            guard let url else { return }
+            self.isProgrammaticConsoleAppend = true
+            _ = self.kernel.openInSzEditor(path: url.path)
+            self.markProtectedThroughEndOfText()
+            if !self.consoleText.hasSuffix("\n") {
+                self.consoleText += "\n"
+                self.markProtectedThroughEndOfText()
+            }
+            self.appendPrompt()
+            self.isProgrammaticConsoleAppend = false
+            self.keepCursorVisible(followPrompt: true)
+        }
+        #else
+        appendEngineOutput("? Open panel not available on iOS\n")
+        markProtectedThroughEndOfText()
+        #endif
+    }
 
     /// ⌘S — inject save (code 19 = SZ-CTRL-S) into the editor KEY loop.
     private func handleFileSave() {

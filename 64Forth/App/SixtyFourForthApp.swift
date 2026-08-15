@@ -44,7 +44,13 @@ struct SixtyFourForthApp: App {
             ContentView()
         }
         .commands {
-            CommandGroup(replacing: .newItem) { }
+            // File → Open… (⌘O): open panel; while SZ-EDITOR is open, loads into editor.
+            CommandGroup(replacing: .newItem) {
+                Button("Open…") {
+                    NotificationCenter.default.post(name: .fileOpen, object: nil)
+                }
+                .keyboardShortcut("o", modifiers: .command)
+            }
             // ⌘S / ⌘W: while SZ-EDITOR is open, Save / Close editor (not the app).
             // ⌘Q still quits the application.
             CommandGroup(replacing: .saveItem) {

@@ -202,6 +202,10 @@ final class FileAccess {
         let pos = 0
         let id = nextId
         nextId += 1
+        // While SZ-EDITOR is open, remember this file's folder for Cmd-O start dir.
+        if KernelBridge.shared.isFacilityTerminalActive {
+            KernelBridge.shared.noteEditorFilePath(url.path)
+        }
         files[id] = ForthFileEntry(
             path: url.path,
             data: data,

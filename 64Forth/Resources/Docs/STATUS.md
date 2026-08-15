@@ -216,6 +216,20 @@ _Further design suggestions and decisions go below as work proceeds._
 - `HYPER-HIST-ENSURE-HIT`: if path+line already in VTAB, select it; else RECORD
   after current. Called from `HYPER-APPLY-HIT` so each multi-hit appears with line#.
 
+### 2026-08-14 — File → Open… (⌘O)
+
+- Menu + shortcut; open panel start dir = current file’s folder (VIEW/Cmd-click),
+  else Library after FROMLIB session, else session cwd.
+- In-editor: stage path via `(SZ-PATH@)` / host (no nested EVALUATE), key 30
+  `SZ-DO-MENU-OPEN` (dirty confirm, load, visit RECORD).
+- Idle: same panel then `openInSzEditor`.
+
+### 2026-08-14 — Side [X] closes visit and switches buffer
+
+- Closing the **current** visit: dirty Save/Discard/Cancel; remove visit; load
+  previous row (or untitled if list empty). Closing a **non-current** row only
+  drops the list entry.
+
 ### 2026-08-14 — Side panel file list
 
 - 16-col panel right of editor (no "Files" title); status stays full width.

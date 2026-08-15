@@ -602,12 +602,17 @@ VARIABLE HYPER-FL-IX
    HYPER-FL-SET-CUR
 ;
 
+\ Remove visit i from VTAB and rebuild side list.
+\ If i was current, VI becomes previous (i-1) or 0 — editor should then
+\ load that visit (see SZ-FL-CLOSE). Does not load/goto itself.
 : HYPER-V-REMOVE  ( i -- )
    DUP 0< IF  DROP EXIT  THEN
    DUP HYPER-VN >= IF  DROP EXIT  THEN
+   DUP HYPER-VI = >R                          \ R: was-current?
    HYPER-V-IX !
    HYPER-VN 1 = IF
       0 TO HYPER-VN  0 TO HYPER-VI
+      R> DROP
       HYPER-FL-REBUILD EXIT
    THEN
    HYPER-VN HYPER-V-IX @ - 1- DUP 0> IF
@@ -617,8 +622,14 @@ VARIABLE HYPER-FL-IX
       R> MOVE
    ELSE  DROP  THEN
    HYPER-VN 1- TO HYPER-VN
-   HYPER-VI HYPER-V-IX @ > IF  HYPER-VI 1- TO HYPER-VI  THEN
-   HYPER-VI HYPER-VN >= IF  HYPER-VN 1- 0 MAX TO HYPER-VI  THEN
+   R> IF
+      \ Closed the current visit → land on previous row (or 0).
+      HYPER-V-IX @ 1- 0 MAX
+      HYPER-VN 1- MIN TO HYPER-VI
+   ELSE
+      HYPER-VI HYPER-V-IX @ > IF  HYPER-VI 1- TO HYPER-VI  THEN
+      HYPER-VI HYPER-VN >= IF  HYPER-VN 1- 0 MAX TO HYPER-VI  THEN
+   THEN
    HYPER-FL-REBUILD
 ;
 

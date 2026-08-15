@@ -138,8 +138,13 @@ VARIABLE SZ-PENDING-LEN
    (SZ-OPEN-REQ)
 ;
 
-\ ( -- c-addr u )  path staged by host after open panel; empty if none
+\ ( -- c-addr u )  path staged by host after open panel; empty if none.
+\ Prefers host-staged Cmd-O path via (SZ-PATH@) (works while KEY is waiting
+\ without nested EVALUATE); else SZ-HOST-SET-PATH buffer from evaluate.
 : SZ-HOST-TAKE-PATH  ( -- c-addr u )
+   SZ-PENDING-PATH 511 (SZ-PATH@) DUP IF
+      SZ-PENDING-PATH SWAP EXIT
+   THEN DROP
    SZ-PENDING-PATH SZ-PENDING-LEN @
    0 SZ-PENDING-LEN !
 ;
