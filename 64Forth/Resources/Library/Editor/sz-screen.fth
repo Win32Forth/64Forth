@@ -790,8 +790,7 @@ VARIABLE SZ-NUMN
    SZ-MODIFIED @ IF  [CHAR] * SZ-ROOM-EMIT  THEN
    S"  L:" SZ-ROOM-TYPE  SZ-CUR-LINE-NO SZ-ROOM-U.
    S"  C:" SZ-ROOM-TYPE  SZ-CUR-COL 1+ SZ-ROOM-U.
-   S"  " SZ-ROOM-TYPE  SZ-TLEN @ SZ-ROOM-U.
-   S" b/" SZ-ROOM-TYPE  SZ-TBUF-CAP @ SZ-ROOM-U.
+   S"  " SZ-ROOM-TYPE  SZ-TLEN @ SZ-ROOM-U.   \ file/buffer size only (no "b", no capacity)
    \ --- title ends at the Files-column vertical ---
    SZ-SEL-TITLE-COL SZ-STAT-ROW AT-XY
    S" Select/Find" TYPE
@@ -802,13 +801,15 @@ VARIABLE SZ-NUMN
    SZ-SEL-FIELD-W SZ-ROOM !
    0 SZ-ROOM-KEEP !
    SZ-SEL-WORD COUNT SZ-SEL-TEXT-MAX MIN SZ-ROOM-TYPE
+   \ Find-edit notes (e.g. "(no next)") flush-right at end of field, not after query
    SZ-FIND-EDIT @ IF
       SZ-FIND-STAT C@ IF
-         BL SZ-ROOM-EMIT
+         SZ-ROOM @ SZ-FIND-STAT C@ - 0 MAX
+         BEGIN  DUP 0> WHILE  1- BL SZ-ROOM-EMIT  REPEAT  DROP
          SZ-FIND-STAT COUNT SZ-ROOM-TYPE
       THEN
    THEN
-   \ Pad remainder of field (plain spaces; I-beam shows insert point)
+   \ Pad any leftover (plain spaces; I-beam shows insert point)
    BEGIN  SZ-ROOM @ 0> WHILE  BL SZ-ROOM-EMIT  REPEAT
 ;
 

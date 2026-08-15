@@ -858,9 +858,12 @@ struct ConsoleTextView: NSViewRepresentable {
                     }
                 }
 
-                // Return / Enter → LF (10); SZ-EDITOR inserts CRLF
+                // Return → LF (10); ⇧Return → 132 (find previous while Cmd-F field open)
                 if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                    parent.onKeyCharacter(10)
+                    let shiftOnly = mods.contains(.shift)
+                        && !mods.contains(.command)
+                        && !mods.contains(.option)
+                    parent.onKeyCharacter(shiftOnly ? 132 : 10)
                     return true
                 }
                 // Tab → ASCII 9; SZ-EDITOR expands to spaces (must not be swallowed)

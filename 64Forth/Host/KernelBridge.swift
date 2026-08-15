@@ -1646,6 +1646,16 @@ final class KernelBridge {
                 return nil
             }
 
+            // Return (36): plain → LF (10); ⇧Return → 132 (find previous in Cmd-F field).
+            if facilityOn, event.keyCode == 36 {
+                if mods.contains(.shift), !mods.contains(.command), !mods.contains(.option) {
+                    self.pushKey(132) // SZ-SHIFT-ENTER
+                } else {
+                    self.pushKey(10) // LF
+                }
+                return nil
+            }
+
             // Ctrl-Home / Ctrl-End → start/end of file (sz-edit: 28 / 29).
             // Plain Home/End → start/end of line (1 / 5) via F-PC mapping below.
             // Also accept while KEY is waiting even if facility flag races briefly.

@@ -25,6 +25,7 @@
 \                   assembly (.s/.inc/.asm): identifier bounds (labels / XROT:)
 \   Cmd-F           type find string in status Select/Find type-in field
 \   click find field  enter/stay find-edit (place caret); click document → edit again
+\   Return / ⇧Return  find next / previous (stay in field); Esc or click-out leave
 \   Cmd-G / Cmd-→   find next; Cmd-⇧G / Cmd-← find previous
 \   Cmd-S / Ctrl-S  save
 \   Cmd-W / Ctrl-Q  quit
@@ -69,6 +70,7 @@ DECIMAL
  30 CONSTANT SZ-CMD-OPEN       \ host File→Open while KEY waiting
  31 CONSTANT SZ-CMD-NEW        \ host File→New while KEY waiting
 131 CONSTANT SZ-FIND-EDIT-KEY  \ Cmd-F — type find string in status field
+132 CONSTANT SZ-SHIFT-ENTER    \ ⇧Return — find previous (while find field open)
 127 CONSTANT SZ-DEL            \ also delete-forward (legacy)
 
 VARIABLE SZ-DONE
@@ -1815,7 +1817,7 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    SZ-WORD-END @ DUP 0= IF  DROP SZ-CUR @  THEN
    SZ-SEARCH-FWD-Q
    DUP 0= IF
-      DROP S" no next" SZ-FIND-KEEP-SEL EXIT
+      DROP S" (no next)" SZ-FIND-KEEP-SEL EXIT
    THEN
    SZ-FIND-GOTO
 ;
@@ -1825,7 +1827,7 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    SZ-WORD-BEG @ DUP 0= IF  DROP SZ-CUR @  THEN
    SZ-SEARCH-BWD-Q
    DUP 0= IF
-      DROP S" no prev" SZ-FIND-KEEP-SEL EXIT
+      DROP S" (no prev)" SZ-FIND-KEEP-SEL EXIT
    THEN
    SZ-FIND-GOTO
 ;
@@ -1941,6 +1943,13 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    SZ-DO-FIND-NEXT-TOKEN
 ;
 
+\ ⇧Return in find field: find previous match, stay in the field.
+: SZ-FIND-EDIT-COMMIT-PREV  ( -- )
+   SZ-TOKEN C@ 0= IF  S" no word" SZ-FIND-SET-STAT EXIT  THEN
+   -1 SZ-FIND-TYPED !
+   SZ-DO-FIND-PREV-TOKEN
+;
+
 \ Cmd-Right / ⌘G: next occurrence.
 \ Prefer active Cmd-F / last typed query; else selection or word under cursor.
 : SZ-DO-FIND-NEXT  ( -- )
@@ -1952,7 +1961,7 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    SZ-WORD-END @                             \ search after current token range
    SZ-SEARCH-FWD-Q
    DUP 0= IF
-      DROP S" no next" SZ-FIND-KEEP-SEL EXIT
+      DROP S" (no next)" SZ-FIND-KEEP-SEL EXIT
    THEN
    SZ-FIND-GOTO ;
 
@@ -1966,7 +1975,7 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    SZ-WORD-BEG @
    SZ-SEARCH-BWD-Q
    DUP 0= IF
-      DROP S" no prev" SZ-FIND-KEEP-SEL EXIT
+      DROP S" (no prev)" SZ-FIND-KEEP-SEL EXIT
    THEN
    SZ-FIND-GOTO ;
 
@@ -2014,12 +2023,15 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    DROP
 ;
 
-\ Modal find-field keys.  Only Esc or click-out leave; Enter finds next and stays.
-\ Arrows move the find caret; other keys do not reach the document.
+\ Modal find-field keys.  Only Esc or click-out leave.
+\ Enter → next match; ⇧Return → previous match; both stay in the field.
 : SZ-FIND-EDIT-DISPATCH  ( c -- )
    DUP 27 = IF  DROP SZ-FIND-EDIT-OFF EXIT  THEN          \ Esc → document
+   DUP SZ-SHIFT-ENTER = IF
+      DROP SZ-FIND-EDIT-COMMIT-PREV EXIT                  \ ⇧Return → prev, stay
+   THEN
    DUP SZ-ENTER = OVER SZ-LF-KEY = OR IF
-      DROP SZ-FIND-EDIT-COMMIT EXIT                       \ Enter → next match, stay
+      DROP SZ-FIND-EDIT-COMMIT EXIT                       \ Enter → next, stay
    THEN
    DUP SZ-MOUSE = IF  DROP SZ-DO-MOUSE EXIT  THEN         \ field vs document
    DUP SZ-BS = IF  DROP SZ-FIND-EDIT-BS EXIT  THEN
