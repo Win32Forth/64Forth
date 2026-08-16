@@ -838,9 +838,11 @@ VARIABLE SZ-NUMN
 \ Fixed field widths so row1/row2 separators line up; last col takes the rest.
 \ Outer bottom bar uses matching ┴ tees so the help grid is fully boxed.
 \ -----------------------------------------------------------------------------
- 16 CONSTANT SZ-HELP-W1          \ "Cmd-E/click VIEW" / "drag/Shift-click" + pad
- 18 CONSTANT SZ-HELP-W2          \ "Cmd-PgUp/Dn visits" / "dbl-word tri-line"
- 15 CONSTANT SZ-HELP-W3          \ "side: line# [X]" / "Cmd-click VIEW"
+\ Field widths include one leading + one trailing space around the message.
+\ (Was 16/18/15 before padding; +2 so strings are not clipped.)
+ 18 CONSTANT SZ-HELP-W1          \ " Cmd-E/click VIEW " / " drag/Shift-click "
+ 20 CONSTANT SZ-HELP-W2          \ " Cmd-PgUp/Dn visits " / " dbl-word tri-line "
+ 17 CONSTANT SZ-HELP-W3          \ " side: line# [X] " / " Cmd-click VIEW "
 \ W4 = remaining inner width after W1+W2+W3 + 3 separators
 
 VARIABLE SZ-HELP-R
@@ -860,13 +862,20 @@ VARIABLE SZ-HELP-A4  VARIABLE SZ-HELP-U4
 : SZ-HELP-SEP2  ( -- col )  SZ-HELP-SEP1 1+ SZ-HELP-W2 + ;
 : SZ-HELP-SEP3  ( -- col )  SZ-HELP-SEP2 1+ SZ-HELP-W3 + ;
 
-\ Type field left-justified in `width` cols (clipped + space pad). Uses SZ-ROOM.
+\ Exactly `width` cols: " " + text + pad spaces + " ". Uses SZ-ROOM.
+\ Must emit precisely `width` so the following │ (SZ-HELP-V / SEP AT-XY) stay aligned.
 : SZ-HELP-FIELD  ( c-addr u width -- )
    >R                                         \ a u  R:width
-   R@ MIN                                     \ a u'
+   R@ 2 < IF                                  \ too narrow for " x "
+      2DROP R> 0 MAX 0 ?DO  BL SZ-ROOM-EMIT  LOOP  EXIT
+   THEN
+   BL SZ-ROOM-EMIT                            \ leading space
+   R@ 2 - MIN                                 \ a u'  (max width-2)
    DUP >R SZ-ROOM-TYPE                        \ R:width u'
-   R> R> SWAP - 0 MAX                         \ pad
+   R> R@ SWAP - 2 - 0 MAX                     \ pad = width - 2 - u'
    BEGIN  DUP 0> WHILE  1- BL SZ-ROOM-EMIT  REPEAT  DROP
+   BL SZ-ROOM-EMIT                            \ trailing space
+   R> DROP
 ;
 
 : SZ-HELP-V  ( -- )

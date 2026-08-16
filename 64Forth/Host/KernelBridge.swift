@@ -617,7 +617,9 @@ final class KernelBridge {
     /// Extra columns relative to measured fit. +10 widens overall by ~12 vs the
     /// prior −2 setting (user: still ~12 cols too narrow with side panel).
     private static let facilityColAdjust = 10
-    private static let facilityRowSafety = 1
+    /// Rows subtracted from measured pane height. 0 = fit pane; +1 leaves a
+    /// little air above the splitter (user: one monospaced cell of gap).
+    private static let facilityRowSafety = 0
     /// Right-hand file-list panel content width (filename.ext); +1 outer '|' in Forth.
     static let facilitySidePanelCols = 16
     private var consoleVisibleSize = CGSize(width: 640, height: 400)

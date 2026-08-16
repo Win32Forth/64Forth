@@ -125,9 +125,11 @@ struct ConsoleView: View {
 
     #if os(macOS)
     private var splitEditorAndCommand: some View {
-        VSplitView {
+        // Custom NSSplitView: 5pt divider (gray/white/black/white/gray) for easy grab.
+        EditorCommandSplitView {
             facilityPane
                 .frame(minHeight: 160)
+        } bottom: {
             commandPane
                 .frame(minHeight: 72)
                 .frame(idealHeight: 100)
@@ -1343,3 +1345,69 @@ struct ConsoleView: View {
         keepCursorVisible(followPrompt: true)
     }
 }
+
+#if os(macOS)
+/// Vertical split with a 5pt grab bar: gray / white / black / white / gray.
+private struct EditorCommandSplitView<Top: View, Bottom: View>: NSViewRepresentable {
+    @ViewBuilder var top: () -> Top
+    @ViewBuilder var bottom: () -> Bottom
+
+    func makeNSView(context: Context) -> EditorCommandNSSplitView {
+        let split = EditorCommandNSSplitView()
+        split.isVertical = false // horizontal divider (top/bottom panes)
+        split.dividerStyle = .thin
+        split.autoresizingMask = [.width, .height]
+
+        let topHost = NSHostingView(rootView: top())
+        let botHost = NSHostingView(rootView: bottom())
+        split.addArrangedSubview(topHost)
+        split.addArrangedSubview(botHost)
+        split.setHoldingPriority(.defaultLow, forSubviewAt: 0)
+        split.setHoldingPriority(.defaultHigh, forSubviewAt: 1)
+        context.coordinator.topHost = topHost
+        context.coordinator.botHost = botHost
+        // Initial command pane ~100pt after first layout.
+        DispatchQueue.main.async {
+            let total = split.bounds.height
+            guard total > 200 else { return }
+            split.setPosition(total - 100 - split.dividerThickness, ofDividerAt: 0)
+        }
+        return split
+    }
+
+    func updateNSView(_ split: EditorCommandNSSplitView, context: Context) {
+        context.coordinator.topHost?.rootView = top()
+        context.coordinator.botHost?.rootView = bottom()
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var topHost: NSHostingView<Top>?
+        var botHost: NSHostingView<Bottom>?
+    }
+}
+
+/// NSSplitView with a 5-pixel painted divider for easy mouse hit-testing.
+final class EditorCommandNSSplitView: NSSplitView {
+    override var dividerThickness: CGFloat { 5 }
+
+    override func drawDivider(in rect: NSRect) {
+        // Five 1pt stripes: gray, white, black, white, gray.
+        let colors: [NSColor] = [
+            NSColor(calibratedWhite: 0.55, alpha: 1),
+            .white,
+            .black,
+            .white,
+            NSColor(calibratedWhite: 0.55, alpha: 1)
+        ]
+        let stripeH = max(rect.height / CGFloat(colors.count), 1)
+        for (i, color) in colors.enumerated() {
+            let y = rect.minY + CGFloat(i) * stripeH
+            let r = NSRect(x: rect.minX, y: y, width: rect.width, height: stripeH)
+            color.setFill()
+            r.fill()
+        }
+    }
+}
+#endif
