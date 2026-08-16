@@ -1,7 +1,7 @@
 # 64Forth development status
 
 **Version in progress:** 1.1.0  
-**Last updated:** 2026-08-15  
+**Last updated:** 2026-08-15 (evening)  
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
@@ -20,17 +20,22 @@ Shipped with DMG and GitHub release `v1.0.9`.
 | Help grid; status Select/Find layout | **Done** |
 | Version 1.0.9 / build 16; DMG + GitHub release | **Done** |
 
-## v1.1.0 summary (in progress)
+## v1.1.0 summary (shipping candidate)
 
 | Area | Status |
 |------|--------|
-| Version strings 1.1.0 / build 17 | **Done** (product) |
+| Version strings 1.1.0 / build 17 | **Done** |
 | Status-bar top-border `[X]` close (⌘W) | **Done** |
-| Split pane: facility editor + scrollable Forth command console | **Design Option A; phase 1 in progress** |
-| Phase 1: `VSplitView` + lower command pane + staged evaluate (key 133) | **Done (host + Forth)** |
-| Click console pane → type `ok>` while editor open | **Done (phase 1)** |
-| System splitter drag (grow/shrink panes) | **Planned** (phase 1 uses default split; drag comes free with `VSplitView` — refine next) |
-| Persist split ratio; polish focus/prompt | **Planned** |
+| Option A: facility editor **above** + scrollable command pane **below** | **Done** |
+| Staged command evaluate while KEY waits (key 133 / `(SZ-CMD@)` / `(SZ-CMD-DONE)`) | **Done** |
+| Click either pane; type `ok(n)>` while editor open; stack shared | **Done** |
+| Custom 5pt splitter (gray/white/black/white/gray); drag to resize | **Done** |
+| Long FLOAD/Hayes/ANS-VALIDATE output scrolls live in command pane | **Done** |
+| Nested `EVALUATE` under command `CATCH` (inner Core tests keep running) | **Done** |
+| Grid paint never leaks into command transcript during emit bypass | **Done** |
+| Help fields: leading/trailing space; facility row fit above divider | **Done** |
+| Persist split ratio in UserDefaults | **Not yet** |
+| Multi-line paste polish in command pane | **Not yet** |
 
 ---
 
@@ -40,7 +45,7 @@ Shipped with DMG and GitHub release `v1.0.9`.
 
 ### Motivation
 
-- Today the host already **reserves ~5 monospaced lines** below the facility (`facilityCommandAreaLines = 5` in `KernelBridge`) for “command entry,” but while SZ-EDITOR owns `KEY` those lines are mostly **dead space** — not a live `ok>` REPL.
+- Pre-1.1 the host reserved ~5 monospaced lines below the facility for “command entry,” but while SZ-EDITOR owns `KEY` those lines were mostly **dead space**. **1.1.0** replaces that with a real lower command pane (`facilityCommandAreaLines = 0`).
 - User wants to:
   1. **Click** the lower area and run arbitrary Forth interactively (`ok>` prompt).
   2. Later **drag a splitter** (represented by the bottom of the help chrome / pane boundary) to grow or shrink that command area.
@@ -139,38 +144,48 @@ Option A matches “interactive command window that scrolls with a scroll bar”
 | First milestone | Fixed-height lower console: click → type Forth → see result; Esc/click editor returns focus |
 | Second milestone | Draggable splitter grows/shrinks console vs editor |
 
-### Related code (today)
+### Related code (implemented)
 
-- `KernelBridge.facilityCommandAreaLines` (= 5) and `preferredFacilityCells()`  
-- Facility paint: `FacilityTerminal` + `TERMINAL-REFRESH` / `ConsoleView` facility path  
-- Idle console: `ConsoleView` / `ConsoleTextView` when facility inactive  
-- Editor KEY ownership: `sz-edit.fth` `(SZ-EDIT-LOOP)`  
+- `KernelBridge.facilityCommandAreaLines` (= **0**); `facilityRowSafety` (= **0**); `preferredFacilityCells()` from **upper** pane only  
+- Facility paint: `FacilityTerminal` (`gridPaintActive` for PAGE/AT-XY…TERMINAL-REFRESH) + `ConsoleView`  
+- Idle console: single `ConsoleTextView` when facility inactive  
+- Split: `EditorCommandSplitView` / `EditorCommandNSSplitView` (5pt striped divider)  
+- Editor KEY: `sz-edit.fth` `(SZ-EDIT-LOOP)`; command line `SZ-DO-CONSOLE-LINE`  
 
-### Open questions (resolve during implementation)
+### Open questions (mostly resolved)
 
-- Exact split: embed both panes inside the current console window, or replace single text view with `NSSplitView`?  
-- Does evaluate-while-editor-open share the same Forth dictionary/stack as the open edit session (yes, desired) and how do we surface errors in the lower pane only?  
-- Should facility still reserve “command lines” in cell math, or should the upper pane be 100% facility with no dead rows once the lower view exists?
+| Question | Resolution |
+|----------|------------|
+| Embed both panes vs `NSSplitView`? | Custom `NSSplitView` (macOS); stacked panes on iOS |
+| Shared dictionary/stack while editor open? | **Yes** — same `kernel_eval` session; command line is nested `EVALUATE` under CATCH |
+| Facility still reserve 5 command rows? | **No** — `facilityCommandAreaLines = 0`; lower host pane owns the REPL |
 
-### 2026-08-15 — Phase 1 implementation (Option A)
+### 2026-08-15 — Option A implementation (as shipped for DMG)
 
-**Host UI (`ConsoleView.swift`)**
-- When facility becomes active: `isEditorSplitActive` → **`VSplitView`** (macOS) / stacked panes (iOS).
-- **Upper:** existing facility paint (`consoleText` + KEY into editor when that pane is focused).
-- **Lower:** separate `ConsoleTextView` (`commandText`) with protected prompt prefix, history Up/Down, scrollbar via `NSScrollView`.
-- Geometry for `preferredFacilityCells` is measured from the **upper** pane; `facilityCommandAreaLines` set to **0** (lower pane is no longer reserved facility rows).
-- On `FACILITY-OFF`: leave split, fold command-pane transcript into main console under `--- command pane ---`.
+**Host UI**
+- `isEditorSplitActive` → upper facility + lower command `ConsoleTextView`.
+- macOS: **`EditorCommandSplitView`** — 5pt divider (gray/white/black/white/gray), drag to resize.
+- Command pane: protected `ok(n)>` prefix, history Up/Down, append-only TYPE + live scroll-to-end.
+- Upper pane metrics only drive `preferredFacilityCells` (command pane must not overwrite cell size).
+- On `FACILITY-OFF`: fold command transcript under `--- command pane ---`.
 
 **Safe evaluate while KEY waits**
-- No nested `kernel_eval` from the host while the editor session is open.
-- Return in command pane → `stageCommandLine` + `pushKey(133)` (`SZ-CMD-EVAL`).
-- Forth `SZ-DO-CONSOLE-LINE`: `(SZ-CMD@)` take line → `(SZ-CONSOLE-EMIT)` on → `EVALUATE` (CATCH) → type `ok(n)>` → emit off → `SZ-REDRAW`.
-- Kernel: `(SZ-CMD@)`, `(SZ-CONSOLE-EMIT)` (facility op 7); host emit bypass so TYPE does not paint into facility cells.
-- `isCommandPaneFocused`: KEY monitor / `ConsoleTextView` do **not** steal printables for the editor while the lower pane has focus.
+- Return → `stageCommandLine` + `pushKey(133)` (`SZ-CMD-EVAL`); no nested host `kernel_eval`.
+- `SZ-DO-CONSOLE-LINE`: `(SZ-CMD@)` → `(SZ-CONSOLE-EMIT) on` → `['] EVALUATE CATCH` → emit off → `(SZ-CMD-DONE)` → `SZ-REDRAW`.
+- `(SZ-CMD-DONE)` calls `_vm_save` so host `ok(n)>` sees live stack depth.
+- Sticky `isCommandPaneFocused` (not first-responder inference) routes KEY vs command typing.
 
-**Still open / next**
-- Splitter ratio persistence; first-focus click reliability; multi-line paste in command pane; errors/ABORT messaging polish.
-- Rebuild **full Xcode** required for new kernel words `(SZ-CMD@)` / `(SZ-CONSOLE-EMIT)`.
+**Kernel (nested EVALUATE)**
+- Completing an `EVALUATE` under CATCH must not end `kernel_eval` (would kill SZ-EDITOR).
+- Resume CATCH **only** when outermost evaluate nest finishes (`source_sp == 0` after pop).
+- Inner `EVALUATE` during FLOAD (ANS Core, Hayes, …) continues the outer file — verified with ANS-VALIDATE + Hayes while editor open.
+
+**Emit routing**
+- Command bypass: non-paint TYPE → lower pane.
+- `PAGE`/`AT-XY`…`TERMINAL-REFRESH` always paints cells (`gridPaintActive`) so SEE/VIEW does not dump the frame into the command transcript.
+
+**Still open / later 1.1.x**
+- Persist split ratio (UserDefaults); multi-line paste polish; optional clear-command-pane.
 
 ---
 

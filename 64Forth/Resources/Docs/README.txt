@@ -6,6 +6,14 @@ Version 1.1.0
 Hybrid macOS app: ARM64 ITC kernel (assembly) + SwiftUI console/host
 (TZForth-style FileHost, AutoLoad, Library, FROMLIB).
 
+Editor + command pane (v1.1.0)
+------------------------------
+  While SZ-EDITOR is open, the window splits: facility grid above, scrollable
+  ok(n)> command pane below (drag the striped splitter). Type Forth in the
+  lower pane without leaving the editor KEY session (shared data stack).
+  Long FLOAD output (Hayes, ANS-VALIDATE) scrolls live in the command pane.
+  See STATUS.md in this folder for design notes and status.
+
 Quick start (in the console)
 ----------------------------
   FROMLIB FLOAD BigInteger/big-int.fth

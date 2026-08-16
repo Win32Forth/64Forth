@@ -91,7 +91,7 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 - [x] **v1.0.6:** Hyper/VIEW production polish — FORTH-visible `VIEW`/`LOCATE` (survive `ONLY FORTH`); multi-hit status `file(n/m)`; visit list vs multi-hit PgUp/PgDn fixed; path keys `AutoLoad/`/`Library/…`; case-insensitive hit dedup; editor status line trim; SZ-EDITOR/Hyper load path hardening; WORDLIST/REQUIRED fixes; ANS-VALIDATE green. Release: `64Forth/releases/64Forth-1.0.6-macOS.dmg`
 - [x] **v1.0.7:** Release reindex path fix — symlink-safe `Library/…` SPECS keys (no bare filenames / mass `HX: skip` on DMG); exclude HayesTest/ANSValidate by full path; quieter `HX: skip` when `MIN-HYPER-NOISE` on. Release: `64Forth/releases/64Forth-1.0.7-macOS.dmg`
 - [x] **v1.0.9:** box-drawing chrome, modal Cmd-F find; macOS DMG
-- [ ] **v1.1.0:** (in progress)
+- [x] **v1.1.0:** editor + scrollable command pane (Option A); staged evaluate while KEY waits; nested EVALUATE/CATCH safe for FLOAD/Hayes/ANS-VALIDATE; thick striped splitter; live command-pane scroll — see `Resources/Docs/STATUS.md`
 
 ### Hypertext + SZ-EDITOR (v1.1.0)
 
@@ -99,11 +99,12 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 |------|------|
 | **Hyper Phases 0–5** | Index CFG/NDX, offline + in-app reindex, LOCATE/VIEW, multi-hit ⌘PgUp/Dn, ⌘E VIEW, SEE→VIEW, `HYPER-VOC`; kernel sources shipped as `Library/Sources/` for release VIEW |
 | **SZ-EDITOR** | Full-screen Facility edit; save/close; find ⌘←/→ ⌘G; cut/copy/paste; mouse + wheel; Tab indent; `EDIT` opens SZ-EDITOR, `TextEdit` keeps system editor |
+| **Split command pane** | Facility above + host `ok(n)>` console below; key 133 / `(SZ-CMD@)` / `(SZ-CMD-DONE)`; shared stack; long FLOAD output scrolls live |
 | **Autoload** | Loads editor + Hyper, reindexes on startup when configured |
 
-**Docs:** `Resources/Library/Hyper/README.txt`, `Resources/Library/Editor/SZ-EDITOR-README.txt`, `Resources/Config/README.txt`, `Resources/Docs/README.txt`.
+**Docs:** `Resources/Docs/STATUS.md` (design + phase notes), `Resources/Library/Hyper/README.txt`, `Resources/Library/Editor/SZ-EDITOR-README.txt`, `Resources/Config/README.txt`, `Resources/Docs/README.txt`.
 
-Optional later: line-at-a-time INCLUDE via fileid, App Sandbox for store builds, editor dual-buffer, Forth reindex TYPE 1/2/4 (Python builder already fuller), residual data-stack imbalance under exit `CLEARSTACK`.
+Optional later: persist split ratio, multi-line command paste polish, App Sandbox for store builds, editor dual-buffer.
 
 Open `64Forth.xcodeproj` in **full Xcode** (Apple Silicon; not Command Line Tools alone). Build the **64Forth** app target for a DMG.
 
