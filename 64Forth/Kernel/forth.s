@@ -649,6 +649,15 @@ XFACILITY_OFF:
     mov  x2, #0
     b    _facility_op_go
 
+// CLS ( -- )  clear host console transcript (not SZ-EDITOR exit; use FACILITY-OFF / ⌘W for that)
+
+    BOOT_WORD "CLS", "CLS ( -- ) clear host console and show ok prompt", 0, XCLS
+XCLS:
+    mov  x0, #9
+    mov  x1, #0
+    mov  x2, #0
+    b    _facility_op_go
+
 // (FACILITY-SIZE) ( cols rows -- )  resize grid (SZ-EDITOR SET-EDIT-WINDOW)
 
     BOOT_WORD "(FACILITY-SIZE)", "(FACILITY-SIZE) ( cols rows -- ) resize facility terminal grid", 0, XFACILITY_SIZE

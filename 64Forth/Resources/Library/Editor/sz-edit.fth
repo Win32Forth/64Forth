@@ -2146,7 +2146,7 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    REPEAT
    SZ-EDITOR-LEAVE
    FACILITY-OFF
-   CLS
+   \ Do not CLS here — that clears the restored host transcript.
    \ Reset data stack without probing DSP. BEGIN DEPTH WHILE DROP can crash in
    \ DEPTH if a prior underflow left DSP past SP0 (SP0 is also return_stack[0]).
    CLEARSTACK

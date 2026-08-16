@@ -39,10 +39,12 @@ DECIMAL
 : SZ-COLOR-INIT    ( -- )  ;
 : SZ-INIT-CURSOR   ( -- )  ;
 
-\ TERMINAL-REFRESH / FACILITY-OFF / PAGE / AT-XY are kernel CODE (FacilityTerminal host).
-\ FACILITY-OFF deactivates the cell grid and asks the host to restore the pre-editor
-\ console transcript (ConsoleView snapshot). CLS is the same for editor exit.
-: CLS  ( -- )  FACILITY-OFF ;
+\ TERMINAL-REFRESH / FACILITY-OFF / PAGE / AT-XY / CLS are kernel CODE (host).
+\   PAGE           clear facility cell grid (SZ-EDITOR paint). Bare PAGE from the
+\                  idle console is recovered by the host (does not lock the REPL).
+\   FACILITY-OFF   leave facility mode; restore console (editor exit / ⌘W path).
+\   CLS            clear the *host* console transcript + ok prompt (menu CLS).
+\                  Not editor exit — do not redefine as FACILITY-OFF.
 
 \ -----------------------------------------------------------------------------
 \ Keyboard — map Facility Ext EKEY events to classic F-PC codes used by sz-edit

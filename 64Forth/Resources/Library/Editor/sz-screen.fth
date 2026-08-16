@@ -1043,7 +1043,6 @@ VARIABLE SZ-PAINT-ROW                  \ current facility row while painting
    SZ-REDRAW
    KEY DROP
    FACILITY-OFF
-   CLS
    ." sz-screen: OK" CR
 ;
 

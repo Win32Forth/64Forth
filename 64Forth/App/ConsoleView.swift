@@ -69,7 +69,7 @@ struct ConsoleView: View {
     #endif
     /// Throttle auto-scroll while engine output streams.
     @State private var lastFollowOutputTime = Date.distantPast
-    /// Console body before the first facility PAGE/refresh (restored on FACILITY-OFF).
+    /// Console body when the editor first opened (seed + fallback if command pane is empty).
     @State private var preFacilityConsole: String?
 
     /// Phase 1 split: facility editor (upper) + scrollable command pane (lower).
@@ -308,9 +308,11 @@ struct ConsoleView: View {
     private func handleConsoleAppear() {
         isFocused = true
         kernel.onEmit = { chunk in
-            // While the editor split is up (or facility is painting), host-bound
-            // EMIT always goes to the lower command pane — never the facility grid.
-            if self.isEditorSplitActive || self.kernel.isFacilityTerminalActive {
+            // Only the live split owns the lower pane. Between PAGE (facility on)
+            // and the first TERMINAL-REFRESH, keep writing consoleText so seed can
+            // capture the full pre-editor transcript. Routing to commandText early
+            // left the lower pane empty (or only post-PAGE crumbs) and skipped seed.
+            if self.isEditorSplitActive {
                 self.appendCommandOutput(chunk)
             } else {
                 self.appendEngineOutput(chunk)
@@ -351,18 +353,13 @@ struct ConsoleView: View {
         // Facility terminal (PAGE/AT-XY): replace upper pane with grid paint.
         kernel.onTerminalRefresh = { screen in
             isProgrammaticConsoleAppend = true
-            // Snapshot once so FACILITY-OFF can put the REPL transcript back.
-            if preFacilityConsole == nil {
-                // Drop a trailing host prompt from the snapshot so restore is clean;
-                // never keep ok(n)> in the facility surface.
-                var snap = consoleText
-                while let r = snap.range(of: #"ok\(\d+\)> \z"#, options: .regularExpression) {
-                    snap.removeSubrange(r)
-                }
-                preFacilityConsole = snap
-            }
+            // First paint: seed the lower command pane with the live console
+            // transcript (banner / cwd / AutoLoad / ok>), then put the grid above.
+            // On close we restore from the command pane (or this snapshot).
             if !isEditorSplitActive {
-                beginEditorSplit()
+                let seed = capturePreFacilityConsoleTranscript()
+                preFacilityConsole = seed
+                beginEditorSplit(seedingFrom: seed)
             }
             // Pure facility grid only — no paint prefix, no host ok> lines.
             // A stray ok(0)> above the splitter breaks cell hit-testing (find field,
@@ -398,6 +395,10 @@ struct ConsoleView: View {
         kernel.onFacilityExit = {
             restoreConsoleAfterFacility()
         }
+        // Forth `CLS` / Tools menu: clear host console (not editor exit).
+        kernel.onHostClearConsole = {
+            self.clearConsole()
+        }
         // Startup: banner → cwd + blank line → AutoLoad → host prompt.
         isProgrammaticConsoleAppend = true
         appendEngineOutput("cwd: \(host.logicalCurrentDirectory)\n\n")
@@ -416,17 +417,71 @@ struct ConsoleView: View {
         }
     }
 
+    /// Best pre-editor console body for seeding the lower pane.
+    /// Prefer the live NSTextView when it is ahead of the SwiftUI binding.
+    private func capturePreFacilityConsoleTranscript() -> String {
+        var seed = consoleText
+        #if os(macOS)
+        if let tv = consoleTextView {
+            let live = tv.string
+            if !live.isEmpty, live.count >= seed.count {
+                seed = live
+            }
+        }
+        #endif
+        return seed
+    }
+
     /// Enter split layout when SZ-EDITOR first paints.
-    private func beginEditorSplit() {
+    /// - Parameter seedingFrom: console transcript just before the grid replaces it
+    ///   (banner, cwd, AutoLoad, `ok>`). The lower pane shows that so the editor
+    ///   appears to split the console in place; on close we restore the same buffer.
+    private func beginEditorSplit(seedingFrom transcript: String = "") {
         isEditorSplitActive = true
         isProgrammaticCommandAppend = true
-        if commandText.isEmpty {
-            let n = kernel.dataStackDepth
-            commandText = "ok(\(n))> "
+        // Always seed on first open. `commandText` may already hold stray host
+        // output that arrived after PAGE but before this paint — that must not
+        // suppress the real console transcript.
+        let earlyCommandIO = commandText
+        var seed = transcript
+        if seed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            seed = "ok(\(kernel.dataStackDepth))> "
         }
+        commandText = seed
+        // Keep any true post-PAGE host crumbs that are not already in the seed.
+        if !earlyCommandIO.isEmpty,
+           !seed.contains(earlyCommandIO),
+           !earlyCommandIO.hasPrefix(seed) {
+            if !commandText.hasSuffix("\n"), !earlyCommandIO.hasPrefix("\n") {
+                commandText += "\n"
+            }
+            commandText += earlyCommandIO
+        }
+        // Protect before clearing programmatic flag so onChange cannot revert the seed.
         markCommandProtectedThroughEnd()
         isProgrammaticCommandAppend = false
         kernel.setCommandPaneFocused(false)
+        #if os(macOS)
+        // Apply seed as soon as the command text view exists. The first layout
+        // may create it after this call; retry a couple of frames.
+        func syncCommandTextViewSeed(attempts: Int) {
+            guard attempts > 0 else { return }
+            if let tv = self.commandTextView {
+                if tv.string != self.commandText {
+                    tv.string = self.commandText
+                }
+                ConsoleTextView.scrollToEndNow(in: tv)
+                return
+            }
+            DispatchQueue.main.async {
+                syncCommandTextViewSeed(attempts: attempts - 1)
+            }
+        }
+        DispatchQueue.main.async {
+            syncCommandTextViewSeed(attempts: 8)
+        }
+        #endif
+        commandPinCaretRequest += 1
     }
 
     private func markCommandProtectedThroughEnd() {
@@ -683,11 +738,13 @@ struct ConsoleView: View {
     }
 
     /// Append kernel/host text and extend the protected prefix.
-    /// While the editor split / facility grid is active, never write into the
-    /// upper pane — host prompts and TYPE belong in the command pane.
+    /// While the editor *split* is live, host prompts and TYPE go to the lower
+    /// command pane (never the facility grid). Facility-active alone is not
+    /// enough — the first PAGE happens before the split exists, and those emits
+    /// must still land in consoleText so the lower pane can be seeded.
     private func appendEngineOutput(_ s: String) {
         guard !s.isEmpty else { return }
-        if isEditorSplitActive || kernel.isFacilityTerminalActive {
+        if isEditorSplitActive {
             appendCommandOutput(s)
             return
         }
@@ -706,28 +763,36 @@ struct ConsoleView: View {
     }
 
     /// Put the pre-editor console back after SZ-EDITOR / facility leave.
-    /// Without this, the last editor frame remains until the next Return.
+    /// Prefer the live command-pane transcript (seeded at open + any command I/O);
+    /// fall back to the open-time snapshot so we never leave an empty console.
     private func restoreConsoleAfterFacility() {
         kernel.setCommandPaneFocused(false)
         kernel.setFacilityEmitBypass(false)
         preferCommandFocusAfterEval = false
+        suppressNextCommandPrompt = false
         isCommandFocused = false
         isProgrammaticConsoleAppend = true
-        if let saved = preFacilityConsole {
+
+        // Live NSTextView can be ahead of the SwiftUI binding for a frame.
+        #if os(macOS)
+        if let tv = commandTextView, !tv.string.isEmpty {
+            commandText = tv.string
+        }
+        #endif
+
+        let live = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let snap = preFacilityConsole?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // Prefer the longer non-empty buffer (live session vs open snapshot).
+        if !live.isEmpty, live.count >= snap.count {
+            consoleText = commandText
+        } else if let saved = preFacilityConsole, !snap.isEmpty {
             consoleText = saved
-            preFacilityConsole = nil
+        } else if !live.isEmpty {
+            consoleText = commandText
         }
-        // Fold command-pane session into the main transcript.
-        if isEditorSplitActive, !commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            if !consoleText.hasSuffix("\n") {
-                consoleText += "\n"
-            }
-            consoleText += "--- command pane ---\n"
-            consoleText += commandText
-            if !consoleText.hasSuffix("\n") {
-                consoleText += "\n"
-            }
-        }
+        // else: leave consoleText as-is (should not happen if open seeded correctly)
+
+        preFacilityConsole = nil
         isEditorSplitActive = false
         commandText = ""
         commandProtectedLength = 0
@@ -743,6 +808,10 @@ struct ConsoleView: View {
         #endif
         isProgrammaticConsoleAppend = false
         isFocused = true
+        // Already ends with ok(n)> from the command pane in the usual case.
+        if !consoleText.hasSuffix("> ") {
+            ensureInputPrompt()
+        }
         keepCursorVisible(followPrompt: true)
     }
 

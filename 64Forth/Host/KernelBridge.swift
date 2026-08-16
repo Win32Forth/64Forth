@@ -456,18 +456,28 @@ private let kernelFloatOpTrampoline: @convention(c) (
 }
 
 /// Facility terminal: 1=PAGE 2=AT-XY 3=TERMINAL-REFRESH 4=FACILITY-OFF 5=resize 6=reverse
-/// 7=console-emit (a≠0 → host stream even while facility active; for split command pane)
+/// 7=console-emit  8=command-line done  9=CLS (clear host console)
 private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> Void = { op, a, b in
     let term = FacilityTerminal.shared
     switch op {
     case 1:
+        // PAGE: clear facility grid. Bare `PAGE` from the idle console must not
+        // leave facility active (that freezes caret/selection with no KEY loop).
+        // Only schedule the orphan check on inactive→active. SZ-REDRAW also uses
+        // PAGE while the editor is live; rescheduling there races TERMINAL-REFRESH
+        // during splitter/window resize and falsely tears down the split UI.
+        let wasActive = term.isActive
         term.page()
+        if !wasActive {
+            KernelBridge.shared.scheduleOrphanFacilityPageCheck()
+        }
     case 2:
         term.atXY(col: Int(a), row: Int(b))
     case 3:
         guard term.isActive else { return }
         term.refreshPending = false
         term.endGridPaint()
+        KernelBridge.shared.noteFacilityRefreshSeen()
         let screen = term.render()
         let paint: () -> Void = {
             KernelBridge.shared.onTerminalRefresh?(screen)
@@ -482,7 +492,9 @@ private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> 
         // by ConsoleView). Without this, the last SZ-EDITOR frame stays on screen
         // until the user presses Return — exit feels broken.
         term.deactivate()
+        term.endGridPaint()
         KernelBridge.shared.setFacilityEmitBypass(false)
+        KernelBridge.shared.noteFacilityRefreshSeen()
         let exit: () -> Void = {
             KernelBridge.shared.onFacilityExit?()
         }
@@ -502,6 +514,16 @@ private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> 
     case 8:
         // (SZ-CMD-DONE) ( -- ): command-pane line finished; host appends ok(n)> prompt
         KernelBridge.shared.notifyCommandLineDone()
+    case 9:
+        // CLS ( -- ): clear host console + ok prompt (not SZ-EDITOR exit)
+        let clear: () -> Void = {
+            KernelBridge.shared.onHostClearConsole?()
+        }
+        if Thread.isMainThread {
+            clear()
+        } else {
+            DispatchQueue.main.async(execute: clear)
+        }
     default:
         break
     }
@@ -1311,8 +1333,47 @@ final class KernelBridge {
     /// Called on the main thread (sync if already main, else async).
     var onFacilityExit: (() -> Void)?
 
+    /// Host CLS: clear transcript and show a fresh ok prompt (menu + Forth `CLS`).
+    var onHostClearConsole: (() -> Void)?
+
     /// Optional banner prefix kept above facility paints (e.g. empty while editing).
     var facilityPaintPrefix: String = ""
+
+    /// Set when TERMINAL-REFRESH / FACILITY-OFF runs after a bare PAGE.
+    /// Bare PAGE without a following refresh is treated as orphaned and unlocked.
+    private var facilityRefreshSeenSincePage = false
+    private let orphanFacilityLock = NSLock()
+
+    func noteFacilityRefreshSeen() {
+        orphanFacilityLock.lock()
+        facilityRefreshSeenSincePage = true
+        orphanFacilityLock.unlock()
+    }
+
+    /// After the *first* PAGE of a facility session: if no TERMINAL-REFRESH
+    /// follows, deactivate so the idle console can type and select again.
+    ///
+    /// Must not call `onFacilityExit` — that tears down the editor split and
+    /// races with SZ-REDRAW during splitter drag (console wipe + flash loop).
+    /// Bare PAGE never begins the split (`onTerminalRefresh` does); deactivating
+    /// the terminal is enough to unlock the idle console.
+    func scheduleOrphanFacilityPageCheck() {
+        orphanFacilityLock.lock()
+        facilityRefreshSeenSincePage = false
+        orphanFacilityLock.unlock()
+        DispatchQueue.main.async {
+            // Two turns: allow same evaluate to finish PAGE…TERMINAL-REFRESH.
+            DispatchQueue.main.async {
+                self.orphanFacilityLock.lock()
+                let sawRefresh = self.facilityRefreshSeenSincePage
+                self.orphanFacilityLock.unlock()
+                guard FacilityTerminal.shared.isActive, !sawRefresh else { return }
+                FacilityTerminal.shared.deactivate()
+                FacilityTerminal.shared.endGridPaint()
+                self.setFacilityEmitBypass(false)
+            }
+        }
+    }
 
     var onEmit: ((String) -> Void)? {
         didSet {
