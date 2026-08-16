@@ -688,8 +688,42 @@ VARIABLE HYPER-FL-IX
    HYPER-FL-REBUILD
 ;
 
+\ True if VTAB[i] matches path a u and line. ( a u line i -- flag )
+: HYPER-V-SAME?  ( c-addr u line i -- flag )
+   >R                                         \ R: i  a u line
+   R@ HYPER-VENT HYPER-HOFF + @ <> IF
+      R> DROP 2DROP FALSE EXIT
+   THEN
+   R> HYPER-VENT COUNT                        \ a u ea eu
+   HYPER-NAME=
+;
+
+\ Index of path+line in VTAB, or -1. ( a u line -- i )
+: HYPER-V-FIND  ( c-addr u line -- i )
+   HYPER-TMP-LINE !
+   HYPER-VN 0= IF  2DROP -1 EXIT  THEN
+   0
+   BEGIN  DUP HYPER-VN < WHILE
+      >R 2DUP HYPER-TMP-LINE @ R@ HYPER-V-SAME? IF
+         2DROP R> EXIT
+      THEN
+      R> 1+
+   REPEAT
+   DROP 2DROP -1
+;
+
+\ Insert HYPER-HIT:line after current visit (browser branch), or select it if
+\ that path+line is already in the list. Never create duplicate Files rows —
+\ ⌘-click / VIEW of the same word used to stack identical visits.
 : HYPER-HIST-RECORD-DEST  ( -- )
    HYPER-HIT C@ 0= IF  EXIT  THEN
+   \ Already listed → just make it current (no insert).
+   HYPER-HIT COUNT HYPER-LINE# HYPER-V-FIND
+   DUP 0< 0= IF
+      TO HYPER-VI
+      HYPER-VI HYPER-FL-SET-CUR
+      EXIT
+   THEN  DROP
    HYPER-VN HYPER-VMAX >= IF
       HYPER-VN 1- TO HYPER-VN
       HYPER-VI 0> IF  HYPER-VI 1- TO HYPER-VI  THEN
@@ -714,30 +748,6 @@ VARIABLE HYPER-FL-IX
    HYPER-VN 1+ TO HYPER-VN
    \ Panel = exact VTAB mirror (order preserved).
    HYPER-FL-REBUILD
-;
-
-\ True if VTAB[i] matches path a u and line. ( a u line i -- flag )
-: HYPER-V-SAME?  ( c-addr u line i -- flag )
-   >R                                         \ R: i  a u line
-   R@ HYPER-VENT HYPER-HOFF + @ <> IF
-      R> DROP 2DROP FALSE EXIT
-   THEN
-   R> HYPER-VENT COUNT                        \ a u ea eu
-   HYPER-NAME=
-;
-
-\ Index of path+line in VTAB, or -1. ( a u line -- i )
-: HYPER-V-FIND  ( c-addr u line -- i )
-   HYPER-TMP-LINE !
-   HYPER-VN 0= IF  2DROP -1 EXIT  THEN
-   0
-   BEGIN  DUP HYPER-VN < WHILE
-      >R 2DUP HYPER-TMP-LINE @ R@ HYPER-V-SAME? IF
-         2DROP R> EXIT
-      THEN
-      R> 1+
-   REPEAT
-   DROP 2DROP -1
 ;
 
 \ Ensure HYPER-HIT:line is a visit and current (for multi-hit Cmd-PgUp/Dn).
@@ -878,6 +888,19 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC
    THEN
    HYPER-SHOW-HIT ;
 
+\ Brief feedback when VIEW lands on the visit already open (status + repaint).
+: HYPER-FLASH-HERE  ( -- )
+   HYPER-VI HYPER-FL-SET-CUR
+   HYPER-SYNC-HITS
+   S" SZ-FIND-SET-STAT" HYPER-CMD HYPER-PLACE
+   ALSO EDITOR
+   HYPER-CMD FIND IF
+      S" here" ROT EXECUTE
+   ELSE  DROP  THEN
+   S" SZ-REDRAW" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  EXECUTE  ELSE  DROP  THEN
+   PREVIOUS ;
+
 : HYPER-VIEW-NAME  ( c-addr u -- )
    DUP 0= IF  2DROP EXIT  THEN
    HYPER-EDITOR? 0= IF  2DROP EXIT  THEN
@@ -894,7 +917,18 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC
       EXIT
    THEN
    HYPER-SHOW-HIT-SAFE
-   \ Record dest *before* goto so side list shows the new visit on first paint.
+   \ Already on this path:line as the current visit → flash only (no dupe row).
+   HYPER-EDITOR-ACTIVE? IF
+      HYPER-HIT COUNT HYPER-LINE# HYPER-V-FIND
+      DUP 0< 0= IF
+         DUP HYPER-VI = IF
+            DROP HYPER-FLASH-HERE EXIT
+         THEN
+         \ Listed but not current: select it (RECORD-DEST is idempotent).
+         TO HYPER-VI
+      ELSE  DROP  THEN
+   THEN
+   \ Ensure dest is in the list *before* goto so first paint shows the visit.
    HYPER-HIST-RECORD-DEST
    HYPER-APPLY-HIT ;
 
