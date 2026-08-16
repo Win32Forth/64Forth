@@ -478,6 +478,11 @@ final class ConsoleNSTextView: NSTextView {
             window?.makeFirstResponder(self)
             // Always notify so SwiftUI FocusState leaves the facility pane.
             onPaneActivated?()
+            // ⌘-click → VIEW word under click (idle console parity; works while editor KEY waits).
+            if cmd {
+                onCommandClickAtUTF16?(idx)
+                return
+            }
             // Native click/drag selection (including protected transcript for Copy).
             super.mouseDown(with: event)
             // Collapsed caret in the protected prompt → move to end for typing.

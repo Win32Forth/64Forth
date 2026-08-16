@@ -1,7 +1,7 @@
 # 64Forth development status
 
-**Version in progress:** 1.1.0  
-**Last updated:** 2026-08-15 (evening)  
+**Version in progress:** 1.1.1  
+**Last updated:** 2026-08-16  
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
@@ -20,7 +20,16 @@ Shipped with DMG and GitHub release `v1.0.9`.
 | Help grid; status Select/Find layout | **Done** |
 | Version 1.0.9 / build 16; DMG + GitHub release | **Done** |
 
-## v1.1.0 summary (shipping candidate)
+## v1.1.1 summary (in progress)
+
+| Area | Status |
+|------|--------|
+| Version 1.1.1 / build 18 | **Done** |
+| ⌘-click / ⌘E VIEW from **command pane** while editor KEY waits | **Done** |
+| ⌘F / ⌘G / ⌘←→ / Hyper PgUp/Dn while command pane focused | **Done** |
+| VIEW word via staged line (`HYPER-VIEW-CU`) when evaluating | **Done** |
+
+## v1.1.0 summary (released)
 
 | Area | Status |
 |------|--------|

@@ -45,7 +45,7 @@ extension Notification.Name {
     static let hyperNext = Notification.Name("SixtyFourForthHyperNext")
 }
 
-private let banner = "=== 64Forth 1.1.0 ===\n"
+private let banner = "=== 64Forth 1.1.1 ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner
@@ -84,6 +84,9 @@ struct ConsoleView: View {
     /// After Return in the command pane, restore command focus when the line finishes
     /// — unless the user clicked the facility editor first (cleared in onPaneActivated).
     @State private var preferCommandFocusAfterEval = false
+    /// ⌘-click / ⌘E VIEW from the command pane: run HYPER-VIEW-CU without a CR / ok>
+    /// (and without scrolling the transcript to a new prompt).
+    @State private var suppressNextCommandPrompt = false
     /// Throttle live scroll work during huge command-pane TYPE dumps (~20 Hz).
     @State private var lastCommandFollowOutputTime = Date.distantPast
 
@@ -215,7 +218,9 @@ struct ConsoleView: View {
             onKeyCharacter: { _ in
                 // Keys are typed into this text view; do not push into editor KEY.
             },
-            onCommandClickUTF16: { _ in },
+            onCommandClickUTF16: { idx in
+                handleViewWordAtCommandUTF16(idx)
+            },
             onPaneActivated: {
                 // Idempotent — do not bump pinCaret on every responder pulse (beach ball).
                 isFocused = false
@@ -314,6 +319,12 @@ struct ConsoleView: View {
         // After SZ-DO-CONSOLE-LINE finishes EVALUATE, host appends ok(n)> .
         kernel.onCommandLineDone = {
             guard self.isEditorSplitActive else { return }
+            // Silent VIEW from ⌘-click / ⌘E: no CR/ok> and no scroll.
+            if self.suppressNextCommandPrompt {
+                self.suppressNextCommandPrompt = false
+                self.preferCommandFocusAfterEval = false
+                return
+            }
             // Always append the prompt in the lower pane (never facility/consoleText).
             if !self.commandText.hasSuffix("\n") {
                 self.appendCommandOutput("\n")
@@ -1080,10 +1091,21 @@ struct ConsoleView: View {
         _ = kernel.evaluate(prev ? "HYPER-PREV" : "HYPER-NEXT")
     }
 
-    /// Phase 5 ⌘E: VIEW word under caret (console), or inject editor key if SZ-EDITOR up.
+    /// Phase 5 ⌘E: VIEW word under caret — command pane, idle console, or editor.
     private func handleViewWordUnderCursor() {
+        #if os(macOS)
+        // Prefer the focused command pane (WORDS listing, etc.) even while editor KEY waits.
+        if isCommandFocused || kernel.isCommandPaneFocused,
+           let tv = commandTextView {
+            var idx = tv.selectedRange().location
+            let ns = tv.string as NSString
+            if idx > ns.length { idx = ns.length }
+            viewForthToken(at: idx, in: ns, placingCaretIn: tv)
+            return
+        }
+        #endif
         if kernel.isEvaluating, kernel.isFacilityTerminalActive {
-            kernel.pushKey(18) // SZ-VIEW-UNDER
+            kernel.pushKey(18) // SZ-VIEW-UNDER (word under facility caret)
             return
         }
         guard !kernel.isEvaluating else { return }
@@ -1096,9 +1118,8 @@ struct ConsoleView: View {
         #endif
     }
 
-    /// Console ⌘-click: VIEW word under the click (same as ⌘E on that token).
+    /// Console ⌘-click (idle full pane): VIEW word under the click.
     private func handleViewWordAtConsoleUTF16(_ idx: Int) {
-        guard !kernel.isEvaluating else { return }
         #if os(macOS)
         guard let tv = consoleTextView else { return }
         let ns = tv.string as NSString
@@ -1106,6 +1127,17 @@ struct ConsoleView: View {
         #endif
     }
 
+    /// Command-pane ⌘-click: VIEW word under the click (works while SZ-EDITOR KEY waits).
+    private func handleViewWordAtCommandUTF16(_ idx: Int) {
+        #if os(macOS)
+        guard let tv = commandTextView else { return }
+        let ns = tv.string as NSString
+        viewForthToken(at: idx, in: ns, placingCaretIn: tv)
+        #endif
+    }
+
+    /// Open Hyper VIEW for the token at `idx`. While the editor KEY loop is active,
+    /// stages the line via key 133 (no nested host evaluate). Idle: host evaluate.
     private func viewForthToken(at idx: Int, in ns: NSString, placingCaretIn tv: NSTextView) {
         #if os(macOS)
         var i = idx
@@ -1115,8 +1147,24 @@ struct ConsoleView: View {
         let escaped = word
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+        let line = "S\" \(escaped)\" HYPER-VIEW-CU"
+
+        if kernel.isEvaluating, kernel.isFacilityTerminalActive {
+            // Safe while KEY waits. Silent: no CR/ok> / scroll (user is navigating
+            // the editor from a WORDS listing, not running a console command).
+            suppressNextCommandPrompt = true
+            preferCommandFocusAfterEval = false
+            if !kernel.submitCommandLineFromPane(line) {
+                suppressNextCommandPrompt = false
+                appendCommandOutput("(VIEW submit failed)\n")
+                appendCommandPrompt()
+            }
+            return
+        }
+        guard !kernel.isEvaluating else { return }
+
         isProgrammaticConsoleAppend = true
-        _ = kernel.evaluate("S\" \(escaped)\" HYPER-VIEW-CU")
+        _ = kernel.evaluate(line)
         // evaluate blocks until the editor exits. FACILITY-OFF restores the
         // transcript (async from the Forth queue); ensure restore + prompt here
         // if the callback has not already run.

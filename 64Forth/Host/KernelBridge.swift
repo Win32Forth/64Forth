@@ -1860,7 +1860,7 @@ final class KernelBridge {
             }
 
             // Lower command pane owns typing + clipboard while sticky is set.
-            // Still steal save / close / quit for the open editor.
+            // Still steal editor-global ⌘ shortcuts (save/close/quit/find/hyper/VIEW).
             if commandPaneFocus {
                 if mods.contains(.command), active && facilityOn {
                     let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
@@ -1876,6 +1876,50 @@ final class KernelBridge {
                         self.requestQuitAppAfterEditorClose()
                         self.pushKey(17)
                         return nil
+                    }
+                    // ⌘E → VIEW word under command caret (ConsoleView notification)
+                    // even while the lower pane owns typing.
+                    if ch == "e", !mods.contains(.shift) {
+                        self.viewWordUnderConsoleCursor()
+                        return nil
+                    }
+                    // ⌘F find field; ⌘G / ⌘⇧G find next/prev in the open buffer.
+                    if ch == "f", !mods.contains(.shift) {
+                        self.pushKey(131)
+                        return nil
+                    }
+                    if ch == "g" {
+                        self.pushKey(mods.contains(.shift) ? 20 : 21)
+                        return nil
+                    }
+                    // ⌘PgUp / ⌘PgDn — Hyper prev/next (same as facility-focused).
+                    if !mods.contains(.shift), event.keyCode == 116 {
+                        self.pushKey(26)
+                        return nil
+                    }
+                    if !mods.contains(.shift), event.keyCode == 121 {
+                        self.pushKey(27)
+                        return nil
+                    }
+                    // ⌘← / ⌘→ — in-buffer find (steal before NSTextView line-start/end).
+                    // Do not call consumeEditorHotKeyIfNeeded — it no-ops while command focused.
+                    if !mods.contains(.shift), !mods.contains(.option) {
+                        switch event.keyCode {
+                        case 123: // left
+                            self.pushKey(20)
+                            return nil
+                        case 124: // right
+                            self.pushKey(21)
+                            return nil
+                        case 115: // Home
+                            self.pushKey(28)
+                            return nil
+                        case 119: // End
+                            self.pushKey(29)
+                            return nil
+                        default:
+                            break
+                        }
                     }
                 }
                 return event
