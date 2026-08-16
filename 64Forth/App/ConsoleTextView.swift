@@ -786,22 +786,33 @@ struct ConsoleTextView: NSViewRepresentable {
         if textView.string != text {
             let oldString = textView.string
             let selected = textView.selectedRange()
-            context.coordinator.isProgrammaticUpdate = true
-            textView.string = text
-            context.coordinator.isProgrammaticUpdate = false
-
             let end = (text as NSString).length
             let oldEnd = (oldString as NSString).length
+            // Prefix growth: append into storage so the clip view does not jump to top
+            // (full `string =` reset fights live FLOAD scroll in the command pane).
+            let isPrefixAppend = !facilityPaint && text.hasPrefix(oldString) && end > oldEnd
+
+            context.coordinator.isProgrammaticUpdate = true
+            if isPrefixAppend {
+                let suffix = (text as NSString).substring(from: oldEnd)
+                if let storage = textView.textStorage {
+                    storage.beginEditing()
+                    storage.replaceCharacters(in: NSRange(location: oldEnd, length: 0), with: suffix)
+                    storage.endEditing()
+                } else {
+                    textView.string = text
+                }
+            } else {
+                textView.string = text
+            }
+            context.coordinator.isProgrammaticUpdate = false
 
             if facilityPaint {
                 // Facility owns the grid; keep selection at 0 and do not auto-scroll
                 // the NSScrollView (wheel scroll is handled as SZ-SCROLL-* keys).
                 textView.setSelectedRange(NSRange(location: 0, length: 0))
                 shouldScroll = false
-            } else if needsPinCaret {
-                textView.setSelectedRange(NSRange(location: end, length: 0))
-                shouldScroll = true
-            } else if text.hasPrefix(oldString), end > oldEnd, selected.location >= oldEnd {
+            } else if needsPinCaret || isPrefixAppend || selected.location >= oldEnd {
                 textView.setSelectedRange(NSRange(location: end, length: 0))
                 shouldScroll = true
             } else if selected.location <= end {
@@ -821,6 +832,9 @@ struct ConsoleTextView: NSViewRepresentable {
         }
 
         if shouldScroll, !facilityPaint {
+            if paneKind == .command {
+                Self.scrollToEndNow(in: textView)
+            }
             Self.scheduleScrollToInsertionPoint(in: textView)
         }
 
@@ -854,14 +868,41 @@ struct ConsoleTextView: NSViewRepresentable {
     }
 
     static func scheduleScrollToInsertionPoint(in textView: NSTextView) {
+        // Immediate pass: bulk TYPE replaces used to async-only scroll, so each
+        // `string =` reset left the clip view at the top until FLOAD finished.
+        scrollToEndNow(in: textView)
         DispatchQueue.main.async {
-            resizeTextViewToFitContent(textView)
-            scrollToShowInsertionPoint(in: textView)
+            scrollToEndNow(in: textView)
             DispatchQueue.main.async {
-                resizeTextViewToFitContent(textView)
-                scrollToShowInsertionPoint(in: textView)
+                scrollToEndNow(in: textView)
             }
         }
+    }
+
+    /// Grow the text view and pin the clip view to the document end (live FLOAD).
+    static func scrollToEndNow(in textView: NSTextView) {
+        resizeTextViewToFitContent(textView)
+        let end = (textView.string as NSString).length
+        if end > 0 {
+            textView.setSelectedRange(NSRange(location: end, length: 0))
+        }
+        scrollToShowInsertionPoint(in: textView)
+    }
+
+    /// Append UTF-16 text without replacing the whole string (preserves scroll).
+    static func appendTextPreservingScroll(_ suffix: String, to textView: NSTextView) {
+        guard !suffix.isEmpty else { return }
+        let oldLen = (textView.string as NSString).length
+        if let storage = textView.textStorage {
+            storage.beginEditing()
+            storage.replaceCharacters(in: NSRange(location: oldLen, length: 0), with: suffix)
+            storage.endEditing()
+        } else {
+            textView.string = textView.string + suffix
+        }
+        let end = (textView.string as NSString).length
+        textView.setSelectedRange(NSRange(location: end, length: 0))
+        scrollToEndNow(in: textView)
     }
 
     private static func resizeTextViewToFitContent(_ textView: NSTextView) {

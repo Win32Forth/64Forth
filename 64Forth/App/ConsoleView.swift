@@ -84,6 +84,8 @@ struct ConsoleView: View {
     /// After Return in the command pane, restore command focus when the line finishes
     /// — unless the user clicked the facility editor first (cleared in onPaneActivated).
     @State private var preferCommandFocusAfterEval = false
+    /// Throttle live scroll work during huge command-pane TYPE dumps (~20 Hz).
+    @State private var lastCommandFollowOutputTime = Date.distantPast
 
     @FocusState private var isFocused: Bool
     @FocusState private var isCommandFocused: Bool
@@ -429,19 +431,33 @@ struct ConsoleView: View {
         // Hard guarantee: command-pane I/O never touches facility consoleText.
         let was = isProgrammaticCommandAppend
         isProgrammaticCommandAppend = true
+        let prior = commandText
         commandText += s
         markCommandProtectedThroughEnd()
         isProgrammaticCommandAppend = was
         #if os(macOS)
         if let tv = commandTextView {
-            // Keep the live NSTextView in sync immediately (SwiftUI binding can lag
-            // one frame, which made ok> look like it appeared above the splitter).
-            if tv.string != commandText {
+            // Append-only into the live NSTextView. Replacing `tv.string = full`
+            // on every TYPE chunk resets the clip view to the top, so during a
+            // long FLOAD only the first screenful stayed visible until editor exit.
+            let live = tv.string
+            if commandText.hasPrefix(live), commandText.count > live.count {
+                let suffix = String(commandText.dropFirst(live.count))
+                ConsoleTextView.appendTextPreservingScroll(suffix, to: tv)
+            } else if tv.string != commandText {
                 tv.string = commandText
+                ConsoleTextView.scrollToEndNow(in: tv)
+            } else {
+                ConsoleTextView.scrollToEndNow(in: tv)
             }
-            let end = (commandText as NSString).length
-            tv.setSelectedRange(NSRange(location: end, length: 0))
-            ConsoleTextView.scheduleScrollToInsertionPoint(in: tv)
+            // Throttle extra async passes so the pump can keep up during huge dumps.
+            let now = Date()
+            if now.timeIntervalSince(lastCommandFollowOutputTime) >= 0.05
+                || s.contains("\n") && s.count > 40
+                || prior.isEmpty {
+                lastCommandFollowOutputTime = now
+                ConsoleTextView.scheduleScrollToInsertionPoint(in: tv)
+            }
         }
         #endif
     }

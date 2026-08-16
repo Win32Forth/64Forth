@@ -10243,18 +10243,25 @@ _interpret_empty:
     ldr  x10, [sp, #8]
     ldr  x0, [sp], #16
     cbz  x0, _interpret_done       // base done
-    // Outer SOURCE restored.
-    // EVALUATE (SOURCE-ID -1) under CATCH must return to CATCH now — do NOT
-    // keep scanning the outer kernel_eval line (leftover VIEW tokens etc.
-    // were re-run and polluted the data stack with pointer garbage).
-    // INCLUDE (SOURCE-ID > 0) still continues the outer line (FLOAD f 123 .).
-    cmn  x10, #1                   // ending id == -1?
+    // Outer SOURCE restored — usually continue scanning it (INCLUDE mid-line).
+    //
+    // Special case: command-pane does  ['] EVALUATE CATCH  on the whole line.
+    // That CATCH stays active while FLOAD nests more SOURCE frames. An *inner*
+    // EVALUATE (e.g. Core test  S" 3 4 +" EVALUATE) must NOT resume that CATCH
+    // or the rest of ANS-VALIDATE is aborted at === Core ===.
+    // Only resume CATCH when this EVALUATE was the outermost nest (source_sp
+    // back to 0 after pop) — i.e. the command-line EVALUATE itself finished.
+    cmn  x10, #1                   // ending id == -1 (EVALUATE / LOAD string)?
     b.ne _interpret_loop
     adrp x7, throw_handler@page
     add  x7, x7, throw_handler@pageoff
     ldr  x1, [x7]
-    cbz  x1, _interpret_loop       // EVALUATE without CATCH: fall through
-    b    _catch_ok_resume
+    cbz  x1, _interpret_loop       // no CATCH: keep scanning outer
+    adrp x2, source_sp@page
+    add  x2, x2, source_sp@pageoff
+    ldr  x2, [x2]
+    cbnz x2, _interpret_loop       // still nested under command EVALUATE
+    b    _catch_ok_resume          // command-line EVALUATE done → CATCH success
 
 _interpret_done:
     // First completion is bootstrap (forth_init_str); fence user WORDS after that.
