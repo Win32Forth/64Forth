@@ -599,6 +599,38 @@ XSZ_PATH_FETCH:
     mov  x20, x0
     NEXT
 
+// (SZ-CMD@) ( c-addr max -- u )  take host-staged command-pane line (split console)
+.extern _host_sz_cmd_get
+    BOOT_WORD "(SZ-CMD@)", "(SZ-CMD@) ( c-addr max -- u ) take staged command-pane line", 0, XSZ_CMD_FETCH
+XSZ_CMD_FETCH:
+    mov  x1, x20                   // max
+    ldr  x0, [x22], #8             // c-addr
+    SAVE_VM
+    bl   _host_sz_cmd_get          // x0 = length
+    RESTORE_VM
+    mov  x20, x0
+    NEXT
+
+// (SZ-CONSOLE-EMIT) ( f -- )  nonzero → TYPE/EMIT to host even if facility active
+    BOOT_WORD "(SZ-CONSOLE-EMIT)", "(SZ-CONSOLE-EMIT) ( f -- ) route EMIT to host command pane", 0, XSZ_CONSOLE_EMIT
+XSZ_CONSOLE_EMIT:
+    mov  x1, x20                   // flag
+    ldr  x20, [x22], #8
+    mov  x0, #7
+    mov  x2, #0
+    b    _facility_op_go
+
+// (SZ-CMD-DONE) ( -- )  notify host: command-pane line finished (append ok prompt)
+    BOOT_WORD "(SZ-CMD-DONE)", "(SZ-CMD-DONE) ( -- ) command-pane line finished", 0, XSZ_CMD_DONE
+XSZ_CMD_DONE:
+    // Persist DSP/TOS so host kernel_data_depth() sees live stack for ok(n)>.
+    // Without this, depth stayed at the stale pre-editor value (always 0).
+    bl   _vm_save
+    mov  x0, #8
+    mov  x1, #0
+    mov  x2, #0
+    b    _facility_op_go
+
 // TERMINAL-REFRESH ( -- )
 
     BOOT_WORD "TERMINAL-REFRESH", "TERMINAL-REFRESH ( -- ) paint facility terminal to host console", 0, XTERM_REFRESH
@@ -10190,12 +10222,13 @@ _ea_unwind:
 
 // End of current SOURCE: pop nested source (INCLUDE/EVALUATE) or finish line
 _interpret_empty:
-    // If ending a file INCLUDE/FLOAD (SOURCE-ID > 0), restore host load cwd
-    // so nested relative FLOAD paths resolve against the outer file's folder.
+    // Remember which kind of SOURCE just ended (before _pop_source overwrites id).
     adrp x0, source_id_var@page
     add  x0, x0, source_id_var@pageoff
-    ldr  x0, [x0]
-    cmp  x0, #0
+    ldr  x10, [x0]                 // x10 = ending SOURCE-ID
+    // If ending a file INCLUDE/FLOAD (SOURCE-ID > 0), restore host load cwd
+    // so nested relative FLOAD paths resolve against the outer file's folder.
+    cmp  x10, #0
     b.le 1f
     adrp x0, end_include_hook@page
     add  x0, x0, end_include_hook@pageoff
@@ -10205,12 +10238,48 @@ _interpret_empty:
 1:
     bl   _pop_source               // x0=1 restored outer, 0 = base done
     str  x0, [sp, #-16]!
+    str  x10, [sp, #8]             // keep ending SOURCE-ID across VIEW helper
     bl   _view_pop_src_id          // nest VIEW file-id with SOURCE
+    ldr  x10, [sp, #8]
     ldr  x0, [sp], #16
-    cbnz x0, _interpret_loop       // restored outer SOURCE — keep going
+    cbz  x0, _interpret_done       // base done
+    // Outer SOURCE restored.
+    // EVALUATE (SOURCE-ID -1) under CATCH must return to CATCH now — do NOT
+    // keep scanning the outer kernel_eval line (leftover VIEW tokens etc.
+    // were re-run and polluted the data stack with pointer garbage).
+    // INCLUDE (SOURCE-ID > 0) still continues the outer line (FLOAD f 123 .).
+    cmn  x10, #1                   // ending id == -1?
+    b.ne _interpret_loop
+    adrp x7, throw_handler@page
+    add  x7, x7, throw_handler@pageoff
+    ldr  x1, [x7]
+    cbz  x1, _interpret_loop       // EVALUATE without CATCH: fall through
+    b    _catch_ok_resume
+
 _interpret_done:
     // First completion is bootstrap (forth_init_str); fence user WORDS after that.
     bl   _record_words_user_base_once
+    // Nested EVALUATE under CATCH with exhausted outer SOURCE: resume CATCH
+    // instead of ending kernel_eval (that killed SZ-EDITOR's KEY loop).
+    adrp x7, throw_handler@page
+    add  x7, x7, throw_handler@pageoff
+    ldr  x1, [x7]
+    cbz  x1, 1f
+_catch_ok_resume:
+    // Same restore as XCATCH_OK: IP after CATCH, drop frame, push 0, NEXT.
+    adrp x7, throw_handler@page
+    add  x7, x7, throw_handler@pageoff
+    ldr  x1, [x7]
+    cbz  x1, 1f
+    mov  x23, x1
+    ldr  x19, [x23], #8            // resume IP
+    add  x23, x23, #16             // skip saved DSP + TOS (keep xt results)
+    ldr  x0, [x23], #8             // prev_handler
+    str  x0, [x7]
+    str  x20, [x22, #-8]!
+    mov  x20, #0
+    NEXT
+1:
     // " ok\n" is a terminal QUIT-loop convention only — not part of ANS EVALUATE
     // or kernel_eval. Embed host prints its own prompt (ok(n)>) after each line.
     adrp x0, embed_mode@page

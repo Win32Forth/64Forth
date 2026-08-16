@@ -26,6 +26,151 @@ Shipped with DMG and GitHub release `v1.0.9`.
 |------|--------|
 | Version strings 1.1.0 / build 17 | **Done** (product) |
 | Status-bar top-border `[X]` close (⌘W) | **Done** |
+| Split pane: facility editor + scrollable Forth command console | **Design Option A; phase 1 in progress** |
+| Phase 1: `VSplitView` + lower command pane + staged evaluate (key 133) | **Done (host + Forth)** |
+| Click console pane → type `ok>` while editor open | **Done (phase 1)** |
+| System splitter drag (grow/shrink panes) | **Planned** (phase 1 uses default split; drag comes free with `VSplitView` — refine next) |
+| Persist split ratio; polish focus/prompt | **Planned** |
+
+---
+
+## 1.1.0 design: editor + interactive command pane (Option A)
+
+**Decision (2026-08-15):** Use **Option A** — a **system splitter** and a **regular scrollable text pane** for the command area (same kind of console surface used when *not* in SZ-EDITOR), with the **facility grid only in the upper panel**. Not Option B (command area as extra facility cells).
+
+### Motivation
+
+- Today the host already **reserves ~5 monospaced lines** below the facility (`facilityCommandAreaLines = 5` in `KernelBridge`) for “command entry,” but while SZ-EDITOR owns `KEY` those lines are mostly **dead space** — not a live `ok>` REPL.
+- User wants to:
+  1. **Click** the lower area and run arbitrary Forth interactively (`ok>` prompt).
+  2. Later **drag a splitter** (represented by the bottom of the help chrome / pane boundary) to grow or shrink that command area.
+  3. Have the lower pane **scroll** with a normal **scrollbar**.
+  4. Keep the **upper panel** as the monospaced SZ-EDITOR facility.
+
+This is standard IDE layout (editor above, console below). Not a rewrite; real work on focus + evaluate nesting.
+
+### Current layout (before split views)
+
+```text
+┌─────────────────────────────────────┐
+│  Facility grid (SZ-EDITOR chrome)   │  ← KEY loop, PAGE/AT-XY paint
+│  status / text / visit list / help  │
+├─────────────────────────────────────┤  ← bottom of help (future splitter)
+│  ~5 reserved lines (mostly unused)  │  ← intended for commands
+└─────────────────────────────────────┘
+```
+
+### Target layout (Option A)
+
+```text
+┌─────────────────────────────────────┐
+│  Upper: facility / SZ-EDITOR        │  NSView hosting facility paint
+│  (status, body, visit list, help)   │  (existing Terminal-REFRESH path)
+├════════ splitter (system) ══════════┤  drag → resize panes
+│  Lower: scrollable console pane     │  same idea as non-editor console
+│  ok> …                              │  transcript + input, scrollbar
+│  (history scrolls)                  │
+└─────────────────────────────────────┘
+```
+
+### Why Option A (not B)
+
+| | **Option A (chosen)** | Option B (rejected for now) |
+|--|----------------------|-----------------------------|
+| Upper | Facility SZ-EDITOR (as now) | Same |
+| Lower | **Host scrollable text** (like idle console) | More facility cell rows |
+| Splitter | **AppKit/SwiftUI splitter** | Manual drag on a facility row |
+| Scrollbar | **Free** with `NSScrollView` / text view | Hand-rolled or awkward |
+| KEY / evaluate | Console focus submits lines via host evaluate queue | Multiplex KEY for every char in a mini terminal |
+| Look | Slightly two-surface, very macOS | One monospaced grid everywhere |
+
+Option A matches “interactive command window that scrolls with a scroll bar” and reuses the **non-editing console** model.
+
+### Hard constraints (from existing architecture)
+
+- While the editor is open, Forth is typically blocked in **`KEY`** (`SZ-EDIT-LOOP`). Nested **`kernel_eval`** mid-KEY is unsafe (learned with ⌘O; solved there with staged path + host).
+- Console commands must be run via a **host queue**: when the user presses Return in the command pane, stage the line and evaluate on a safe path (same spirit as menu open / idle evaluate), **not** by nesting evaluate inside the editor KEY wait without a pump plan.
+- **Focus** must be as strict as find-edit: typing must not leak into the buffer when the console has focus, and vice versa.
+
+### Focus model (three targets)
+
+| Focus | Click | Keys go to |
+|-------|--------|------------|
+| **Document** | Editor text body | SZ-EDITOR motion/edit (current) |
+| **Find field** | Status type-in (right of Files `│`) | Modal find (current) |
+| **Console** | Lower scrollable pane | Command line / transcript selection |
+
+- Esc or click editor → leave console focus (and leave find if needed).
+- Click console → console focus (leave find-edit if open).
+
+### Implementation phases
+
+1. **Split the window (host)**  
+   - Upper: existing facility paint surface (console body when facility active may shrink to upper pane only).  
+   - Lower: dedicated scrollable text view (transcript + input), initially fixed height (~5 monospaced lines or a pixel min height).  
+   - System splitter between them (`NSSplitView` / SwiftUI `HSplitView`/`VSplitView` equivalent).
+
+2. **Console focus + one-line evaluate**  
+   - Click lower pane → focus.  
+   - Type at `ok>` (or `ok(n)>`); Return submits one line.  
+   - Host runs evaluate safely relative to the open editor session; append output to the lower transcript.  
+   - Do **not** require full dual-KEY multiplexing for every character if the lower pane is host-owned text input.
+
+3. **Scrollable history**  
+   - Keep last N lines (or unbounded with soft cap) of command I/O in the lower pane.  
+   - Native scrollbar; select/copy like the idle console.
+
+4. **Splitter UX**  
+   - Drag boundary under help / between panes to change upper facility height vs lower console height.  
+   - Map height → preferred facility rows (`preferredFacilityCells` / `facilityCommandAreaLines` becomes variable or is replaced by split ratios).  
+   - Persist ratio in UserDefaults (optional early).  
+   - Avoid layout ↔ wake feedback loops (reuse existing resize-wake discipline).
+
+5. **Polish (later)**  
+   - Send editor selection to console; multi-line paste in console; dirty interaction if evaluate mutates open buffer; optional “clear console.”
+
+### Feasibility summary
+
+| Question | Answer |
+|----------|--------|
+| Insane? | No — standard IDE pattern |
+| Possible here? | Yes |
+| Best shape for 1.1? | **Option A**: system splitter + scrollable command pane; facility only above |
+| First milestone | Fixed-height lower console: click → type Forth → see result; Esc/click editor returns focus |
+| Second milestone | Draggable splitter grows/shrinks console vs editor |
+
+### Related code (today)
+
+- `KernelBridge.facilityCommandAreaLines` (= 5) and `preferredFacilityCells()`  
+- Facility paint: `FacilityTerminal` + `TERMINAL-REFRESH` / `ConsoleView` facility path  
+- Idle console: `ConsoleView` / `ConsoleTextView` when facility inactive  
+- Editor KEY ownership: `sz-edit.fth` `(SZ-EDIT-LOOP)`  
+
+### Open questions (resolve during implementation)
+
+- Exact split: embed both panes inside the current console window, or replace single text view with `NSSplitView`?  
+- Does evaluate-while-editor-open share the same Forth dictionary/stack as the open edit session (yes, desired) and how do we surface errors in the lower pane only?  
+- Should facility still reserve “command lines” in cell math, or should the upper pane be 100% facility with no dead rows once the lower view exists?
+
+### 2026-08-15 — Phase 1 implementation (Option A)
+
+**Host UI (`ConsoleView.swift`)**
+- When facility becomes active: `isEditorSplitActive` → **`VSplitView`** (macOS) / stacked panes (iOS).
+- **Upper:** existing facility paint (`consoleText` + KEY into editor when that pane is focused).
+- **Lower:** separate `ConsoleTextView` (`commandText`) with protected prompt prefix, history Up/Down, scrollbar via `NSScrollView`.
+- Geometry for `preferredFacilityCells` is measured from the **upper** pane; `facilityCommandAreaLines` set to **0** (lower pane is no longer reserved facility rows).
+- On `FACILITY-OFF`: leave split, fold command-pane transcript into main console under `--- command pane ---`.
+
+**Safe evaluate while KEY waits**
+- No nested `kernel_eval` from the host while the editor session is open.
+- Return in command pane → `stageCommandLine` + `pushKey(133)` (`SZ-CMD-EVAL`).
+- Forth `SZ-DO-CONSOLE-LINE`: `(SZ-CMD@)` take line → `(SZ-CONSOLE-EMIT)` on → `EVALUATE` (CATCH) → type `ok(n)>` → emit off → `SZ-REDRAW`.
+- Kernel: `(SZ-CMD@)`, `(SZ-CONSOLE-EMIT)` (facility op 7); host emit bypass so TYPE does not paint into facility cells.
+- `isCommandPaneFocused`: KEY monitor / `ConsoleTextView` do **not** steal printables for the editor while the lower pane has focus.
+
+**Still open / next**
+- Splitter ratio persistence; first-focus click reliability; multi-line paste in command pane; errors/ABORT messaging polish.
+- Rebuild **full Xcode** required for new kernel words `(SZ-CMD@)` / `(SZ-CONSOLE-EMIT)`.
 
 ---
 

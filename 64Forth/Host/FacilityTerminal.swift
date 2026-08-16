@@ -41,6 +41,12 @@ final class FacilityTerminal {
     /// Set when a paint is pending; host flushes via TERMINAL-REFRESH / flush.
     var refreshPending = false
 
+    /// True between PAGE/AT-XY and TERMINAL-REFRESH while SZ-REDRAW fills cells.
+    /// While set, EMITs must hit the grid even if the command pane has enabled
+    /// host emit-bypass (SEE/VIEW during `see dup` was dumping the frame into
+    /// the lower console).
+    private(set) var gridPaintActive = false
+
     private init() {}
 
     func resize(cols newCols: Int, rows newRows: Int) {
@@ -58,6 +64,7 @@ final class FacilityTerminal {
 
     func page() {
         isActive = true
+        gridPaintActive = true
         cells = Array(repeating: 32, count: cols * rows)
         attrs = Array(repeating: 0, count: cols * rows)
         cursorCol = 0
@@ -69,6 +76,7 @@ final class FacilityTerminal {
 
     func deactivate() {
         isActive = false
+        gridPaintActive = false
         cursorCol = 0
         cursorRow = 0
         reverseOn = false
@@ -79,11 +87,17 @@ final class FacilityTerminal {
     /// ANS AT-XY: column u1, row u2 (0-based as passed from Forth after 1-based convert in CODE, or 0-based from host).
     func atXY(col: Int, row: Int) {
         isActive = true
+        gridPaintActive = true
         // Incomplete multi-byte sequence does not span AT-XY positions.
         utf8Pending.removeAll(keepingCapacity: true)
         cursorCol = min(max(col, 0), cols - 1)
         cursorRow = min(max(row, 0), rows - 1)
         refreshPending = true
+    }
+
+    /// End of one paint frame (TERMINAL-REFRESH). Further EMITs may use host bypass.
+    func endGridPaint() {
+        gridPaintActive = false
     }
 
     /// Enable/disable reverse-video attribute on subsequent `emit` cells.

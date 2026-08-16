@@ -71,6 +71,7 @@ DECIMAL
  31 CONSTANT SZ-CMD-NEW        \ host File→New while KEY waiting
 131 CONSTANT SZ-FIND-EDIT-KEY  \ Cmd-F — type find string in status field
 132 CONSTANT SZ-SHIFT-ENTER    \ ⇧Return — find previous (while find field open)
+133 CONSTANT SZ-CMD-EVAL       \ host command-pane line ready (split console)
 127 CONSTANT SZ-DEL            \ also delete-forward (legacy)
 
 VARIABLE SZ-DONE
@@ -563,6 +564,23 @@ VARIABLE SZ-DLG-T2
 
 : SZ-HYPER-HITS-OFF  ( -- )
    0 TO SZ-HH-CUR  0 TO SZ-HH-TOT ;
+
+\ Split command pane: host stages a line and pushes key 133 while KEY waits.
+\ EVALUATE runs on the editor Forth thread (not nested host kernel_eval).
+\ (SZ-CONSOLE-EMIT) routes TYPE to the lower host pane so the facility grid is clean.
+CREATE SZ-CMD-BUF  256 ALLOT
+
+: SZ-DO-CONSOLE-LINE  ( -- )
+   SZ-CMD-BUF 255 (SZ-CMD@)                   \ u
+   DUP 0= IF  DROP EXIT  THEN
+   0 SZ-FIND-EDIT !                           \ leave find-edit if open
+   -1 (SZ-CONSOLE-EMIT)                       \ host stream for this command
+   SZ-CMD-BUF SWAP                            \ a u
+   ['] EVALUATE CATCH DROP                    \ drop 0 or throw code; keep editor usable
+   0 (SZ-CONSOLE-EMIT)                        \ flush + stop routing to command pane
+   (SZ-CMD-DONE)                              \ host appends ok(n)> on main thread
+   SZ-REDRAW                                  \ refresh facility after command I/O
+;
 
 \ Menu-injected commands (host provideKey while KEY is waiting; path via SZ-HOST-TAKE-PATH)
 \ Cmd-O / File→Open: host shows panel, stages path with (SZ-PATH@), then key 30.
@@ -2025,6 +2043,7 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
 \ can leave the field and reprocess a key without a forward reference.
 : SZ-HANDLE-KEY-BODY  ( c -- )
    DUP SZ-FIND-EDIT-KEY = IF  DROP SZ-DO-FIND-EDIT EXIT  THEN
+   DUP SZ-CMD-EVAL = IF  DROP SZ-DO-CONSOLE-LINE EXIT  THEN
    DUP SZ-CTRL-Q = IF  DROP SZ-DO-QUIT EXIT  THEN
    DUP SZ-CTRL-S = IF  DROP SZ-DO-SAVE EXIT  THEN
    DUP SZ-CUT = IF  DROP SZ-DO-CUT EXIT  THEN
@@ -2080,6 +2099,7 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    \ app-quit-pending, key is swallowed, later ⌘W closes the whole app).
    DUP SZ-CTRL-Q = IF  DROP SZ-FIND-EDIT-OFF SZ-DO-QUIT EXIT  THEN
    DUP SZ-CTRL-S = IF  DROP SZ-FIND-EDIT-OFF SZ-DO-SAVE EXIT  THEN
+   DUP SZ-CMD-EVAL = IF  DROP SZ-DO-CONSOLE-LINE EXIT  THEN
    \ Scroll / jump in the document without leaving the find field
    DUP SZ-VSCROLL-UP = IF  DROP SZ-SCROLL-UP EXIT  THEN
    DUP SZ-VSCROLL-DN = IF  DROP SZ-SCROLL-DOWN EXIT  THEN

@@ -62,30 +62,192 @@ struct ConsoleView: View {
     @State private var pinCaretRequest = 0
     #if os(macOS)
     @State private var consoleTextView: NSTextView?
+    @State private var commandTextView: NSTextView?
     #else
     @State private var consoleTextView: UITextView?
+    @State private var commandTextView: UITextView?
     #endif
     /// Throttle auto-scroll while engine output streams.
     @State private var lastFollowOutputTime = Date.distantPast
     /// Console body before the first facility PAGE/refresh (restored on FACILITY-OFF).
     @State private var preFacilityConsole: String?
 
+    /// Phase 1 split: facility editor (upper) + scrollable command pane (lower).
+    @State private var isEditorSplitActive = false
+    @State private var commandText = ""
+    @State private var commandProtectedLength = 0
+    @State private var commandProtectedSnapshot = ""
+    @State private var isProgrammaticCommandAppend = false
+    @State private var isRevertingCommandProtected = false
+    @State private var commandPinCaretRequest = 0
+    @State private var commandHistoryIndex = -1
+    /// After Return in the command pane, restore command focus when the line finishes
+    /// — unless the user clicked the facility editor first (cleared in onPaneActivated).
+    @State private var preferCommandFocusAfterEval = false
+
     @FocusState private var isFocused: Bool
+    @FocusState private var isCommandFocused: Bool
 
     private let host = FileHost.shared
     private let kernel = KernelBridge.shared
 
     var body: some View {
         // Split modifiers so the type-checker does not time out on one huge chain.
-        applyToolNotifications(to: applyEditorNotifications(to: consoleBase))
+        applyToolNotifications(to: applyEditorNotifications(to: consoleRoot))
     }
 
-    private var consoleBase: some View {
+    /// Single full console when idle; VSplitView when SZ-EDITOR facility is active.
+    private var consoleRoot: some View {
+        Group {
+            if isEditorSplitActive {
+                splitEditorAndCommand
+            } else {
+                fullConsolePane
+            }
+        }
+        .onAppear(perform: handleConsoleAppear)
+        // Sticky command-focus is set only by pane click / Return / onCommandLineDone.
+        // Do not drive it from FocusState — ok> and SwiftUI thrash re-asserted
+        // command focus after editor click-back and left KEY dead.
+        .onChange(of: isCommandFocused) { _, focused in
+            if !focused {
+                kernel.setCommandPaneFocused(false)
+            }
+        }
+        .onChange(of: isFocused) { _, focused in
+            if focused {
+                kernel.setCommandPaneFocused(false)
+            }
+        }
+    }
+
+    #if os(macOS)
+    private var splitEditorAndCommand: some View {
+        VSplitView {
+            facilityPane
+                .frame(minHeight: 160)
+            commandPane
+                .frame(minHeight: 72)
+                .frame(idealHeight: 100)
+        }
+    }
+    #else
+    private var splitEditorAndCommand: some View {
+        VStack(spacing: 0) {
+            facilityPane
+                .frame(minHeight: 160)
+            Divider()
+            commandPane
+                .frame(minHeight: 72, idealHeight: 100)
+        }
+    }
+    #endif
+
+    /// Upper: facility grid (existing console text binding while editor is open).
+    private var facilityPane: some View {
         ConsoleTextView(
             text: $consoleText,
             isFocused: $isFocused,
             pinCaretRequest: $pinCaretRequest,
             editableStartUTF16: (protectedSnapshot as NSString).length,
+            paneKind: .facility,
+            onReturnPressed: { handleFacilityReturnKey() },
+            onHistoryUp: { },
+            onHistoryDown: { },
+            onKeyCharacter: { c in
+                kernel.pushKey(c)
+            },
+            onCommandClickUTF16: { idx in
+                handleViewWordAtConsoleUTF16(idx)
+            },
+            onPaneActivated: {
+                // Leave command pane completely so KEY monitor + caret return to editor.
+                // Update FocusState synchronously so the command pane's updateNSView
+                // does not immediately re-steal first responder on the next frame.
+                preferCommandFocusAfterEval = false
+                isCommandFocused = false
+                isFocused = true
+                kernel.setCommandPaneFocused(false)
+                #if os(macOS)
+                if let tv = consoleTextView, let win = tv.window {
+                    win.makeFirstResponder(tv)
+                }
+                applyFacilityCursorHighlight()
+                #endif
+            },
+            onTextViewReady: { textView in
+                DispatchQueue.main.async {
+                    consoleTextView = textView
+                }
+            }
+        )
+        .id("facilityPane")
+        .focused($isFocused)
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { reportConsoleGeometry(geo.size) }
+                    .onChange(of: geo.size) { _, newSize in
+                        reportConsoleGeometry(newSize)
+                    }
+            }
+        )
+        .onChange(of: consoleText) { oldValue, newValue in
+            handleConsoleTextChange(oldValue: oldValue, newValue: newValue)
+        }
+    }
+
+    /// Lower: scrollable Forth command transcript + input (Option A phase 1).
+    private var commandPane: some View {
+        ConsoleTextView(
+            text: $commandText,
+            isFocused: $isCommandFocused,
+            pinCaretRequest: $commandPinCaretRequest,
+            editableStartUTF16: (commandProtectedSnapshot as NSString).length,
+            paneKind: .command,
+            onReturnPressed: { handleCommandPaneReturn() },
+            onHistoryUp: { recallCommandHistory(up: true) },
+            onHistoryDown: { recallCommandHistory(up: false) },
+            onKeyCharacter: { _ in
+                // Keys are typed into this text view; do not push into editor KEY.
+            },
+            onCommandClickUTF16: { _ in },
+            onPaneActivated: {
+                // Idempotent — do not bump pinCaret on every responder pulse (beach ball).
+                isFocused = false
+                let already = isCommandFocused
+                isCommandFocused = true
+                if !already {
+                    commandPinCaretRequest += 1
+                }
+                kernel.setCommandPaneFocused(true)
+                #if os(macOS)
+                if let tv = commandTextView, let win = tv.window {
+                    win.makeFirstResponder(tv)
+                }
+                (consoleTextView as? ConsoleNSTextView)?.hideFacilityLineCaret()
+                #endif
+            },
+            onTextViewReady: { textView in
+                DispatchQueue.main.async {
+                    commandTextView = textView
+                }
+            }
+        )
+        .id("commandPane")
+        .focused($isCommandFocused)
+        .onChange(of: commandText) { oldValue, newValue in
+            handleCommandTextChange(oldValue: oldValue, newValue: newValue)
+        }
+    }
+
+    private var fullConsolePane: some View {
+        ConsoleTextView(
+            text: $consoleText,
+            isFocused: $isFocused,
+            pinCaretRequest: $pinCaretRequest,
+            editableStartUTF16: (protectedSnapshot as NSString).length,
+            paneKind: .full,
             onReturnPressed: { handleReturnKey() },
             onHistoryUp: { recallHistory(up: true) },
             onHistoryDown: { recallHistory(up: false) },
@@ -95,6 +257,9 @@ struct ConsoleView: View {
             onCommandClickUTF16: { idx in
                 handleViewWordAtConsoleUTF16(idx)
             },
+            onPaneActivated: {
+                isFocused = true
+            },
             onTextViewReady: { textView in
                 DispatchQueue.main.async {
                     consoleTextView = textView
@@ -102,19 +267,15 @@ struct ConsoleView: View {
             }
         )
         .focused($isFocused)
-        // Reliable window size for SZ-EDITOR (NSScrollView layout alone can lag).
         .background(
             GeometryReader { geo in
                 Color.clear
-                    .onAppear {
-                        reportConsoleGeometry(geo.size)
-                    }
+                    .onAppear { reportConsoleGeometry(geo.size) }
                     .onChange(of: geo.size) { _, newSize in
                         reportConsoleGeometry(newSize)
                     }
             }
         )
-        .onAppear(perform: handleConsoleAppear)
         .onChange(of: consoleText) { oldValue, newValue in
             handleConsoleTextChange(oldValue: oldValue, newValue: newValue)
         }
@@ -138,16 +299,73 @@ struct ConsoleView: View {
     private func handleConsoleAppear() {
         isFocused = true
         kernel.onEmit = { chunk in
-            appendEngineOutput(chunk)
+            // While the editor split is up (or facility is painting), host-bound
+            // EMIT always goes to the lower command pane — never the facility grid.
+            if self.isEditorSplitActive || self.kernel.isFacilityTerminalActive {
+                self.appendCommandOutput(chunk)
+            } else {
+                self.appendEngineOutput(chunk)
+            }
         }
-        // Facility terminal (PAGE/AT-XY): replace console body with grid paint.
+        // After SZ-DO-CONSOLE-LINE finishes EVALUATE, host appends ok(n)> .
+        kernel.onCommandLineDone = {
+            guard self.isEditorSplitActive else { return }
+            // Always append the prompt in the lower pane (never facility/consoleText).
+            if !self.commandText.hasSuffix("\n") {
+                self.appendCommandOutput("\n")
+            }
+            let n = self.kernel.dataStackDepth
+            self.appendCommandOutput("ok(\(n))> ")
+            // Reclaim command focus only if prefer is *still* set. Facility click
+            // clears prefer; checking after append avoids the race where we captured
+            // keep=true, user clicked the editor (sticky cleared), then we set sticky
+            // true again and left the editor dead for KEY.
+            guard self.preferCommandFocusAfterEval else { return }
+            self.preferCommandFocusAfterEval = false
+            self.commandPinCaretRequest += 1
+            self.isCommandFocused = true
+            self.kernel.setCommandPaneFocused(true)
+            #if os(macOS)
+            if let tv = self.commandTextView, let win = tv.window {
+                win.makeFirstResponder(tv)
+                let end = (tv.string as NSString).length
+                tv.setSelectedRange(NSRange(location: end, length: 0))
+            }
+            #endif
+        }
+        // Facility terminal (PAGE/AT-XY): replace upper pane with grid paint.
         kernel.onTerminalRefresh = { screen in
             isProgrammaticConsoleAppend = true
             // Snapshot once so FACILITY-OFF can put the REPL transcript back.
             if preFacilityConsole == nil {
-                preFacilityConsole = consoleText
+                // Drop a trailing host prompt from the snapshot so restore is clean;
+                // never keep ok(n)> in the facility surface.
+                var snap = consoleText
+                while let r = snap.range(of: #"ok\(\d+\)> \z"#, options: .regularExpression) {
+                    snap.removeSubrange(r)
+                }
+                preFacilityConsole = snap
             }
-            consoleText = kernel.facilityPaintPrefix + screen
+            if !isEditorSplitActive {
+                beginEditorSplit()
+            }
+            // Pure facility grid only — no paint prefix, no host ok> lines.
+            // A stray ok(0)> above the splitter breaks cell hit-testing (find field,
+            // caret placement) because UTF-16 → (col,row) assumes a pure grid.
+            kernel.facilityPaintPrefix = ""
+            var grid = screen
+            // Defensive: strip any host prompt that may have been concatenated.
+            if grid.hasPrefix("ok(") || grid.contains("\nok(") {
+                grid = grid
+                    .components(separatedBy: .newlines)
+                    .filter { line in
+                        let t = line.trimmingCharacters(in: .whitespaces)
+                        return !(t.hasPrefix("ok(") && t.contains(")>"))
+                    }
+                    .joined(separator: "\n")
+                if !grid.hasSuffix("\n") { grid += "\n" }
+            }
+            consoleText = grid
             if !consoleText.hasSuffix("\n") {
                 consoleText += "\n"
             }
@@ -181,6 +399,153 @@ struct ConsoleView: View {
             isProgrammaticConsoleAppend = false
             keepCursorVisible(followPrompt: true)
         }
+    }
+
+    /// Enter split layout when SZ-EDITOR first paints.
+    private func beginEditorSplit() {
+        isEditorSplitActive = true
+        isProgrammaticCommandAppend = true
+        if commandText.isEmpty {
+            let n = kernel.dataStackDepth
+            commandText = "ok(\(n))> "
+        }
+        markCommandProtectedThroughEnd()
+        isProgrammaticCommandAppend = false
+        kernel.setCommandPaneFocused(false)
+    }
+
+    private func markCommandProtectedThroughEnd() {
+        commandProtectedLength = commandText.count
+        commandProtectedSnapshot = commandText
+    }
+
+    private func appendCommandOutput(_ s: String) {
+        guard !s.isEmpty else { return }
+        // SwiftUI / AppKit only from main (emit drain can originate on Forth queue).
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { self.appendCommandOutput(s) }
+            return
+        }
+        // Hard guarantee: command-pane I/O never touches facility consoleText.
+        let was = isProgrammaticCommandAppend
+        isProgrammaticCommandAppend = true
+        commandText += s
+        markCommandProtectedThroughEnd()
+        isProgrammaticCommandAppend = was
+        #if os(macOS)
+        if let tv = commandTextView {
+            // Keep the live NSTextView in sync immediately (SwiftUI binding can lag
+            // one frame, which made ok> look like it appeared above the splitter).
+            if tv.string != commandText {
+                tv.string = commandText
+            }
+            let end = (commandText as NSString).length
+            tv.setSelectedRange(NSRange(location: end, length: 0))
+            ConsoleTextView.scheduleScrollToInsertionPoint(in: tv)
+        }
+        #endif
+    }
+
+    private func appendCommandPrompt() {
+        let n = kernel.dataStackDepth
+        appendCommandOutput("ok(\(n))> ")
+        commandPinCaretRequest += 1
+    }
+
+    private func handleCommandTextChange(oldValue: String, newValue: String) {
+        if isRevertingCommandProtected {
+            isRevertingCommandProtected = false
+            return
+        }
+        if isProgrammaticCommandAppend { return }
+        if newValue.count < commandProtectedLength
+            || (!commandProtectedSnapshot.isEmpty && !newValue.hasPrefix(commandProtectedSnapshot)) {
+            isRevertingCommandProtected = true
+            commandText = oldValue
+            return
+        }
+    }
+
+    /// Return in the lower command pane: stage line for Forth KEY 133 (no nested evaluate).
+    private func handleCommandPaneReturn() -> Bool {
+        // Prefer live text view contents (binding can lag one frame behind typing).
+        #if os(macOS)
+        if let tv = commandTextView {
+            commandText = tv.string
+        }
+        #endif
+        // Protected length is Character-count of the snapshot (ASCII prompts).
+        let prot = min(commandProtectedLength, commandText.count)
+        let user = String(commandText.dropFirst(prot))
+        let line = user.trimmingCharacters(in: .whitespacesAndNewlines)
+        isProgrammaticCommandAppend = true
+        if !commandText.hasSuffix("\n") {
+            commandText += "\n"
+        }
+        markCommandProtectedThroughEnd()
+        isProgrammaticCommandAppend = false
+
+        if line.isEmpty {
+            appendCommandPrompt()
+            return true
+        }
+
+        commandHistory.append(line)
+        if commandHistory.count > 50 {
+            commandHistory.removeFirst()
+        }
+        commandHistoryIndex = -1
+
+        if kernel.isFacilityTerminalActive, kernel.isEvaluating {
+            // Editor KEY loop: stage + wake (SZ-DO-CONSOLE-LINE → EVALUATE; host adds ok>).
+            preferCommandFocusAfterEval = true
+            if !kernel.submitCommandLineFromPane(line) {
+                preferCommandFocusAfterEval = false
+                appendCommandOutput("(command submit failed)\n")
+                appendCommandPrompt()
+            }
+            // Keep focus so the next line can be typed after the prompt arrives.
+            isCommandFocused = true
+            kernel.setCommandPaneFocused(true)
+        } else if !kernel.isEvaluating {
+            // No editor — evaluate into the command pane (or main if not split).
+            isProgrammaticCommandAppend = true
+            _ = kernel.evaluate(line)
+            markCommandProtectedThroughEnd()
+            appendCommandPrompt()
+            isProgrammaticCommandAppend = false
+        } else {
+            appendCommandOutput("(busy — finish current command first)\n")
+            appendCommandPrompt()
+        }
+        return true
+    }
+
+    private func recallCommandHistory(up: Bool) {
+        guard !commandHistory.isEmpty else { return }
+        if up {
+            commandHistoryIndex = min(commandHistoryIndex + 1, commandHistory.count - 1)
+        } else {
+            commandHistoryIndex = max(commandHistoryIndex - 1, -1)
+        }
+        isProgrammaticCommandAppend = true
+        if commandText.count > commandProtectedLength {
+            commandText = String(commandText.prefix(commandProtectedLength))
+        }
+        if commandHistoryIndex >= 0 {
+            commandText += commandHistory[commandHistory.count - 1 - commandHistoryIndex]
+        }
+        isProgrammaticCommandAppend = false
+        commandPinCaretRequest += 1
+    }
+
+    /// Return while focus is on the facility pane (editor): inject LF into KEY.
+    private func handleFacilityReturnKey() -> Bool {
+        if kernel.isFacilityTerminalActive, kernel.isEvaluating {
+            kernel.pushKey(10)
+            return true
+        }
+        return handleReturnKey()
     }
 
     private func handleConsoleTextChange(oldValue: String, newValue: String) {
@@ -289,8 +654,14 @@ struct ConsoleView: View {
     }
 
     /// Append kernel/host text and extend the protected prefix.
+    /// While the editor split / facility grid is active, never write into the
+    /// upper pane — host prompts and TYPE belong in the command pane.
     private func appendEngineOutput(_ s: String) {
         guard !s.isEmpty else { return }
+        if isEditorSplitActive || kernel.isFacilityTerminalActive {
+            appendCommandOutput(s)
+            return
+        }
         let wasProg = isProgrammaticConsoleAppend
         isProgrammaticConsoleAppend = true
         consoleText += s
@@ -308,11 +679,30 @@ struct ConsoleView: View {
     /// Put the pre-editor console back after SZ-EDITOR / facility leave.
     /// Without this, the last editor frame remains until the next Return.
     private func restoreConsoleAfterFacility() {
+        kernel.setCommandPaneFocused(false)
+        kernel.setFacilityEmitBypass(false)
+        preferCommandFocusAfterEval = false
+        isCommandFocused = false
         isProgrammaticConsoleAppend = true
         if let saved = preFacilityConsole {
             consoleText = saved
             preFacilityConsole = nil
         }
+        // Fold command-pane session into the main transcript.
+        if isEditorSplitActive, !commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if !consoleText.hasSuffix("\n") {
+                consoleText += "\n"
+            }
+            consoleText += "--- command pane ---\n"
+            consoleText += commandText
+            if !consoleText.hasSuffix("\n") {
+                consoleText += "\n"
+            }
+        }
+        isEditorSplitActive = false
+        commandText = ""
+        commandProtectedLength = 0
+        commandProtectedSnapshot = ""
         // Ensure a trailing newline so a following prompt/TYPE is not glued
         // onto the last transcript line.
         if !consoleText.isEmpty && !consoleText.hasSuffix("\n") {
@@ -323,6 +713,7 @@ struct ConsoleView: View {
         (consoleTextView as? ConsoleNSTextView)?.hideFacilityLineCaret()
         #endif
         isProgrammaticConsoleAppend = false
+        isFocused = true
         keepCursorVisible(followPrompt: true)
     }
 
@@ -823,10 +1214,16 @@ struct ConsoleView: View {
 
     /// Thin vertical I-beam at the Facility cursor (editor insert point).
     /// SZ-EDITOR parks the cursor via AT-XY; we paint a line caret on that cell.
+    /// Hidden while the lower command pane has focus so the “cursor” is not stuck
+    /// looking like it still lives in the editor.
     private func applyFacilityCursorHighlight() {
         #if os(macOS)
         guard let textView = consoleTextView as? ConsoleNSTextView else { return }
         guard kernel.isFacilityTerminalActive else {
+            textView.hideFacilityLineCaret()
+            return
+        }
+        if kernel.isCommandPaneFocused {
             textView.hideFacilityLineCaret()
             return
         }
@@ -835,7 +1232,7 @@ struct ConsoleView: View {
         let cols = max(1, kernel.facilityCols)
         let row = kernel.facilityCursorRow
         let col = min(max(0, kernel.facilityCursorCol), cols - 1)
-        // Each rendered line is `cols` ASCII glyphs + '\n'
+        // Each rendered line is `cols` Unicode cells + '\n' (BMP glyphs = 1 UTF-16).
         let loc = prefixLen + row * (cols + 1) + col
         guard loc >= 0 && loc < storageLen else {
             textView.hideFacilityLineCaret()
@@ -845,6 +1242,10 @@ struct ConsoleView: View {
         #else
         guard let textView = consoleTextView else { return }
         guard kernel.isFacilityTerminalActive else {
+            textView.hideFacilityLineCaret()
+            return
+        }
+        if kernel.isCommandPaneFocused {
             textView.hideFacilityLineCaret()
             return
         }

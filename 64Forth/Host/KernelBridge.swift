@@ -456,6 +456,7 @@ private let kernelFloatOpTrampoline: @convention(c) (
 }
 
 /// Facility terminal: 1=PAGE 2=AT-XY 3=TERMINAL-REFRESH 4=FACILITY-OFF 5=resize 6=reverse
+/// 7=console-emit (a≠0 → host stream even while facility active; for split command pane)
 private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> Void = { op, a, b in
     let term = FacilityTerminal.shared
     switch op {
@@ -466,6 +467,7 @@ private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> 
     case 3:
         guard term.isActive else { return }
         term.refreshPending = false
+        term.endGridPaint()
         let screen = term.render()
         let paint: () -> Void = {
             KernelBridge.shared.onTerminalRefresh?(screen)
@@ -480,6 +482,7 @@ private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> 
         // by ConsoleView). Without this, the last SZ-EDITOR frame stays on screen
         // until the user presses Return — exit feels broken.
         term.deactivate()
+        KernelBridge.shared.setFacilityEmitBypass(false)
         let exit: () -> Void = {
             KernelBridge.shared.onFacilityExit?()
         }
@@ -493,6 +496,12 @@ private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> 
     case 6:
         // FACILITY-REV ( f -- ): nonzero → reverse-video on subsequent EMITs
         term.setReverse(a != 0)
+    case 7:
+        // (SZ-CONSOLE-EMIT) ( f -- ): nonzero → TYPE/EMIT go to host command pane
+        KernelBridge.shared.setFacilityEmitBypass(a != 0)
+    case 8:
+        // (SZ-CMD-DONE) ( -- ): command-pane line finished; host appends ok(n)> prompt
+        KernelBridge.shared.notifyCommandLineDone()
     default:
         break
     }
@@ -556,6 +565,12 @@ public func host_sz_path_get(_ ptr: UnsafeMutableRawPointer?, _ maxLen: Int) -> 
     KernelBridge.shared.takeStagedEditorOpenPath(into: ptr, maxLength: maxLen)
 }
 
+/// (SZ-CMD@) ( c-addr max -- u ) take host-staged console command line (split pane).
+@_cdecl("host_sz_cmd_get")
+public func host_sz_cmd_get(_ ptr: UnsafeMutableRawPointer?, _ maxLen: Int) -> Int {
+    KernelBridge.shared.takeStagedCommandLine(into: ptr, maxLength: maxLen)
+}
+
 // MARK: - Bridge
 
 final class KernelBridge {
@@ -595,8 +610,10 @@ final class KernelBridge {
     var facilityCols: Int { FacilityTerminal.shared.cols }
 
     /// Monospaced cell metrics for SZ-EDITOR sizing (updated from console layout).
-    /// Command-area reserve: lines kept below the facility paint for REPL entry.
-    static let facilityCommandAreaLines = 5
+    /// Command-area reserve below facility paint.
+    /// Phase 1 split: the lower scrollable command pane is a separate view, so the
+    /// facility grid may use the full upper pane (0 reserved rows in cell math).
+    static let facilityCommandAreaLines = 0
     /// Extra columns relative to measured fit. +10 widens overall by ~12 vs the
     /// prior −2 setting (user: still ~12 cols too narrow with side panel).
     private static let facilityColAdjust = 10
@@ -840,6 +857,23 @@ final class KernelBridge {
         return (col, row)
     }
 
+    /// Clamp a UTF-16 index into any facility cell (including status/find chrome).
+    /// Unlike `facilityTextCellClamped`, does **not** force the text-body band.
+    func facilityGridCellClamped(fromUTF16 utf16Index: Int) -> (col: Int, row: Int)? {
+        guard isFacilityTerminalActive else { return nil }
+        let cols = max(1, facilityCols)
+        let rows = max(1, FacilityTerminal.shared.rows)
+        let prefixLen = (facilityPaintPrefix as NSString).length
+        let local = max(0, utf16Index - prefixLen)
+        let stride = cols + 1
+        var row = local / stride
+        var col = local % stride
+        if col >= cols { col = cols - 1 }
+        row = min(max(0, row), rows - 1)
+        col = min(max(0, col), cols - 1)
+        return (col, row)
+    }
+
     /// Text-body band in facility cells (matches `sz-screen.fth` chrome).
     /// Used for scroll-on-drag edge zones.
     struct FacilityTextBand {
@@ -917,7 +951,9 @@ final class KernelBridge {
         tripleClick: Bool = false
     ) {
         guard isFacilityTerminalActive, isEvaluating else { return }
-        guard let cell = facilityCell(fromUTF16: utf16Index) else { return }
+        // Exact cell, else clamp into the full grid (incl. find/status) so clicks never drop.
+        guard let cell = facilityCell(fromUTF16: utf16Index)
+                ?? facilityGridCellClamped(fromUTF16: utf16Index) else { return }
         reportFacilityMouse(
             col: cell.col,
             row: cell.row,
@@ -1050,6 +1086,138 @@ final class KernelBridge {
     /// True if the current editor session was opened under FROMLIB (panel starts at Library).
     private(set) var editorOpenedFromLibrary = false
 
+    // MARK: - Split command pane (phase 1): stage line + emit bypass while facility on
+
+    /// Command line staged by the lower command pane for `(SZ-CMD@)` / key 133.
+    private var stagedCommandLine: String = ""
+    /// When true, EMIT/TYPE go to the host stream even if the facility grid is active
+    /// (so console commands do not paint into the editor cells).
+    private var facilityEmitBypass = false
+    private let facilityEmitBypassLock = NSLock()
+    /// Authoritative: lower command pane owns typing / clipboard.
+    /// Set only from pane activation (click / Return submit). Must NOT be inferred
+    /// from AppKit first-responder — after a command, ok> reclaims FR on the
+    /// command pane while the user may already have clicked back into the editor;
+    /// FR-based reads left KEY routing stuck on the console until restart.
+    private var commandPaneFocusedFlag = false
+    private let commandPaneFocusLock = NSLock()
+
+    /// True when the lower command pane should own typing / clipboard.
+    var isCommandPaneFocused: Bool {
+        commandPaneFocusLock.lock()
+        defer { commandPaneFocusLock.unlock() }
+        return commandPaneFocusedFlag
+    }
+
+    /// Same as `isCommandPaneFocused` (sticky only; kept for call sites).
+    var isCommandPaneFocusedFlag: Bool { isCommandPaneFocused }
+
+    func setCommandPaneFocused(_ on: Bool) {
+        commandPaneFocusLock.lock()
+        commandPaneFocusedFlag = on
+        commandPaneFocusLock.unlock()
+    }
+
+    /// Drop coalesced mouse events left over if SZ-MOUSE was not drained (e.g. during
+    /// EVALUATE). Prevents a stuck `facilityMouseKeyQueued` from silencing clicks.
+    func resetFacilityMouseQueue() {
+        lock.lock()
+        pendingMouseEvents.removeAll(keepingCapacity: true)
+        facilityMouseKeyQueued = false
+        facilityScrollAccum = 0
+        lock.unlock()
+    }
+
+    #if os(macOS)
+    /// Pane kind of the key window's first responder, if it is a console text view.
+    static func focusedConsolePaneKind() -> ConsolePaneKind? {
+        guard let fr = NSApp.keyWindow?.firstResponder else { return nil }
+        if let tv = fr as? ConsoleNSTextView {
+            return tv.paneKind
+        }
+        var v = fr as? NSView
+        while let cur = v {
+            if let tv = cur as? ConsoleNSTextView {
+                return tv.paneKind
+            }
+            v = cur.superview
+        }
+        return nil
+    }
+    #endif
+
+    /// Optional host sink when a split-pane console command finishes (append ok prompt).
+    var onCommandLineDone: (() -> Void)?
+
+    func setFacilityEmitBypass(_ on: Bool) {
+        if !on {
+            // Flush any TYPE still buffered while bypass is still on, so the
+            // prompt / last output is not mis-routed into the facility grid.
+            facilityEmitBypassLock.lock()
+            let wasOn = facilityEmitBypass
+            facilityEmitBypassLock.unlock()
+            if wasOn {
+                drainEmitBufferToSink()
+            }
+        }
+        facilityEmitBypassLock.lock()
+        facilityEmitBypass = on
+        facilityEmitBypassLock.unlock()
+        if !on {
+            // One more drain after clearing the flag for anything that raced in.
+            drainEmitBufferToSink()
+        }
+    }
+
+    func notifyCommandLineDone() {
+        // Finish any TYPE still in the emit buffer before the host appends ok(n)>.
+        // drain always hops to main when needed; then run the host callback after
+        // that drain so ok> is not interleaved with trailing TYPE on the main queue.
+        drainEmitBufferToSink()
+        // EVALUATE may have run while mouse/scroll keys were pushed; clear any
+        // undrained mouse coalescing state so the next editor click wakes KEY.
+        resetFacilityMouseQueue()
+        let done = onCommandLineDone
+        // Always async to main so Forth never touches SwiftUI, and so the drain
+        // async block (if any) is ordered before this callback on the main queue.
+        DispatchQueue.main.async {
+            done?()
+        }
+    }
+
+    private var isFacilityEmitBypass: Bool {
+        facilityEmitBypassLock.lock()
+        defer { facilityEmitBypassLock.unlock() }
+        return facilityEmitBypass
+    }
+
+    /// Stage a console command for Forth while SZ-EDITOR KEY is waiting (key 133).
+    func stageCommandLine(_ line: String) {
+        stagedCommandLine = line
+    }
+
+    /// Copy staged command into Forth buffer and clear it. Returns byte length.
+    func takeStagedCommandLine(into ptr: UnsafeMutableRawPointer?, maxLength: Int) -> Int {
+        let data = Data(stagedCommandLine.utf8)
+        stagedCommandLine = ""
+        let n = min(max(0, maxLength), data.count)
+        if n > 0, let ptr {
+            data.copyBytes(to: ptr.assumingMemoryBound(to: UInt8.self), count: n)
+        }
+        return n
+    }
+
+    /// Submit a command line into the open editor KEY loop (no nested host evaluate).
+    /// Returns false if the editor is not active.
+    @discardableResult
+    func submitCommandLineFromPane(_ line: String) -> Bool {
+        guard isEvaluating, FacilityTerminal.shared.isActive else { return false }
+        let t = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return true }
+        stageCommandLine(t)
+        return pushKey(133) // SZ-CMD-EVAL
+    }
+
     /// Stage a path for Forth `(SZ-PATH@)` / `SZ-HOST-TAKE-PATH` (no nested evaluate).
     /// Prefer Library-relative form when the file is under the bundle Library so
     /// SZ-FNAME / visit slots stay short (absolute DerivedData paths are huge).
@@ -1119,9 +1287,11 @@ final class KernelBridge {
     }
 
     /// ⌘X / ⌘C / ⌘V while SZ-EDITOR KEY is waiting.
+    /// Not used when the split command pane is focused (that pane uses AppKit clipboard).
     @discardableResult
     func pushEditorClipboardKey(_ which: String) -> Bool {
         guard isEvaluating, isFacilityTerminalActive else { return false }
+        if isCommandPaneFocused { return false }
         switch which {
         case "x": return pushKey(11)  // SZ-CUT
         case "c": return pushKey(22)  // SZ-COPY
@@ -1326,6 +1496,8 @@ final class KernelBridge {
     }
 
     /// Take all pending text and deliver once; re-schedule if more arrived.
+    /// Always invokes `onEmit` on the main thread — `(SZ-CONSOLE-EMIT) 0` drains
+    /// from the Forth queue; mutating SwiftUI/AppKit there hung the UI after commands.
     private func drainEmitBufferToSink() {
         lock.lock()
         absorbEmitBytesLocked()
@@ -1336,21 +1508,29 @@ final class KernelBridge {
         emitFlushScheduled = false
         lock.unlock()
 
-        if !chunk.isEmpty, let sink {
-            sink(chunk)
+        let deliver: () -> Void = { [weak self] in
+            guard let self else { return }
+            if !chunk.isEmpty, let sink {
+                sink(chunk)
+            }
+            // If more was buffered while we delivered, schedule another drain.
+            // Incomplete UTF-8 tails stay in pendingEmitBytes without forcing a spin.
+            self.lock.lock()
+            let stillPending = !self.pendingEmit.isEmpty || !self.pendingEmitBytes.isEmpty
+            let needAgain = stillPending && !self.emitFlushScheduled
+            if needAgain { self.emitFlushScheduled = true }
+            self.lock.unlock()
+            if needAgain {
+                DispatchQueue.main.async { [weak self] in
+                    self?.drainEmitBufferToSink()
+                }
+            }
         }
 
-        // If more was buffered while we delivered, schedule another drain.
-        // Incomplete UTF-8 tails stay in pendingEmitBytes without forcing a spin.
-        lock.lock()
-        let stillPending = !pendingEmit.isEmpty
-        let needAgain = stillPending && !emitFlushScheduled
-        if needAgain { emitFlushScheduled = true }
-        lock.unlock()
-        if needAgain {
-            DispatchQueue.main.async { [weak self] in
-                self?.drainEmitBufferToSink()
-            }
+        if Thread.isMainThread {
+            deliver()
+        } else {
+            DispatchQueue.main.async(execute: deliver)
         }
     }
 
@@ -1457,6 +1637,8 @@ final class KernelBridge {
     @discardableResult
     func consumeEditorHotKeyIfNeeded(_ event: NSEvent) -> Bool {
         #if os(macOS)
+        // Lower command pane owns arrows / editing keys while focused.
+        if isCommandPaneFocused { return false }
         lock.lock()
         let active = evaluatingFlag
         lock.unlock()
@@ -1546,6 +1728,113 @@ final class KernelBridge {
     }
 
     #if os(macOS)
+    /// Push a keyDown into the SZ-EDITOR KEY queue. Used by the local monitor and
+    /// by facility `keyDown` when the monitor left the event (stale focus flag).
+    /// - Returns: true if the event was fully handled (caller should not pass to super).
+    @discardableResult
+    func deliverFacilityKeyDown(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        lock.lock()
+        let active = evaluatingFlag
+        lock.unlock()
+        guard active else { return false }
+        let facilityOn = FacilityTerminal.shared.isActive
+        let mods = event.modifierFlags.intersection([.control, .option, .shift, .command])
+
+        // ⌘S / ⌘W / ⌘Q / clipboard / find while facility is open.
+        if mods.contains(.command) {
+            if facilityOn {
+                let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
+                if ch == "s", !mods.contains(.shift) {
+                    pushKey(19)
+                    return true
+                }
+                if ch == "w", !mods.contains(.shift) {
+                    pushKey(17)
+                    return true
+                }
+                if ch == "q", !mods.contains(.shift) {
+                    requestQuitAppAfterEditorClose()
+                    pushKey(17)
+                    return true
+                }
+                if ch == "f", !mods.contains(.shift) {
+                    pushKey(131)
+                    return true
+                }
+                if ch == "g" {
+                    pushKey(mods.contains(.shift) ? 20 : 21)
+                    return true
+                }
+                if ch == "e", !mods.contains(.shift) {
+                    pushKey(18)
+                    return true
+                }
+                if !mods.contains(.shift), ch == "x" || ch == "c" || ch == "v" {
+                    if pushEditorClipboardKey(ch) { return true }
+                }
+                switch event.keyCode {
+                case 115: pushKey(28); return true
+                case 119: pushKey(29); return true
+                default: break
+                }
+            }
+            // Other ⌘ chords (menus) — not handled here.
+            return false
+        }
+
+        // macOS Delete (backspace) is keyCode 51; character is often DEL (127).
+        if event.keyCode == 51 {
+            pushKey(8)
+            return true
+        }
+
+        // Return (36): plain → LF (10); ⇧Return → 132 (find previous).
+        if facilityOn, event.keyCode == 36 {
+            if mods.contains(.shift), !mods.contains(.command), !mods.contains(.option) {
+                pushKey(132)
+            } else {
+                pushKey(10)
+            }
+            return true
+        }
+
+        if mods.contains(.control) {
+            switch event.keyCode {
+            case 115: pushKey(28); return true
+            case 119: pushKey(29); return true
+            default: break
+            }
+        }
+
+        if let fkid = Self.facilityFKeyId(for: event) {
+            if facilityOn, let pc = Self.editorPCKeyCode(forFacilityId: fkid) {
+                pushKey(pc)
+            } else {
+                pushKey(FacilityFKey.event(fkid))
+            }
+            return true
+        }
+
+        let chars = event.charactersIgnoringModifiers ?? event.characters
+        if let chars, !chars.isEmpty {
+            var any = false
+            for scalar in chars.unicodeScalars {
+                if scalar.value >= 0xF700 && scalar.value <= 0xF8FF { continue }
+                var v = Int32(bitPattern: UInt32(scalar.value))
+                if v == 13 { v = 10 }
+                if v == 127 && facilityOn { v = 8 }
+                if v > 0 && v < 0x11_0000 {
+                    pushKey(v)
+                    any = true
+                }
+            }
+            return any
+        }
+        // Consume unknown keys while evaluating so they do not edit the grid string.
+        return facilityOn
+    }
+
     private func installKeyDownMonitor() {
         keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
@@ -1555,10 +1844,10 @@ final class KernelBridge {
             let mods = event.modifierFlags.intersection([.control, .option, .shift, .command])
             let facilityOn = FacilityTerminal.shared.isActive
 
-            // SZ-EDITOR ⌘←/→ find and ⌘PgUp/Dn Hyper (shared with ForthApplication.sendEvent).
-            if self.consumeEditorHotKeyIfNeeded(event) {
-                return nil
-            }
+            // Sticky flag only (not first-responder). After a command-pane line,
+            // ok> may leave FR on the command view even after the user clicked the
+            // editor; FR-based routing left the editor dead.
+            let commandPaneFocus = self.isCommandPaneFocusedFlag
 
             // Idle console: ⌘PgUp / ⌘PgDn → evaluate HYPER-PREV / HYPER-NEXT
             if mods.contains(.command), !mods.contains(.shift), !active,
@@ -1568,12 +1857,52 @@ final class KernelBridge {
                 return nil
             }
 
-            // Phase 5: ⌘E → VIEW; ⌘F find field; ⌘G / ⌘⇧G → find next/prev
+            // Lower command pane owns typing + clipboard while sticky is set.
+            // Still steal save / close / quit for the open editor.
+            if commandPaneFocus {
+                if mods.contains(.command), active && facilityOn {
+                    let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
+                    if ch == "s", !mods.contains(.shift) {
+                        self.pushKey(19)
+                        return nil
+                    }
+                    if ch == "w", !mods.contains(.shift) {
+                        self.pushKey(17)
+                        return nil
+                    }
+                    if ch == "q", !mods.contains(.shift) {
+                        self.requestQuitAppAfterEditorClose()
+                        self.pushKey(17)
+                        return nil
+                    }
+                }
+                return event
+            }
+
+            // Editor owns KEY (sticky clear): deliver facility keys even if FR lags.
+            if active, facilityOn {
+                if self.consumeEditorHotKeyIfNeeded(event) {
+                    return nil
+                }
+                if self.deliverFacilityKeyDown(event) {
+                    return nil
+                }
+                // Unhandled ⌘ menu shortcuts pass through.
+                if mods.contains(.command) { return event }
+                return nil
+            }
+
+            // SZ-EDITOR ⌘←/→ find and ⌘PgUp/Dn Hyper when facility FR not detected.
+            if self.consumeEditorHotKeyIfNeeded(event) {
+                return nil
+            }
+
+            // Phase 5 idle / facility-adjacent ⌘E / ⌘F / ⌘G
             if mods.contains(.command) {
                 let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
                 if ch == "e", !mods.contains(.shift) {
                     if active && facilityOn {
-                        self.pushKey(18) // SZ-VIEW-UNDER
+                        self.pushKey(18)
                         return nil
                     }
                     if !active {
@@ -1582,16 +1911,13 @@ final class KernelBridge {
                     }
                 }
                 if ch == "f", active && facilityOn, !mods.contains(.shift) {
-                    // ⌘F — type find string in status Sel/Find field (key 131)
                     self.pushKey(131)
                     return nil
                 }
                 if ch == "g", active && facilityOn {
-                    // ⌘G next, ⌘⇧G previous (same as Tools menu)
                     self.pushKey(mods.contains(.shift) ? 20 : 21)
                     return nil
                 }
-                // ⌘X / ⌘C / ⌘V — cut / copy / paste in SZ-EDITOR
                 if active && facilityOn, !mods.contains(.shift),
                    ch == "x" || ch == "c" || ch == "v" {
                     if self.pushEditorClipboardKey(ch) { return nil }
@@ -1600,112 +1926,10 @@ final class KernelBridge {
 
             guard active else { return event }
 
-            // ⌘S / ⌘W / ⌘Q while facility editor is open.
-            // 19 = save, 17 = close editor (S/D if dirty). ⌘Q also marks app-quit-after-close.
-            // ⌘Home / ⌘End → start/end of file (Mac-friendly; same as Ctrl-Home/End).
-            // ⌘←/→ and ⌘PgUp/Dn are handled above (find / Hyper).
-            if mods.contains(.command) {
-                if facilityOn {
-                    let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
-                    if ch == "s" {
-                        self.pushKey(19)
-                        return nil
-                    }
-                    if ch == "w" {
-                        self.pushKey(17)
-                        return nil
-                    }
-                    if ch == "q" {
-                        // Same S/D prompt as close; cancel stays in editor and does not quit app.
-                        self.requestQuitAppAfterEditorClose()
-                        self.pushKey(17)
-                        return nil
-                    }
-                    if ch == "x" || ch == "c" || ch == "v" {
-                        if self.pushEditorClipboardKey(ch) { return nil }
-                    }
-                    switch event.keyCode {
-                    case 115: // Home
-                        self.pushKey(28) // SZ-HOME-FILE
-                        return nil
-                    case 119: // End
-                        self.pushKey(29) // SZ-END-FILE
-                        return nil
-                    default:
-                        break
-                    }
-                }
-                // Other ⌘ shortcuts (menus, etc.) pass through.
-                return event
-            }
-
-            // macOS Delete (backspace) is keyCode 51; its character is often DEL (127).
-            // SZ-EDITOR treats 8 as backspace and 127 as forward-delete.
-            if event.keyCode == 51 {
-                self.pushKey(8) // BS
+            if self.deliverFacilityKeyDown(event) {
                 return nil
             }
-
-            // Return (36): plain → LF (10); ⇧Return → 132 (find previous in Cmd-F field).
-            if facilityOn, event.keyCode == 36 {
-                if mods.contains(.shift), !mods.contains(.command), !mods.contains(.option) {
-                    self.pushKey(132) // SZ-SHIFT-ENTER
-                } else {
-                    self.pushKey(10) // LF
-                }
-                return nil
-            }
-
-            // Ctrl-Home / Ctrl-End → start/end of file (sz-edit: 28 / 29).
-            // Plain Home/End → start/end of line (1 / 5) via F-PC mapping below.
-            // Also accept while KEY is waiting even if facility flag races briefly.
-            if mods.contains(.control) {
-                switch event.keyCode {
-                case 115: // Home
-                    self.pushKey(28) // SZ-HOME-FILE
-                    return nil
-                case 119: // End
-                    self.pushKey(29) // SZ-END-FILE
-                    return nil
-                default:
-                    break
-                }
-            }
-
-            // Facility Ext: map arrows / navigation / F-keys to tagged EKEY events.
-            // KEY skips tag-2 events; EKEY returns them for EKEY>FKEY.
-            // Also push classic F-PC editor codes so SZ-HANDLE-KEY works.
-            if let fkid = Self.facilityFKeyId(for: event) {
-                if facilityOn,
-                   let pc = Self.editorPCKeyCode(forFacilityId: fkid) {
-                    self.pushKey(pc)
-                } else {
-                    self.pushKey(FacilityFKey.event(fkid))
-                }
-                return nil
-            }
-
-            let chars = event.charactersIgnoringModifiers ?? event.characters
-            if let chars, !chars.isEmpty {
-                for scalar in chars.unicodeScalars {
-                    let raw = Int32(bitPattern: UInt32(scalar.value))
-                    // Private-use function keys (arrows etc.): already handled above when
-                    // facility is on; never push raw U+F70x (255 AND → silent no-op).
-                    if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
-                        continue
-                    }
-                    var v = raw
-                    // Normalize Return/Enter to LF (10).
-                    if v == 13 { v = 10 }
-                    // Mac backspace character is often 127 — map to BS when facility editor active
-                    if v == 127 && FacilityTerminal.shared.isActive { v = 8 }
-                    if v > 0 && v < 0x11_0000 {
-                        self.pushKey(v)
-                    }
-                }
-                return nil // consume — do not insert into the console or re-submit
-            }
-            // Consume other keys while evaluating so they do not edit the console.
+            if mods.contains(.command) { return event }
             return nil
         }
     }
@@ -2061,9 +2285,20 @@ final class KernelBridge {
 
     // MARK: - Hooks
 
+    /// EMITs go to the facility grid when it is active, unless command-pane bypass
+    /// is on *and* we are not mid SZ-REDRAW (PAGE/AT-XY … TERMINAL-REFRESH).
+    private var emitToFacilityGrid: Bool {
+        let term = FacilityTerminal.shared
+        guard term.isActive else { return false }
+        if term.gridPaintActive { return true }
+        return !isFacilityEmitBypass
+    }
+
     fileprivate func handleEmitFromKernel(_ c: Int32) {
-        // Facility terminal (PAGE/AT-XY mode): paint into cell grid, not console stream.
-        if FacilityTerminal.shared.isActive {
+        // Facility grid paint always hits cells (even during command-pane bypass).
+        // Bypass only redirects non-paint TYPE/EMIT to the lower host pane so
+        // `see dup` does not dump the editor frame into the command transcript.
+        if emitToFacilityGrid {
             FacilityTerminal.shared.emit(UInt8(truncatingIfNeeded: c))
             return
         }
@@ -2087,7 +2322,7 @@ final class KernelBridge {
     /// Bulk emit from kernel TYPE/XEMIT (already copied out of kernel memory).
     fileprivate func handleEmitBytes(_ bytes: [UInt8]) {
         guard !bytes.isEmpty else { return }
-        if FacilityTerminal.shared.isActive {
+        if emitToFacilityGrid {
             for b in bytes {
                 FacilityTerminal.shared.emit(b)
             }
@@ -2134,7 +2369,7 @@ final class KernelBridge {
 
     fileprivate func handleEmitString(_ s: String) {
         guard !s.isEmpty else { return }
-        if FacilityTerminal.shared.isActive {
+        if emitToFacilityGrid {
             for b in s.utf8 {
                 FacilityTerminal.shared.emit(b)
             }
