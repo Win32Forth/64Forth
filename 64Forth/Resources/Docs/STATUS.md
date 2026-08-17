@@ -1,6 +1,6 @@
 # 64Forth development status
 
-**Version in progress:** 1.1.1  
+**Version in progress:** 1.1.2  
 **Last updated:** 2026-08-16  
 
 This file tracks design notes and progress for work after 1.0.7.  
@@ -20,7 +20,9 @@ Shipped with DMG and GitHub release `v1.0.9`.
 | Help grid; status Select/Find layout | **Done** |
 | Version 1.0.9 / build 16; DMG + GitHub release | **Done** |
 
-## v1.1.1 summary (in progress)
+## v1.1.1 summary (released)
+
+Shipped with DMG and GitHub release `v1.1.1`.
 
 | Area | Status |
 |------|--------|
@@ -28,6 +30,11 @@ Shipped with DMG and GitHub release `v1.0.9`.
 | ⌘-click / ⌘E VIEW from **command pane** while editor KEY waits | **Done** |
 | ⌘F / ⌘G / ⌘←→ / Hyper PgUp/Dn while command pane focused | **Done** |
 | VIEW word via staged line (`HYPER-VIEW-CU`) when evaluating | **Done** |
+| Seed lower command pane from pre-editor console transcript; restore on close | **Done** |
+| Splitter drag: orphan-PAGE no longer tears down split / wipes console | **Done** |
+| `CLS` clears host console only; editor exit is `FACILITY-OFF` (no transcript wipe) | **Done** |
+| Repeated VIEW / ⌘-click: no duplicate Files visits; flash “here” when already on hit | **Done** |
+| DMG + GitHub release `v1.1.1` | **Done** |
 
 ## v1.1.0 summary (released)
 

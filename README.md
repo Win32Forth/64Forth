@@ -53,7 +53,7 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 
 ---
 
-## Status (v1.1.0)
+## Status (v1.1.1)
 
 - [x] Project folder and design doc  
 - [x] Kernel sources copied from PickleForth (`_kernel_cold_start` entry, not `_main`)  
@@ -92,14 +92,16 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 - [x] **v1.0.7:** Release reindex path fix — symlink-safe `Library/…` SPECS keys (no bare filenames / mass `HX: skip` on DMG); exclude HayesTest/ANSValidate by full path; quieter `HX: skip` when `MIN-HYPER-NOISE` on. Release: `64Forth/releases/64Forth-1.0.7-macOS.dmg`
 - [x] **v1.0.9:** box-drawing chrome, modal Cmd-F find; macOS DMG
 - [x] **v1.1.0:** editor + scrollable command pane (Option A); staged evaluate while KEY waits; nested EVALUATE/CATCH safe for FLOAD/Hayes/ANS-VALIDATE; thick striped splitter; live command-pane scroll — see `Resources/Docs/STATUS.md`
+- [x] **v1.1.1:** command-pane VIEW (⌘E / ⌘-click); seed/restore console under editor; splitter resize stable; CLS vs FACILITY-OFF; no duplicate Files visits — see `Resources/Docs/STATUS.md`
 
-### Hypertext + SZ-EDITOR (v1.1.0)
+### Hypertext + SZ-EDITOR (v1.1.1)
 
 | Area | Done |
 |------|------|
 | **Hyper Phases 0–5** | Index CFG/NDX, offline + in-app reindex, LOCATE/VIEW, multi-hit ⌘PgUp/Dn, ⌘E VIEW, SEE→VIEW, `HYPER-VOC`; kernel sources shipped as `Library/Sources/` for release VIEW |
 | **SZ-EDITOR** | Full-screen Facility edit; save/close; find ⌘←/→ ⌘G; cut/copy/paste; mouse + wheel; Tab indent; `EDIT` opens SZ-EDITOR, `TextEdit` keeps system editor |
 | **Split command pane** | Facility above + host `ok(n)>` console below; key 133 / `(SZ-CMD@)` / `(SZ-CMD-DONE)`; shared stack; long FLOAD output scrolls live |
+| **Command-pane VIEW** | ⌘E / ⌘-click while KEY waits; seed lower pane from pre-editor transcript; no duplicate side-list visits on re-VIEW |
 | **Autoload** | Loads editor + Hyper, reindexes on startup when configured |
 
 **Docs:** `Resources/Docs/STATUS.md` (design + phase notes), `Resources/Library/Hyper/README.txt`, `Resources/Library/Editor/SZ-EDITOR-README.txt`, `Resources/Config/README.txt`, `Resources/Docs/README.txt`.
