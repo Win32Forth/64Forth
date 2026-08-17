@@ -1,10 +1,88 @@
 # 64Forth development status
 
-**Version in progress:** 1.1.2  
-**Last updated:** 2026-08-16  
+**Version in progress:** 1.1.2 (build 19)  
+**Last updated:** 2026-08-17 (version bump + agent channel)  
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.1.2 in progress — agent channel (headless automation)
+
+**Version strings:** marketing **1.1.2**, build **19** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.1.2 === Aug 17, 2026 10:03 AM ===
+```
+
+- Bump **version** in the banner when marketing version changes.  
+- Update **date/time** only when finishing a change set for that version — **just before** building the DMG and committing/pushing (not on every intermediate build).  
+- Kernel `str_hello` stays short (`64Forth v1.1.2`); the dated line is the GUI console header only.
+
+**Goal:** Let AI agents (Grok), CI, and scripts **load Forth files** and **capture console output** without driving the SwiftUI GUI.
+
+| Area | Status |
+|------|--------|
+| Version 1.1.2 / build 19 | **Done** (bumped in tree) |
+| `App/AppMain.swift` — `@main` branches agent vs GUI | **Done** (sources) |
+| `App/AgentChannel.swift` — CLI parse, eval/load, transcript | **Done** (sources) |
+| `KernelBridge` — `setAgentSyncEmit` / `forceFlushEmitSync` | **Done** (sources) |
+| Skip AppKit key monitor in agent mode | **Done** (sources) |
+| `tools/64forth-agent` wrapper script | **Done** |
+| Docs: `Agent-channel.md`, README, `tools/README.txt` | **Done** |
+| Xcode project membership (pbxproj) | **Done** |
+| Rebuild / ship in `/Applications/64Forth.app` | **User** — build in Xcode (CLI `xcodebuild` needs full Xcode) |
+| Socket into a **live** GUI session | **Not yet** (separate process only) |
+| Accessibility-driven GUI typing as primary path | **Rejected** for automation (fragile on SwiftUI) |
+
+### Why
+
+- GUI binary ignores stdin as a REPL; `--help` / Forth text as argv do not evaluate.
+- Accessibility can focus/type but cannot reliably read the console transcript.
+- Same engine as the GUI: `kernel_init` / `kernel_eval` + host EMIT hooks.
+
+### Activate
+
+```bash
+/Applications/64Forth.app/Contents/MacOS/64Forth --agent --help
+/Applications/64Forth.app/Contents/MacOS/64Forth --agent -e '2 2 + .'
+./tools/64forth-agent -c ~/Documents/64TCOM/64TCOMARM64 -f IFDEMO.fth -o /tmp/out.txt
+```
+
+Or environment: `FORTH64_AGENT=1` (shell-safe). Alias `64FORTH_AGENT=1` via `env(1)` only.
+
+**Invoke the bundle binary**, not `open -a` (need a real stdout pipe).
+
+### Options (summary)
+
+| Flag | Meaning |
+|------|---------|
+| `-e` / `--eval <line>` | Evaluate one line |
+| `-f` / `--file <path>` | INCLUDE file |
+| `-c` / `--cwd <path>` | chdir before work |
+| `-o` / `--out <path>` | Write full transcript (stdout always) |
+| `--autoload` / `--no-autoload` | AutoLoad (default **off** in agent mode) |
+| `--repl` | Further lines from stdin until EOF or BYE |
+
+Exit `0` if every step status is 0, else `1`. Full detail: **[Agent-channel.md](Agent-channel.md)**.
+
+### Relation to 64TCOM
+
+64TCOM lives under `Documents/64TCOM` and is developed **on** 64Forth. After the agent build is installed, automated smoke looks like:
+
+```bash
+…/64Forth --agent -c …/64TCOM/64TCOMARM64 \
+  -e 'FLOAD TARGETARM64.fth' -f IFDEMO.fth -o /tmp/ifdemo.txt
+```
+
+64TCOM’s living status notes this under **Host automation** in project-root `STATUS.md`.
+
+### Grok / session workspace
+
+No need to restart the AI agent from the 64Forth folder. One session can edit both trees (absolute paths). **Do** rebuild the **app** when agent sources change; restarting Grok does not compile or install 64Forth.
 
 ---
 

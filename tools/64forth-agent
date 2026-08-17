@@ -1,0 +1,49 @@
+#!/bin/sh
+# 64forth-agent — run 64Forth headless agent channel (load files, capture output).
+# Public domain.
+#
+# Usage:
+#   ./tools/64forth-agent -e '2 2 + .'
+#   ./tools/64forth-agent -c ~/Documents/64TCOM/64TCOMARM64 -f IFDEMO.fth -o /tmp/ifdemo.txt
+#   ./tools/64forth-agent --help
+#
+# Resolves the app binary from (first hit):
+#   FORTH64_APP          — path to 64Forth.app or the MacOS/64Forth binary
+#   /Applications/64Forth.app
+#   DerivedData Debug build (if present)
+#   Desktop 64Forth-*-macOS bundle
+
+set -e
+
+resolve_bin() {
+  if [ -n "${FORTH64_APP:-}" ]; then
+    if [ -x "${FORTH64_APP}" ] && [ ! -d "${FORTH64_APP}" ]; then
+      echo "${FORTH64_APP}"
+      return
+    fi
+    if [ -x "${FORTH64_APP}/Contents/MacOS/64Forth" ]; then
+      echo "${FORTH64_APP}/Contents/MacOS/64Forth"
+      return
+    fi
+  fi
+  if [ -x "/Applications/64Forth.app/Contents/MacOS/64Forth" ]; then
+    echo "/Applications/64Forth.app/Contents/MacOS/64Forth"
+    return
+  fi
+  dd=$(ls -d "$HOME/Library/Developer/Xcode/DerivedData"/64Forth-*/Build/Products/Debug/64Forth.app/Contents/MacOS/64Forth 2>/dev/null | head -1)
+  if [ -n "$dd" ] && [ -x "$dd" ]; then
+    echo "$dd"
+    return
+  fi
+  desk=$(ls -d "$HOME/Desktop"/64Forth-*/64Forth.app/Contents/MacOS/64Forth 2>/dev/null | head -1)
+  if [ -n "$desk" ] && [ -x "$desk" ]; then
+    echo "$desk"
+    return
+  fi
+  echo "64forth-agent: cannot find 64Forth binary. Set FORTH64_APP=…/64Forth.app" >&2
+  exit 127
+}
+
+BIN=$(resolve_bin)
+# Always pass --agent so env is not required; remaining args go through.
+exec "$BIN" --agent "$@"

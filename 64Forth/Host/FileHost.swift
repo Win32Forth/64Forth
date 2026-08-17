@@ -593,7 +593,7 @@ final class FileHost {
         } else {
             lines.append("Sources:   — (Library/Sources not in bundle)")
         }
-        lines.append("cwd:       \(logicalCurrentDirectory)")
+        lines.append("Working folder: \(logicalCurrentDirectory)")
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -1119,7 +1119,7 @@ final class FileHost {
             if libraryURL == nil {
                 msg("  hint: Library missing from app bundle — check Copy Bundle Resources\n")
             } else if fromLibraryArmed == false {
-                msg("  cwd: \(logicalCurrentDirectory)\n")
+                msg("  Working folder: \(logicalCurrentDirectory)\n")
                 msg("  Library: \(libraryURL?.path ?? "—")\n")
                 msg("  try: FROMLIB FLOAD \(normalizeSourceSpec(name))\n")
                 msg("  or:  CHDIR then FLOAD, or bare FLOAD (dialog)\n")

@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-08-15 — **v1.1.0** (in progress; v1.0.7 release SPECS path fix; v1.0.6 Hyper/VIEW polish; v1.0.0 Hyper + SZ-EDITOR).
+**Updated:** 2026-08-17 — **v1.1.2** (agent channel in progress; v1.1.1 command-pane VIEW; v1.1.0 editor split).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
@@ -367,6 +367,29 @@ Prefer writing only under `64Forth` unless explicitly changing PickleForth/TZFor
 | `64Forth/Host/BigIntHost.swift` | Multiprecision host ops |
 | `64Forth/Host/FloatHost.swift` | IEEE-64 F-stack + float ops (TZForthFloat port) |
 | `64Forth/App/ConsoleView.swift` | REPL, paste, `\S` batch stop, batched emit follow |
+| `64Forth/App/AppMain.swift` | Process entry: agent branch or GUI |
+| `64Forth/App/AgentChannel.swift` | Headless `--agent` load/eval/transcript |
 | `64Forth/Resources/Library/` | BigInteger, PI, HayesTest, Editor samples |
+| `64Forth/Resources/Docs/Agent-channel.md` | Agent channel user/dev docs |
+| `tools/64forth-agent` | Shell wrapper for agent binary |
 | `.lldbinit-64forth` | LLDB: pass memory faults to process |
 | `64Forth.xcodeproj/.../64Forth.xcscheme` | `customLLDBInitFile` → that lldbinit |
+
+---
+
+## Agent channel (v1.1.2)
+
+Headless automation path for Grok/CI: same kernel as the GUI, EMIT to stdout + optional `-o` file. Not a socket into a live window.
+
+- Activate: `--agent` or `FORTH64_AGENT=1`
+- Detail: [`64Forth/Resources/Docs/Agent-channel.md`](64Forth/Resources/Docs/Agent-channel.md), status in [`STATUS.md`](64Forth/Resources/Docs/STATUS.md)
+
+## Console header stamp (release hygiene)
+
+GUI banner in `ConsoleView.swift`:
+
+```text
+=== 64Forth M.N.P === Mon D, YYYY H:MM AM/PM ===
+```
+
+Update the **date/time only** when finishing a set of changes on a version, **just before** DMG creation and commit/push to the repo. Not required on every intermediate build. Version number in the same string tracks `MARKETING_VERSION`.

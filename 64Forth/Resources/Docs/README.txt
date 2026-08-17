@@ -1,7 +1,12 @@
 64Forth — Swift host + PickleForth ARM64 kernel
 ================================================
 
-Version 1.1.1
+Version 1.1.2
+
+Console header (ConsoleView banner), e.g.:
+  === 64Forth 1.1.2 === Aug 17, 2026 10:03 AM ===
+Update the date/time only when finishing a version change set, just before
+DMG + commit/push — not on every intermediate build.
 
 Hybrid macOS app: ARM64 ITC kernel (assembly) + SwiftUI console/host
 (TZForth-style FileHost, AutoLoad, Library, FROMLIB).

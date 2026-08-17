@@ -1406,6 +1406,32 @@ final class KernelBridge {
     /// Local keyDown monitor: delivers KEY/KEY? bytes while `isEvaluating`.
     private var keyDownMonitor: Any?
 
+    /// Agent / headless mode: deliver EMIT synchronously (no main-queue defer).
+    /// Required when there is no AppKit run loop pumping drains.
+    private var agentSyncEmit = false
+
+    /// Enable synchronous emit delivery (agent CLI). Call before evaluate.
+    func setAgentSyncEmit(_ on: Bool) {
+        agentSyncEmit = on
+        if on {
+            forceFlushEmitSync()
+        }
+    }
+
+    /// Drain pending emit buffer to `onEmit` immediately on this thread.
+    func forceFlushEmitSync() {
+        lock.lock()
+        absorbEmitBytesLocked()
+        let chunk = pendingEmit
+        pendingEmit = ""
+        emitFlushScheduled = false
+        let sink = onEmit
+        lock.unlock()
+        if !chunk.isEmpty, let sink {
+            sink(chunk)
+        }
+    }
+
     private init() {
         kernelHookTarget = self
 
@@ -1413,7 +1439,10 @@ final class KernelBridge {
         // Must be before any kernel_eval; kernel_init also installs via sigaction.
         Self.installMemoryFaultHandlers()
 
-        installKeyDownMonitor()
+        // Agent headless: skip AppKit key monitor (no window / may not have NSApp yet).
+        if !AgentChannel.isRequested {
+            installKeyDownMonitor()
+        }
 
         kernel_set_emit(kernelEmitTrampoline)
         kernel_set_emit_buf(kernelEmitBufTrampoline)
@@ -1535,7 +1564,12 @@ final class KernelBridge {
     /// Schedule at most one main-queue drain of the emit buffer. Further chars
     /// only append until that drain runs, so TYPE of a long file is O(chunks)
     /// of UI updates instead of O(characters).
+    /// Agent mode: flush synchronously so transcripts work without a GUI run loop.
     private func scheduleEmitFlush() {
+        if agentSyncEmit {
+            forceFlushEmitSync()
+            return
+        }
         lock.lock()
         if emitFlushScheduled {
             lock.unlock()

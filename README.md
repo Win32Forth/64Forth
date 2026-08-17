@@ -53,6 +53,27 @@ See **[DESIGN.md](DESIGN.md)** for the integration plan and phases.
 
 ---
 
+## Agent channel (headless load / capture)
+
+Automation (Grok, CI, scripts) can drive the kernel without the GUI:
+
+```bash
+/Applications/64Forth.app/Contents/MacOS/64Forth --agent -e '2 2 + .'
+./tools/64forth-agent -c ~/proj -f smoke.fth -o /tmp/out.txt
+```
+
+See **[Resources/Docs/Agent-channel.md](64Forth/Resources/Docs/Agent-channel.md)** and `tools/64forth-agent`.  
+Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after pull).
+
+---
+
+## Status (v1.1.2)
+
+- [ ] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — sources in tree; rebuild to use — see `Resources/Docs/STATUS.md` / `Agent-channel.md`
+
+**Console header** (GUI): `=== 64Forth 1.1.2 === Aug 17, 2026 10:03 AM ===`  
+Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
+
 ## Status (v1.1.1)
 
 - [x] Project folder and design doc  

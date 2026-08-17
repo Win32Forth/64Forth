@@ -33,7 +33,7 @@ final class SixtyFourForthAppDelegate: NSObject, NSApplicationDelegate {
 }
 #endif
 
-@main
+/// GUI app body. Entry is `AppMain` (`@main`) so `--agent` can skip the window.
 struct SixtyFourForthApp: App {
     #if os(macOS)
     @NSApplicationDelegateAdaptor(SixtyFourForthAppDelegate.self) private var appDelegate

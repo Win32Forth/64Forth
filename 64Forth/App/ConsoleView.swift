@@ -45,7 +45,11 @@ extension Notification.Name {
     static let hyperNext = Notification.Name("SixtyFourForthHyperNext")
 }
 
-private let banner = "=== 64Forth 1.1.1 ===\n"
+// Console header. Update version when bumping MARKETING_VERSION.
+// Update the date/time stamp only when finishing a change set for a version —
+// just before DMG + commit/push (not on every intermediate build).
+// Format: === 64Forth M.N.P === Mon D, YYYY H:MM AM/PM ===
+private let banner = "=== 64Forth 1.1.2 === Aug 17, 2026 10:03 AM ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner
@@ -401,7 +405,7 @@ struct ConsoleView: View {
         }
         // Startup: banner → cwd + blank line → AutoLoad → host prompt.
         isProgrammaticConsoleAppend = true
-        appendEngineOutput("cwd: \(host.logicalCurrentDirectory)\n\n")
+        appendEngineOutput("Working folder: \(host.logicalCurrentDirectory)\n\n")
         markProtectedThroughEndOfText()
         isProgrammaticConsoleAppend = false
         keepCursorVisible(followPrompt: true)
@@ -1078,7 +1082,7 @@ struct ConsoleView: View {
         isProgrammaticConsoleAppend = true
         consoleText = banner
         markProtectedThroughEndOfText()
-        appendEngineOutput("cwd: \(host.logicalCurrentDirectory)\n\n")
+        appendEngineOutput("Working folder: \(host.logicalCurrentDirectory)\n\n")
         appendPrompt()
         isProgrammaticConsoleAppend = false
         keepCursorVisible(followPrompt: true)

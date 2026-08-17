@@ -230,7 +230,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #15                    // "64Forth v1.1.1\n"
+    mov x2, #15                    // "64Forth v1.1.2\n"
     mov x16, #4
     svc #0x80
 
@@ -12272,7 +12272,7 @@ env_n_file:     .asciz "FILE"
 env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
-str_hello:  .asciz "64Forth v1.1.1\n"
+str_hello:  .asciz "64Forth v1.1.2\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
 str_bye:    .asciz "Bye!\n"
