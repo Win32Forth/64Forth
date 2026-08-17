@@ -49,7 +49,7 @@ ok(0)>
 **Console header stamp** (`ConsoleView.swift` `banner`):
 
 ```text
-=== 64Forth 1.1.2 === Aug 17, 2026 10:03 AM ===
+=== 64Forth 1.1.2 === Aug 17, 2026 11:08 AM ===
 ```
 
 - Bump **version** in the banner when marketing version changes.  

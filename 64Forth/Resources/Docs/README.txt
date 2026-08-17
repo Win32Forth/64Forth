@@ -4,7 +4,7 @@
 Version 1.1.2
 
 Console header (ConsoleView banner), e.g.:
-  === 64Forth 1.1.2 === Aug 17, 2026 10:03 AM ===
+  === 64Forth 1.1.2 === Aug 17, 2026 11:08 AM ===
 Update the date/time only when finishing a version change set, just before
 DMG + commit/push — not on every intermediate build.
 
