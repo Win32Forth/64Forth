@@ -10,11 +10,11 @@ Append new design sections as we go; mark items done when implemented.
 
 ## v1.1.3 backlog (after 1.1.2 ship)
 
-### DMG: run app from mounted volume without copying first
+### DMG: run app from mounted volume / confusing `/Volumes/…` open
 
-**Status:** Open — fix in **1.1.3**, not 1.1.2.
+**Status:** Mostly explained at release; keep a light **1.1.3** hardening item if it reappears.
 
-**Symptom:** Double-click `64Forth.app` **while it is still inside** the mounted DMG volume (e.g. `/Volumes/64Forth-1.1.2-macOS/64Forth.app`), without dragging the app to Desktop/Applications first. Console shows (often twice):
+**Symptom (seen once on 1.1.2 cut):** Double-click `64Forth.app` inside a mounted DMG. Console showed (often twice):
 
 ```text
 can't open: /Volumes/64Forth-1.1.2-macOS
@@ -23,26 +23,23 @@ can't open: /Volumes/64Forth-1.1.2-macOS
 ok(0)>
 ```
 
-**Normal install path (drag app out of DMG) is fine** — this is only the “run from the disk image window” curiosity.
+**Resolution at ship (user observation, 2026-08-17):** Desktop had **two** mounted volumes both named `64Forth-1.1.2-macOS` (leftover mount from an earlier DMG build plus the new one), in addition to the staging folder used to create the image. After **ejecting both** and reopening a single DMG, running 64Forth from the volume **worked fine**. Likely cause: **duplicate mount / stale volume**, not a hard requirement to copy the app out first.
 
-**Diagnosis (2026-08-17):**
+**Message mechanics (still true if it returns):**
 
 | Fact | Detail |
 |------|--------|
-| Message source | `FileHost.pinFileContents` — **INCLUDE/FLOAD** path (`Data(contentsOf:)`), not silent `OPEN-FILE` ior |
-| Path meaning | **Volume root directory** (DMG mount point), not a `.fth` file |
-| Why that cwd | Finder often sets process **cwd to the volume root** when launching the app from inside the DMG |
-| Boot context | AutoLoad loads **SZ-EDITOR** + **Hyper** + **`HYPER-REINDEX`**; error is a side effect of boot with volume cwd, not “user opened editor on the volume” |
-| Agent check | `--agent --autoload` with cwd = volume on the 1.1.2 DMG app **did not** reproduce the message; GUI double-click may still hit an extra open/session path |
+| Message source | `FileHost.pinFileContents` — **INCLUDE/FLOAD** (`Data(contentsOf:)`), not silent `OPEN-FILE` ior |
+| Path meaning | **Volume root directory** (mount point), not a `.fth` file |
+| Boot context | AutoLoad loads editor + Hyper + reindex while process **cwd** may be the volume root |
 
-**Likely fix directions (1.1.3):**
+**1.1.3 if needed (optional hardening):**
 
-1. On launch: if process cwd is a **read-only volume root** (or only contains `*.app`), set `logicalCurrentDirectory` to home/Documents (or Application Support), not the volume.  
-2. Refuse to FLOAD/INCLUDE a path that is a **directory** (clearer error or silent skip).  
-3. Optional: avoid treating volume absolute paths as INCLUDE targets during AutoLoad.
+1. On launch: if cwd is a **read-only volume root** (or only contains `*.app`), prefer home/Documents for `logicalCurrentDirectory`.  
+2. Refuse to FLOAD/INCLUDE a path that is a **directory**.  
+3. Release hygiene: eject old `64Forth-*-macOS` volumes before mounting a new DMG with the same name.
 
-**Do not block 1.1.2 release** — document recommended install: drag app out of DMG first.
-
+**1.1.2:** ship as-is; recommend single clean mount + drag to Applications for install.
 ---
 
 ## v1.1.2 — agent channel (headless automation)
