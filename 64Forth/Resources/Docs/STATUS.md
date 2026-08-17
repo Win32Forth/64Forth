@@ -1,14 +1,51 @@
 # 64Forth development status
 
-**Version in progress:** 1.1.2 (build 19)  
-**Last updated:** 2026-08-17 (version bump + agent channel)  
+**Version in progress:** 1.1.2 shipping; **1.1.3** next  
+**Last updated:** 2026-08-17 (1.1.3 backlog: DMG volume launch cwd)  
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
 
 ---
 
-## v1.1.2 in progress — agent channel (headless automation)
+## v1.1.3 backlog (after 1.1.2 ship)
+
+### DMG: run app from mounted volume without copying first
+
+**Status:** Open — fix in **1.1.3**, not 1.1.2.
+
+**Symptom:** Double-click `64Forth.app` **while it is still inside** the mounted DMG volume (e.g. `/Volumes/64Forth-1.1.2-macOS/64Forth.app`), without dragging the app to Desktop/Applications first. Console shows (often twice):
+
+```text
+can't open: /Volumes/64Forth-1.1.2-macOS
+  path: /Volumes/64Forth-1.1.2-macOS
+  The file "64Forth-1.1.2-macOS" couldn't be opened.
+ok(0)>
+```
+
+**Normal install path (drag app out of DMG) is fine** — this is only the “run from the disk image window” curiosity.
+
+**Diagnosis (2026-08-17):**
+
+| Fact | Detail |
+|------|--------|
+| Message source | `FileHost.pinFileContents` — **INCLUDE/FLOAD** path (`Data(contentsOf:)`), not silent `OPEN-FILE` ior |
+| Path meaning | **Volume root directory** (DMG mount point), not a `.fth` file |
+| Why that cwd | Finder often sets process **cwd to the volume root** when launching the app from inside the DMG |
+| Boot context | AutoLoad loads **SZ-EDITOR** + **Hyper** + **`HYPER-REINDEX`**; error is a side effect of boot with volume cwd, not “user opened editor on the volume” |
+| Agent check | `--agent --autoload` with cwd = volume on the 1.1.2 DMG app **did not** reproduce the message; GUI double-click may still hit an extra open/session path |
+
+**Likely fix directions (1.1.3):**
+
+1. On launch: if process cwd is a **read-only volume root** (or only contains `*.app`), set `logicalCurrentDirectory` to home/Documents (or Application Support), not the volume.  
+2. Refuse to FLOAD/INCLUDE a path that is a **directory** (clearer error or silent skip).  
+3. Optional: avoid treating volume absolute paths as INCLUDE targets during AutoLoad.
+
+**Do not block 1.1.2 release** — document recommended install: drag app out of DMG first.
+
+---
+
+## v1.1.2 — agent channel (headless automation)
 
 **Version strings:** marketing **1.1.2**, build **19** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
 

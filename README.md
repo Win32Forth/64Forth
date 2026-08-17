@@ -69,7 +69,8 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ## Status (v1.1.2)
 
-- [ ] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — sources in tree; rebuild to use — see `Resources/Docs/STATUS.md` / `Agent-channel.md`
+- [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Resources/Docs/STATUS.md` / `Agent-channel.md`
+- [ ] **v1.1.3:** fix `can't open: /Volumes/…` when double-clicking the app **inside** a mounted DMG (run-from-volume cwd); normal drag-to-Applications install is fine — see STATUS § v1.1.3 backlog
 
 **Console header** (GUI): `=== 64Forth 1.1.2 === Aug 17, 2026 10:03 AM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
