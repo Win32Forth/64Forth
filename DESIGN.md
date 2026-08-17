@@ -394,6 +394,6 @@ GUI banner in `ConsoleView.swift`:
 
 Update the **date/time only** when finishing a set of changes on a version, **just before** DMG creation and commit/push to the repo. Not required on every intermediate build. Version number in the same string tracks `MARKETING_VERSION`.
 
-## Known issue → 1.1.3: run from mounted DMG without copy
+## Known issue → 1.1.3 (optional): DMG `/Volumes/` open noise
 
-Double-clicking `64Forth.app` **inside** the open DMG volume (cwd = `/Volumes/64Forth-…`) can print `can't open: /Volumes/…` during AutoLoad (INCLUDE of the volume **directory** via `FileHost.pinFileContents`). Dragging the app out first is fine. Full notes and fix ideas: [`Resources/Docs/STATUS.md`](64Forth/Resources/Docs/STATUS.md) § **v1.1.3 backlog**.
+Seen when **two** volumes named `64Forth-1.1.2-macOS` were mounted (stale build + new). After ejecting both and remounting one DMG, run-from-volume worked. Message is INCLUDE of a **directory** (volume root) via `FileHost.pinFileContents`. Soften to optional hardening + eject hygiene: [`Resources/Docs/STATUS.md`](64Forth/Resources/Docs/STATUS.md) section **v1.1.3 backlog**.
