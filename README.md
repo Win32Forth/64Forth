@@ -67,12 +67,13 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ---
 
-## Status (v1.1.2)
+## Status (v1.1.3)
 
-- [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Resources/Docs/STATUS.md` / `Agent-channel.md`
-- [ ] **v1.1.3 (optional):** DMG `/Volumes/…` open noise — often **duplicate mounts** with the same volume name; eject stale DMGs before remount. Optional cwd/directory-FLOAD hardening — see STATUS § v1.1.3 backlog
+- [x] **v1.1.3:** separate **GRAPHICS** app-output window (Forth-first + thin Swift/`forth.s`); do not overload the console — see `Resources/Docs/STATUS.md`, `Library/AppOutput/app-output.fth`
+- [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Agent-channel.md`
+- [ ] **Later (optional):** DMG `/Volumes/…` open noise — often duplicate mounts; optional cwd/directory-FLOAD hardening — see STATUS
 
-**Console header** (GUI): `=== 64Forth 1.1.2 === Aug 17, 2026 11:08 AM ===`  
+**Console header** (GUI): `=== 64Forth 1.1.3 === Aug 18, 2026 11:14 AM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
 
 ## Status (v1.1.1)

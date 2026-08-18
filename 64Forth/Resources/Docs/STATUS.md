@@ -1,18 +1,43 @@
 # 64Forth development status
 
-**Version in progress:** 1.1.2 shipping; **1.1.3** next  
-**Last updated:** 2026-08-17 (1.1.3 backlog: DMG volume launch cwd)  
+**Version in progress:** **1.1.3** shipping  
+**Last updated:** 2026-08-18 (GRAPHICS app-output window; build 20)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
 
 ---
 
-## v1.1.3 backlog (after 1.1.2 ship)
+## v1.1.3 — GRAPHICS app-output window
 
-### DMG: run app from mounted volume / confusing `/Volumes/…` open
+**Version strings:** marketing **1.1.3**, build **20** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
 
-**Status:** Mostly explained at release; keep a light **1.1.3** hardening item if it reappears.
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.1.3 === Aug 18, 2026 11:14 AM ===
+```
+
+**Goal:** A **separate** character-grid window for apps (TETRA-class dual-load under `\ANS`), without bending the Forth **console** into TCOM graphics.
+
+| Area | Status |
+|------|--------|
+| Version 1.1.3 / build 20 | **Done** (bumped in tree) |
+| `Host/AppOutputHost.swift` — NSWindow + blit + keys | **Done** |
+| Kernel `(APP-*)` CODE words in `forth.s` | **Done** |
+| `Library/AppOutput/app-output.fth` — `VOCABULARY GRAPHICS` | **Done** |
+| `GRAPHICS-SMOKE` (open, draw, keys, close) | **Done** (verified) |
+| Wire tetra `\ANS` path onto GRAPHICS | **Not yet** |
+| Soften EMIT refresh / pixel graphics | **Later** |
+| Sound (base system) | **Remember** — not this release |
+
+**Do not** overload the console for character graphics. Console stays REPL/debug.
+
+---
+
+## Optional backlog — DMG `/Volumes/…` open
+
+**Status:** Mostly explained at 1.1.2 release; keep as light hardening if it reappears.
 
 **Symptom (seen once on 1.1.2 cut):** Double-click `64Forth.app` inside a mounted DMG. Console showed (often twice):
 
@@ -652,3 +677,17 @@ rows 3…   │ NNN │ text body            │ visit list    │
 - Typed / selection queries use **substring** search (`SZ-FIND-TYPED`); word-under-
   cursor find stays **whole-word**.
 
+
+---
+
+## Future — beyond 1.1.3 GRAPHICS MVP (with 64TCOM)
+
+**Char-grid MVP shipped in 1.1.3** (`AppOutputHost` + `GRAPHICS` vocab + smoke). Remaining:
+
+- Wire tetra `\ANS` path onto GRAPHICS (dual-load)
+- Soften EMIT refresh; pixel graphics later
+- Align further with 64TCOM’s AppKit text-grid shell where practical
+
+### Sound (base system — remember)
+
+64Forth has **no sound** today. The **base system** should eventually support basic sound output (beep / tone / simple playback) for TCOM apps and general use. **Not implementing now** — track while dual-load progresses. See also `64TCOM/STATUS.md` Future work.

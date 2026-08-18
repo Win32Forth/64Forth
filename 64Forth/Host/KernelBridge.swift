@@ -2067,6 +2067,12 @@ final class KernelBridge {
 
             guard active else { return event }
 
+            // Char-graphics app window owns keys when it is the key window
+            // (GRAPHICS KEY/KEY?). Must run before the evaluate swallow below.
+            if AppOutputHost.shared.routeKeyIfActive(event) {
+                return nil
+            }
+
             if self.deliverFacilityKeyDown(event) {
                 return nil
             }

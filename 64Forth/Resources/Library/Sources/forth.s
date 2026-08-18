@@ -230,7 +230,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #15                    // "64Forth v1.1.2\n"
+    mov x2, #15                    // "64Forth v1.1.3\n"
     mov x16, #4
     svc #0x80
 
@@ -687,6 +687,76 @@ _facility_op_go:
     blr  x9
     RESTORE_VM
 1:
+    NEXT
+
+// ----- App-output char-graphics window (not Facility / not console) -----
+// Forth owns the cell buffer; these CODE words only open/blit/keys.
+.extern _host_app_open
+.extern _host_app_close
+.extern _host_app_blit
+.extern _host_app_keyq
+.extern _host_app_key
+
+// (APP-OPEN) ( cols rows -- ior )  0=ok
+    BOOT_WORD "(APP-OPEN)", "(APP-OPEN) ( cols rows -- ior ) open char-graphics window", 0, XAPP_OPEN
+XAPP_OPEN:
+    mov  x1, x20                   // rows
+    ldr  x0, [x22], #8             // cols
+    ldr  x20, [x22], #8
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_open
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    mov  x20, x0                   // ior
+    NEXT
+
+// (APP-CLOSE) ( -- )
+    BOOT_WORD "(APP-CLOSE)", "(APP-CLOSE) ( -- ) close char-graphics window", 0, XAPP_CLOSE
+XAPP_CLOSE:
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_close
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+    NEXT
+
+// (APP-BLIT) ( c-addr u -- )  copy Forth cells to window and redraw
+    BOOT_WORD "(APP-BLIT)", "(APP-BLIT) ( c-addr u -- ) blit char buffer to graphics window", 0, XAPP_BLIT
+XAPP_BLIT:
+    mov  x1, x20                   // u
+    ldr  x0, [x22], #8             // c-addr
+    ldr  x20, [x22], #8
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_blit
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+    NEXT
+
+// (APP-KEY?) ( -- flag )  -1 if key pending in graphics window
+    BOOT_WORD "(APP-KEY?)", "(APP-KEY?) ( -- flag ) graphics window key available", 0, XAPP_KEYQ
+XAPP_KEYQ:
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_keyq
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    mov  x20, x0
+    NEXT
+
+// (APP-KEY) ( -- c )  next key from graphics window (-1 if none/timeout)
+    BOOT_WORD "(APP-KEY)", "(APP-KEY) ( -- c ) next graphics window key", 0, XAPP_KEY
+XAPP_KEY:
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_key
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    mov  x20, x0
     NEXT
 
 // int kernel_take_sz_editor_open(void) — sticky flag from SZ-HOST-REQUEST-OPEN
@@ -12272,7 +12342,7 @@ env_n_file:     .asciz "FILE"
 env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
-str_hello:  .asciz "64Forth v1.1.2\n"
+str_hello:  .asciz "64Forth v1.1.3\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
 str_bye:    .asciz "Bye!\n"

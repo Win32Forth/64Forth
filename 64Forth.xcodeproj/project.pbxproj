@@ -19,6 +19,7 @@
 		B1000012 /* FileAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000112 /* FileAccess.swift */; };
 		B1000013 /* FloatHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000113 /* FloatHost.swift */; };
 		B1000014 /* FacilityTerminal.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000114 /* FacilityTerminal.swift */; };
+		B1000018 /* AppOutputHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000119 /* AppOutputHost.swift */; };
 		B1000015 /* ForthApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000116 /* ForthApplication.swift */; };
 		B1000016 /* AppMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000117 /* AppMain.swift */; };
 		B1000017 /* AgentChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000118 /* AgentChannel.swift */; };
@@ -47,6 +48,7 @@
 		B1000112 /* FileAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileAccess.swift; sourceTree = "<group>"; };
 		B1000113 /* FloatHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatHost.swift; sourceTree = "<group>"; };
 		B1000114 /* FacilityTerminal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FacilityTerminal.swift; sourceTree = "<group>"; };
+		B1000119 /* AppOutputHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOutputHost.swift; sourceTree = "<group>"; };
 		B1000115 /* Config */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Config; sourceTree = "<group>"; };
 		B1000116 /* ForthApplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForthApplication.swift; sourceTree = "<group>"; };
 		B1000117 /* AppMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMain.swift; sourceTree = "<group>"; };
@@ -112,6 +114,7 @@
 				B1000111 /* BigIntHost.swift */,
 				B1000113 /* FloatHost.swift */,
 				B1000114 /* FacilityTerminal.swift */,
+				B1000119 /* AppOutputHost.swift */,
 			);
 			path = Host;
 			sourceTree = "<group>";
@@ -313,6 +316,7 @@
 				B1000011 /* BigIntHost.swift in Sources */,
 				B1000013 /* FloatHost.swift in Sources */,
 				B1000014 /* FacilityTerminal.swift in Sources */,
+				B1000018 /* AppOutputHost.swift in Sources */,
 				B1000006 /* forth.s in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -423,7 +427,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = X5YCJL3LJ8;
 				ENABLE_APP_SANDBOX = NO;
@@ -438,7 +442,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.6;
-				MARKETING_VERSION = 1.1.2;
+				MARKETING_VERSION = 1.1.3;
 				OTHER_CFLAGS = "-I$(SRCROOT)/64Forth/Kernel";
 				PRODUCT_BUNDLE_IDENTIFIER = com.win32forth.SixtyFourForth;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -457,7 +461,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = X5YCJL3LJ8;
 				ENABLE_APP_SANDBOX = NO;
@@ -472,7 +476,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.6;
-				MARKETING_VERSION = 1.1.2;
+				MARKETING_VERSION = 1.1.3;
 				OTHER_CFLAGS = "-I$(SRCROOT)/64Forth/Kernel";
 				PRODUCT_BUNDLE_IDENTIFIER = com.win32forth.SixtyFourForth;
 				PRODUCT_NAME = "$(TARGET_NAME)";

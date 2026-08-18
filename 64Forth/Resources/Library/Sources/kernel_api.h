@@ -98,6 +98,14 @@ void kernel_set_facility_op(void (*fn)(int64_t op, int64_t a, int64_t b));
 /// Facility cursor for AT-XY? (0-based col, row). Host fills both; nulls ignored.
 void host_facility_xy(int64_t *col_out, int64_t *row_out);
 
+/// App-output char-graphics window (separate from console / Facility).
+/// Forth owns the cell buffer; host blits and supplies keys.
+int64_t host_app_open(int64_t cols, int64_t rows);
+void host_app_close(void);
+void host_app_blit(const void *addr, int64_t nbytes);
+int64_t host_app_keyq(void);
+int64_t host_app_key(void);
+
 /// \S / \s on the console SOURCE (SOURCE-ID 0): sticky flag for multi-line paste stop.
 /// Returns 1 if set since last call, else 0; always clears the flag (TZForth-style).
 int kernel_take_repl_batch_stop(void);
