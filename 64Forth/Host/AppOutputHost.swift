@@ -24,6 +24,8 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
     private var keyQueue: [Int64] = []
     private let keyLock = NSLock()
     private var opened = false
+    /// Window / menu title; applied on open and via APP-NAME.
+    private var appName: String = "64Forth Graphics"
 
     /// True when the graphics window is open and key (owns typing for KEY/KEY?).
     var isKeyWindowActive: Bool {
@@ -147,10 +149,55 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Set window title (and remembered name for next open).
+    func setAppName(from addr: UnsafeRawPointer?, count: Int) {
+        let name: String
+        if let addr, count > 0 {
+            let n = min(count, 255)
+            name = String(bytes: UnsafeRawBufferPointer(start: addr, count: n), encoding: .utf8)
+                ?? "64Forth Graphics"
+        } else {
+            name = "64Forth Graphics"
+        }
+        let work = { [weak self] in
+            guard let self else { return }
+            self.appName = name.isEmpty ? "64Forth Graphics" : name
+            self.window?.title = self.appName
+        }
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
+        }
+    }
+
+    /// TONE stub: system beep. Real waveform sound is future base-system work.
+    func tone(freq: Int64, dur: Int64) {
+        _ = freq
+        _ = dur
+        let work = { NSSound.beep() }
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
+        }
+    }
+
+    /// Yield so the main evaluate pump can deliver keys / redraw.
+    /// Do not nest `nextEvent` here (close-time crashes); main already pumps.
+    func pump() {
+        Thread.sleep(forTimeInterval: 0.01)
+    }
+
     func keyAvailable() -> Int64 {
         keyLock.lock()
-        defer { keyLock.unlock() }
-        return keyQueue.isEmpty ? 0 : -1
+        let ready = !keyQueue.isEmpty
+        keyLock.unlock()
+        if !ready {
+            // Busy KEY? loops (tetra MOVEMENT) must yield or they starve UI.
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        return ready ? -1 : 0
     }
 
     func takeKey() -> Int64 {
@@ -199,7 +246,7 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        win.title = "64Forth Graphics"
+        win.title = appName
         win.delegate = self
         let view = AppGridView(frame: NSRect(x: 0, y: 0, width: contentW, height: contentH))
         view.host = self
@@ -318,4 +365,19 @@ public func host_app_key() -> Int64 {
     let k = AppOutputHost.shared.takeKey()
     if k >= 0 { return k }
     return AppOutputHost.shared.waitKey(timeoutSec: 0.5)
+}
+
+@_cdecl("host_app_name")
+public func host_app_name(_ addr: UnsafeRawPointer?, _ nbytes: Int64) {
+    AppOutputHost.shared.setAppName(from: addr, count: Int(nbytes))
+}
+
+@_cdecl("host_app_tone")
+public func host_app_tone(_ freq: Int64, _ dur: Int64) {
+    AppOutputHost.shared.tone(freq: freq, dur: dur)
+}
+
+@_cdecl("host_app_pump")
+public func host_app_pump() {
+    AppOutputHost.shared.pump()
 }

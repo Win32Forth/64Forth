@@ -6,15 +6,20 @@
 \   (APP-BLIT)  ( c-addr u -- )
 \   (APP-KEY?)  ( -- flag )
 \   (APP-KEY)   ( -- c )
+\   (APP-NAME)  ( c-addr u -- )
+\   (APP-TONE)  ( freq dur -- )
+\   (APP-PUMP)  ( -- )          \ yield for AppKit while spinning
 \
 \ Usage:
 \   S" AppOutput/app-output.fth" FROMLIB INCLUDED
 \   ALSO GRAPHICS
-\   WINDOW   CLS  0 0 AT ." Hello"  KEY DROP  WINDOW-OFF
+\   S" MyApp" APP-NAME  WINDOW
+\   CLS  0 0 AT ." Hello " 42 .
+\   5 TENTHS  KEY DROP  WINDOW-OFF
 \   PREVIOUS
 \
 \ Classic TCOM names live in GRAPHICS so they do not clash with
-\ Facility AT-XY / console CLS / KEY.
+\ Facility AT-XY / console CLS / KEY / . / ."
 \
 \ Public domain.
 
@@ -31,9 +36,14 @@ CREATE G-BUF  G-COLS G-ROWS * ALLOT
 VARIABLE G-CX
 VARIABLE G-CY
 0 VALUE G-OPEN?
+VARIABLE G-T0-MS                     \ TIME-RESET baseline (MS@)
 
 : REFRESH  ( -- )
   G-OPEN? IF  G-BUF G-COLS G-ROWS * (APP-BLIT)  THEN
+  ;
+
+: APP-NAME  ( c-addr u -- )
+  (APP-NAME)
   ;
 
 : WINDOW  ( -- )
@@ -74,7 +84,7 @@ VARIABLE G-CY
       G-CX !
     THEN
   THEN
-  REFRESH
+  REFRESH                           \ soft/coalesced blit: next pass
   ;
 
 : TYPE  ( c-addr u -- )
@@ -84,30 +94,70 @@ VARIABLE G-CY
 : SPACE  ( -- )  BL EMIT ;
 : CR     ( -- )  10 EMIT ;
 
+\ Number / string output must hit the grid, not the console.
+: .  ( n -- )
+  WINDOW
+  BASE @ >R DECIMAL
+  DUP ABS 0 <# #S ROT SIGN #> TYPE SPACE
+  R> BASE !
+  ;
+
+: ."  ( -- )  \ IMMEDIATE — compile/interpret to GRAPHICS TYPE
+  [CHAR] " PARSE
+  STATE @ IF  POSTPONE SLITERAL  POSTPONE TYPE  ELSE  TYPE  THEN
+; IMMEDIATE
+
 : GET-CHAR  ( -- c )
   WINDOW
   G-CX @ G-COLS G-CY @ * + G-BUF + C@
   ;
 
 : KEY?  ( -- flag )
-  WINDOW  (APP-KEY?)
+  WINDOW  (APP-KEY?)                \ yields ~1ms when empty
   ;
 
 : KEY  ( -- c )
   WINDOW
-  BEGIN  (APP-KEY) DUP 0<  WHILE  DROP  REPEAT
+  BEGIN  (APP-KEY) DUP 0<  WHILE  DROP  (APP-PUMP)  REPEAT
   ;
 
-\ Smoke test lives in GRAPHICS (needs WINDOW etc. in search order while compiling)
+\ Timers — Forth-first via MS@; pump/yield so the main AppKit loop runs.
+: TIME-RESET  ( -- )
+  MS@ G-T0-MS !
+  ;
+
+: 10TH-ELAPSED  ( -- n )            \ tenths of a second since TIME-RESET
+  (APP-PUMP)
+  MS@ G-T0-MS @ - 100 /             \ ms / 100 = tenths
+  ;
+
+: TENTHS  ( n -- )                  \ wait at least n tenths
+  TIME-RESET
+  BEGIN DUP 10TH-ELAPSED > WHILE
+    (APP-PUMP)
+  REPEAT DROP
+  ;
+
+: TONE  ( freq dur -- )             \ NSBeep stub; real sound later
+  (APP-TONE)
+  ;
+
+\ Smoke: title, draw, ., timer, tone, key, close
 : GRAPHICS-SMOKE  ( -- )
+  S" 64Forth GRAPHICS" APP-NAME
   WINDOW
   CLS
-  2 1 AT  S" 64Forth GRAPHICS" TYPE
-  2 3 AT  S" Press any key in the graphics window…" TYPE
+  2 1 AT ." 64Forth GRAPHICS"
+  2 3 AT ." n= " 42 .
+  2 5 AT ." beep + 3 tenths…"
+  440 1 TONE
+  3 TENTHS
+  2 7 AT ." Press any key in the graphics window…"
   KEY DROP
   WINDOW-OFF
   ;
 
 FORTH DEFINITIONS
 
-S" AppOutput loaded — ALSO GRAPHICS  WINDOW | GRAPHICS GRAPHICS-SMOKE" TYPE CR
+S" AppOutput loaded — ALSO GRAPHICS  GRAPHICS-SMOKE" TYPE CR
+

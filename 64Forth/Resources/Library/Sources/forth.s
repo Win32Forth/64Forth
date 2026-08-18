@@ -690,12 +690,15 @@ _facility_op_go:
     NEXT
 
 // ----- App-output char-graphics window (not Facility / not console) -----
-// Forth owns the cell buffer; these CODE words only open/blit/keys.
+// Forth owns the cell buffer; these CODE words open/blit/keys + thin host helpers.
 .extern _host_app_open
 .extern _host_app_close
 .extern _host_app_blit
 .extern _host_app_keyq
 .extern _host_app_key
+.extern _host_app_name
+.extern _host_app_tone
+.extern _host_app_pump
 
 // (APP-OPEN) ( cols rows -- ior )  0=ok
     BOOT_WORD "(APP-OPEN)", "(APP-OPEN) ( cols rows -- ior ) open char-graphics window", 0, XAPP_OPEN
@@ -757,6 +760,42 @@ XAPP_KEY:
     ldp  x29, x30, [sp], #16
     str  x20, [x22, #-8]!
     mov  x20, x0
+    NEXT
+
+// (APP-NAME) ( c-addr u -- )  set graphics window title
+    BOOT_WORD "(APP-NAME)", "(APP-NAME) ( c-addr u -- ) set graphics window title", 0, XAPP_NAME
+XAPP_NAME:
+    mov  x1, x20                   // u
+    ldr  x0, [x22], #8             // c-addr
+    ldr  x20, [x22], #8
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_name
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+    NEXT
+
+// (APP-TONE) ( freq dur -- )  beep stub (real sound later)
+    BOOT_WORD "(APP-TONE)", "(APP-TONE) ( freq dur -- ) graphics tone stub (NSBeep)", 0, XAPP_TONE
+XAPP_TONE:
+    mov  x1, x20                   // dur
+    ldr  x0, [x22], #8             // freq
+    ldr  x20, [x22], #8
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_tone
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+    NEXT
+
+// (APP-PUMP) ( -- )  yield so main AppKit pump can run during busy loops
+    BOOT_WORD "(APP-PUMP)", "(APP-PUMP) ( -- ) yield for graphics event pump", 0, XAPP_PUMP
+XAPP_PUMP:
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_pump
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
     NEXT
 
 // int kernel_take_sz_editor_open(void) — sticky flag from SZ-HOST-REQUEST-OPEN

@@ -105,6 +105,9 @@ void host_app_close(void);
 void host_app_blit(const void *addr, int64_t nbytes);
 int64_t host_app_keyq(void);
 int64_t host_app_key(void);
+void host_app_name(const void *addr, int64_t nbytes);
+void host_app_tone(int64_t freq, int64_t dur);
+void host_app_pump(void);
 
 /// \S / \s on the console SOURCE (SOURCE-ID 0): sticky flag for multi-line paste stop.
 /// Returns 1 if set since last call, else 0; always clears the flag (TZForth-style).
