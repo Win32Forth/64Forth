@@ -8,23 +8,77 @@
 \   (APP-KEY)   ( -- c )
 \   (APP-NAME)  ( c-addr u -- )
 \   (APP-TONE)  ( freq dur -- )   \ freq=Hz, dur=tenths of a second (F-PC TONE)
-\   (APP-PUMP)  ( -- )          \ yield for AppKit while spinning
+\   (APP-PUMP)  ( -- )            \ yield for AppKit while spinning
 \
-\ Usage:
+\ Dual-load (tetra etc.):
 \   S" AppOutput/app-output.fth" FROMLIB INCLUDED
-\   ALSO GRAPHICS
-\   S" MyApp" APP-NAME  WINDOW
-\   CLS  0 0 AT ." Hello " 42 .
-\   5 TENTHS  KEY DROP  WINDOW-OFF
-\   PREVIOUS
+\   ONLY FORTH ALSO GRAPHICS
+\   S" /path/to/tetra/tetra.fth" INCLUDED
+\   MAIN
 \
-\ Classic TCOM names live in GRAPHICS so they do not clash with
-\ Facility AT-XY / console CLS / KEY / . / ."
+\ Or smoke:
+\   ALSO GRAPHICS  GRAPHICS-SMOKE
 \
 \ Public domain.
 
 FORTH DEFINITIONS
 DECIMAL
+
+\ --- Helpers needed by TCOM-class sources under ANS (if not already present) ---
+[UNDEFINED] NOT [IF]
+: NOT  ( x -- flag )  0= ;
+[THEN]
+
+[UNDEFINED] UPC [IF]
+: UPC  ( c -- c' )
+  DUP [CHAR] a >= OVER [CHAR] z <= AND IF  32 -  THEN
+  ;
+[THEN]
+
+[UNDEFINED] ?EXIT [IF]
+: ?EXIT  ( flag -- )  IF EXIT THEN ;
+[THEN]
+
+\ F-PC multi-line block comment: \\ … {  (opener is the word "\\")
+[UNDEFINED] \\ [IF]
+: \\  ( -- )  \ IMMEDIATE — skip input until '{'
+  BEGIN
+    >IN @ SOURCE NIP >= IF
+      REFILL 0= IF  EXIT  THEN
+    ELSE
+      SOURCE DROP >IN @ + C@ [CHAR] { = IF
+        1 >IN +!  EXIT
+      THEN
+      1 >IN +!
+    THEN
+  AGAIN
+; IMMEDIATE
+[THEN]
+
+\ Dual-load line directives (classic F-PC DIRECTIVE / \FPC / \TCOM).
+\ Interactive 64Forth: \ANS true, \TCOM false. TARGETARM64 flips these.
+[UNDEFINED] DIRECTIVE [IF]
+\ False directive skips to end of the *current line* only. SOURCE for a
+\ file may be the whole file — do NOT set >IN to SOURCE length (that
+\ would drop the rest of the file). Avoid ['] \ (line-comments this def).
+: SKIP-REST  ( -- )
+  BEGIN
+    >IN @ SOURCE NIP >= IF EXIT THEN
+    SOURCE DROP >IN @ + C@
+    DUP 10 = OVER 13 = OR IF  DROP 1 >IN +! EXIT  THEN
+    DROP 1 >IN +!
+  AGAIN
+  ;
+: DIRECTIVE  ( flag "<spaces>name" -- )
+  CREATE , IMMEDIATE
+  DOES> @ 0= IF  SKIP-REST  THEN
+  ;
+[THEN]
+
+[UNDEFINED] \ANS [IF]
+TRUE  DIRECTIVE \ANS          \ ANS Forth / 64Forth host load
+FALSE DIRECTIVE \TCOM         \ TCOM compile path
+[THEN]
 
 VOCABULARY GRAPHICS
 GRAPHICS DEFINITIONS
@@ -36,10 +90,21 @@ CREATE G-BUF  G-COLS G-ROWS * ALLOT
 VARIABLE G-CX
 VARIABLE G-CY
 0 VALUE G-OPEN?
+0 VALUE G-DIRTY?                    \ coalesced blit — set by EMIT, cleared by REFRESH
 VARIABLE G-T0-MS                     \ TIME-RESET baseline (MS@)
 
 : REFRESH  ( -- )
-  G-OPEN? IF  G-BUF G-COLS G-ROWS * (APP-BLIT)  THEN
+  G-OPEN? IF
+    G-BUF G-COLS G-ROWS * (APP-BLIT)
+  THEN
+  0 TO G-DIRTY?
+  ;
+
+: DIRTY  ( -- )  -1 TO G-DIRTY? ;
+
+\ Flush pending EMIT/TYPE pixels before input/time waits.
+: ?REFRESH  ( -- )
+  G-DIRTY? IF  REFRESH  THEN
   ;
 
 : APP-NAME  ( c-addr u -- )
@@ -57,7 +122,7 @@ VARIABLE G-T0-MS                     \ TIME-RESET baseline (MS@)
   ;
 
 : WINDOW-OFF  ( -- )
-  G-OPEN? IF  (APP-CLOSE)  0 TO G-OPEN?  THEN
+  G-OPEN? IF  (APP-CLOSE)  0 TO G-OPEN?  0 TO G-DIRTY?  THEN
   ;
 
 : CLS  ( -- )
@@ -72,6 +137,7 @@ VARIABLE G-T0-MS                     \ TIME-RESET baseline (MS@)
   G-CY !  G-CX !
   ;
 
+\ Buffer only — no host blit per character (coalesced via DIRTY + ?REFRESH).
 : EMIT  ( c -- )
   WINDOW
   DUP 10 = OVER 13 = OR IF
@@ -84,11 +150,12 @@ VARIABLE G-T0-MS                     \ TIME-RESET baseline (MS@)
       G-CX !
     THEN
   THEN
-  REFRESH                           \ soft/coalesced blit: next pass
+  DIRTY
   ;
 
 : TYPE  ( c-addr u -- )
   0 ?DO  DUP I + C@ EMIT  LOOP DROP
+  ?REFRESH                          \ one blit after the string
   ;
 
 : SPACE  ( -- )  BL EMIT ;
@@ -113,11 +180,11 @@ VARIABLE G-T0-MS                     \ TIME-RESET baseline (MS@)
   ;
 
 : KEY?  ( -- flag )
-  WINDOW  (APP-KEY?)                \ yields ~1ms when empty
+  WINDOW  ?REFRESH  (APP-KEY?)      \ yields ~1ms when empty
   ;
 
 : KEY  ( -- c )
-  WINDOW
+  WINDOW  ?REFRESH
   BEGIN  (APP-KEY) DUP 0<  WHILE  DROP  (APP-PUMP)  REPEAT
   ;
 
@@ -127,20 +194,22 @@ VARIABLE G-T0-MS                     \ TIME-RESET baseline (MS@)
   ;
 
 : 10TH-ELAPSED  ( -- n )            \ tenths of a second since TIME-RESET
+  ?REFRESH
   (APP-PUMP)
   MS@ G-T0-MS @ - 100 /             \ ms / 100 = tenths
   ;
 
 : TENTHS  ( n -- )                  \ wait at least n tenths
+  ?REFRESH
   TIME-RESET
   BEGIN DUP 10TH-ELAPSED > WHILE
     (APP-PUMP)
   REPEAT DROP
   ;
 
-\ TONE — F-PC / TCOM stack: freq in Hz, dur in tenths of a second.
-\ Stub today: one system beep (freq/dur ignored until real sound).
+\ TONE — F-PC / TCOM: freq in Hz, dur in tenths of a second (host plays sine).
 : TONE  ( freq dur -- )             \ freq=Hz, dur=tenths of a second
+  ?REFRESH
   (APP-TONE)
   ;
 
@@ -151,9 +220,8 @@ VARIABLE G-T0-MS                     \ TIME-RESET baseline (MS@)
   CLS
   2 1 AT ." 64Forth GRAPHICS"
   2 3 AT ." n= " 42 .
-  2 5 AT ." beep + 3 tenths…"
-  440 1 TONE
-  3 TENTHS
+  2 5 AT ." 440 Hz for 3 tenths…"
+  440 3 TONE
   2 7 AT ." Press any key in the graphics window…"
   KEY DROP
   WINDOW-OFF
@@ -161,5 +229,4 @@ VARIABLE G-T0-MS                     \ TIME-RESET baseline (MS@)
 
 FORTH DEFINITIONS
 
-S" AppOutput loaded — ALSO GRAPHICS  GRAPHICS-SMOKE" TYPE CR
-
+S" AppOutput loaded — ALSO GRAPHICS  GRAPHICS-SMOKE | tetra dual-load: ALSO GRAPHICS then INCLUDED" TYPE CR

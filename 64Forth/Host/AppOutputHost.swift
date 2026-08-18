@@ -171,17 +171,79 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
         }
     }
 
-    /// TONE stub: system beep. Stack convention matches F-PC/TCOM `TONE`:
-    /// `freq` = Hz, `dur` = tenths of a second. Both ignored until real sound.
+    /// F-PC/TCOM `TONE`: `freq` = Hz, `dur` = tenths of a second.
+    /// Plays a sine tone (blocks roughly `dur` tenths). Falls back to `NSSound.beep()`
+    /// if the buffer cannot be built. Caps duration like F-PC (`50` tenths max).
     func tone(freq: Int64, dur: Int64) {
-        _ = freq
-        _ = dur
-        let work = { NSSound.beep() }
-        if Thread.isMainThread {
-            work()
-        } else {
-            DispatchQueue.main.async(execute: work)
+        let hz = max(20.0, min(Double(freq), 12000.0))
+        let tenths = max(0, min(Int(dur), 50))
+        if tenths == 0 { return }
+        let seconds = Double(tenths) / 10.0
+        guard let data = Self.sineWAV(frequency: hz, seconds: seconds) else {
+            let work = { NSSound.beep() }
+            if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
+            Thread.sleep(forTimeInterval: seconds)
+            return
         }
+        let play: () -> Void = {
+            if let sound = NSSound(data: data) {
+                sound.play()
+            } else {
+                NSSound.beep()
+            }
+        }
+        if Thread.isMainThread {
+            play()
+        } else {
+            DispatchQueue.main.async(execute: play)
+        }
+        // Block like F-PC TONE so GAME timing stays sane; main evaluate loop pumps.
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+    }
+
+    /// Minimal 16-bit mono PCM WAV at 22'050 Hz.
+    private static func sineWAV(frequency: Double, seconds: Double) -> Data? {
+        let sampleRate = 22050.0
+        let n = max(1, Int(sampleRate * seconds))
+        var data = Data()
+        data.reserveCapacity(44 + n * 2)
+        func appendU32(_ v: UInt32) {
+            var le = v.littleEndian
+            withUnsafeBytes(of: &le) { data.append(contentsOf: $0) }
+        }
+        func appendU16(_ v: UInt16) {
+            var le = v.littleEndian
+            withUnsafeBytes(of: &le) { data.append(contentsOf: $0) }
+        }
+        let dataSize = UInt32(n * 2)
+        data.append(contentsOf: Array("RIFF".utf8))
+        appendU32(36 + dataSize)
+        data.append(contentsOf: Array("WAVEfmt ".utf8))
+        appendU32(16)            // PCM chunk size
+        appendU16(1)             // PCM
+        appendU16(1)             // mono
+        appendU32(UInt32(sampleRate))
+        appendU32(UInt32(sampleRate * 2)) // byte rate
+        appendU16(2)             // block align
+        appendU16(16)            // bits
+        data.append(contentsOf: Array("data".utf8))
+        appendU32(dataSize)
+        let twoPiF = 2.0 * Double.pi * frequency
+        for i in 0..<n {
+            let t = Double(i) / sampleRate
+            // Short attack/release to avoid clicks
+            var env = 1.0
+            let attack = min(0.01, seconds / 4)
+            let release = min(0.02, seconds / 3)
+            if t < attack { env = t / attack }
+            if t > seconds - release { env = max(0, (seconds - t) / release) }
+            let sample = Int16(max(-32767, min(32767, sin(twoPiF * t) * 0.35 * env * 32767.0)))
+            appendU16(UInt16(bitPattern: sample))
+        }
+        return data
     }
 
     /// Yield so the main evaluate pump can deliver keys / redraw.

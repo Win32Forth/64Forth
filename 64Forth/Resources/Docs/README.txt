@@ -1,10 +1,10 @@
 64Forth — Swift host + PickleForth ARM64 kernel
 ================================================
 
-Version 1.1.3
+Version 1.1.4
 
 Console header (ConsoleView banner), e.g.:
-  === 64Forth 1.1.3 === Aug 18, 2026 11:14 AM ===
+  === 64Forth 1.1.4 === Aug 18, 2026 11:57 AM ===
 Update the date/time only when finishing a version change set, just before
 DMG + commit/push — not on every intermediate build.
 

@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-08-18 — **v1.1.3** (separate GRAPHICS app-output window; v1.1.2 agent channel; v1.1.1 command-pane VIEW).
+**Updated:** 2026-08-18 — **v1.1.4** (GRAPHICS + tetra `\ANS` + real TONE; v1.1.3 GRAPHICS MVP; v1.1.2 agent).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 

@@ -1,18 +1,32 @@
 # 64Forth development status
 
-**Version in progress:** **1.1.3** shipping  
-**Last updated:** 2026-08-18 (GRAPHICS app-output window; build 20)
+**Version in progress:** **1.1.4** shipping  
+**Last updated:** 2026-08-18 (GRAPHICS + tetra `\ANS` dual-load + real TONE; build 21)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
 
 ---
 
-## v1.1.3 — GRAPHICS app-output window
+## v1.1.4 — GRAPHICS complete for tetra `\ANS`
 
-**Version strings:** marketing **1.1.3**, build **20** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
+**Version strings:** marketing **1.1.4**, build **21** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
 
 **Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.1.4 === Aug 18, 2026 11:57 AM ===
+```
+
+Builds on **1.1.3** GRAPHICS MVP: coalesced EMIT, real `TONE` (Hz / tenths), dual-load helpers (`\\`, `DIRECTIVE` / `\ANS` / `\TCOM`), tetra interactive load verified.
+
+---
+
+## v1.1.3 — GRAPHICS app-output window (MVP)
+
+**Version strings:** marketing **1.1.3**, build **20**.
+
+**Console header stamp** (at 1.1.3 ship):
 
 ```text
 === 64Forth 1.1.3 === Aug 18, 2026 11:14 AM ===
@@ -27,12 +41,13 @@ Append new design sections as we go; mark items done when implemented.
 | Kernel `(APP-*)` CODE words in `forth.s` | **Done** (MVP open/blit/key) |
 | `Library/AppOutput/app-output.fth` — `VOCABULARY GRAPHICS` | **Done** (MVP) |
 | `GRAPHICS-SMOKE` (open, draw, keys, close) | **Done** (verified) |
-| Tetra-readiness words (timers, `.`, pump, …) | **Done** — see below (EMIT soft-refresh still deferred) |
-| Wire tetra `\ANS` path onto GRAPHICS | **Next** |
-| GitHub release / DMG | **After** `\ANS` dual-load works |
-| Soften EMIT refresh (dirty/coalesced blit) | **Next pass** — not this chunk |
+| Tetra-readiness words (timers, `.`, pump, …) | **Done** |
+| Soften EMIT refresh (dirty/coalesced blit) | **Done** — `DIRTY` / `?REFRESH` |
+| Real `TONE` (Hz + tenths) | **Done** — sine WAV via `NSSound` |
+| Wire tetra `\ANS` path onto GRAPHICS | **Done** — dual-load in `tetra/tetra.fth` |
+| GitHub release / DMG | **This cut** (after dual-load) |
 | Pixel graphics | **Later** |
-| Real sound (beyond `TONE` stub) | **Remember** — base system later |
+| Richer sound (polyphony / samples) | **Later** — base system |
 
 **Do not** overload the console for character graphics. Console stays REPL/debug.
 
@@ -43,15 +58,21 @@ MVP smoke is not enough for interactive tetra. Gaps vs TCOM `tcom-textgrid.inc` 
 | Need | Why | Status |
 |------|-----|--------|
 | **`TIME-RESET` / `10TH-ELAPSED` / `TENTHS`** | GAME loop timing | **Done** — Forth via `MS@` + `(APP-PUMP)` yield |
-| **`TONE`** | Sound toggle / cues | **Done** — `(APP-TONE)` → beep stub; **freq=Hz, dur=tenths of a second** (F-PC; ignored by stub) |
+| **`TONE`** | Sound toggle / cues | **Done** — sine tone; **freq=Hz, dur=tenths of a second** (F-PC) |
 | **GRAPHICS `.` (and `."`)** | `AT LEVEL .` must draw in the **grid**, not console | **Done** — pictured + `TYPE` / `SLITERAL` |
-| **Event pump while spinning** | `KEY?` / `TENTHS` busy loops must not starve UI | **Done** — yield in `(APP-KEY?)` / `(APP-PUMP)` (main evaluate loop pumps AppKit) |
+| **Event pump while spinning** | `KEY?` / `TENTHS` busy loops must not starve UI | **Done** — yield in `(APP-KEY?)` / `(APP-PUMP)` |
 | **`APP-NAME`** | Window title | **Done** — `(APP-NAME)` + Forth wrapper |
-| Soften **`EMIT` refresh** | Per-char full blit is heavy | **Deferred** — next pass after `\ANS` |
+| Soften **`EMIT` refresh** | Per-char full blit is heavy | **Done** — `DIRTY` / `?REFRESH` (flush on TYPE / KEY / timers / TONE) |
+| **tetra `\ANS` dual-load** | Same `tetra.fth` under GRAPHICS | **Done** — see 64TCOM `tetra/README.txt` |
 
-**Release rule:** no GitHub release until `\ANS` dual-load path for tetra is working. Then cut release.
+**GUI check:** rebuild app, then `GRAPHICS-SMOKE` (tone at 440 Hz × 3 tenths). Tetra:
 
-**GUI check:** rebuild app, then `FROMLIB` AppOutput + `GRAPHICS GRAPHICS-SMOKE` (title, `.`, beep, 3 tenths, key, close).
+```forth
+S" AppOutput/app-output.fth" FROMLIB INCLUDED
+ONLY FORTH ALSO GRAPHICS
+S" …/64TCOMARM64/tetra/tetra.fth" INCLUDED
+MAIN
+```
 
 ---
 
@@ -700,16 +721,16 @@ rows 3…   │ NNN │ text body            │ visit list    │
 
 ---
 
-## Future — beyond GRAPHICS tetra-readiness (with 64TCOM)
+## Future — beyond GRAPHICS + tetra dual-load (with 64TCOM)
 
-**Char-grid MVP shipped in 1.1.3.** Tetra-readiness (timers / `.` / pump / `APP-NAME` / `TONE` stub) is the current chunk; then:
+**Shipped path:** char-grid MVP (1.1.3) → tetra-readiness → coalesced EMIT → real `TONE` → tetra `\ANS` dual-load.
 
-1. Wire tetra `\ANS` path onto `GRAPHICS` (dual-load)
-2. **Then** GitHub release / DMG
-3. Soften EMIT refresh (deferred from tetra-readiness)
-4. Pixel graphics later
-5. Align further with 64TCOM’s AppKit text-grid shell where practical
+Still open:
 
-### Sound (base system — remember)
+1. Pixel graphics later
+2. Richer sound (chords / samples) beyond single sine `TONE`
+3. Align further with 64TCOM’s AppKit text-grid shell where practical
 
-`TONE` / `(APP-TONE)` stack is F-PC/TCOM: **`freq` in Hz**, **`dur` in tenths of a second**. Implementation is an **`NSSound.beep()` stub** that ignores both until real sound exists. See also `64TCOM/STATUS.md` Future work.
+### Sound
+
+`TONE` / `(APP-TONE)`: **`freq` in Hz**, **`dur` in tenths of a second** (F-PC). Host plays a mono sine WAV via `NSSound` (blocks for `dur`). See also `64TCOM/STATUS.md`.

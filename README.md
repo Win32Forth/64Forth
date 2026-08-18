@@ -67,13 +67,14 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ---
 
-## Status (v1.1.3)
+## Status (v1.1.4)
 
-- [x] **v1.1.3:** separate **GRAPHICS** app-output window (Forth-first + thin Swift/`forth.s`); do not overload the console — see `Resources/Docs/STATUS.md`, `Library/AppOutput/app-output.fth`
+- [x] **v1.1.4:** GRAPHICS complete for tetra — coalesced EMIT, real `TONE` (Hz/tenths), `\ANS` dual-load helpers; see `Library/AppOutput/app-output.fth`
+- [x] **v1.1.3:** separate **GRAPHICS** app-output window (Forth-first + thin Swift/`forth.s`)
 - [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Agent-channel.md`
-- [ ] **Later (optional):** DMG `/Volumes/…` open noise — often duplicate mounts; optional cwd/directory-FLOAD hardening — see STATUS
+- [ ] **Later (optional):** DMG `/Volumes/…` open noise — see STATUS
 
-**Console header** (GUI): `=== 64Forth 1.1.3 === Aug 18, 2026 11:14 AM ===`  
+**Console header** (GUI): `=== 64Forth 1.1.4 === Aug 18, 2026 11:57 AM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
 
 ## Status (v1.1.1)
