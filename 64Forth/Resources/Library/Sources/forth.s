@@ -12267,7 +12267,7 @@ source_addr:    .quad 0
 source_len:     .quad 0
 to_in_var:      .quad 0
 repl_batch_stop: .quad 0           // set by \S on SOURCE-ID 0; host takes via kernel_take_repl_batch_stop
-pad_buffer:     .skip 256
+pad_buffer:     .skip 1024         // must match PAD docstring / MH-EMIT-FILE chunking
 hold_ptr:       .quad 0
 // Nested SOURCE stack: 8 frames * 5 quads (addr, len, >IN, source-id, file_echo_pos)
 source_stack:   .skip 384          // 8 frames * 48 bytes (addr,len,>IN,id,echo,BLK)
