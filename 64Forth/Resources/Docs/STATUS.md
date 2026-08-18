@@ -43,7 +43,7 @@ MVP smoke is not enough for interactive tetra. Gaps vs TCOM `tcom-textgrid.inc` 
 | Need | Why | Status |
 |------|-----|--------|
 | **`TIME-RESET` / `10TH-ELAPSED` / `TENTHS`** | GAME loop timing | **Done** — Forth via `MS@` + `(APP-PUMP)` yield |
-| **`TONE`** | Sound toggle / cues | **Done** — `(APP-TONE)` → `NSSound.beep()` stub |
+| **`TONE`** | Sound toggle / cues | **Done** — `(APP-TONE)` → beep stub; **freq=Hz, dur=tenths of a second** (F-PC; ignored by stub) |
 | **GRAPHICS `.` (and `."`)** | `AT LEVEL .` must draw in the **grid**, not console | **Done** — pictured + `TYPE` / `SLITERAL` |
 | **Event pump while spinning** | `KEY?` / `TENTHS` busy loops must not starve UI | **Done** — yield in `(APP-KEY?)` / `(APP-PUMP)` (main evaluate loop pumps AppKit) |
 | **`APP-NAME`** | Window title | **Done** — `(APP-NAME)` + Forth wrapper |
@@ -712,4 +712,4 @@ rows 3…   │ NNN │ text body            │ visit list    │
 
 ### Sound (base system — remember)
 
-`TONE` is an **`NSBeep` stub** only. The **base system** should eventually support real tones / simple playback for TCOM apps. Track while dual-load progresses. See also `64TCOM/STATUS.md` Future work.
+`TONE` / `(APP-TONE)` stack is F-PC/TCOM: **`freq` in Hz**, **`dur` in tenths of a second**. Implementation is an **`NSSound.beep()` stub** that ignores both until real sound exists. See also `64TCOM/STATUS.md` Future work.

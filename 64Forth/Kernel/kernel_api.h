@@ -106,6 +106,7 @@ void host_app_blit(const void *addr, int64_t nbytes);
 int64_t host_app_keyq(void);
 int64_t host_app_key(void);
 void host_app_name(const void *addr, int64_t nbytes);
+/// TONE: freq = Hz, dur = tenths of a second (F-PC/TCOM). Stub may ignore both.
 void host_app_tone(int64_t freq, int64_t dur);
 void host_app_pump(void);
 

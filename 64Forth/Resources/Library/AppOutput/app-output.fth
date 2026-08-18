@@ -7,7 +7,7 @@
 \   (APP-KEY?)  ( -- flag )
 \   (APP-KEY)   ( -- c )
 \   (APP-NAME)  ( c-addr u -- )
-\   (APP-TONE)  ( freq dur -- )
+\   (APP-TONE)  ( freq dur -- )   \ freq=Hz, dur=tenths of a second (F-PC TONE)
 \   (APP-PUMP)  ( -- )          \ yield for AppKit while spinning
 \
 \ Usage:
@@ -138,7 +138,9 @@ VARIABLE G-T0-MS                     \ TIME-RESET baseline (MS@)
   REPEAT DROP
   ;
 
-: TONE  ( freq dur -- )             \ NSBeep stub; real sound later
+\ TONE — F-PC / TCOM stack: freq in Hz, dur in tenths of a second.
+\ Stub today: one system beep (freq/dur ignored until real sound).
+: TONE  ( freq dur -- )             \ freq=Hz, dur=tenths of a second
   (APP-TONE)
   ;
 

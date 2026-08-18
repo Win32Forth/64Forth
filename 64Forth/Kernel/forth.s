@@ -775,8 +775,8 @@ XAPP_NAME:
     ldp  x29, x30, [sp], #16
     NEXT
 
-// (APP-TONE) ( freq dur -- )  beep stub (real sound later)
-    BOOT_WORD "(APP-TONE)", "(APP-TONE) ( freq dur -- ) graphics tone stub (NSBeep)", 0, XAPP_TONE
+// (APP-TONE) ( freq dur -- )  freq=Hz, dur=tenths of a second (F-PC TONE); beep stub for now
+    BOOT_WORD "(APP-TONE)", "(APP-TONE) ( freq dur -- ) tone stub; freq=Hz, dur=tenths of a second", 0, XAPP_TONE
 XAPP_TONE:
     mov  x1, x20                   // dur
     ldr  x0, [x22], #8             // freq

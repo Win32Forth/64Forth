@@ -171,7 +171,8 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
         }
     }
 
-    /// TONE stub: system beep. Real waveform sound is future base-system work.
+    /// TONE stub: system beep. Stack convention matches F-PC/TCOM `TONE`:
+    /// `freq` = Hz, `dur` = tenths of a second. Both ignored until real sound.
     func tone(freq: Int64, dur: Int64) {
         _ = freq
         _ = dur
