@@ -779,6 +779,7 @@ struct ConsoleTextView: NSViewRepresentable {
         }
 
         var shouldScroll = false
+        var pinOnScroll = false
         let needsPinCaret = context.coordinator.lastHandledPinCaretRequest != pinCaretRequest
         if needsPinCaret {
             context.coordinator.lastHandledPinCaretRequest = pinCaretRequest
@@ -820,12 +821,16 @@ struct ConsoleTextView: NSViewRepresentable {
             } else if needsPinCaret || isPrefixAppend || selected.location >= oldEnd {
                 textView.setSelectedRange(NSRange(location: end, length: 0))
                 shouldScroll = true
+                pinOnScroll = true
             } else if selected.location <= end {
+                // Mid-line edit (arrows + backspace): keep the caret; do not jump to EOL.
                 textView.setSelectedRange(selected)
                 shouldScroll = true
+                pinOnScroll = false
             } else {
                 textView.setSelectedRange(NSRange(location: end, length: 0))
                 shouldScroll = true
+                pinOnScroll = true
             }
 
             Self.resizeTextViewToFitContent(textView)
@@ -833,14 +838,15 @@ struct ConsoleTextView: NSViewRepresentable {
             let end = (text as NSString).length
             textView.setSelectedRange(NSRange(location: end, length: 0))
             shouldScroll = true
+            pinOnScroll = true
             Self.resizeTextViewToFitContent(textView)
         }
 
         if shouldScroll, !facilityPaint {
             if paneKind == .command {
-                Self.scrollToEndNow(in: textView)
+                Self.scrollToEndNow(in: textView, pinCaret: pinOnScroll)
             }
-            Self.scheduleScrollToInsertionPoint(in: textView)
+            Self.scheduleScrollToInsertionPoint(in: textView, pinCaret: pinOnScroll)
         }
 
         // Command pane: keep insertion point out of the protected prompt.
@@ -872,24 +878,28 @@ struct ConsoleTextView: NSViewRepresentable {
         }
     }
 
-    static func scheduleScrollToInsertionPoint(in textView: NSTextView) {
+    static func scheduleScrollToInsertionPoint(in textView: NSTextView, pinCaret: Bool = true) {
         // Immediate pass: bulk TYPE replaces used to async-only scroll, so each
         // `string =` reset left the clip view at the top until FLOAD finished.
-        scrollToEndNow(in: textView)
+        scrollToEndNow(in: textView, pinCaret: pinCaret)
         DispatchQueue.main.async {
-            scrollToEndNow(in: textView)
+            scrollToEndNow(in: textView, pinCaret: pinCaret)
             DispatchQueue.main.async {
-                scrollToEndNow(in: textView)
+                scrollToEndNow(in: textView, pinCaret: pinCaret)
             }
         }
     }
 
-    /// Grow the text view and pin the clip view to the document end (live FLOAD).
-    static func scrollToEndNow(in textView: NSTextView) {
+    /// Grow the text view and scroll to the caret (or document end).
+    /// `pinCaret` is for engine output / new prompt only — mid-line editing must
+    /// pass false so backspace after left-arrow does not jump to EOL.
+    static func scrollToEndNow(in textView: NSTextView, pinCaret: Bool = true) {
         resizeTextViewToFitContent(textView)
-        let end = (textView.string as NSString).length
-        if end > 0 {
-            textView.setSelectedRange(NSRange(location: end, length: 0))
+        if pinCaret {
+            let end = (textView.string as NSString).length
+            if end > 0 {
+                textView.setSelectedRange(NSRange(location: end, length: 0))
+            }
         }
         scrollToShowInsertionPoint(in: textView)
     }
@@ -1416,11 +1426,18 @@ struct ConsoleTextView: UIViewRepresentable {
             context.coordinator.lastHandledPinCaretRequest = pinCaretRequest
         }
         if tv.text != text {
+            let selected = tv.selectedRange
+            let oldEnd = (tv.text as NSString).length
             context.coordinator.isProgrammaticUpdate = true
             tv.text = text
             context.coordinator.isProgrammaticUpdate = false
             let end = (text as NSString).length
-            tv.selectedRange = NSRange(location: end, length: 0)
+            if needsPin || selected.location >= oldEnd {
+                tv.selectedRange = NSRange(location: end, length: 0)
+            } else {
+                let loc = min(selected.location, end)
+                tv.selectedRange = NSRange(location: loc, length: 0)
+            }
             scrollToEnd(tv)
         } else if needsPin {
             let end = (text as NSString).length

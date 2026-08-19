@@ -1,10 +1,24 @@
 # 64Forth development status
 
-**Version in progress:** **1.1.4** shipping  
-**Last updated:** 2026-08-18 (GRAPHICS + tetra `\ANS` dual-load + real TONE; build 21)
+**Version in progress:** **1.1.5** shipping  
+**Last updated:** 2026-08-19 (console caret: mid-line backspace; build 22)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.1.5 — console mid-line backspace caret
+
+**Version strings:** marketing **1.1.5**, build **22** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.1.5 === Aug 19, 2026 10:31 AM ===
+```
+
+Left-arrow then backspace on the input line no longer jumps the caret to end-of-line (`scrollToEndNow` only pins the caret for engine output / new prompt).
 
 ---
 
