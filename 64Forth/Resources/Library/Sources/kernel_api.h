@@ -23,6 +23,12 @@ int kernel_eval(const char *line, size_t n);
 /// Data-stack depth (cells) after last kernel_eval / init. Does not modify the stack.
 int kernel_data_depth(void);
 
+/// Nonzero while DEBUG / DBG-ON is stepping (NEXT pause). Host must pushKey for KEY.
+int kernel_debug_armed(void);
+
+/// Copy last DEBUG snapshot (data stack, return IPs, upcoming counted name as C string).
+void kernel_debug_get(int64_t *s, int *ns, int64_t *r, int *nr, char *name, int nmax);
+
 void kernel_set_emit(void (*fn)(int c));
 /// Bulk TYPE path: emit `n` bytes at `buf` as one UTF-8 (or Latin-1 fallback) chunk.
 void kernel_set_emit_buf(void (*fn)(const char *buf, size_t n));

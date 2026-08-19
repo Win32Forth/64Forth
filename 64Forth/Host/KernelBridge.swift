@@ -25,6 +25,19 @@ private func kernel_eval(_ line: UnsafePointer<CChar>?, _ n: Int) -> Int32
 @_silgen_name("kernel_data_depth")
 private func kernel_data_depth() -> Int32
 
+@_silgen_name("kernel_debug_armed")
+private func kernel_debug_armed() -> Int32
+
+@_silgen_name("kernel_debug_get")
+private func kernel_debug_get(
+    _ s: UnsafeMutablePointer<Int64>?,
+    _ ns: UnsafeMutablePointer<Int32>?,
+    _ r: UnsafeMutablePointer<Int64>?,
+    _ nr: UnsafeMutablePointer<Int32>?,
+    _ name: UnsafeMutablePointer<CChar>?,
+    _ nmax: Int32
+)
+
 @_silgen_name("kernel_take_repl_batch_stop")
 private func kernel_take_repl_batch_stop() -> Int32
 
@@ -526,6 +539,93 @@ private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> 
         }
     default:
         break
+    }
+}
+
+/// Paint SZ-EDITOR Files column from the last DEBUG snapshot, or restore Files
+/// after DBG-OFF. Called from NEXT (kernel queue) — never dispatch_sync to main.
+@_cdecl("host_debug_paint")
+public func host_debug_paint() {
+    let term = FacilityTerminal.shared
+    guard term.isActive else { return }
+
+    if kernel_debug_armed() == 0 {
+        let restore: () -> Void = {
+            _ = KernelBridge.shared.pushKey(0)
+        }
+        if Thread.isMainThread {
+            DispatchQueue.main.async(execute: restore)
+        } else {
+            DispatchQueue.main.async(execute: restore)
+        }
+        return
+    }
+
+    var s = [Int64](repeating: 0, count: 16)
+    var r = [Int64](repeating: 0, count: 16)
+    var ns: Int32 = 0
+    var nr: Int32 = 0
+    var nameBuf = [CChar](repeating: 0, count: 32)
+    s.withUnsafeMutableBufferPointer { sp in
+        r.withUnsafeMutableBufferPointer { rp in
+            nameBuf.withUnsafeMutableBufferPointer { np in
+                kernel_debug_get(sp.baseAddress, &ns, rp.baseAddress, &nr, np.baseAddress, 32)
+            }
+        }
+    }
+    let name = String(cString: nameBuf)
+
+    let cols = max(1, term.cols)
+    let rows = max(1, term.rows)
+    let side = 28
+    let sideLeft = max(0, cols - side - 1)
+    let textTop = 3
+    let textBot = max(textTop, rows - 5)
+    let mid = (textTop + textBot) / 2
+
+    let wordLine = name.isEmpty ? " >> ?" : " >> \(name)"
+    term.writePadded(col: sideLeft, row: textTop, width: side, text: wordLine)
+    term.writePadded(col: sideLeft, row: textTop + 1, width: side, text: " Data \(ns)")
+    let sRows = max(0, mid - (textTop + 2))
+    let sCount = Int(ns)
+    // Newest at top (TOS with T), oldest toward the split. Overflow drops oldest.
+    for i in 0..<sRows {
+        let row = textTop + 2 + i
+        let idx = sCount - 1 - i
+        let text: String
+        if idx >= 0 {
+            let mark = (i == 0) ? "T " : "  "
+            text = mark + String(s[idx])
+        } else {
+            text = ""
+        }
+        term.writePadded(col: sideLeft, row: row, width: side, text: text)
+    }
+    term.writePadded(col: sideLeft, row: mid, width: side, text: " Return \(nr)")
+    let rRows = max(0, textBot - mid)
+    let rCount = Int(nr)
+    for i in 0..<rRows {
+        let row = mid + 1 + i
+        let idx = i
+        let text: String
+        if idx < rCount {
+            text = "  " + String(UInt64(bitPattern: r[idx]), radix: 16, uppercase: true)
+        } else {
+            text = ""
+        }
+        term.writePadded(col: sideLeft, row: row, width: side, text: text)
+    }
+
+    term.refreshPending = false
+    term.endGridPaint()
+    let screen = term.render()
+    let paint: () -> Void = {
+        KernelBridge.shared.onTerminalRefresh?(screen)
+    }
+    if Thread.isMainThread {
+        paint()
+    } else {
+        DispatchQueue.main.async(execute: paint)
     }
 }
 
@@ -1952,6 +2052,28 @@ final class KernelBridge {
                 let prev = (event.keyCode == 116)
                 self.evaluateHyperNav(prev ? "HYPER-PREV" : "HYPER-NEXT")
                 return nil
+            }
+
+            // DEBUG stepper is blocked in NEXT KEY — deliver space/q/return even
+            // if the command pane or idle console would otherwise swallow them.
+            if active, kernel_debug_armed() != 0, !mods.contains(.command) {
+                if event.keyCode == 36 { // Return
+                    self.pushKey(10)
+                    return nil
+                }
+                if event.keyCode == 49 { // Space
+                    self.pushKey(32)
+                    return nil
+                }
+                let chars = event.charactersIgnoringModifiers ?? event.characters ?? ""
+                if let sc = chars.unicodeScalars.first {
+                    var v = Int32(bitPattern: UInt32(sc.value))
+                    if v == 13 { v = 10 }
+                    if v > 0, v < 0x11_0000 {
+                        self.pushKey(v)
+                        return nil
+                    }
+                }
             }
 
             // Lower command pane owns typing + clipboard while sticky is set.

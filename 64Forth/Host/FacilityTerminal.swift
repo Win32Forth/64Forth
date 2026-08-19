@@ -200,6 +200,24 @@ final class FacilityTerminal {
         }
     }
 
+    /// Write `text` left-justified into `width` cells, pad with spaces. Does not wrap.
+    func writePadded(col: Int, row: Int, width: Int, text: String) {
+        guard isActive, width > 0 else { return }
+        atXY(col: col, row: row)
+        var n = 0
+        for ch in text {
+            if n >= width { break }
+            if let s = ch.unicodeScalars.first {
+                putScalar(s.value)
+                n += 1
+            }
+        }
+        while n < width {
+            putScalar(32)
+            n += 1
+        }
+    }
+
     /// Multi-line string: `rows` lines of `cols` glyphs (one Unicode scalar each) + newline.
     /// Box-drawing and other BMP chars are one UTF-16 unit (selection/caret math still works).
     func render() -> String {

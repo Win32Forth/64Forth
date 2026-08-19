@@ -1,10 +1,45 @@
 # 64Forth development status
 
-**Version in progress:** **1.1.5** shipping  
-**Last updated:** 2026-08-19 (console caret: mid-line backspace; build 22)
+**Version in progress:** **1.1.6** shipping  
+**Last updated:** 2026-08-19 (DEBUG stepper + SZ-EDITOR stack pane)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.1.6 — DEBUG stepper (console + SZ-EDITOR stack pane)
+
+**Version strings:** marketing **1.1.6**, build **23** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.1.6 === Aug 19, 2026 2:53 PM ===
+```
+
+Shared plan with 64TCOM is in 64TCOM `STATUS.md`.
+
+**Now (console):**
+- Type **`DEBUG FOO` once** (not once per step). The session stays in that evaluate until FOO finishes.
+- Each **threaded word** prints `>> NAME S n: … R n: … [spc=step q=go]` and waits for a key.
+- **space** or **return** — one more word; **q** / **g** — run the rest with no more stops.
+- When FOO returns you see **`DEBUG done`** then the usual `ok>`.
+- Host must deliver KEY while stepping (`kernel_debug_armed`); leftover CR from the command line is ignored.
+- `DBG-ON` / `DBG-OFF` — raw arm/disarm. `R.S` — print return stack.
+- Pauses only when RSP is **deeper** than at `DBG-ON` (skips `DEBUG`/`CATCH`/`DBG-OFF` themselves).
+- Data stack is the live Forth stack (including anything left under `ok(n)>`). Return stack print is **only the nest under `DEBUG`**, minus the CATCH frame — not the editor KEY loop. Format `R n: …` (no trailing `0:`).
+
+**SZ-EDITOR (this pass):**
+- While `DEBUG` is armed, the **Files** column is a vertical split: **data stack** (top: `>> NAME`, then `Data n`, TOS with `T` at the top of the cells, oldest toward the split) and **return IPs** (bottom, hex).
+- **Control does not move into the text buffer.** Start with `DEBUG FOO` in the **command pane** (same as any other line). The editor’s KEY loop is still waiting, but `kernel_eval` is nested inside `SZ-CMD-EVAL`.
+- While armed, the host **steals space / return / q / g** (and other non-⌘ keys) and `pushKey`s them to the stepper — even if the command pane has focus. They never insert into the file or the find field.
+- **q** or **g** disarms and the rest of FOO runs. After `DEBUG done`, the host queues a no-op key so Forth `SZ-REDRAW`s the Files list again.
+- Console `>> NAME S … R …` still prints (useful if you `DEBUG` from the idle console with no editor).
+
+**Later:** named `BREAK`/`UNBREAK`; gutter marks; listing/xref.
+
+**64TCOM:** still sim-first (see 64TCOM debugger plan). Same Forth words later.
 
 ---
 

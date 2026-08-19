@@ -131,7 +131,8 @@
 //   SP0 SP@ SP! DEPTH     stack probes / depth (ABORT uses SP0 SP!)
 //   LATEST                DP is ANS-style; LATEST is system
 //   LIT BRANCH 0BRANCH and *-ADDR plumbing
-//   ALIAS SEE WORDS .S DUMP FORGET ANEW USER-DICT REDEF-WARNING
+//   ALIAS SEE WORDS .S R.S DUMP FORGET ANEW USER-DICT REDEF-WARNING
+//   DEBUG DBG-ON DBG-OFF   NEXT stepper (space=step q=go); SZ-EDITOR UI later
 //   FILE-ECHO ON OFF      echo INCLUDE/FLOAD source lines when FILE-ECHO is on
 //   .FREE GROWMEMORYMB MS@ ELAPSED .ELAPSED CONTAINS
 //   Line editor + history; "undefined:" and stack error reporting
@@ -155,6 +156,10 @@
 // Macros
 // ============================================================================
 .macro NEXT
+    adrp x1, debug_armed@page
+    add  x1, x1, debug_armed@pageoff
+    ldr  x1, [x1]
+    cbnz x1, next_debug
     ldr x21, [x19], #8          // W = CFA (xt)
     ldr x1, [x21]               // code field at CFA
     br x1
@@ -214,6 +219,43 @@
     ldp x19, x20, [sp], #16
 .endm
 
+// Stepping NEXT: pause before each threaded xt (colon body + primitives).
+// debug_busy skips re-entry while we print / wait for a key.
+next_debug:
+    adrp x1, debug_busy@page
+    add  x1, x1, debug_busy@pageoff
+    ldr  x2, [x1]
+    cbnz x2, 1f
+    adrp x2, debug_floor@page
+    add  x2, x2, debug_floor@pageoff
+    ldr  x2, [x2]
+    cbz  x2, 2f
+    cmp  x23, x2
+    b.hs 1f                         // not nested under DEBUG → no pause
+2:
+    ldr  x21, [x19]                 // peek upcoming xt (do not bump IP yet)
+    ldr  x2, [x21]
+    adrp x3, XCATCH_OK@page
+    add  x3, x3, XCATCH_OK@pageoff
+    cmp  x2, x3
+    b.eq 1f                         // debugger plumbing — do not stop
+    adrp x3, XDBGOFF@page
+    add  x3, x3, XDBGOFF@pageoff
+    cmp  x2, x3
+    b.eq 1f
+    mov  x2, #1
+    str  x2, [x1]
+    stp  x29, x30, [sp, #-16]!
+    bl   _debug_pause               // uses live x19–x23; may clear debug_armed
+    ldp  x29, x30, [sp], #16
+    adrp x1, debug_busy@page
+    add  x1, x1, debug_busy@pageoff
+    str  xzr, [x1]
+1:
+    ldr x21, [x19], #8
+    ldr x1, [x21]
+    br x1
+
 // ============================================================================
 // Entry Point — terminal cold start (do not call from SwiftUI host)
 // ============================================================================
@@ -230,7 +272,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #15                    // "64Forth v1.1.5\n"
+    mov x2, #15                    // "64Forth v1.1.6\n"
     mov x16, #4
     svc #0x80
 
@@ -699,6 +741,7 @@ _facility_op_go:
 .extern _host_app_name
 .extern _host_app_tone
 .extern _host_app_pump
+.extern _host_debug_paint
 
 // (APP-OPEN) ( cols rows -- ior )  0=ok
     BOOT_WORD "(APP-OPEN)", "(APP-OPEN) ( cols rows -- ior ) open char-graphics window", 0, XAPP_OPEN
@@ -1034,6 +1077,13 @@ _kernel_data_depth:
     ret
 1:
     mov  x0, #0
+    ret
+
+.globl _kernel_debug_armed
+_kernel_debug_armed:
+    adrp x0, debug_armed@page
+    add  x0, x0, debug_armed@pageoff
+    ldr  x0, [x0]
     ret
 
 // int kernel_eval(const char *line, size_t n)
@@ -2302,6 +2352,64 @@ XUDOT:
 XDOTS:
     SAVE_VM
     bl _print_dots
+    RESTORE_VM
+    NEXT
+
+    BOOT_WORD "R.S", "R.S ( -- ) print return stack contents", 0, XRSDOT
+XRSDOT:
+    SAVE_VM
+    bl _print_rstack
+    RESTORE_VM
+    NEXT
+
+    BOOT_WORD "DBG-ON", "DBG-ON ( -- ) arm NEXT stepper (space=step q=go)", 0, XDBGON
+XDBGON:
+    adrp x0, debug_floor@page
+    add  x0, x0, debug_floor@pageoff
+    str  x23, [x0]                  // only pause when RSP is deeper than DEBUG
+    adrp x0, debug_armed@page
+    add  x0, x0, debug_armed@pageoff
+    mov  x1, #1
+    str  x1, [x0]
+    adrp x0, debug_skip_nl@page
+    add  x0, x0, debug_skip_nl@pageoff
+    str  x1, [x0]
+    NEXT
+
+    BOOT_WORD "DBG-OFF", "DBG-OFF ( -- ) disarm NEXT stepper", 0, XDBGOFF
+XDBGOFF:
+    adrp x0, debug_armed@page
+    add  x0, x0, debug_armed@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_floor@page
+    add  x0, x0, debug_floor@pageoff
+    str  xzr, [x0]
+    SAVE_VM
+    bl _host_debug_paint
+    mov x0, #10
+    bl _putchar
+    mov x0, #'D'
+    bl _putchar
+    mov x0, #'E'
+    bl _putchar
+    mov x0, #'B'
+    bl _putchar
+    mov x0, #'U'
+    bl _putchar
+    mov x0, #'G'
+    bl _putchar
+    mov x0, #32
+    bl _putchar
+    mov x0, #'d'
+    bl _putchar
+    mov x0, #'o'
+    bl _putchar
+    mov x0, #'n'
+    bl _putchar
+    mov x0, #'e'
+    bl _putchar
+    mov x0, #10
+    bl _putchar
     RESTORE_VM
     NEXT
 
@@ -12185,6 +12293,432 @@ _pd_done:
     ldp x29, x30, [sp], #16
     ret
 
+// Print return stack: n: c0 c1 ... (c0 nearest TOS / x23). Uses live x23.
+// While DEBUG is armed, only cells deeper than debug_floor (the word under
+// test). Always skip CATCH's 4-cell frame. Do not fall through to "0:".
+_print_rstack:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+    adrp x19, return_stack@page
+    add x19, x19, return_stack@pageoff
+    add x19, x19, #2048            // RP0
+    adrp x0, debug_floor@page
+    add x0, x0, debug_floor@pageoff
+    ldr x0, [x0]
+    cbz x0, 1f
+    cmp x0, x19
+    b.hi 1f
+    cmp x0, x23
+    b.ls 1f
+    mov x19, x0                    // clip to DBG-ON RSP
+1:
+    cmp x23, x19
+    b.ge _pr_empty
+    sub x21, x19, x23
+    lsr x21, x21, #3
+    cbz x21, _pr_empty
+    adrp x22, throw_handler@page
+    add x22, x22, throw_handler@pageoff
+    ldr x22, [x22]                 // handler == &saved_IP or 0
+    // count visible cells
+    mov x19, xzr                   // visible
+    mov x20, xzr                   // index
+2:
+    cmp x20, x21
+    b.hs 4f
+    add x0, x23, x20, lsl #3
+    cmp x0, x22
+    b.ne 3f
+    add x20, x20, #4
+    b 2b
+3:
+    add x19, x19, #1
+    add x20, x20, #1
+    b 2b
+4:
+    cbz x19, _pr_empty
+    mov x0, x19
+    bl _print_unsigned
+    mov x0, #58
+    bl _putchar
+    mov x0, #32
+    bl _putchar
+    mov x20, xzr
+5:
+    cmp x20, x21
+    b.hs _pr_done
+    add x0, x23, x20, lsl #3
+    cmp x0, x22
+    b.ne 6f
+    add x20, x20, #4
+    b 5b
+6:
+    ldr x0, [x23, x20, lsl #3]
+    bl _print_unsigned
+    mov x0, #32
+    bl _putchar
+    add x20, x20, #1
+    b 5b
+_pr_empty:
+    mov x0, #48
+    bl _putchar
+    mov x0, #58
+    bl _putchar
+_pr_done:
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// x0 = xt (CFA). Print counted NFA; "?" if it looks invalid.
+_print_xt_name:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    stp x19, x20, [sp, #-16]!
+    cbz x0, _pxn_q
+    tst x0, #7
+    b.ne _pxn_q
+    ldr x1, [x0, #-8]
+    and x1, x1, #0xFFFF
+    cbz x1, _pxn_q
+    cmp x1, #4096
+    b.hs _pxn_q
+    sub x19, x0, x1                // NFA
+    ldrb w20, [x19], #1
+    cbz w20, _pxn_q
+    cmp w20, #64
+    b.hs _pxn_q
+    mov x1, #0
+1:
+    cmp x1, x20
+    b.hs 2f
+    ldrb w0, [x19, x1]
+    stp x1, x20, [sp, #-16]!
+    bl _putchar
+    ldp x1, x20, [sp], #16
+    add x1, x1, #1
+    b 1b
+2:
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+_pxn_q:
+    mov x0, #63                    // '?'
+    bl _putchar
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// Pause at NEXT: show upcoming xt, data stack, return stack; wait for key.
+// space/return = step; q/g = disarm and run. Uses live x19–x23; x21 = peek xt.
+_debug_pause:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    stp x21, x22, [sp, #-16]!
+    adrp x0, debug_xt@page
+    add x0, x0, debug_xt@pageoff
+    str x21, [x0]
+    mov x0, #10
+    bl _putchar
+    mov x0, #62                    // '>'
+    bl _putchar
+    mov x0, #62
+    bl _putchar
+    mov x0, #32
+    bl _putchar
+    mov x0, x21
+    bl _print_xt_name
+    mov x0, #32
+    bl _putchar
+    mov x0, #83                    // 'S'
+    bl _putchar
+    bl _print_dots
+    mov x0, #32
+    bl _putchar
+    mov x0, #82                    // 'R'
+    bl _putchar
+    bl _print_rstack
+    bl _debug_capture
+    bl _host_debug_paint
+    mov x0, #32
+    bl _putchar
+    mov x0, #'['
+    bl _putchar
+    mov x0, #'s'
+    bl _putchar
+    mov x0, #'p'
+    bl _putchar
+    mov x0, #'c'
+    bl _putchar
+    mov x0, #'='
+    bl _putchar
+    mov x0, #'s'
+    bl _putchar
+    mov x0, #'t'
+    bl _putchar
+    mov x0, #'e'
+    bl _putchar
+    mov x0, #'p'
+    bl _putchar
+    mov x0, #32
+    bl _putchar
+    mov x0, #'q'
+    bl _putchar
+    mov x0, #'='
+    bl _putchar
+    mov x0, #'g'
+    bl _putchar
+    mov x0, #'o'
+    bl _putchar
+    mov x0, #']'
+    bl _putchar
+    mov x0, #10
+    bl _putchar
+1:
+    bl _getchar
+    lsr x1, x0, #24
+    and x1, x1, #0xFF
+    cmp x1, #2                     // skip function-key events
+    b.eq 1b
+    cmp x1, #1
+    b.ne 2f
+    mov x2, #0x1FFFFF
+    and x0, x0, x2
+2:
+    adrp x1, debug_skip_nl@page
+    add x1, x1, debug_skip_nl@pageoff
+    ldr x2, [x1]
+    cbz x2, 5f
+    cmp w0, #10
+    b.eq 1b
+    cmp w0, #13
+    b.eq 1b
+    str xzr, [x1]
+5:
+    cmp w0, #'q'
+    b.eq 3f
+    cmp w0, #'Q'
+    b.eq 3f
+    cmp w0, #'g'
+    b.eq 3f
+    cmp w0, #'G'
+    b.eq 3f
+    b 4f
+3:
+    adrp x1, debug_armed@page
+    add x1, x1, debug_armed@pageoff
+    str xzr, [x1]
+    bl _host_debug_paint
+4:
+    ldp x21, x22, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// Snapshot live stacks + peek xt name for SZ-EDITOR side panel (host_debug_paint).
+_debug_capture:
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+    stp x23, x24, [sp, #-16]!
+    // data: same model as .S  (x20 TOS, x22 DSP)
+    adrp x19, data_stack@page
+    add x19, x19, data_stack@pageoff
+    add x19, x19, #4096
+    adrp x24, debug_sbuf@page
+    add x24, x24, debug_sbuf@pageoff
+    adrp x9, debug_scnt@page
+    add x9, x9, debug_scnt@pageoff
+    cmp x22, x19
+    b.ge 1f
+    sub x21, x19, x22
+    lsr x21, x21, #3
+    cmp x21, #16
+    b.ls 2f
+    mov x21, #16
+2:
+    str x21, [x9]
+    cbz x21, 3f
+    // sbuf[0]=oldest … sbuf[n-2]=next-to-TOS, sbuf[n-1]=TOS
+    // mem is [next-to-TOS, …, oldest, sentinel]; same walk as .S
+    sub x1, x21, #1
+    str x20, [x24, x1, lsl #3]
+    cbz x1, 3f
+    mov x0, #0
+4:
+    cmp x0, x1
+    b.hs 3f
+    sub x2, x1, x0
+    sub x2, x2, #1
+    ldr x3, [x22, x2, lsl #3]
+    str x3, [x24, x0, lsl #3]
+    add x0, x0, #1
+    b 4b
+1:
+    str xzr, [x9]
+3:
+    // return IPs below debug_floor; skip CATCH frame
+    adrp x19, return_stack@page
+    add x19, x19, return_stack@pageoff
+    add x19, x19, #2048
+    adrp x10, debug_floor@page
+    add x10, x10, debug_floor@pageoff
+    ldr x10, [x10]
+    cbz x10, 20f
+    cmp x10, x19
+    b.hi 20f
+    cmp x10, x23
+    b.ls 20f
+    mov x19, x10
+20:
+    adrp x24, debug_rbuf@page
+    add x24, x24, debug_rbuf@pageoff
+    adrp x9, debug_rcnt@page
+    add x9, x9, debug_rcnt@pageoff
+    adrp x10, throw_handler@page
+    add x10, x10, throw_handler@pageoff
+    ldr x10, [x10]
+    cmp x23, x19
+    b.ge 5f
+    sub x21, x19, x23
+    lsr x21, x21, #3
+    mov x0, xzr
+    mov x1, xzr
+6:
+    cmp x0, x21
+    b.hs 7f
+    add x2, x23, x0, lsl #3
+    cmp x2, x10
+    b.ne 8f
+    add x0, x0, #4
+    b 6b
+8:
+    cmp x1, #16
+    b.hs 7f
+    ldr x2, [x23, x0, lsl #3]
+    str x2, [x24, x1, lsl #3]
+    add x1, x1, #1
+    add x0, x0, #1
+    b 6b
+5:
+    mov x1, xzr
+7:
+    str x1, [x9]
+    // counted name from peek xt saved in debug_xt
+    adrp x0, debug_xt@page
+    add x0, x0, debug_xt@pageoff
+    ldr x0, [x0]
+    adrp x19, debug_name@page
+    add x19, x19, debug_name@pageoff
+    strb wzr, [x19]
+    cbz x0, 9f
+    tst x0, #7
+    b.ne 9f
+    ldr x1, [x0, #-8]
+    and x1, x1, #0xFFFF
+    cbz x1, 9f
+    cmp x1, #4096
+    b.hs 9f
+    sub x0, x0, x1                 // NFA
+    ldrb w1, [x0], #1
+    cbz w1, 9f
+    cmp w1, #31
+    b.ls 10f
+    mov w1, #31
+10:
+    strb w1, [x19], #1
+    mov x2, #0
+11:
+    cmp x2, x1
+    b.hs 9f
+    ldrb w3, [x0, x2]
+    strb w3, [x19, x2]
+    add x2, x2, #1
+    b 11b
+9:
+    ldp x23, x24, [sp], #16
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// void kernel_debug_get(int64_t *s, int *ns, int64_t *r, int *nr, char *name, int nmax)
+.globl _kernel_debug_get
+_kernel_debug_get:
+    stp x19, x20, [sp, #-16]!
+    mov x19, x0                    // s dest
+    mov x20, x1                    // *ns
+    adrp x9, debug_scnt@page
+    add x9, x9, debug_scnt@pageoff
+    ldr x10, [x9]
+    cmp x10, #16
+    b.ls 1f
+    mov x10, #16
+1:
+    cbz x20, 2f
+    str w10, [x20]
+2:
+    cbz x19, 4f
+    adrp x11, debug_sbuf@page
+    add x11, x11, debug_sbuf@pageoff
+    mov x12, #0
+3:
+    cmp x12, x10
+    b.hs 4f
+    ldr x13, [x11, x12, lsl #3]
+    str x13, [x19, x12, lsl #3]
+    add x12, x12, #1
+    b 3b
+4:
+    adrp x9, debug_rcnt@page
+    add x9, x9, debug_rcnt@pageoff
+    ldr x10, [x9]
+    cmp x10, #16
+    b.ls 5f
+    mov x10, #16
+5:
+    cbz x3, 6f
+    str w10, [x3]
+6:
+    cbz x2, 8f
+    adrp x11, debug_rbuf@page
+    add x11, x11, debug_rbuf@pageoff
+    mov x12, #0
+7:
+    cmp x12, x10
+    b.hs 8f
+    ldr x13, [x11, x12, lsl #3]
+    str x13, [x2, x12, lsl #3]
+    add x12, x12, #1
+    b 7b
+8:
+    cbz x4, 11f
+    mov w14, w5
+    cmp w14, #1
+    b.lt 11f
+    adrp x11, debug_name@page
+    add x11, x11, debug_name@pageoff
+    ldrb w12, [x11], #1
+    sub w14, w14, #1
+    cmp w12, w14
+    b.ls 9f
+    mov w12, w14
+9:
+    mov x13, #0
+10:
+    cmp x13, x12
+    b.hs 12f
+    ldrb w15, [x11, x13]
+    strb w15, [x4, x13]
+    add x13, x13, #1
+    b 10b
+12:
+    strb wzr, [x4, x13]
+11:
+    ldp x19, x20, [sp], #16
+    ret
+
 // XRESTART: trampoline code that returns to the interpreter loop.
 // Must be in __text (executable) section, NOT in .data.
 .align 8
@@ -12381,7 +12915,7 @@ env_n_file:     .asciz "FILE"
 env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
-str_hello:  .asciz "64Forth v1.1.5\n"
+str_hello:  .asciz "64Forth v1.1.6\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
 str_bye:    .asciz "Bye!\n"
@@ -12416,6 +12950,17 @@ embed_mode:     .quad 0            // 0 = terminal cold start, 1 = host embed
 emit_hook:      .quad 0            // void (*)(int c)
 emit_buf_hook:  .quad 0            // void (*)(const char *buf, size_t n) — bulk UTF-8 TYPE
 xchar_emit_buf: .skip 8            // temp for XXCHAR_EMIT (max 4 UTF-8 bytes)
+debug_armed:    .quad 0            // nonzero → NEXT pauses before each xt
+debug_busy:     .quad 0            // set while _debug_pause runs
+debug_floor:    .quad 0            // RSP at DBG-ON; pause only if x23 < floor
+debug_skip_nl:  .quad 0            // skip leftover CR from the DEBUG command line
+debug_xt:       .quad 0            // peek xt at last pause
+.equ DBG_STACK_MAX, 16
+debug_scnt:     .quad 0
+debug_sbuf:     .skip DBG_STACK_MAX * 8
+debug_rcnt:     .quad 0
+debug_rbuf:     .skip DBG_STACK_MAX * 8
+debug_name:     .skip 32
 key_hook:       .quad 0            // int (*)(void) — KEY (blocking)
 key_q_hook:     .quad 0            // int (*)(void) — KEY? (non-zero if ready)
 time_date_hook: .quad 0            // void (*)(int64_t out[6]) — TIME&DATE
@@ -12719,6 +13264,8 @@ forth_init_str:
     .ascii ": (SEE-STEP) DUP @ >R R@ EXIT-ADDR = IF R> DROP DROP 59 EMIT CR 0 EXIT THEN R@ LIT-ADDR = IF R> DROP 8 + DUP @ . SPACE 8 + EXIT THEN R@ SLIT-ADDR = IF R> DROP 8 + DUP @ >R 8 + 83 EMIT 34 EMIT SPACE DUP R@ TYPE 34 EMIT SPACE R> + ALIGNED EXIT THEN R@ (SEE-BR?) IF R@ NAME>STRING TYPE SPACE R> DROP 8 + DUP @ . SPACE 8 + EXIT THEN R@ NAME>STRING TYPE SPACE R> DROP 8 + ; "
     .ascii "DOC\" SEE ( 'name' -- ) show help and decompile word\" "
     .ascii ": SEE ' DUP (SEE-HDR) DUP DOCOL? 0= IF (SEE-PRIM) EXIT THEN >BODY BEGIN (SEE-STEP) DUP 0= UNTIL DROP ; "
+    .ascii "DOC\" DEBUG ( 'name' -- ) step name at each NEXT; space=step q/g=run rest\" "
+    .ascii ": DEBUG ' DBG-ON CATCH DBG-OFF THROW ; "
     .ascii "DOC\" HELP ( 'name' -- ) show help and decompile word (same as SEE)\" "
     .ascii ": HELP SEE ; "
     .ascii "' INCLUDE ALIAS FLOAD "
