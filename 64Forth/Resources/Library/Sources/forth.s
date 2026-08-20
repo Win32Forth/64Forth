@@ -232,6 +232,12 @@ next_debug:
     cbz  x2, 2f
     cmp  x23, x2
     b.hs 1f                         // not nested under DEBUG → no pause
+    adrp x2, debug_over@page
+    add  x2, x2, debug_over@pageoff
+    ldr  x2, [x2]
+    cbz  x2, 2f
+    cmp  x23, x2
+    b.lo 1f                         // F6: still inside stepped-over word
 2:
     ldr  x21, [x19]                 // peek upcoming xt (do not bump IP yet)
     ldr  x2, [x21]
@@ -243,6 +249,9 @@ next_debug:
     add  x3, x3, XDBGOFF@pageoff
     cmp  x2, x3
     b.eq 1f
+    adrp x2, debug_over@page
+    add  x2, x2, debug_over@pageoff
+    str  xzr, [x2]                  // this stop completes a step-over
     mov  x2, #1
     str  x2, [x1]
     stp  x29, x30, [sp, #-16]!
@@ -2328,6 +2337,20 @@ XCR:
     RESTORE_VM
     NEXT
 
+    BOOT_WORD "DBG-SHOW-XT", "DBG-SHOW-XT ( -- addr ) xt of DBG-SYNC-VIEW or 0", 0, XDBGSHOWXT
+XDBGSHOWXT:
+    str x20, [x22, #-8]!
+    adrp x20, debug_show_xt@page
+    add x20, x20, debug_show_xt@pageoff
+    NEXT
+
+    BOOT_WORD "DBG-WHEEL-XT", "DBG-WHEEL-XT ( -- addr ) xt of DBG-WHEEL or 0", 0, XDBGWHEELXT
+XDBGWHEELXT:
+    str x20, [x22, #-8]!
+    adrp x20, debug_wheel_xt@page
+    add x20, x20, debug_wheel_xt@pageoff
+    NEXT
+
     BOOT_WORD ".", ". ( n -- ) print number (with space)", 0, XDOT
 XDOT:
     mov x0, x20
@@ -2362,7 +2385,7 @@ XRSDOT:
     RESTORE_VM
     NEXT
 
-    BOOT_WORD "DBG-ON", "DBG-ON ( -- ) arm NEXT stepper (F6/F7=step Cmd-Shift-Y=go)", 0, XDBGON
+    BOOT_WORD "DBG-ON", "DBG-ON ( -- ) arm NEXT stepper (F6=over F7=into Cmd-Shift-Y=go)", 0, XDBGON
 XDBGON:
     adrp x0, debug_floor@page
     add  x0, x0, debug_floor@pageoff
@@ -2371,6 +2394,12 @@ XDBGON:
     add  x0, x0, debug_armed@pageoff
     mov  x1, #1
     str  x1, [x0]
+    adrp x0, debug_over@page
+    add  x0, x0, debug_over@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_view_cfa@page
+    add  x0, x0, debug_view_cfa@pageoff
+    str  xzr, [x0]
     adrp x0, debug_skip_nl@page
     add  x0, x0, debug_skip_nl@pageoff
     str  x1, [x0]
@@ -2383,6 +2412,12 @@ XDBGOFF:
     str  xzr, [x0]
     adrp x0, debug_floor@page
     add  x0, x0, debug_floor@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_over@page
+    add  x0, x0, debug_over@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_view_cfa@page
+    add  x0, x0, debug_view_cfa@pageoff
     str  xzr, [x0]
     SAVE_VM
     bl _host_debug_paint
@@ -12692,6 +12727,7 @@ _debug_pause:
     bl _putchar
     bl _print_rstack
     bl _debug_capture
+    bl _debug_sync_view
     bl _host_debug_paint
     adrp x0, str_dbg_keys@page
     add x0, x0, str_dbg_keys@pageoff
@@ -12713,10 +12749,10 @@ _debug_pause:
     b.ne 2f
     mov x2, #0xFFFFFF
     and x0, x0, x2
-    cmp x0, #16                    // K-F6 step over (step for now)
-    b.eq 4f
-    cmp x0, #17                    // K-F7 step into (step for now)
-    b.eq 4f
+    cmp x0, #16                    // K-F6 step over
+    b.eq 9f
+    cmp x0, #17                    // K-F7 step into
+    b.eq 10f
     b 1b                           // F8 out: ignore until implemented
 2:
     cmp x1, #1
@@ -12736,14 +12772,132 @@ _debug_pause:
 5:
     cmp w0, #134                   // host: ⌘⇧Y continue
     b.eq 3f
+    cmp w0, #3                     // SZ-VSCROLL-UP
+    b.eq 11f
+    cmp w0, #7                     // SZ-VSCROLL-DN
+    b.eq 11f
     b 1b
+11:
+    bl _debug_wheel
+    b 1b
+9:
+    adrp x1, debug_over@page
+    add x1, x1, debug_over@pageoff
+    str x23, [x1]                  // skip pauses while RSP deeper than now
+    b 4f
+10:
+    adrp x1, debug_over@page
+    add x1, x1, debug_over@pageoff
+    str xzr, [x1]
+    b 4f
 3:
     adrp x1, debug_armed@page
     add x1, x1, debug_armed@pageoff
     str xzr, [x1]
+    adrp x1, debug_over@page
+    add x1, x1, debug_over@pageoff
+    str xzr, [x1]
     bl _host_debug_paint
 4:
     ldp x21, x22, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// Run Forth xt (x0) then return here. VM x19–x23 restored from debug_vmsave.
+_debug_call_xt:
+    cbz x0, 1f
+    adrp x1, debug_vmsave@page
+    add x1, x1, debug_vmsave@pageoff
+    stp x19, x20, [x1]
+    stp x21, x22, [x1, #16]
+    stp x23, x24, [x1, #32]
+    stp x29, x30, [x1, #48]
+    adrp x19, debug_ret_ipcell@page
+    add x19, x19, debug_ret_ipcell@pageoff
+    mov x21, x0
+    ldr x1, [x21]
+    br x1
+1:
+    ret
+
+.align 4
+XDBG_CALL_DONE:
+    adrp x1, debug_vmsave@page
+    add x1, x1, debug_vmsave@pageoff
+    ldp x19, x20, [x1]
+    ldp x21, x22, [x1, #16]
+    ldp x23, x24, [x1, #32]
+    ldp x29, x30, [x1, #48]
+    ret
+
+// If IP sits in a different colon word than last pause, HYPER-VIEW it.
+_debug_sync_view:
+    stp x29, x30, [sp, #-16]!
+    mov x0, x19
+    bl _ip_find_colon
+    cbz x0, 9f
+    adrp x1, debug_view_cfa@page
+    add x1, x1, debug_view_cfa@pageoff
+    ldr x2, [x1]
+    cmp x0, x2
+    b.eq 9f
+    str x0, [x1]
+    adrp x24, debug_view_name@page
+    add x24, x24, debug_view_name@pageoff
+    strb wzr, [x24]
+    tst x0, #7
+    b.ne 9f
+    ldr x1, [x0, #-8]
+    and x1, x1, #0xFFFF
+    cbz x1, 9f
+    cmp x1, #4096
+    b.hs 9f
+    sub x0, x0, x1
+    ldrb w1, [x0], #1
+    cbz w1, 9f
+    cmp w1, #31
+    b.ls 1f
+    mov w1, #31
+1:
+    strb w1, [x24], #1
+    mov x2, xzr
+2:
+    cmp x2, x1
+    b.hs 3f
+    ldrb w3, [x0, x2]
+    strb w3, [x24, x2]
+    add x2, x2, #1
+    b 2b
+3:
+    adrp x0, debug_show_xt@page
+    add x0, x0, debug_show_xt@pageoff
+    ldr x0, [x0]
+    cbz x0, 9f
+    adrp x1, debug_view_name@page
+    add x1, x1, debug_view_name@pageoff
+    ldrb w2, [x1], #1
+    cbz w2, 9f
+    str x20, [x22, #-8]!
+    mov x20, x1                    // c-addr
+    str x20, [x22, #-8]!
+    mov x20, x2                    // u
+    bl _debug_call_xt
+9:
+    ldp x29, x30, [sp], #16
+    ret
+
+_debug_wheel:
+    stp x29, x30, [sp, #-16]!
+    adrp x1, debug_wheel_xt@page
+    add x1, x1, debug_wheel_xt@pageoff
+    ldr x1, [x1]
+    cbz x1, 1f
+    str x20, [x22, #-8]!
+    mov x20, x0                    // key
+    mov x0, x1
+    bl _debug_call_xt
+    bl _host_debug_paint
+1:
     ldp x29, x30, [sp], #16
     ret
 
@@ -13172,7 +13326,7 @@ env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
 str_hello:  .asciz "64Forth v1.1.6\n"
-str_dbg_keys: .asciz " [F6/F7=step Cmd-Shift-Y=go]\n"
+str_dbg_keys: .asciz " [F6=over F7=into Cmd-Shift-Y=go]\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
 str_bye:    .asciz "Bye!\n"
@@ -13210,6 +13364,15 @@ xchar_emit_buf: .skip 8            // temp for XXCHAR_EMIT (max 4 UTF-8 bytes)
 debug_armed:    .quad 0            // nonzero → NEXT pauses before each xt
 debug_busy:     .quad 0            // set while _debug_pause runs
 debug_floor:    .quad 0            // RSP at DBG-ON; pause only if x23 < floor
+debug_over:     .quad 0            // F6: skip pause while x23 < this RSP
+debug_show_xt:  .quad 0            // DBG-SYNC-VIEW xt (set by Hyper)
+debug_wheel_xt: .quad 0            // DBG-WHEEL xt (set by editor)
+debug_view_cfa: .quad 0            // last colon shown in SZ-EDITOR
+debug_view_name: .skip 32
+debug_vmsave:   .skip 64
+.align 8
+debug_ret_cfa:  .quad XDBG_CALL_DONE
+debug_ret_ipcell: .quad debug_ret_cfa
 debug_skip_nl:  .quad 0            // skip leftover CR from the DEBUG command line
 debug_xt:       .quad 0            // peek xt at last pause
 .equ DBG_STACK_MAX, 16
@@ -13522,7 +13685,7 @@ forth_init_str:
     .ascii ": (SEE-STEP) DUP @ >R R@ EXIT-ADDR = IF R> DROP DROP 59 EMIT CR 0 EXIT THEN R@ LIT-ADDR = IF R> DROP 8 + DUP @ . SPACE 8 + EXIT THEN R@ SLIT-ADDR = IF R> DROP 8 + DUP @ >R 8 + 83 EMIT 34 EMIT SPACE DUP R@ TYPE 34 EMIT SPACE R> + ALIGNED EXIT THEN R@ (SEE-BR?) IF R@ NAME>STRING TYPE SPACE R> DROP 8 + DUP @ . SPACE 8 + EXIT THEN R@ NAME>STRING TYPE SPACE R> DROP 8 + ; "
     .ascii "DOC\" SEE ( 'name' -- ) show help and decompile word\" "
     .ascii ": SEE ' DUP (SEE-HDR) DUP DOCOL? 0= IF (SEE-PRIM) EXIT THEN >BODY BEGIN (SEE-STEP) DUP 0= UNTIL DROP ; "
-    .ascii "DOC\" DEBUG ( 'name' -- ) step name at each NEXT; F6/F7=step Cmd-Shift-Y=go\" "
+    .ascii "DOC\" DEBUG ( 'name' -- ) F6 step over, F7 into, Cmd-Shift-Y go\" "
     .ascii ": DEBUG ' DBG-ON CATCH DBG-OFF THROW ; "
     .ascii "DOC\" HELP ( 'name' -- ) show help and decompile word (same as SEE)\" "
     .ascii ": HELP SEE ; "

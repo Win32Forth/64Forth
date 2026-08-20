@@ -23,7 +23,8 @@ Shared plan with 64TCOM is in 64TCOM `STATUS.md`.
 **Now (console):**
 - Type **`DEBUG FOO` once** (not once per step). The session stays in that evaluate until FOO finishes.
 - Each **threaded word** prints `>> NAME S n: … R n: … [F6/F7=step Cmd-Shift-Y=go]` and waits for a key.
-- **F6** step over / **F7** step into — same “one threaded word” for now; **F8** step out reserved (ignored). **⌘⇧Y** — run the rest (continue).
+- **F6** step over — run the current xt (including a whole colon word) and stop at the next xt in the caller. **F7** step into — pause at the next `NEXT` (enter colon bodies). **F8** step out reserved (ignored). **⌘⇧Y** — run the rest (continue).
+- When the pause IP moves into a **different colon word** (F7 into, or `EXIT` back out), SZ-EDITOR `VIEW`s that word’s source if it is in `HYPER.NDX`. Same word → no reload. Wheel scrolls the source while paused (stack pane is repainted).
 - When FOO returns you see **`DEBUG done`** then the usual `ok>`.
 - Host must deliver KEY while stepping (`kernel_debug_armed`); leftover CR from the command line is ignored.
 - `DBG-ON` / `DBG-OFF` — raw arm/disarm. `R.S` — print return stack.

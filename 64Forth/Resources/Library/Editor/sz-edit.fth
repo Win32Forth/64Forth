@@ -577,6 +577,14 @@ VARIABLE SZ-DBG-XT
 
 : SZ-DBG-ARM  ( xt -- )  SZ-DBG-XT ! ;
 
+\ Wheel while NEXT is paused (keys 3 / 7). Stay in the stepper.
+: DBG-WHEEL  ( c -- )
+   DUP 3 = IF  DROP SZ-SCROLL-UP  SZ-REDRAW EXIT  THEN
+   DUP 7 = IF  DROP SZ-SCROLL-DOWN SZ-REDRAW EXIT  THEN
+   DROP
+;
+' DBG-WHEEL DBG-WHEEL-XT !
+
 : SZ-DBG-RUN  ( -- )
    SZ-DBG-XT @ DUP 0= IF  DROP EXIT  THEN
    0 SZ-DBG-XT !

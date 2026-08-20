@@ -937,8 +937,7 @@ final class KernelBridge {
     /// plus `systemNaturalScrolling` (not a second invert of `scrollingDeltaY`).
     func reportFacilityScroll(_ event: NSEvent) {
         guard isFacilityTerminalActive, isEvaluating else { return }
-        // Wheel must not feed the NEXT stepper (each notch was a STEP).
-        if kernel_debug_armed() != 0 { return }
+        // While stepping, 3/7 are handled in _debug_pause (scroll source, stay paused).
         #if os(macOS)
         // Device-oriented delta (not pre-flipped). Positive = wheel/finger “up”
         // on the device in the traditional sense.
