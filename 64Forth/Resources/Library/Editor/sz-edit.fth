@@ -570,6 +570,24 @@ VARIABLE SZ-DLG-T2
 \ (SZ-CONSOLE-EMIT) routes TYPE to the lower host pane so the facility grid is clean.
 CREATE SZ-CMD-BUF  256 ALLOT
 
+\ Pending xt for DBG: run stepper after the editor is on screen (untitled
+\ or VIEW). 0 = none. Cleared before EXECUTE so a THROW cannot re-enter.
+VARIABLE SZ-DBG-XT
+0 SZ-DBG-XT !
+
+: SZ-DBG-ARM  ( xt -- )  SZ-DBG-XT ! ;
+
+: SZ-DBG-RUN  ( -- )
+   SZ-DBG-XT @ DUP 0= IF  DROP EXIT  THEN
+   0 SZ-DBG-XT !
+   \ Idle-console DBG has no command-pane emit; keep >> lines off the grid.
+   -1 (SZ-CONSOLE-EMIT)
+   DBG-ON CATCH               ( ior )
+   0 (SZ-CONSOLE-EMIT)
+   DBG-OFF
+   THROW
+;
+
 : SZ-DO-CONSOLE-LINE  ( -- )
    SZ-CMD-BUF 255 (SZ-CMD@)                   \ u
    DUP 0= IF  DROP EXIT  THEN
@@ -2138,6 +2156,8 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
 : (SZ-EDIT-LOOP)  ( -- )
    0 SZ-DONE !
    SZ-EDITOR-ENTER
+   SZ-REDRAW
+   SZ-DBG-RUN
    BEGIN
       SZ-DONE @ 0=
    WHILE

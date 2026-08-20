@@ -22,20 +22,23 @@ Shared plan with 64TCOM is in 64TCOM `STATUS.md`.
 
 **Now (console):**
 - Type **`DEBUG FOO` once** (not once per step). The session stays in that evaluate until FOO finishes.
-- Each **threaded word** prints `>> NAME S n: … R n: … [spc=step q=go]` and waits for a key.
-- **space** or **return** — one more word; **q** / **g** — run the rest with no more stops.
+- Each **threaded word** prints `>> NAME S n: … R n: … [F6/F7=step Cmd-Shift-Y=go]` and waits for a key.
+- **F6** step over / **F7** step into — same “one threaded word” for now; **F8** step out reserved (ignored). **⌘⇧Y** — run the rest (continue).
 - When FOO returns you see **`DEBUG done`** then the usual `ok>`.
 - Host must deliver KEY while stepping (`kernel_debug_armed`); leftover CR from the command line is ignored.
 - `DBG-ON` / `DBG-OFF` — raw arm/disarm. `R.S` — print return stack.
 - Pauses only when RSP is **deeper** than at `DBG-ON` (skips `DEBUG`/`CATCH`/`DBG-OFF` themselves).
-- Data stack is the live Forth stack (including anything left under `ok(n)>`). Return stack print is **only the nest under `DEBUG`**, minus the CATCH frame — not the editor KEY loop. Format `R n: …` (no trailing `0:`).
+- **CODE / primitives** (`DUP`, etc.) do not go through `NEXT` before they run (`CATCH` branches to the CFA). `DEBUG`/`DBG` now pause **once** on that xt, then F6/F7 executes it. Colon words are still stepped in the body.
+- Data stack is the live Forth stack (including anything left under `ok(n)>`). Return stack print is **only the nest under `DEBUG`**, minus the CATCH frame — not the editor KEY loop. Each R cell is **`NAME +bytes`** (colon body offset), not a raw address.
 
 **SZ-EDITOR (this pass):**
-- While `DEBUG` is armed, the **Files** column is a vertical split: **data stack** (top: `>> NAME`, then `Data n`, TOS with `T` at the top of the cells, oldest toward the split) and **return IPs** (bottom, hex).
+- While `DEBUG` is armed, the **Files** column is a vertical split: **data stack** (top: `>> NAME`, then `Data n`, TOS with `T` at the top of the cells, oldest toward the split) and **return nest** (bottom, `NAME +offset`).
 - **Control does not move into the text buffer.** Start with `DEBUG FOO` in the **command pane** (same as any other line). The editor’s KEY loop is still waiting, but `kernel_eval` is nested inside `SZ-CMD-EVAL`.
 - While armed, the host **steals space / return / q / g** (and other non-⌘ keys) and `pushKey`s them to the stepper — even if the command pane has focus. They never insert into the file or the find field.
 - **q** or **g** disarms and the rest of FOO runs. After `DEBUG done`, the host queues a no-op key so Forth `SZ-REDRAW`s the Files list again.
 - Console `>> NAME S … R …` still prints (useful if you `DEBUG` from the idle console with no editor).
+
+**`DBG name`:** VIEW the word in SZ-EDITOR when it is in `HYPER.NDX`; if there is no source (console-defined), open **untitled** (or File→New if the editor is already up) and then `DEBUG` that xt. From the idle console, untitled/VIEW enters the editor loop first so the stack pane is live. `>>` lines go to the command pane (`SZ-CONSOLE-EMIT`). Step keys match Xcode: **F6/F7** step, **⌘⇧Y** continue. Wheel, mouse, resize-wake, space, and letters are ignored so they do not step-to-end.
 
 **Later:** named `BREAK`/`UNBREAK`; gutter marks; listing/xref.
 

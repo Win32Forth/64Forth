@@ -132,7 +132,7 @@
 //   LATEST                DP is ANS-style; LATEST is system
 //   LIT BRANCH 0BRANCH and *-ADDR plumbing
 //   ALIAS SEE WORDS .S R.S DUMP FORGET ANEW USER-DICT REDEF-WARNING
-//   DEBUG DBG-ON DBG-OFF   NEXT stepper (space=step q=go); SZ-EDITOR UI later
+//   DEBUG DBG-ON DBG-OFF   NEXT stepper (F6/F7 step, Cmd-Shift-Y go)
 //   FILE-ECHO ON OFF      echo INCLUDE/FLOAD source lines when FILE-ECHO is on
 //   .FREE GROWMEMORYMB MS@ ELAPSED .ELAPSED CONTAINS
 //   Line editor + history; "undefined:" and stack error reporting
@@ -2362,7 +2362,7 @@ XRSDOT:
     RESTORE_VM
     NEXT
 
-    BOOT_WORD "DBG-ON", "DBG-ON ( -- ) arm NEXT stepper (space=step q=go)", 0, XDBGON
+    BOOT_WORD "DBG-ON", "DBG-ON ( -- ) arm NEXT stepper (F6/F7=step Cmd-Shift-Y=go)", 0, XDBGON
 XDBGON:
     adrp x0, debug_floor@page
     add  x0, x0, debug_floor@pageoff
@@ -8471,6 +8471,34 @@ XCATCH:
     str x0, [x1]
     mov x19, x1                    // IP → catch_ok_cell → XCATCH_OK after xt
     mov x21, x5                    // W = xt (CFA)
+    // Colon words are stepped by NEXT in the body. CODE/primitives never
+    // hit that NEXT *before* the xt, so pause once here when DEBUG is armed.
+    adrp x1, debug_armed@page
+    add x1, x1, debug_armed@pageoff
+    ldr x1, [x1]
+    cbz x1, 1f
+    adrp x1, debug_floor@page
+    add x1, x1, debug_floor@pageoff
+    ldr x1, [x1]
+    cbz x1, 1f
+    cmp x23, x1
+    b.hs 1f
+    ldr x1, [x21]
+    adrp x2, DOCOL@page
+    add x2, x2, DOCOL@pageoff
+    cmp x1, x2
+    b.eq 1f
+    adrp x1, debug_busy@page
+    add x1, x1, debug_busy@pageoff
+    mov x2, #1
+    str x2, [x1]
+    stp x29, x30, [sp, #-16]!
+    bl _debug_pause
+    ldp x29, x30, [sp], #16
+    adrp x1, debug_busy@page
+    add x1, x1, debug_busy@pageoff
+    str xzr, [x1]
+1:
     ldr x1, [x21]                  // code field (same as EXECUTE)
     br x1
 
@@ -12356,7 +12384,7 @@ _print_rstack:
     b 5b
 6:
     ldr x0, [x23, x20, lsl #3]
-    bl _print_unsigned
+    bl _print_r_ip
     mov x0, #32
     bl _putchar
     add x20, x20, #1
@@ -12368,6 +12396,229 @@ _pr_empty:
     bl _putchar
 _pr_done:
     ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// x0 = IP (threaded return). Out: x0 = colon CFA or 0, x1 = byte offset from body.
+// Closest DOCOL body <= IP across the search order (then FORTH heads).
+_ip_find_colon:
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+    stp x23, x24, [sp, #-16]!
+    mov x20, x0                    // ip
+    mov x21, xzr                   // best cfa
+    mov x22, xzr                   // best body
+    adrp x19, search_order_n@page
+    add x19, x19, search_order_n@pageoff
+    ldr x19, [x19]
+    adrp x23, search_order@page
+    add x23, x23, search_order@pageoff
+    mov x24, xzr
+1:
+    cmp x24, x19
+    b.hs 3f
+    ldr x0, [x23, x24, lsl #3]
+    bl _ip_scan_wid
+    add x24, x24, #1
+    b 1b
+3:
+    cbnz x21, 4f
+    adrp x0, latest_var@page
+    add x0, x0, latest_var@pageoff
+    bl _ip_scan_wid
+4:
+    mov x0, x21
+    cbz x21, 5f
+    sub x1, x20, x22
+    b 6f
+5:
+    mov x1, xzr
+6:
+    ldp x23, x24, [sp], #16
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// x0 = wid (heads base). Uses x20=ip; updates x21/x22 best.
+_ip_scan_wid:
+    cbz x0, 9f
+    mov x9, xzr                    // thread
+2:
+    cmp x9, #DICT_THREADS
+    b.hs 9f
+    ldr x10, [x0, x9, lsl #3]
+3:
+    cbz x10, 8f
+    tst x10, #7
+    b.ne 8f
+    ldr x11, [x10]                 // code field
+    adrp x12, DOCOL@page
+    add x12, x12, DOCOL@pageoff
+    cmp x11, x12
+    b.ne 7f
+    add x11, x10, #8               // body
+    cmp x11, x20
+    b.hi 7f                        // body > ip
+    sub x12, x20, x11
+    lsr x13, x12, #20              // reject > 1 MiB
+    cbnz x13, 7f
+    cbz x21, 6f
+    cmp x11, x22
+    b.ls 7f                        // not closer
+6:
+    mov x22, x11
+    mov x21, x10
+7:
+    ldr x10, [x10, #-16]           // LFA
+    b 3b
+8:
+    add x9, x9, #1
+    b 2b
+9:
+    ret
+
+// Decimal unsigned into dest. x0=val, x1=buf, x2=max. Returns x1=after last digit.
+_dec_u64_buf:
+    stp x19, x20, [sp, #-16]!
+    sub sp, sp, #32
+    mov x19, x1
+    mov x20, x2
+    cbz x20, 4f
+    cbnz x0, 1f
+    mov w3, #'0'
+    strb w3, [x19], #1
+    b 4f
+1:
+    add x4, sp, #32
+    mov x5, xzr
+2:
+    cbz x0, 3f
+    mov x6, #10
+    udiv x7, x0, x6
+    msub x8, x7, x6, x0
+    add w8, w8, #'0'
+    strb w8, [x4, #-1]!
+    add x5, x5, #1
+    mov x0, x7
+    b 2b
+3:
+    cbz x5, 4f
+    cmp x20, #1
+    b.lt 4f
+    ldrb w8, [x4], #1
+    strb w8, [x19], #1
+    sub x20, x20, #1
+    sub x5, x5, #1
+    b 3b
+4:
+    mov x1, x19
+    add sp, sp, #32
+    ldp x19, x20, [sp], #16
+    ret
+
+// x0=IP, x1=dest, x2=max (>=2). Writes "NAME +off" or hex fallback, NUL.
+_fmt_ip_label:
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+    mov x19, x1
+    mov x20, x2
+    mov x21, x0                    // ip
+    cmp x20, #2
+    b.lt 9f
+    bl _ip_find_colon
+    cbz x0, 7f
+    mov x22, x1                    // offset
+    ldr x1, [x0, #-8]
+    and x1, x1, #0xFFFF
+    cbz x1, 7f
+    cmp x1, #4096
+    b.hs 7f
+    sub x0, x0, x1
+    ldrb w1, [x0], #1
+    cbz w1, 7f
+    cmp w1, #16
+    b.ls 1f
+    mov w1, #16
+1:
+    sub x2, x20, #8                // leave room for " +dddd"
+    cmp x2, #1
+    b.ge 2f
+    mov x2, #1
+2:
+    cmp x1, x2
+    b.ls 3f
+    mov x1, x2
+3:
+    mov x3, xzr
+4:
+    cmp x3, x1
+    b.hs 5f
+    ldrb w4, [x0, x3]
+    strb w4, [x19, x3]
+    add x3, x3, #1
+    b 4b
+5:
+    add x19, x19, x1
+    sub x20, x20, x1
+    cmp x20, #3
+    b.lt 8f
+    mov w4, #' '
+    strb w4, [x19], #1
+    mov w4, #'+'
+    strb w4, [x19], #1
+    sub x20, x20, #2
+    mov x0, x22
+    mov x1, x19
+    mov x2, x20
+    bl _dec_u64_buf
+    mov x19, x1
+    b 8f
+7:
+    // fallback: 8 hex digits
+    cmp x20, #9
+    b.lt 8f
+    mov x0, x21
+    mov x2, #8
+6:
+    sub x2, x2, #1
+    lsl x6, x2, #2
+    lsr x3, x0, x6
+    and x3, x3, #15
+    cmp x3, #10
+    add x4, x3, #'0'
+    add x5, x3, #55                // 'A'-10
+    csel x3, x4, x5, lo
+    strb w3, [x19], #1
+    cbnz x2, 6b
+8:
+    strb wzr, [x19]
+9:
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+_print_r_ip:
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    sub sp, sp, #32
+    mov x1, sp
+    mov x2, #32
+    bl _fmt_ip_label
+    mov x19, sp
+1:
+    ldrb w0, [x19], #1
+    cbz w0, 2f
+    stp x19, xzr, [sp, #-16]!
+    bl _putchar
+    ldp x19, xzr, [sp], #16
+    b 1b
+2:
+    add sp, sp, #32
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
@@ -12412,7 +12663,7 @@ _pxn_q:
     ret
 
 // Pause at NEXT: show upcoming xt, data stack, return stack; wait for key.
-// space/return = step; q/g = disarm and run. Uses live x19–x23; x21 = peek xt.
+// F6/F7 = step (over/into later); F8 reserved (out); 134 = continue (⌘⇧Y).
 _debug_pause:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -12442,51 +12693,37 @@ _debug_pause:
     bl _print_rstack
     bl _debug_capture
     bl _host_debug_paint
-    mov x0, #32
+    adrp x0, str_dbg_keys@page
+    add x0, x0, str_dbg_keys@pageoff
+    stp x0, xzr, [sp, #-16]!
+0:
+    ldr x1, [sp]
+    ldrb w0, [x1], #1
+    str x1, [sp]
+    cbz w0, 8f
     bl _putchar
-    mov x0, #'['
-    bl _putchar
-    mov x0, #'s'
-    bl _putchar
-    mov x0, #'p'
-    bl _putchar
-    mov x0, #'c'
-    bl _putchar
-    mov x0, #'='
-    bl _putchar
-    mov x0, #'s'
-    bl _putchar
-    mov x0, #'t'
-    bl _putchar
-    mov x0, #'e'
-    bl _putchar
-    mov x0, #'p'
-    bl _putchar
-    mov x0, #32
-    bl _putchar
-    mov x0, #'q'
-    bl _putchar
-    mov x0, #'='
-    bl _putchar
-    mov x0, #'g'
-    bl _putchar
-    mov x0, #'o'
-    bl _putchar
-    mov x0, #']'
-    bl _putchar
-    mov x0, #10
-    bl _putchar
+    b 0b
+8:
+    add sp, sp, #16
 1:
     bl _getchar
     lsr x1, x0, #24
     and x1, x1, #0xFF
-    cmp x1, #2                     // skip function-key events
-    b.eq 1b
-    cmp x1, #1
+    cmp x1, #2                     // (2<<24)|K-*  F6=16 F7=17 F8=18
     b.ne 2f
+    mov x2, #0xFFFFFF
+    and x0, x0, x2
+    cmp x0, #16                    // K-F6 step over (step for now)
+    b.eq 4f
+    cmp x0, #17                    // K-F7 step into (step for now)
+    b.eq 4f
+    b 1b                           // F8 out: ignore until implemented
+2:
+    cmp x1, #1
+    b.ne 7f
     mov x2, #0x1FFFFF
     and x0, x0, x2
-2:
+7:
     adrp x1, debug_skip_nl@page
     add x1, x1, debug_skip_nl@pageoff
     ldr x2, [x1]
@@ -12497,15 +12734,9 @@ _debug_pause:
     b.eq 1b
     str xzr, [x1]
 5:
-    cmp w0, #'q'
+    cmp w0, #134                   // host: ⌘⇧Y continue
     b.eq 3f
-    cmp w0, #'Q'
-    b.eq 3f
-    cmp w0, #'g'
-    b.eq 3f
-    cmp w0, #'G'
-    b.eq 3f
-    b 4f
+    b 1b
 3:
     adrp x1, debug_armed@page
     add x1, x1, debug_armed@pageoff
@@ -12598,12 +12829,26 @@ _debug_capture:
     b.hs 7f
     ldr x2, [x23, x0, lsl #3]
     str x2, [x24, x1, lsl #3]
+    stp x0, x1, [sp, #-16]!
+    stp x21, x23, [sp, #-16]!
+    stp x24, x10, [sp, #-16]!
+    mov x0, x2
+    adrp x3, debug_rlab@page
+    add x3, x3, debug_rlab@pageoff
+    add x1, x3, x1, lsl #5         // slot * 32
+    mov x2, #32
+    bl _fmt_ip_label
+    ldp x24, x10, [sp], #16
+    ldp x21, x23, [sp], #16
+    ldp x0, x1, [sp], #16
     add x1, x1, #1
     add x0, x0, #1
     b 6b
 5:
     mov x1, xzr
 7:
+    adrp x9, debug_rcnt@page
+    add x9, x9, debug_rcnt@pageoff
     str x1, [x9]
     // counted name from peek xt saved in debug_xt
     adrp x0, debug_xt@page
@@ -12716,6 +12961,17 @@ _kernel_debug_get:
 12:
     strb wzr, [x4, x13]
 11:
+    cbz x6, 14f                    // rlabels[16][32]
+    adrp x11, debug_rlab@page
+    add x11, x11, debug_rlab@pageoff
+    mov x12, #(16 * 32)
+13:
+    cbz x12, 14f
+    ldrb w13, [x11], #1
+    strb w13, [x6], #1
+    sub x12, x12, #1
+    b 13b
+14:
     ldp x19, x20, [sp], #16
     ret
 
@@ -12916,6 +13172,7 @@ env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
 str_hello:  .asciz "64Forth v1.1.6\n"
+str_dbg_keys: .asciz " [F6/F7=step Cmd-Shift-Y=go]\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
 str_bye:    .asciz "Bye!\n"
@@ -12961,6 +13218,7 @@ debug_sbuf:     .skip DBG_STACK_MAX * 8
 debug_rcnt:     .quad 0
 debug_rbuf:     .skip DBG_STACK_MAX * 8
 debug_name:     .skip 32
+debug_rlab:     .skip DBG_STACK_MAX * 32
 key_hook:       .quad 0            // int (*)(void) — KEY (blocking)
 key_q_hook:     .quad 0            // int (*)(void) — KEY? (non-zero if ready)
 time_date_hook: .quad 0            // void (*)(int64_t out[6]) — TIME&DATE
@@ -13264,7 +13522,7 @@ forth_init_str:
     .ascii ": (SEE-STEP) DUP @ >R R@ EXIT-ADDR = IF R> DROP DROP 59 EMIT CR 0 EXIT THEN R@ LIT-ADDR = IF R> DROP 8 + DUP @ . SPACE 8 + EXIT THEN R@ SLIT-ADDR = IF R> DROP 8 + DUP @ >R 8 + 83 EMIT 34 EMIT SPACE DUP R@ TYPE 34 EMIT SPACE R> + ALIGNED EXIT THEN R@ (SEE-BR?) IF R@ NAME>STRING TYPE SPACE R> DROP 8 + DUP @ . SPACE 8 + EXIT THEN R@ NAME>STRING TYPE SPACE R> DROP 8 + ; "
     .ascii "DOC\" SEE ( 'name' -- ) show help and decompile word\" "
     .ascii ": SEE ' DUP (SEE-HDR) DUP DOCOL? 0= IF (SEE-PRIM) EXIT THEN >BODY BEGIN (SEE-STEP) DUP 0= UNTIL DROP ; "
-    .ascii "DOC\" DEBUG ( 'name' -- ) step name at each NEXT; space=step q/g=run rest\" "
+    .ascii "DOC\" DEBUG ( 'name' -- ) step name at each NEXT; F6/F7=step Cmd-Shift-Y=go\" "
     .ascii ": DEBUG ' DBG-ON CATCH DBG-OFF THROW ; "
     .ascii "DOC\" HELP ( 'name' -- ) show help and decompile word (same as SEE)\" "
     .ascii ": HELP SEE ; "

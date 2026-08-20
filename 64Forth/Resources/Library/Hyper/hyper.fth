@@ -955,6 +955,38 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC
    DUP 0= IF  2DROP ." VIEW needs a name" CR EXIT  THEN
    (VIEW) ;
 
+\ DBG name — VIEW source if indexed, else untitled editor, then DEBUG name.
+\ From the idle console this must enter SZ-EDIT-LOOP (SZ-EDIT-NEW / VIEW)
+\ so the stepper runs on the first frame. Already in the editor: switch
+\ buffer and DEBUG in this EVALUATE (command pane).
+ALSO EDITOR
+: DBG-UNTITLED  ( -- )
+   HYPER-EDITOR-ACTIVE? IF
+      SZ-DO-MENU-NEW
+      SZ-REDRAW
+   ELSE
+      SZ-EDIT-NEW
+   THEN ;
+
+: DBG  ( "name" -- )
+   PARSE-NAME
+   DUP 0= IF  2DROP ." DBG needs a name" CR EXIT  THEN
+   2DUP PAD PLACE  PAD FIND
+   DUP 0= IF
+      DROP PAD COUNT TYPE ."  ?" CR
+      2DROP EXIT
+   THEN
+   DROP
+   SZ-DBG-ARM
+   2DUP (HYPER-FIND) IF
+      (VIEW)
+   ELSE
+      2DROP
+      DBG-UNTITLED
+   THEN
+   SZ-DBG-RUN ;
+PREVIOUS
+
 : SEE-SOURCE  ( "name" -- )  VIEW ;
 
 : HYPER-VIEW-CU  ( c-addr u -- )  HYPER-VIEW-NAME ;
@@ -997,6 +1029,7 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC
    CR
    ." LOCATE <name>     print path:line  [n/m] if multiple" CR
    ." VIEW <name>       open in SZ-EDITOR at line" CR
+   ." DBG <name>        VIEW or untitled, then DEBUG (F6/F7 step, Cmd-Shift-Y go)" CR
    ." SEE <name>        VIEW if editor loaded, else decompile" CR
    ." Cmd-PgUp/PgDn     visit history (back/forward); else multi-hit n/m" CR
    ." Cmd-Left/Right    prev/next occurrence in current editor file" CR

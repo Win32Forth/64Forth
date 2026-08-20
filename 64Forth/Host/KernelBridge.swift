@@ -35,7 +35,8 @@ private func kernel_debug_get(
     _ r: UnsafeMutablePointer<Int64>?,
     _ nr: UnsafeMutablePointer<Int32>?,
     _ name: UnsafeMutablePointer<CChar>?,
-    _ nmax: Int32
+    _ nmax: Int32,
+    _ rlabels: UnsafeMutablePointer<CChar>?
 )
 
 @_silgen_name("kernel_take_repl_batch_stop")
@@ -566,10 +567,13 @@ public func host_debug_paint() {
     var ns: Int32 = 0
     var nr: Int32 = 0
     var nameBuf = [CChar](repeating: 0, count: 32)
+    var rlab = [CChar](repeating: 0, count: 16 * 32)
     s.withUnsafeMutableBufferPointer { sp in
         r.withUnsafeMutableBufferPointer { rp in
             nameBuf.withUnsafeMutableBufferPointer { np in
-                kernel_debug_get(sp.baseAddress, &ns, rp.baseAddress, &nr, np.baseAddress, 32)
+                rlab.withUnsafeMutableBufferPointer { lp in
+                    kernel_debug_get(sp.baseAddress, &ns, rp.baseAddress, &nr, np.baseAddress, 32, lp.baseAddress)
+                }
             }
         }
     }
@@ -609,7 +613,14 @@ public func host_debug_paint() {
         let idx = i
         let text: String
         if idx < rCount {
-            text = "  " + String(UInt64(bitPattern: r[idx]), radix: 16, uppercase: true)
+            let off = idx * 32
+            let slice = rlab[off ..< min(off + 32, rlab.count)]
+            let lab = slice.withUnsafeBufferPointer { bp in
+                String(cString: bp.baseAddress!)
+            }
+            text = lab.isEmpty
+                ? "  " + String(UInt64(bitPattern: r[idx]), radix: 16, uppercase: true)
+                : "  " + lab
         } else {
             text = ""
         }
@@ -926,6 +937,8 @@ final class KernelBridge {
     /// plus `systemNaturalScrolling` (not a second invert of `scrollingDeltaY`).
     func reportFacilityScroll(_ event: NSEvent) {
         guard isFacilityTerminalActive, isEvaluating else { return }
+        // Wheel must not feed the NEXT stepper (each notch was a STEP).
+        if kernel_debug_armed() != 0 { return }
         #if os(macOS)
         // Device-oriented delta (not pre-flipped). Positive = wheel/finger “up”
         // on the device in the traditional sense.
@@ -1834,6 +1847,7 @@ final class KernelBridge {
     @discardableResult
     func consumeEditorHotKeyIfNeeded(_ event: NSEvent) -> Bool {
         #if os(macOS)
+        if deliverDebugStepperKey(event) { return true }
         // Lower command pane owns arrows / editing keys while focused.
         if isCommandPaneFocused { return false }
         lock.lock()
@@ -1922,6 +1936,31 @@ final class KernelBridge {
         static func event(_ id: Int) -> Int32 {
             Int32(bitPattern: UInt32((2 << 24) | (id & 0xFFFFFF)))
         }
+        /// Host → kernel continue (⌘⇧Y). Not an F-key tag.
+        static let debugContinue: Int32 = 134
+    }
+
+    /// Xcode-like DEBUG keys while NEXT is paused.
+    /// F6 step over, F7 step into, F8 step out (reserved), ⌘⇧Y continue.
+    /// Returns true if the event must not reach the editor / command pane.
+    @discardableResult
+    private func deliverDebugStepperKey(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown, kernel_debug_armed() != 0 else { return false }
+        let mods = event.modifierFlags.intersection([.control, .option, .shift, .command])
+        if mods.contains(.command), mods.contains(.shift),
+           (event.charactersIgnoringModifiers ?? "").lowercased() == "y" {
+            pushKey(FacilityFKey.debugContinue)
+            return true
+        }
+        if mods.contains(.command) { return false }
+        switch event.keyCode {
+        case 97:  pushKey(FacilityFKey.event(FacilityFKey.f6)); return true
+        case 98:  pushKey(FacilityFKey.event(FacilityFKey.f7)); return true
+        case 100: pushKey(FacilityFKey.event(FacilityFKey.f8)); return true
+        default:
+            // Swallow other non-⌘ keys so they do not insert or step.
+            return true
+        }
     }
 
     #if os(macOS)
@@ -1937,6 +1976,8 @@ final class KernelBridge {
         guard active else { return false }
         let facilityOn = FacilityTerminal.shared.isActive
         let mods = event.modifierFlags.intersection([.control, .option, .shift, .command])
+
+        if deliverDebugStepperKey(event) { return true }
 
         // ⌘S / ⌘W / ⌘Q / clipboard / find while facility is open.
         if mods.contains(.command) {
@@ -2054,26 +2095,9 @@ final class KernelBridge {
                 return nil
             }
 
-            // DEBUG stepper is blocked in NEXT KEY — deliver space/q/return even
-            // if the command pane or idle console would otherwise swallow them.
-            if active, kernel_debug_armed() != 0, !mods.contains(.command) {
-                if event.keyCode == 36 { // Return
-                    self.pushKey(10)
-                    return nil
-                }
-                if event.keyCode == 49 { // Space
-                    self.pushKey(32)
-                    return nil
-                }
-                let chars = event.charactersIgnoringModifiers ?? event.characters ?? ""
-                if let sc = chars.unicodeScalars.first {
-                    var v = Int32(bitPattern: UInt32(sc.value))
-                    if v == 13 { v = 10 }
-                    if v > 0, v < 0x11_0000 {
-                        self.pushKey(v)
-                        return nil
-                    }
-                }
+            // DEBUG stepper KEY wait — Xcode keys (F6/F7/F8, ⌘⇧Y).
+            if active, self.deliverDebugStepperKey(event) {
+                return nil
             }
 
             // Lower command pane owns typing + clipboard while sticky is set.
