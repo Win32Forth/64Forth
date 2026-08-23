@@ -1,10 +1,10 @@
 64Forth — Swift host + PickleForth ARM64 kernel
 ================================================
 
-Version 1.1.5
+Version 1.1.7
 
 Console header (ConsoleView banner), e.g.:
-  === 64Forth 1.1.5 === Aug 19, 2026 10:31 AM ===
+  === 64Forth 1.1.7 === Aug 23, 2026 8:24 AM ===
 Update the date/time only when finishing a version change set, just before
 DMG + commit/push — not on every intermediate build.
 
@@ -18,6 +18,8 @@ Editor + command pane (v1.1.0)
   lower pane without leaving the editor KEY session (shared data stack).
   Long FLOAD output (Hayes, ANS-VALIDATE) scrolls live in the command pane.
   See STATUS.md in this folder for design notes and status.
+  See STATUSASM64.md for the ASMARM64 dual-load assembler toolkit (twin of
+  Documents/64TCOM/STATUSASM64.md; keep in sync when editing).
 
 Quick start (in the console)
 ----------------------------

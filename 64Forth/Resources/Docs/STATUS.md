@@ -1,10 +1,29 @@
 # 64Forth development status
 
-**Version in progress:** **1.1.6** shipping  
-**Last updated:** 2026-08-19 (DEBUG stepper + SZ-EDITOR stack pane)
+**Version in progress:** **1.1.7** (release later today)  
+**Last updated:** 2026-08-23 3:16 PM (ASMARM64 twins synced; docs; tetra `TCOM` green)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.1.7 — ASMARM64 host toolkit + Open/editor polish
+
+**Version strings:** marketing **1.1.7**, build **24** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.1.7 === Aug 23, 2026 8:24 AM ===
+```
+
+**Highlights (vs 1.1.6):**
+- Library `Assembler/asmarm64.fth` — dual-home AArch64 toolkit (host buffer + `ASMARM64-DISCARD`); pack twin in 64TCOM (**Synced Aug 23, 2026 3:16 PM**)
+- `Assembler/ASMARMTESTS.fth` → `ASM-TESTS` (64 encode/run checks)
+- Docs: `STATUSASM64.md` (twin of 64TCOM monitor)
+- File Open / New / Save As while SZ-EDITOR KEY waits (shipped path continued from 1.1.6 work)
+- 64TCOM side: pack Version **0.8**; `TCOM tetra/tetra.fth` builds `.app` with ASMARM64 search-order fixes
 
 ---
 

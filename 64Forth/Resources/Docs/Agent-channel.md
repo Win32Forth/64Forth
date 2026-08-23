@@ -2,7 +2,7 @@
 
 **Public domain.** Headless control so tools (Grok, CI, scripts) can load Forth files and capture console output without driving the GUI.
 
-**Status:** shipped (**64Forth 1.1.2+**; current **1.1.6**, build 23). Rebuild the app in Xcode before the installed binary supports `--agent`. See also [STATUS.md](STATUS.md) (section **v1.1.2 — agent channel**).
+**Status:** shipped (**64Forth 1.1.2+**; current **1.1.7**, build 24). Rebuild the app in Xcode before the installed binary supports `--agent`. See also [STATUS.md](STATUS.md) (section **v1.1.2 — agent channel**).
 
 ## Why
 
