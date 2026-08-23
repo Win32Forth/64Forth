@@ -137,6 +137,10 @@ VARIABLE SZ-PENDING-LEN
 \ Bare SZEDIT / no path: ask host to show an open panel after this evaluate
 \ (KernelBridge takes (SZ-OPEN-REQ) flag; FROMLIB starts the panel at Library).
 : SZ-HOST-REQUEST-OPEN  ( -- )
+   SZ-EDITOR-ACTIVE @ IF
+      ." editor already open; use Cmd-O" CR
+      EXIT
+   THEN
    (SZ-OPEN-REQ)
 ;
 

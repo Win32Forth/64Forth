@@ -470,7 +470,7 @@ private let kernelFloatOpTrampoline: @convention(c) (
 }
 
 /// Facility terminal: 1=PAGE 2=AT-XY 3=TERMINAL-REFRESH 4=FACILITY-OFF 5=resize 6=reverse
-/// 7=console-emit  8=command-line done  9=CLS (clear host console)
+/// 7=console-emit  8=command-line done  9=CLS  10=Save As panel
 private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> Void = { op, a, b in
     let term = FacilityTerminal.shared
     switch op {
@@ -537,6 +537,16 @@ private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> 
             clear()
         } else {
             DispatchQueue.main.async(execute: clear)
+        }
+    case 10:
+        // Untitled ⌘S: NSSavePanel on main, then stage path + key 35
+        let saveAs: () -> Void = {
+            KernelBridge.shared.onSaveAsPanelRequest?()
+        }
+        if Thread.isMainThread {
+            DispatchQueue.main.async(execute: saveAs)
+        } else {
+            DispatchQueue.main.async(execute: saveAs)
         }
     default:
         break
@@ -864,24 +874,24 @@ final class KernelBridge {
         lastPreferredFacilityCols = cells.cols
         lastPreferredFacilityRows = cells.rows
         // Wake the editor so SZ-REDRAW → SZ-SYNC-SIZE can apply the new size.
-        // Must run even while isPumpingEvents: during KEY wait the main thread
-        // is almost always inside pumpUIForKeyInput, and skipping the wake left
-        // lastPreferred updated but the editor never re-synced (window resize
-        // appeared broken). pushKey(0) is a no-op in SZ-HANDLE-KEY then REDRAW.
-        // The `guard changed` above prevents a layout↔wake feedback loop.
+        // Coalesce: split/layout fires many metric changes; each used to REDRAW
+        // and flash the facility grid for a second or two.
         if isEvaluating, isFacilityTerminalActive {
-            if Thread.isMainThread, isPumpingEvents {
-                // Defer one turn so we finish the current layout/event before KEY
-                // returns and REDRAW runs (avoids nested facility paint mid-layout).
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    guard self.isEvaluating, self.isFacilityTerminalActive else { return }
-                    _ = self.pushKey(0)
-                }
-            } else {
-                _ = pushKey(0)
-            }
+            scheduleFacilitySizeWake()
         }
+    }
+
+    private var facilitySizeWakeWork: DispatchWorkItem?
+
+    private func scheduleFacilitySizeWake() {
+        facilitySizeWakeWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard self.isEvaluating, self.isFacilityTerminalActive else { return }
+            _ = self.pushKey(0)
+        }
+        facilitySizeWakeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
     }
 
     /// Facility mouse event phases for (SZ-CLICK) flag bits 2–3.
@@ -1394,6 +1404,15 @@ final class KernelBridge {
         lastEditorFilePath = t
     }
 
+    /// Leaf name for Save As (current file, or untitled.fth).
+    func editorSuggestedSaveName() -> String {
+        if let p = lastEditorFilePath, !p.isEmpty {
+            let leaf = URL(fileURLWithPath: p).lastPathComponent
+            if !leaf.isEmpty, leaf != "/" { return leaf }
+        }
+        return "untitled.fth"
+    }
+
     /// Directory for NSOpenPanel: current file's folder, else Library if FROMLIB session, else cwd.
     func editorOpenStartDirectory() -> URL {
         if let p = lastEditorFilePath, !p.isEmpty {
@@ -1440,6 +1459,43 @@ final class KernelBridge {
 
     /// Host replaces console body with rendered facility screen (cols×rows + newlines).
     var onTerminalRefresh: ((String) -> Void)?
+    /// Untitled save: host shows NSSavePanel, stages path, pushKey(35).
+    var onSaveAsPanelRequest: (() -> Void)?
+    /// ⌘O / File→Open while KEY waits: host shows NSOpenPanel (same path as menu).
+    /// Stolen in the key monitor so SwiftUI menu/`onReceive` cannot defer and stack.
+    var onOpenPanelRequest: (() -> Void)?
+
+    /// File menu / shortcuts: call the ConsoleView open handler directly.
+    /// SwiftUI `onReceive(NotificationCenter…)` can defer until evaluate ends, so a
+    /// menubar Open while SZ-EDITOR is up appeared only after ⌘W.
+    func requestFileOpen() {
+        let run: () -> Void = { self.onOpenPanelRequest?() }
+        if Thread.isMainThread {
+            run()
+        } else {
+            DispatchQueue.main.async(execute: run)
+        }
+    }
+
+    /// Single-flight gate for editor NSOpenPanel / NSSavePanel (host UI).
+    private var editorFilePanelBusy = false
+    private let editorFilePanelLock = NSLock()
+
+    /// Begin presenting an editor file panel. Returns false if one is already up/queued.
+    @discardableResult
+    func beginEditorFilePanel() -> Bool {
+        editorFilePanelLock.lock()
+        defer { editorFilePanelLock.unlock() }
+        if editorFilePanelBusy { return false }
+        editorFilePanelBusy = true
+        return true
+    }
+
+    func endEditorFilePanel() {
+        editorFilePanelLock.lock()
+        editorFilePanelBusy = false
+        editorFilePanelLock.unlock()
+    }
 
     /// Host restores the pre-facility console transcript after FACILITY-OFF.
     /// Called on the main thread (sync if already main, else async).
@@ -1986,6 +2042,18 @@ final class KernelBridge {
                     pushKey(19)
                     return true
                 }
+                if ch == "s", mods.contains(.shift) {
+                    onSaveAsPanelRequest?()
+                    return true
+                }
+                if ch == "n", !mods.contains(.shift) {
+                    pushKey(31)
+                    return true
+                }
+                if ch == "o", !mods.contains(.shift) {
+                    onOpenPanelRequest?()
+                    return true
+                }
                 if ch == "w", !mods.contains(.shift) {
                     pushKey(17)
                     return true
@@ -2106,6 +2174,18 @@ final class KernelBridge {
                     let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
                     if ch == "s", !mods.contains(.shift) {
                         self.pushKey(19)
+                        return nil
+                    }
+                    if ch == "s", mods.contains(.shift) {
+                        self.onSaveAsPanelRequest?()
+                        return nil
+                    }
+                    if ch == "n", !mods.contains(.shift) {
+                        self.pushKey(31)
+                        return nil
+                    }
+                    if ch == "o", !mods.contains(.shift) {
+                        self.onOpenPanelRequest?()
                         return nil
                     }
                     if ch == "w", !mods.contains(.shift) {
@@ -2386,14 +2466,11 @@ final class KernelBridge {
     /// Open a path in SZ-EDITOR (EDITOR vocabulary). Path is absolute or relative.
     @discardableResult
     func openInSzEditor(path: String) -> Int32 {
-        noteEditorFilePath(path)
-        // Escape for S" … " — use a counted path via evaluate of SET-PATH + OPEN-EDIT
-        let escaped = path
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        // Stage path then enter editor (words live in EDITOR wordlist)
-        let line = "ONLY FORTH ALSO EDITOR S\" \(escaped)\" SZ-HOST-SET-PATH SZ-HOST-OPEN-EDIT ONLY FORTH"
-        return evaluate(line)
+        // Host-stage the path for `(SZ-PATH@)` / `SZ-HOST-TAKE-PATH` — same channel
+        // as in-editor ⌘O. Avoids S" escaping and empty-path silent exits when the
+        // SET-PATH buffer was not what TAKE-PATH preferred.
+        stageEditorOpenPath(path)
+        return evaluate("ONLY FORTH ALSO EDITOR SZ-HOST-OPEN-EDIT ONLY FORTH")
     }
 
     /// Body of evaluate on the Forth serial queue (or any non-reentrant caller).

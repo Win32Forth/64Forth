@@ -69,6 +69,7 @@ DECIMAL
  27 CONSTANT SZ-HYPER-NEXT     \ Cmd-PgDn — next HYPER hit
  30 CONSTANT SZ-CMD-OPEN       \ host File→Open while KEY waiting
  31 CONSTANT SZ-CMD-NEW        \ host File→New while KEY waiting
+ 35 CONSTANT SZ-CMD-SAVE-AS    \ host Save As panel picked a path
 131 CONSTANT SZ-FIND-EDIT-KEY  \ Cmd-F — type find string in status field
 132 CONSTANT SZ-SHIFT-ENTER    \ ⇧Return — find previous (while find field open)
 133 CONSTANT SZ-CMD-EVAL       \ host command-pane line ready (split console)
@@ -398,12 +399,29 @@ VARIABLE SZ-PAGE-N
 
 : SZ-DO-SAVE  ( -- )
    SZ-HAS-NAME? 0= IF
-      SZ-MSG-LINE
-      ." no filename — use SZ-SAVE-AS after quit"
-      TERMINAL-REFRESH
+      (SZ-SAVE-AS-REQ)
       EXIT
    THEN
    SZ-SAVE                       ( ior )
+   IF
+      SZ-MSG-LINE
+      ." SAVE failed"
+      TERMINAL-REFRESH
+   ELSE
+      SZ-MSG-LINE
+      ." saved "
+      SZ-GET-NAME TYPE
+      ."  " SZ-TLEN @ 0 .R ." b"
+      TERMINAL-REFRESH
+   THEN
+;
+
+: SZ-DO-SAVE-AS  ( -- )
+   SZ-HOST-TAKE-PATH
+   DUP 0= IF  2DROP EXIT  THEN
+   SZ-ENSURE-FTH
+   255 MIN SZ-PATH-TMP SZ-PLACE
+   SZ-PATH-TMP COUNT SZ-SAVE-AS     ( ior )
    IF
       SZ-MSG-LINE
       ." SAVE failed"
@@ -501,6 +519,7 @@ VARIABLE SZ-DLG-T2
 : SZ-DLG-READ  ( -- action )
    BEGIN
       KEY 255 AND
+      DUP SZ-CMD-SAVE-AS = IF  EXIT  THEN
       DUP SZ-MOUSE = IF
          DROP
          (SZ-CLICK) 0= IF  DROP 2DROP 0
@@ -523,6 +542,10 @@ VARIABLE SZ-DLG-T2
    BEGIN
       SZ-DRAW-DIRTY-DIALOG
       SZ-DLG-READ
+      DUP SZ-CMD-SAVE-AS = IF
+         DROP SZ-DO-SAVE-AS
+         SZ-MODIFIED @ 0= IF  -1 EXIT  THEN
+      ELSE
       DUP 1 = IF                           \ Save
          DROP SZ-DO-SAVE
          SZ-MODIFIED @ 0= IF  -1 EXIT  THEN
@@ -532,7 +555,7 @@ VARIABLE SZ-DLG-T2
          DROP 0 EXIT
       ELSE
          DROP
-      THEN THEN THEN
+      THEN THEN THEN THEN
    AGAIN
 ;
 
@@ -635,6 +658,8 @@ VARIABLE SZ-DBG-XT
 ;
 
 : SZ-DO-MENU-NEW  ( -- )
+   SZ-CONFIRM-DIRTY 0= IF  EXIT  THEN
+   SZ-HYPER-HITS-OFF
    SZ-CLEAR-BUF
    0 SZ-FNAME C!
    SZ-VIEW-RESET
@@ -2089,6 +2114,7 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    DUP SZ-HYPER-NEXT = IF  DROP SZ-DO-HYPER-NEXT EXIT  THEN
    DUP SZ-CMD-OPEN = IF  DROP SZ-DO-MENU-OPEN EXIT  THEN
    DUP SZ-CMD-NEW = IF  DROP SZ-DO-MENU-NEW EXIT  THEN
+   DUP SZ-CMD-SAVE-AS = IF  DROP SZ-DO-SAVE-AS EXIT  THEN
    DUP SZ-LEFT = IF  DROP SZ-GO-LEFT EXIT  THEN
    DUP SZ-RIGHT = IF  DROP SZ-GO-RIGHT EXIT  THEN
    DUP SZ-UP = IF  DROP SZ-GO-UP EXIT  THEN
@@ -2125,6 +2151,8 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    \ app-quit-pending, key is swallowed, later ⌘W closes the whole app).
    DUP SZ-CTRL-Q = IF  DROP SZ-FIND-EDIT-OFF SZ-DO-QUIT EXIT  THEN
    DUP SZ-CTRL-S = IF  DROP SZ-FIND-EDIT-OFF SZ-DO-SAVE EXIT  THEN
+   DUP SZ-CMD-SAVE-AS = IF  DROP SZ-FIND-EDIT-OFF SZ-DO-SAVE-AS EXIT  THEN
+   DUP SZ-CMD-NEW = IF  DROP SZ-FIND-EDIT-OFF SZ-DO-MENU-NEW EXIT  THEN
    DUP SZ-CMD-EVAL = IF  DROP SZ-DO-CONSOLE-LINE EXIT  THEN
    \ Scroll / jump in the document without leaving the find field
    DUP SZ-VSCROLL-UP = IF  DROP SZ-SCROLL-UP EXIT  THEN
@@ -2164,12 +2192,11 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
 : (SZ-EDIT-LOOP)  ( -- )
    0 SZ-DONE !
    SZ-EDITOR-ENTER
-   SZ-REDRAW
-   SZ-DBG-RUN
    BEGIN
       SZ-DONE @ 0=
    WHILE
       SZ-REDRAW
+      SZ-DBG-RUN
       SZ-KEY SZ-HANDLE-KEY
    REPEAT
    SZ-EDITOR-LEAVE

@@ -46,8 +46,14 @@ struct SixtyFourForthApp: App {
         .commands {
             // File → Open… (⌘O): open panel; while SZ-EDITOR is open, loads into editor.
             CommandGroup(replacing: .newItem) {
+                Button("New") {
+                    NotificationCenter.default.post(name: .fileNew, object: nil)
+                }
+                .keyboardShortcut("n", modifiers: .command)
                 Button("Open…") {
-                    NotificationCenter.default.post(name: .fileOpen, object: nil)
+                    // Direct callback — do not use NotificationCenter/`onReceive`,
+                    // which defer while SZ-EDITOR KEY is waiting and only fire after ⌘W.
+                    KernelBridge.shared.requestFileOpen()
                 }
                 .keyboardShortcut("o", modifiers: .command)
             }
@@ -58,6 +64,10 @@ struct SixtyFourForthApp: App {
                     NotificationCenter.default.post(name: .fileSave, object: nil)
                 }
                 .keyboardShortcut("s", modifiers: .command)
+                Button("Save As…") {
+                    NotificationCenter.default.post(name: .fileSaveAs, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
             }
             CommandGroup(after: .saveItem) {
                 Button("Close Editor") {

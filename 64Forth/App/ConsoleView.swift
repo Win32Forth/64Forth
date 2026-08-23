@@ -26,6 +26,10 @@ extension Notification.Name {
     static let toolsEdit = Notification.Name("SixtyFourForthToolsEdit")
     /// File → Save (⌘S) while SZ-EDITOR is active → inject save key (19).
     static let fileSave = Notification.Name("SixtyFourForthFileSave")
+    /// File → Save As… (⌘⇧S)
+    static let fileSaveAs = Notification.Name("SixtyFourForthFileSaveAs")
+    /// File → New (⌘N) → untitled buffer (SZ-EDITOR when active, else start editor).
+    static let fileNew = Notification.Name("SixtyFourForthFileNew")
     /// File → Open… (⌘O) → open panel (into SZ-EDITOR when active, else start editor).
     static let fileOpen = Notification.Name("SixtyFourForthFileOpen")
     /// File → Close (⌘W) while SZ-EDITOR is active → inject quit-editor key (17).
@@ -355,7 +359,16 @@ struct ConsoleView: View {
             #endif
         }
         // Facility terminal (PAGE/AT-XY): replace upper pane with grid paint.
+        kernel.onSaveAsPanelRequest = { [self] in
+            handleFileSaveAs()
+        }
+        // ⌘O while KEY waits (stolen in key monitor — avoid deferred menu stacking).
+        kernel.onOpenPanelRequest = { [self] in
+            handleFileOpen()
+        }
         kernel.onTerminalRefresh = { screen in
+            // Ignore late paints after FACILITY-OFF (race with async exit).
+            guard FacilityTerminal.shared.isActive else { return }
             isProgrammaticConsoleAppend = true
             // First paint: seed the lower command pane with the live console
             // transcript (banner / cwd / AutoLoad / ok>), then put the grid above.
@@ -633,7 +646,24 @@ struct ConsoleView: View {
             kernel.pushKey(10)
             return true
         }
+        // Never treat the painted editor grid as REPL input. Falling through to
+        // handleReturnKey() EVALUATEs box-drawing / chrome → `undefined: │` spam
+        // (seen when menubar Open was deferred and ⌘W raced facility teardown).
+        if isEditorSplitActive || consoleTextLooksLikeFacilityGrid(consoleText) {
+            return true
+        }
         return handleReturnKey()
+    }
+
+    /// True when `consoleText` is still an SZ-EDITOR cell paint (not a REPL transcript).
+    private func consoleTextLooksLikeFacilityGrid(_ s: String) -> Bool {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return false }
+        // Editor chrome uses Unicode box-drawing; REPL transcripts do not.
+        let box = CharacterSet(charactersIn: "─│┌┐└┘├┤┬┴┼╭╮╯╰═║╔╗╚╝╠╣╦╩╬")
+        if t.unicodeScalars.contains(where: { box.contains($0) }) { return true }
+        if t.hasPrefix(" Cmd-E/") || t.contains("│tt") { return true }
+        return false
     }
 
     private func handleConsoleTextChange(oldValue: String, newValue: String) {
@@ -673,6 +703,12 @@ struct ConsoleView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .fileSave)) { _ in
                 handleFileSave()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fileSaveAs)) { _ in
+                handleFileSaveAs()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fileNew)) { _ in
+                handleFileNew()
             }
             .onReceive(NotificationCenter.default.publisher(for: .fileOpen)) { _ in
                 handleFileOpen()
@@ -793,14 +829,21 @@ struct ConsoleView: View {
             consoleText = saved
         } else if !live.isEmpty {
             consoleText = commandText
+        } else {
+            // Do not keep the facility grid in the REPL buffer (would EVALUATE as
+            // `undefined: │` if Return landed on the upper pane during teardown).
+            consoleText = ""
         }
-        // else: leave consoleText as-is (should not happen if open seeded correctly)
 
         preFacilityConsole = nil
         isEditorSplitActive = false
         commandText = ""
         commandProtectedLength = 0
         commandProtectedSnapshot = ""
+        // If restore somehow still holds a grid paint, drop it.
+        if consoleTextLooksLikeFacilityGrid(consoleText) {
+            consoleText = ""
+        }
         // Ensure a trailing newline so a following prompt/TYPE is not glued
         // onto the last transcript line.
         if !consoleText.isEmpty && !consoleText.hasSuffix("\n") {
@@ -874,6 +917,10 @@ struct ConsoleView: View {
     /// Submit all pending user input (single line or multi-line paste). Never splits at caret.
     private func commitUserInput() {
         guard !isRecallingHistory else { return }
+        // Facility grid must never be submitted as console lines.
+        if isEditorSplitActive || consoleTextLooksLikeFacilityGrid(consoleText) {
+            return
+        }
 
         let userPortion = String(consoleText.dropFirst(protectedLength))
 
@@ -997,6 +1044,8 @@ struct ConsoleView: View {
         completion(nil)
         return
         #else
+        // Single-flight: extra ⌘O while a panel is up/queued must not stack.
+        guard kernel.beginEditorFilePanel() else { return }
         let work = {
             let panel = NSOpenPanel()
             panel.canChooseFiles = true
@@ -1013,13 +1062,22 @@ struct ConsoleView: View {
             panel.prompt = "Open"
             panel.message = "SZ-EDITOR — open a file to edit"
             panel.directoryURL = startDirectory
-            if panel.runModal() == .OK, let url = panel.url {
-                completion(url)
+            let url: URL?
+            if panel.runModal() == .OK {
+                url = panel.url
             } else {
-                completion(nil)
+                url = nil
             }
+            self.kernel.endEditorFilePanel()
+            completion(url)
         }
-        if Thread.isMainThread {
+        // While SZ-EDITOR KEY waits, never nest runModal inside nextEvent/sendEvent
+        // (that looked dead and stacked deferred menu opens). Idle console: run
+        // sync so Open → openInSzEditor happens on the same turn (async idle path
+        // showed the panel but never entered the editor after OK).
+        if kernel.isEvaluating {
+            DispatchQueue.main.async(execute: work)
+        } else if Thread.isMainThread {
             work()
         } else {
             DispatchQueue.main.async(execute: work)
@@ -1130,6 +1188,60 @@ struct ConsoleView: View {
         #endif
     }
 
+    private func presentSzEditorSavePanel(
+        startDirectory: URL,
+        suggestedName: String,
+        completion: @escaping (URL?) -> Void
+    ) {
+        #if !os(macOS)
+        appendEngineOutput("? Save As panel not available on iOS\n")
+        markProtectedThroughEndOfText()
+        completion(nil)
+        return
+        #else
+        guard kernel.beginEditorFilePanel() else { return }
+        let work = {
+            let panel = NSSavePanel()
+            panel.canCreateDirectories = true
+            panel.allowedContentTypes = [
+                UTType(filenameExtension: "fth") ?? .plainText,
+                UTType(filenameExtension: "fs") ?? .plainText,
+                UTType(filenameExtension: "4th") ?? .plainText,
+                UTType(filenameExtension: "txt") ?? .plainText,
+                .plainText
+            ]
+            panel.nameFieldStringValue = suggestedName
+            panel.title = "Save Forth File"
+            panel.message = "SZ-EDITOR — Save As (default extension .fth)"
+            panel.prompt = "Save"
+            panel.directoryURL = startDirectory
+            let url: URL?
+            if panel.runModal() == .OK {
+                url = panel.url
+            } else {
+                url = nil
+            }
+            self.kernel.endEditorFilePanel()
+            completion(url)
+        }
+        DispatchQueue.main.async(execute: work)
+        #endif
+    }
+
+    /// ⌘N / File→New — untitled buffer. Editor KEY: 31. Idle: SZ-EDIT-NEW.
+    private func handleFileNew() {
+        if kernel.isEvaluating, kernel.isFacilityTerminalActive {
+            kernel.pushKey(31)
+            return
+        }
+        if kernel.isEvaluating {
+            appendEngineOutput("? New: finish the current command first\n")
+            markProtectedThroughEndOfText()
+            return
+        }
+        _ = kernel.evaluate("ALSO EDITOR SZ-EDIT-NEW PREVIOUS")
+    }
+
     /// ⌘S — inject save (code 19 = SZ-CTRL-S) into the editor KEY loop.
     private func handleFileSave() {
         guard kernel.isEvaluating, kernel.isFacilityTerminalActive else {
@@ -1138,6 +1250,23 @@ struct ConsoleView: View {
             return
         }
         kernel.pushKey(19)
+    }
+
+    /// ⌘⇧S / File→Save As… — always pick a path (copy of the current buffer).
+    private func handleFileSaveAs() {
+        guard kernel.isEvaluating, kernel.isFacilityTerminalActive else {
+            appendEngineOutput("? Save As: open a file in SZ-EDITOR first\n")
+            markProtectedThroughEndOfText()
+            return
+        }
+        presentSzEditorSavePanel(
+            startDirectory: kernel.editorOpenStartDirectory(),
+            suggestedName: kernel.editorSuggestedSaveName()
+        ) { url in
+            guard let url else { return }
+            self.kernel.stageEditorOpenPath(url.path)
+            _ = self.kernel.pushKey(35)
+        }
     }
 
     /// ⌘W — close the editor only (code 17 = SZ-CTRL-Q → SZ-DO-QUIT), not the app.

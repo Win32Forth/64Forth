@@ -682,6 +682,14 @@ XSZ_CMD_DONE:
     mov  x2, #0
     b    _facility_op_go
 
+// (SZ-SAVE-AS-REQ) ( -- )  host NSSavePanel while KEY waits; then key 35
+    BOOT_WORD "(SZ-SAVE-AS-REQ)", "(SZ-SAVE-AS-REQ) ( -- ) request Save As panel (untitled ⌘S)", 0, XSZ_SAVE_AS_REQ
+XSZ_SAVE_AS_REQ:
+    mov  x0, #10
+    mov  x1, #0
+    mov  x2, #0
+    b    _facility_op_go
+
 // TERMINAL-REFRESH ( -- )
 
     BOOT_WORD "TERMINAL-REFRESH", "TERMINAL-REFRESH ( -- ) paint facility terminal to host console", 0, XTERM_REFRESH

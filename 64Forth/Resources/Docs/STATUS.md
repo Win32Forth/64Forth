@@ -43,6 +43,12 @@ Shared plan with 64TCOM is in 64TCOM `STATUS.md`.
 
 **Later:** named `BREAK`/`UNBREAK`; gutter marks; listing/xref.
 
+**Open panel while already editing:** Bare `EDIT` / `SZEDIT` (and `DBG EDIT` once `EDIT` runs) used to queue `SZ-HOST-REQUEST-OPEN`. After **⌘W** the host still showed the file panel. `SZ-HOST-REQUEST-OPEN` now no-ops if `SZ-EDITOR-ACTIVE` and prints `editor already open; use Cmd-O`. The editor’s own **⌘O** remains the way to open a file.
+
+**⌘O / File→Open:** SwiftUI `onReceive(NotificationCenter…)` deferred while KEY waited — menubar Open looked dead until **⌘W**, then the panel appeared; teardown races could `EVALUATE` the facility grid (`undefined: │` spam). Host **steals ⌘O** and the File menu calls `KernelBridge.requestFileOpen()` → `onOpenPanelRequest` directly. In-editor panel is **async** + single-flight; **idle** panel is **sync**. Facility Return never falls through to REPL commit while split/grid is showing; restore drops leftover grid paints.
+
+**File → New (⌘N):** untitled buffer (`SZ-DO-MENU-NEW` / idle `SZ-EDIT-NEW`). **⌘S** on untitled opens **Save As** (`untitled.fth` default; `.fth` if no extension). **⌘⇧S / File → Save As…** always picks a new path (copy of the current file).
+
 **64TCOM:** still sim-first (see 64TCOM debugger plan). Same Forth words later.
 
 ---
