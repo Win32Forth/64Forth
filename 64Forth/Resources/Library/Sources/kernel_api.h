@@ -26,6 +26,12 @@ int kernel_data_depth(void);
 /// Nonzero while DEBUG / DBG-ON is stepping (NEXT pause). Host must pushKey for KEY.
 int kernel_debug_armed(void);
 
+/// Nonzero while TCOMDBG pause wants F6/F7/⌘⇧Y steal (SIMARM64 stepper; not ITC NEXT).
+int kernel_tdebug_armed(void);
+
+/// Nonzero if either ITC DEBUG or TCOM TDBG wants stepper keys.
+int kernel_any_debug_armed(void);
+
 /// Copy last DEBUG snapshot (data stack, return IPs, upcoming counted name as C string).
 /// rlabels is 16 slots of 32 bytes ("NAME +off") if non-NULL.
 void kernel_debug_get(int64_t *s, int *ns, int64_t *r, int *nr, char *name, int nmax, char *rlabels);

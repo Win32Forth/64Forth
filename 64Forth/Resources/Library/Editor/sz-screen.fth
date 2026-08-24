@@ -556,6 +556,11 @@ CREATE SZ-FL-LDIG  8 ALLOT
    0 FACILITY-REV
 ;
 
+\ Optional post-paint hook (TCOM debugger stack pane, etc.). Default no-op.
+DEFER SZ-SIDE-HOOK
+: SZ-SIDE-HOOK-NOOP  ( -- )  ;
+' SZ-SIDE-HOOK-NOOP IS SZ-SIDE-HOOK
+
 \ Paint side panel using variables only (no fragile stack loops).
 : SZ-DRAW-SIDE  ( -- )
    \ Clear only text-band side cells
@@ -581,6 +586,7 @@ CREATE SZ-FL-LDIG  8 ALLOT
    SZ-TEXT-BOT @ 1+ SZ-TEXT-TOP DO
       SZ-COLS @ 1- I AT-XY  SZ-BOX-V SZ-XEMIT
    LOOP
+   SZ-SIDE-HOOK
 ;
 
 \ True if facility col is inside the trailing "[X]" close (all three columns).

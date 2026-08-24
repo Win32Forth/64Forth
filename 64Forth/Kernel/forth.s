@@ -281,7 +281,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #15                    // "64Forth v1.1.7\n"
+    mov x2, #15                    // "64Forth v1.1.8\n"
     mov x16, #4
     svc #0x80
 
@@ -1102,6 +1102,26 @@ _kernel_debug_armed:
     add  x0, x0, debug_armed@pageoff
     ldr  x0, [x0]
     ret
+
+// Nonzero while TCOM / SIM debugger pause wants host F6/F7/⌘⇧Y steal (not ITC NEXT).
+.globl _kernel_tdebug_armed
+_kernel_tdebug_armed:
+    adrp x0, tdebug_armed@page
+    add  x0, x0, tdebug_armed@pageoff
+    ldr  x0, [x0]
+    ret
+
+// True if either ITC DEBUG or TCOM TDBG wants stepper keys.
+.globl _kernel_any_debug_armed
+_kernel_any_debug_armed:
+    adrp x0, debug_armed@page
+    add  x0, x0, debug_armed@pageoff
+    ldr  x0, [x0]
+    cbnz x0, 1f
+    adrp x0, tdebug_armed@page
+    add  x0, x0, tdebug_armed@pageoff
+    ldr  x0, [x0]
+1:  ret
 
 // int kernel_eval(const char *line, size_t n)
 .globl _kernel_eval
@@ -2391,6 +2411,21 @@ XRSDOT:
     SAVE_VM
     bl _print_rstack
     RESTORE_VM
+    NEXT
+
+    BOOT_WORD "TDBG-ARM-KEYS", "TDBG-ARM-KEYS ( -- ) arm host F6/F7/Cmd-Shift-Y steal for TCOMDBG", 0, XTDBGARM
+XTDBGARM:
+    adrp x0, tdebug_armed@page
+    add  x0, x0, tdebug_armed@pageoff
+    mov  x1, #1
+    str  x1, [x0]
+    NEXT
+
+    BOOT_WORD "TDBG-DISARM-KEYS", "TDBG-DISARM-KEYS ( -- ) disarm TCOMDBG key steal", 0, XTDBGDISARM
+XTDBGDISARM:
+    adrp x0, tdebug_armed@page
+    add  x0, x0, tdebug_armed@pageoff
+    str  xzr, [x0]
     NEXT
 
     BOOT_WORD "DBG-ON", "DBG-ON ( -- ) arm NEXT stepper (F6=over F7=into Cmd-Shift-Y=go)", 0, XDBGON
@@ -13333,7 +13368,7 @@ env_n_file:     .asciz "FILE"
 env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
-str_hello:  .asciz "64Forth v1.1.7\n"
+str_hello:  .asciz "64Forth v1.1.8\n"
 str_dbg_keys: .asciz " [F6=over F7=into Cmd-Shift-Y=go]\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
@@ -13370,6 +13405,7 @@ emit_hook:      .quad 0            // void (*)(int c)
 emit_buf_hook:  .quad 0            // void (*)(const char *buf, size_t n) — bulk UTF-8 TYPE
 xchar_emit_buf: .skip 8            // temp for XXCHAR_EMIT (max 4 UTF-8 bytes)
 debug_armed:    .quad 0            // nonzero → NEXT pauses before each xt
+tdebug_armed:   .quad 0            // nonzero → host steals F6/F7 for TCOMDBG (not NEXT)
 debug_busy:     .quad 0            // set while _debug_pause runs
 debug_floor:    .quad 0            // RSP at DBG-ON; pause only if x23 < floor
 debug_over:     .quad 0            // F6: skip pause while x23 < this RSP

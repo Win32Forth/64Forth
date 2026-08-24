@@ -28,6 +28,12 @@ private func kernel_data_depth() -> Int32
 @_silgen_name("kernel_debug_armed")
 private func kernel_debug_armed() -> Int32
 
+@_silgen_name("kernel_tdebug_armed")
+private func kernel_tdebug_armed() -> Int32
+
+@_silgen_name("kernel_any_debug_armed")
+private func kernel_any_debug_armed() -> Int32
+
 @_silgen_name("kernel_debug_get")
 private func kernel_debug_get(
     _ s: UnsafeMutablePointer<Int64>?,
@@ -1995,12 +2001,12 @@ final class KernelBridge {
         static let debugContinue: Int32 = 134
     }
 
-    /// Xcode-like DEBUG keys while NEXT is paused.
+    /// Xcode-like DEBUG / TDBG keys while a stepper is paused.
     /// F6 step over, F7 step into, F8 step out (reserved), ⌘⇧Y continue.
     /// Returns true if the event must not reach the editor / command pane.
     @discardableResult
     private func deliverDebugStepperKey(_ event: NSEvent) -> Bool {
-        guard event.type == .keyDown, kernel_debug_armed() != 0 else { return false }
+        guard event.type == .keyDown, kernel_any_debug_armed() != 0 else { return false }
         let mods = event.modifierFlags.intersection([.control, .option, .shift, .command])
         if mods.contains(.command), mods.contains(.shift),
            (event.charactersIgnoringModifiers ?? "").lowercased() == "y" {

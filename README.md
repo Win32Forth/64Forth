@@ -67,9 +67,10 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ---
 
-## Status (v1.1.7)
+## Status (v1.1.8)
 
-- [ ] **v1.1.7:** release later today — ASMARM64 Library toolkit + `ASM-TESTS`; Open/New/Save As while editor KEY waits; docs `STATUSASM64.md`
+- [x] **v1.1.8:** TCOM debugger host hooks (`TDBG-ARM-KEYS`, `SZ-SIDE-HOOK`); docs `STATUSDBG64.md`; prep for editor TDBG
+- [x] **v1.1.7:** ASMARM64 Library toolkit + `ASM-TESTS`; Open/New/Save As while editor KEY waits; docs `STATUSASM64.md`
 - [x] **v1.1.6:** `DEBUG` Forth-level stepper (console + SZ-EDITOR Files-column stacks)
 - [x] **v1.1.5:** console caret stays put after mid-line backspace (arrow then delete)
 - [x] **v1.1.4:** GRAPHICS complete for tetra — coalesced EMIT, real `TONE` (Hz/tenths), `\ANS` dual-load helpers; see `Library/AppOutput/app-output.fth`
@@ -77,7 +78,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 - [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Agent-channel.md`
 - [ ] **Later (optional):** DMG `/Volumes/…` open noise — see STATUS
 
-**Console header** (GUI): `=== 64Forth 1.1.7 === Aug 23, 2026 8:24 AM ===`  
+**Console header** (GUI): `=== 64Forth 1.1.8 === Aug 23, 2026 11:02 PM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
 
 ## Status (v1.1.1)

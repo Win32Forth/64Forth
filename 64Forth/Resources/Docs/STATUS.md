@@ -1,10 +1,31 @@
 # 64Forth development status
 
-**Version in progress:** **1.1.7** (release later today)  
-**Last updated:** 2026-08-23 3:16 PM (ASMARM64 twins synced; docs; tetra `TCOM` green)
+**Version in progress:** **1.1.8**  
+**Last updated:** 2026-08-23 11:02 PM (TCOM debugger host hooks; prep for editor TDBG)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.1.8 — TCOM debugger host hooks (prep for editor)
+
+**Version strings:** marketing **1.1.8**, build **25** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.1.8 === Aug 23, 2026 11:02 PM ===
+```
+
+**Highlights (vs 1.1.7):**
+- Kernel: `TDBG-ARM-KEYS` / `TDBG-DISARM-KEYS`, `kernel_tdebug_armed` / `kernel_any_debug_armed` — F6/F7/⌘⇧Y steal while TCOM `TDBG` is paused (does not arm ITC `DBG-ON`)
+- Host: `KernelBridge` uses `kernel_any_debug_armed` for stepper key delivery
+- Editor: `SZ-SIDE-HOOK` after Files-column paint (TCOMDBG-ED stack pane)
+- Docs: `STATUSDBG64.md` twin; 64TCOM pack **0.9** ships console `TDBG`/`SEE-T` on SIMARM64
+- Next: wire editor highlight + quiet console for real `TCOM` sources
+
+ITC `DEBUG` / `DBG` unchanged.
 
 ---
 
@@ -68,7 +89,7 @@ Shared plan with 64TCOM is in 64TCOM `STATUS.md`.
 
 **File → New (⌘N):** untitled buffer (`SZ-DO-MENU-NEW` / idle `SZ-EDIT-NEW`). **⌘S** on untitled opens **Save As** (`untitled.fth` default; `.fth` if no extension). **⌘⇧S / File → Save As…** always picks a new path (copy of the current file).
 
-**64TCOM:** still sim-first (see 64TCOM debugger plan). Same Forth words later.
+**64TCOM:** Phase 4.0 slice 1 shipped in pack **0.9** — `TDBG` / `SEE-T` on SIMARM64 (`STATUSDBG64.md`). Editor highlight is the next host pass (v1.1.8 hooks). ITC `DEBUG`/`DBG` unchanged.
 
 ---
 
