@@ -1,14 +1,14 @@
 # 64Forth development status
 
-**Version in progress:** **1.1.8**  
-**Last updated:** 2026-08-23 11:02 PM (TCOM debugger host hooks; prep for editor TDBG)
+**Current shipped:** **1.1.8**  
+**Last updated:** 2026-08-24 (DMG + GitHub release `v1.1.8`)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
 
 ---
 
-## v1.1.8 — TCOM debugger host hooks (prep for editor)
+## v1.1.8 — TCOM debugger host hooks + editor highlight
 
 **Version strings:** marketing **1.1.8**, build **25** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
 
@@ -21,11 +21,11 @@ Append new design sections as we go; mark items done when implemented.
 **Highlights (vs 1.1.7):**
 - Kernel: `TDBG-ARM-KEYS` / `TDBG-DISARM-KEYS`, `kernel_tdebug_armed` / `kernel_any_debug_armed` — F6/F7/⌘⇧Y steal while TCOM `TDBG` is paused (does not arm ITC `DBG-ON`)
 - Kernel: `DBG-HL-XT` + `_debug_highlight` — every ITC `DEBUG` pause highlights the upcoming word token in SZ-EDITOR
-- Host: `KernelBridge` uses `kernel_any_debug_armed` for stepper key delivery
-- Editor: `SZ-HIGHLIGHT-NAME` (shared); `SZ-SIDE-HOOK` after Files-column paint
+- Host: `KernelBridge` uses `kernel_any_debug_armed` for stepper key delivery; Space/`o`/`i`/`g`/`q` when Xcode steals F-keys
+- Editor: `SZ-HIGHLIGHT-NAME` (shared); `SZ-TDBG-ARM`/`SZ-TDBG-RUN`; `SZ-SIDE-HOOK` after Files-column paint
 - Hyper: `DBG-HIGHLIGHT-NAME` installed on `DBG-HL-XT`
-- Docs: `STATUSDBG64.md` twin; 64TCOM pack **0.9** ships console `TDBG`/`SEE-T`; `TCOMDBG-ED` uses same highlight helper
-- Next: DMG + GitHub release after editor path is verified
+- Docs: `STATUSDBG64.md` twin; 64TCOM pack **0.9** ships console/`TCOMDBG-ED` TDBG with NDX map
+- Release: `64Forth/releases/64Forth-1.1.8-macOS.dmg` + GitHub `v1.1.8`
 
 ITC `DEBUG` / `DBG` stepper behavior unchanged aside from source highlight.
 

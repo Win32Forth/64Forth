@@ -69,7 +69,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ## Status (v1.1.8)
 
-- [x] **v1.1.8:** TCOM debugger host hooks (`TDBG-ARM-KEYS`, `SZ-SIDE-HOOK`); docs `STATUSDBG64.md`; prep for editor TDBG
+- [x] **v1.1.8:** TCOM debugger host hooks (`TDBG-ARM-KEYS`, `SZ-SIDE-HOOK`); editor/`DEBUG` highlight (`SZ-HIGHLIGHT-NAME`, `DBG-HL-XT`); DMG + GitHub release
 - [x] **v1.1.7:** ASMARM64 Library toolkit + `ASM-TESTS`; Open/New/Save As while editor KEY waits; docs `STATUSASM64.md`
 - [x] **v1.1.6:** `DEBUG` Forth-level stepper (console + SZ-EDITOR Files-column stacks)
 - [x] **v1.1.5:** console caret stays put after mid-line backspace (arrow then delete)
