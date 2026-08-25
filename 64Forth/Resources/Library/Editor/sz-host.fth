@@ -12,8 +12,19 @@ DECIMAL
 \ Counted-string helpers
 \ -----------------------------------------------------------------------------
 
+\ Dest in a VARIABLE — avoid >R/R@ around C!/MOVE (GUI TDBG after TCOM:
+\ XCSTORE to address 0 during SZ-LOAD/SZ-SET-NAME). Do not use EXIT in the
+\ body — on this kernel EXIT while compiling can end the definition early.
+VARIABLE SZ-PLACE-DST
 : SZ-PLACE  ( c-addr1 u c-addr2 -- )
-   >R  255 MIN  DUP R@ C!  R> CHAR+ SWAP MOVE ;
+   DUP IF
+      SZ-PLACE-DST !
+      255 MIN
+      DUP SZ-PLACE-DST @ C!
+      SZ-PLACE-DST @ CHAR+ SWAP MOVE
+   ELSE
+      DROP 2DROP
+   THEN ;
 
 : SZ-COUNT  ( c-addr -- c-addr' u )
    COUNT ;

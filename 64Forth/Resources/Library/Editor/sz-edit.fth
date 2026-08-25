@@ -619,6 +619,19 @@ VARIABLE SZ-DBG-XT
    THROW
 ;
 
+\ Pending xt for TCOM TDBG (no ITC DBG-ON). Cleared before CATCH.
+VARIABLE SZ-TDBG-XT
+0 SZ-TDBG-XT !
+: SZ-TDBG-ARM  ( xt -- )  SZ-TDBG-XT ! ;
+: SZ-TDBG-RUN  ( -- )
+   SZ-TDBG-XT @ DUP 0= IF  DROP EXIT  THEN
+   0 SZ-TDBG-XT !
+   -1 (SZ-CONSOLE-EMIT)
+   CATCH                      ( ior )  \ xt on stack for CATCH
+   0 (SZ-CONSOLE-EMIT)
+   ?DUP IF  ." TDBG: editor session error " . CR  THEN
+;
+
 : SZ-DO-CONSOLE-LINE  ( -- )
    SZ-CMD-BUF 255 (SZ-CMD@)                   \ u
    DUP 0= IF  DROP EXIT  THEN
@@ -1822,6 +1835,53 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
       DUP SZ-WORD-HIT? IF  EXIT  THEN
    AGAIN ;
 
+\ Debug highlight: reverse-video a name token without touching the clip.
+\ Must follow SZ-SEARCH-FWD. Search from SZ-CUR, then wrap from buffer start.
+\ Guard against stale SZ-CUR after buffer resize/reload (else C@ faults).
+: SZ-HIGHLIGHT-SET  ( addr -- )
+   DUP 0= IF  DROP  0 SZ-SEL-OK !  EXIT  THEN
+   DUP SZ-TOKEN C@ +                           \ beg end
+   2DUP U> IF  SWAP  THEN
+   DUP SZ-TEND U> IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
+   2DUP SZ-SEL-END ! SZ-SEL-BEG !
+   -1 SZ-SEL-OK !
+   OVER SZ-CUR !
+   2DROP
+   SZ-ENSURE-VISIBLE
+;
+
+: SZ-HIGHLIGHT-NAME  ( c-addr u -- )
+   DUP 0= IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
+   SZ-TBUF 0= IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
+   \ Require exactly (c-addr u); drop poison under the args (e.g. TCOM stray 0).
+   DEPTH 2 < IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
+   DEPTH 2 > IF  DEPTH 2 - 0 DO  ROT DROP  LOOP  THEN
+   \ Clamp length in place. Do NOT `DUP 63 MIN` — that leaves the old u under
+   \ the args so CMOVE sees src=u (e.g. 4) → XCFETCH. Agent-confirmed.
+   63 MIN
+   DUP SZ-TOKEN C!
+   SZ-TOKEN CHAR+ SWAP CMOVE          \ ( c-addr u -- )
+   SZ-CUR @
+   DUP SZ-TBUF U< OVER SZ-TEND U> OR IF  DROP SZ-TBUF  THEN
+   SZ-SEARCH-FWD
+   DUP 0= IF  DROP SZ-TBUF SZ-SEARCH-FWD  THEN
+   SZ-HIGHLIGHT-SET
+;
+
+\ Last whole-word hit (TCOM TDBG: skip comment mentions, prefer : MAIN at EOF).
+: SZ-HIGHLIGHT-NAME-LAST  ( c-addr u -- )
+   DUP 0= IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
+   SZ-TBUF 0= IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
+   DEPTH 2 < IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
+   DEPTH 2 > IF  DEPTH 2 - 0 DO  ROT DROP  LOOP  THEN
+   63 MIN
+   DUP SZ-TOKEN C!
+   SZ-TOKEN CHAR+ SWAP CMOVE
+   SZ-TEND SZ-SEARCH-BWD
+   DUP 0= IF  DROP SZ-TBUF SZ-SEARCH-FWD  THEN
+   SZ-HIGHLIGHT-SET
+;
+
 \ Status: Sel:/Find: field (sz-screen) holds query + optional note.
 
 \ SZ-FIND-TYPED lives in sz-screen (with SZ-FIND-EDIT / SZ-FIND-ICOL).
@@ -2197,6 +2257,7 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    WHILE
       SZ-REDRAW
       SZ-DBG-RUN
+      SZ-TDBG-RUN
       SZ-KEY SZ-HANDLE-KEY
    REPEAT
    SZ-EDITOR-LEAVE
@@ -2222,6 +2283,8 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
       2DROP EXIT
    THEN
    2DROP
+   \ CUR must be in-buffer before line scans (C@); load does not always reset CUR.
+   SZ-VIEW-RESET
    SZ-FL-NOTE-CURRENT
    SZ-EDIT-LOOP
 ;
@@ -2236,6 +2299,7 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
       2DROP EXIT
    THEN
    2DROP
+   SZ-VIEW-RESET
    R> SZ-GOTO-LINE
    \ After line is set so visit row stores the real line number.
    SZ-FL-NOTE-CURRENT

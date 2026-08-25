@@ -2372,6 +2372,13 @@ XDBGSHOWXT:
     add x20, x20, debug_show_xt@pageoff
     NEXT
 
+    BOOT_WORD "DBG-HL-XT", "DBG-HL-XT ( -- addr ) xt of DBG-HIGHLIGHT-NAME or 0", 0, XDBGHLXT
+XDBGHLXT:
+    str x20, [x22, #-8]!
+    adrp x20, debug_hl_xt@page
+    add x20, x20, debug_hl_xt@pageoff
+    NEXT
+
     BOOT_WORD "DBG-WHEEL-XT", "DBG-WHEEL-XT ( -- addr ) xt of DBG-WHEEL or 0", 0, XDBGWHEELXT
 XDBGWHEELXT:
     str x20, [x22, #-8]!
@@ -12771,6 +12778,7 @@ _debug_pause:
     bl _print_rstack
     bl _debug_capture
     bl _debug_sync_view
+    bl _debug_highlight
     bl _host_debug_paint
     adrp x0, str_dbg_keys@page
     add x0, x0, str_dbg_keys@pageoff
@@ -12941,6 +12949,27 @@ _debug_wheel:
     bl _debug_call_xt
     bl _host_debug_paint
 1:
+    ldp x29, x30, [sp], #16
+    ret
+
+// Highlight upcoming xt name in SZ-EDITOR (DBG-HL-XT / SZ-HIGHLIGHT-NAME).
+// Uses counted debug_name filled by _debug_capture.
+_debug_highlight:
+    stp x29, x30, [sp, #-16]!
+    adrp x0, debug_hl_xt@page
+    add x0, x0, debug_hl_xt@pageoff
+    ldr x0, [x0]
+    cbz x0, 9f
+    adrp x1, debug_name@page
+    add x1, x1, debug_name@pageoff
+    ldrb w2, [x1], #1
+    cbz w2, 9f
+    str x20, [x22, #-8]!
+    mov x20, x1                    // c-addr
+    str x20, [x22, #-8]!
+    mov x20, x2                    // u
+    bl _debug_call_xt
+9:
     ldp x29, x30, [sp], #16
     ret
 
@@ -13410,6 +13439,7 @@ debug_busy:     .quad 0            // set while _debug_pause runs
 debug_floor:    .quad 0            // RSP at DBG-ON; pause only if x23 < floor
 debug_over:     .quad 0            // F6: skip pause while x23 < this RSP
 debug_show_xt:  .quad 0            // DBG-SYNC-VIEW xt (set by Hyper)
+debug_hl_xt:    .quad 0            // DBG-HIGHLIGHT-NAME xt (set by Hyper/editor)
 debug_wheel_xt: .quad 0            // DBG-WHEEL xt (set by editor)
 debug_view_cfa: .quad 0            // last colon shown in SZ-EDITOR
 debug_view_name: .skip 32

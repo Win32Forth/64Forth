@@ -52,8 +52,10 @@ Step **TCOM-compiled A64** in the host sim from 64Forth, with SZ-EDITOR support:
 
 - [x] Open `TSRC-CUR-PATH` on `TDBG` when set (`TCOMDBG-ED`)
 - [x] Side-pane stack paint (`SZ-SIDE-HOOK` + `TCOMDBG-ED`)
-- [x] **Highlight** current symbol token in buffer (`SZ-SET-SEL`)
+- [x] **Highlight** via TCOMNDX map into source (`TCOMDBG-ED`)
+- [x] ITC `DEBUG`/`DBG` also highlights upcoming word via `DBG-HL-XT` (64Forth 1.1.8+)
 - [x] Key steal: `TDBG-ARM-KEYS` / `kernel_tdebug_armed` (needs 64Forth rebuild in Xcode)
+- [x] `TARGETARM64` auto-INCLUDEs `TCOMDBG-ED` when `SZ-TDBG-ARM` exists (GUI AutoLoad)
 
 ### P3 — Docs / load
 
@@ -61,11 +63,14 @@ Step **TCOM-compiled A64** in the host sim from 64Forth, with SZ-EDITOR support:
 - [x] `64TCOMUTILS/README.txt` + `STATUS.md` Phase 4.0 note
 - [x] 64Forth `Docs/STATUSDBG64.md` twin + short `STATUS.md` pointer
 
-### P4 — Deferred
+### P4 — Index / xref (in progress)
 
+- [x] Port classic **TCOMNDX** `/INDEX` concepts (`TCOMNDX.fth` + `NDXARM64.fth`)
+- [x] Emit call/ret sites on `COMP-CALL` / `END-T:` → `tetra/tetra.NDX` text listing
+- [ ] Restore `.FIL` path column reliably; name column from SYM
+- [ ] `TDBG` opens `.NDX` and highlights by taddr (started in `TCOMDBG-ED`)
 - [ ] Native `BRK` / trampoline
-- [ ] Formal file:line maps / gutter marks
-- [ ] Full listing / xref
+- [ ] Full listing (ls86-style) / assembler XREF.FTH (separate tool)
 - [ ] Merge ITC `DEBUG` and `TDBG` into one word
 - [ ] `ISTEP` (one machine insn)
 
@@ -100,6 +105,7 @@ TDBG ANS            \ alias of TDEBUG ANS
 
 - [x] Break / step / go on a named `SYM` under SIMARM64 (`tdbg-smoke.fth` → X0=5)
 - [x] Forth-step at call/return boundaries (`DBG-STEP-INTO` / `DBG-STEP-OVER`)
+- [x] Space/OVER = one *source* token via NDX (`TDBG-STEP-OVER-SRC`) — multi-CALL macros like `/` (TOR#…NIP#) clear in one Space
 - [x] Editor stack pane + **highlighted** current word (`TCOMDBG-ED` + `SZ-SIDE-HOOK`)
 - [x] Console quiet when editor up (`TDBG-QUIET` via `TCOMDBG-ED`)
 - [x] `TDBG` alias works

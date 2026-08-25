@@ -975,6 +975,14 @@ ALSO EDITOR
 ;
 ' DBG-SYNC-VIEW DBG-SHOW-XT !
 
+\ Highlight the upcoming threaded word token in the editor buffer (every pause).
+: DBG-HIGHLIGHT-NAME  ( c-addr u -- )
+   HYPER-EDITOR-ACTIVE? 0= IF  2DROP EXIT  THEN
+   SZ-HIGHLIGHT-NAME
+   SZ-REDRAW
+;
+' DBG-HIGHLIGHT-NAME DBG-HL-XT !
+
 : DBG  ( "name" -- )
    PARSE-NAME
    DUP 0= IF  2DROP ." DBG needs a name" CR EXIT  THEN

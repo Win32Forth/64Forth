@@ -133,17 +133,17 @@ CREATE SZ-PATH-TMP  260 ALLOT
 
 \ If leaf has no extension, append .fth (same rule as host FLOAD / OPEN-FILE).
 \ Result may be in SZ-PATH-TMP; valid until next call.
+VARIABLE SZ-EFTH-END
 : SZ-ENSURE-FTH  ( c-addr u -- c-addr' u' )
    2DUP SZ-LEAF-DOT? IF  EXIT  THEN
    DUP 251 > IF  EXIT  THEN                   \ no room for ".fth"
    SZ-PATH-TMP SZ-PLACE
    SZ-PATH-TMP COUNT                          \ body u
-   2DUP +                                     \ body u end
-   S" .fth"                                   \ body u end src su
-   >R                                         \ body u end src   R: su
-   SWAP                                       \ body u src end
-   R@ CMOVE                                   \ body u           (src dest u)
-   R> +                                       \ body u'
+   2DUP + SZ-EFTH-END !                       \ body u   (end saved)
+   S" .fth"                                    \ body u src su
+   SZ-EFTH-END @ SWAP                          \ body u src end su
+   CMOVE                                       \ body u
+   4 +
    DUP SZ-PATH-TMP C!
 ;
 
@@ -155,6 +155,7 @@ $0A CONSTANT SZ-CH-LF
 $0D CONSTANT SZ-CH-CR
 
 : SZ-HOST-CLAMP  ( addr -- addr' )
+   SZ-TBUF 0= IF  DROP 0 EXIT  THEN
    DUP SZ-TBUF U< IF  DROP SZ-TBUF  THEN
    DUP SZ-TEND U> IF  DROP SZ-TEND  THEN ;
 
@@ -221,7 +222,11 @@ $0D CONSTANT SZ-CH-CR
 \ Uses a VARIABLE (not >R) so it is safe inside DO/LOOP (R holds loop params).
 VARIABLE SZ-LN-TGT
 : SZ-HOST-LINE-NO  ( addr -- n )
+   SZ-TBUF 0= IF  DROP 1 EXIT  THEN
    SZ-HOST-CLAMP SZ-LN-TGT !
+   \ Target must be inside buffer or C@ walks off into bad memory.
+   SZ-LN-TGT @ SZ-TBUF U< IF  1 EXIT  THEN
+   SZ-LN-TGT @ SZ-TEND U> IF  SZ-TEND SZ-LN-TGT !  THEN
    1 SZ-TBUF                        ( n p )
    BEGIN
       DUP SZ-LN-TGT @ U<

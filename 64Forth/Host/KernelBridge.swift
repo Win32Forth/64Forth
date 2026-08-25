@@ -2003,6 +2003,8 @@ final class KernelBridge {
 
     /// Xcode-like DEBUG / TDBG keys while a stepper is paused.
     /// F6 step over, F7 step into, F8 step out (reserved), ⌘⇧Y continue.
+    /// Also Space/Return/o = over, i = into, g = go, q = quit — needed when
+    /// running under Xcode, which often steals F6/F7 for its own debugger.
     /// Returns true if the event must not reach the editor / command pane.
     @discardableResult
     private func deliverDebugStepperKey(_ event: NSEvent) -> Bool {
@@ -2018,10 +2020,20 @@ final class KernelBridge {
         case 97:  pushKey(FacilityFKey.event(FacilityFKey.f6)); return true
         case 98:  pushKey(FacilityFKey.event(FacilityFKey.f7)); return true
         case 100: pushKey(FacilityFKey.event(FacilityFKey.f8)); return true
+        case 49:  pushKey(Int32(Character(" ").asciiValue ?? 32)); return true  // Space = over
+        case 36, 76: pushKey(13); return true  // Return / keypad Enter = over
         default:
-            // Swallow other non-⌘ keys so they do not insert or step.
-            return true
+            break
         }
+        let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
+        // Prefer plain ASCII for o/i/q — survives KEY paths that keep only low 8 bits
+        // and avoids looking like “F7 did nothing” when Xcode ate the real F7.
+        if ch == "o" || ch == " " { pushKey(Int32(Character(" ").asciiValue ?? 32)); return true }
+        if ch == "i" { pushKey(Int32(Character("i").asciiValue ?? 105)); return true }
+        if ch == "g" { pushKey(FacilityFKey.debugContinue); return true }
+        if ch == "q" { pushKey(Int32(Character("q").asciiValue ?? 113)); return true }
+        // Swallow other non-⌘ keys so they do not edit the buffer while paused.
+        return true
     }
 
     #if os(macOS)

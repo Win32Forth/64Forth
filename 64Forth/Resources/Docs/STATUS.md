@@ -20,12 +20,14 @@ Append new design sections as we go; mark items done when implemented.
 
 **Highlights (vs 1.1.7):**
 - Kernel: `TDBG-ARM-KEYS` / `TDBG-DISARM-KEYS`, `kernel_tdebug_armed` / `kernel_any_debug_armed` — F6/F7/⌘⇧Y steal while TCOM `TDBG` is paused (does not arm ITC `DBG-ON`)
+- Kernel: `DBG-HL-XT` + `_debug_highlight` — every ITC `DEBUG` pause highlights the upcoming word token in SZ-EDITOR
 - Host: `KernelBridge` uses `kernel_any_debug_armed` for stepper key delivery
-- Editor: `SZ-SIDE-HOOK` after Files-column paint (TCOMDBG-ED stack pane)
-- Docs: `STATUSDBG64.md` twin; 64TCOM pack **0.9** ships console `TDBG`/`SEE-T` on SIMARM64
-- Next: wire editor highlight + quiet console for real `TCOM` sources
+- Editor: `SZ-HIGHLIGHT-NAME` (shared); `SZ-SIDE-HOOK` after Files-column paint
+- Hyper: `DBG-HIGHLIGHT-NAME` installed on `DBG-HL-XT`
+- Docs: `STATUSDBG64.md` twin; 64TCOM pack **0.9** ships console `TDBG`/`SEE-T`; `TCOMDBG-ED` uses same highlight helper
+- Next: DMG + GitHub release after editor path is verified
 
-ITC `DEBUG` / `DBG` unchanged.
+ITC `DEBUG` / `DBG` stepper behavior unchanged aside from source highlight.
 
 ---
 
