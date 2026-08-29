@@ -131,9 +131,13 @@ DOC" RECURSE ( -- ) recurse into current definition (immediate)"
 \ --- Search-Order / VOCABULARY ---
 DOC" VOCABULARY ( 'name' -- ) named word list; execute to push onto search order"
 : VOCABULARY CREATE WORDLIST DROP DOES> PUSH-ORDER ;
+DOC" BIG-INTEGER ( -- ) vocabulary for big-integer extensions; execute to ALSO it"
 VOCABULARY BIG-INTEGER
+DOC" EDITOR ( -- ) vocabulary for editor extensions; execute to ALSO it"
 VOCABULARY EDITOR
+DOC" ASSEMBLER ( -- ) vocabulary for assembler extensions; execute to ALSO it"
 VOCABULARY ASSEMBLER
+DOC" FP ( -- ) vocabulary for floating-point word set; execute to ALSO it"
 VOCABULARY FP
 
 ONLY FORTH DEFINITIONS

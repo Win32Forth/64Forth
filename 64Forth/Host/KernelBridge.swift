@@ -214,6 +214,10 @@ private let kernelEmitBufTrampoline: @convention(c) (UnsafePointer<CChar>?, Int)
     // Guard against garbage length (e.g. stack corruption after editor exit).
     let count = min(n, 1 << 20) // 1 MiB cap
     guard count > 0 else { return }
+    // Reject near-NULL / low addresses (Forth stack corruption often yields
+    // tiny "c-addr" values like 0x1c); memcpy would EXC_BAD_ACCESS.
+    let raw = UInt(bitPattern: ptr)
+    guard raw >= 0x1000 else { return }
     var bytes = [UInt8](repeating: 0, count: count)
     memcpy(&bytes, ptr, count)
     kernelHookTarget?.handleEmitBytes(bytes)

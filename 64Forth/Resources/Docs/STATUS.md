@@ -1,10 +1,23 @@
 # 64Forth development status
 
 **Current shipped:** **1.1.8**  
-**Last updated:** 2026-08-24 (DMG + GitHub release `v1.1.8`)
+**Last updated:** 2026-08-29 (unreleased main; no version bump / DMG)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## Unreleased (on main after 1.1.8)
+
+Version strings remain **1.1.8** / build **25** until the next release.
+
+- Kernel: `NEXT` mirrors `debug_armed` in **x28** (hot path `cbnz`; memory cell still for host)
+- Kernel: `_debug_pause` saves/restores full VM; nested SYNC/HIGHLIGHT/WHEEL **isolate** the data stack
+- Editor: `SZ-HIGHLIGHT-NAME` no longer `ROT DROP`s under highlight args (was corrupting ITC `DEBUG` stack → bad `C@`/`TYPE`)
+- Host: `kernelEmitBufTrampoline` rejects near-NULL TYPE buffers
+- Kernel: `(LOCAL-INIT)` overflow drain + ANSValidate locals coverage; more `BOOT_WORD` / `DOC"` help
+- Kernel/docs: `kernel1.fth`/`kernel2.fth` bootstrap already on 1.1.8; further DOC" / help sync; `HYPER.NDX` regen as needed
 
 ---
 

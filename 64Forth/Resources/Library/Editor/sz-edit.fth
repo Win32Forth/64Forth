@@ -1853,9 +1853,11 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
 : SZ-HIGHLIGHT-NAME  ( c-addr u -- )
    DUP 0= IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
    SZ-TBUF 0= IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
-   \ Require exactly (c-addr u); drop poison under the args (e.g. TCOM stray 0).
    DEPTH 2 < IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
-   DEPTH 2 > IF  DEPTH 2 - 0 DO  ROT DROP  LOOP  THEN
+   \ Do NOT `DEPTH 2 - … ROT DROP` here. ITC DEBUG pauses with the user's
+   \ stack under these args; stripping "poison" overwrites those cells.
+   \ (Restoring DSP/TOS after the pause does not undo the stores.) TCOM
+   \ callers must leave a clean 2-item stack before calling.
    \ Clamp length in place. Do NOT `DUP 63 MIN` — that leaves the old u under
    \ the args so CMOVE sees src=u (e.g. 4) → XCFETCH. Agent-confirmed.
    63 MIN
@@ -1873,7 +1875,7 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    DUP 0= IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
    SZ-TBUF 0= IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
    DEPTH 2 < IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
-   DEPTH 2 > IF  DEPTH 2 - 0 DO  ROT DROP  LOOP  THEN
+   \ Same as SZ-HIGHLIGHT-NAME: never ROT DROP under the args.
    63 MIN
    DUP SZ-TOKEN C!
    SZ-TOKEN CHAR+ SWAP CMOVE

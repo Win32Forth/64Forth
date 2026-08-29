@@ -8,10 +8,15 @@
 //   x22 = DSP  (Data Stack, grows down)
 //   x23 = RSP  (Return Stack, grows down)
 //   x24 = &latest (pointer to variable holding newest dict entry)
+//   x28 = DBG  (mirror of BSS debug_armed; NEXT is `cbnz x28, next_debug`)
 //
 // Register discipline (important):
-//   VM state lives in x19-x24, which are AAPCS64 callee-saved.
-//   Helpers that use them MUST save/restore (see SAVE_VM / RESTORE_VM).
+//   VM state lives in x19-x24 and x28 (DBG), which are AAPCS64 callee-saved.
+//   Helpers that use x19-x24 MUST save/restore (see SAVE_VM / RESTORE_VM).
+//   Do not use x28 as scratch — only DBG-ON / DBG-OFF / go / _vm_load /
+//   cold start may change it. Memory debug_armed stays authoritative for the
+//   Swift host (`kernel_debug_armed`); _vm_load reloads x28 from that cell
+//   because embed return restores C's x28.
 //
 //   Darwin ARM64 unix syscalls (svc #0x80): the kernel preserves x1-x28
 //   and only returns a result in x0 (and sets NZCV.C on error). So raw
@@ -41,6 +46,9 @@
 .equ DICT_THREADS, 16
 // Max registered wordlists (FORTH + every WORDLIST / VOCABULARY). For .WORDLISTS / Hyper.
 .equ WORDLIST_REG_MAX, 128
+// Debug pause: max data-stack cells saved around nested SYNC/HIGHLIGHT.
+.equ DBG_DSAVE_MAX, 64
+.equ DBG_STACK_MAX, 16
 //
 // ----------------------------------------------------------------------------
 // ANS Forth 2012 compatibility
@@ -155,11 +163,10 @@
 // ============================================================================
 // Macros
 // ============================================================================
+// Hot path: one predicted-not-taken cbnz when DBG-OFF (x28=0). Armed work
+// lives at next_debug. Memory debug_armed is for the host; keep x28 in sync.
 .macro NEXT
-    adrp x1, debug_armed@page
-    add  x1, x1, debug_armed@pageoff
-    ldr  x1, [x1]
-    cbnz x1, next_debug
+    cbnz x28, next_debug
     ldr x21, [x19], #8          // W = CFA (xt)
     ldr x1, [x21]               // code field at CFA
     br x1
@@ -255,7 +262,7 @@ next_debug:
     mov  x2, #1
     str  x2, [x1]
     stp  x29, x30, [sp, #-16]!
-    bl   _debug_pause               // uses live x19–x23; may clear debug_armed
+    bl   _debug_pause               // uses live x19–x23; go clears debug_armed + x28
     ldp  x29, x30, [sp], #16
     adrp x1, debug_busy@page
     add  x1, x1, debug_busy@pageoff
@@ -309,8 +316,9 @@ _kernel_cold_common:
     adrp x24, latest_var@page
     add  x24, x24, latest_var@pageoff
 
-    // Initialize TOS (empty stack)
+    // Initialize TOS (empty stack) and DBG mirror (stepper disarmed)
     mov  x20, #0
+    mov  x28, #0
 
     // Clear all FORTH thread heads (empty until boot catalog is built)
     mov  x0, x24
@@ -1231,6 +1239,10 @@ _vm_load:
     adrp x0, vm_rsp@page
     add  x0, x0, vm_rsp@pageoff
     ldr  x23, [x0]
+    // Reload DBG mirror — embed return restores C's x28
+    adrp x0, debug_armed@page
+    add  x0, x0, debug_armed@pageoff
+    ldr  x28, [x0]
     // If never saved (0), reset stacks
     cbnz x22, 1f
     b    _vm_reset_stacks
@@ -1896,30 +1908,27 @@ XROT:
     mov x20, x1
     NEXT
 
-    BOOT_WORD "NIP", "NIP ( a b -- b ) nip", 0, XNIP
+    BOOT_WORD "NIP", "NIP ( x1 x2 -- x2 ) drop the cell under TOS (SWAP DROP)", 0, XNIP
 XNIP:
     ldr x0, [x22], #8
     NEXT
 
-// TUCK ( x1 x2 -- x2 x1 x2 )  copy TOS under second
-// Was broken: overwrote the new under cell with x1 → (x1 x1 x2).
-
-    BOOT_WORD "TUCK", "TUCK ( a b -- b a b ) tuck", 0, XTUCK
+    BOOT_WORD "TUCK", "TUCK ( x1 x2 -- x2 x1 x2 ) copy TOS under the second cell", 0, XTUCK
 XTUCK:
     str x20, [x22, #-8]!           // push TOS under; stack becomes x2, x1, x2
     NEXT
 
-    BOOT_WORD "PICK", "PICK ( n -- n ) pick", 0, XPICK
+    BOOT_WORD "PICK", "PICK ( xu ... x1 x0 u -- xu ... x1 x0 xu ) copy uth cell; u=0 is x0 (like DUP), u=1 is x1 (like OVER)", 0, XPICK
 XPICK:
     lsl x0, x20, #3
     ldr x0, [x22, x0]
     mov x20, x0
     NEXT
 
-// ROLL ( xu xu-1 ... x0 u -- xu-1 ... x0 xu )
-// u=0 no-op; u=1 SWAP; u=2 ROT.
+// ROLL ( xu ... x0 u -- x(u-1) ... x0 xu )
+// u=0 no-op (after consuming u); u=1 SWAP; u=2 ROT.
 
-    BOOT_WORD "ROLL", "ROLL ( n -- ) roll", 0, XROLL
+    BOOT_WORD "ROLL", "ROLL ( xu ... x1 x0 u -- x(u-1) ... x0 xu ) move uth cell to TOS; u=0 no-op, u=1 SWAP, u=2 ROT", 0, XROLL
 XROLL:
     mov x1, x20                    // u
     ldr x20, [x22], #8             // pop u; TOS = x0
@@ -2434,10 +2443,11 @@ XDBGON:
     adrp x0, debug_floor@page
     add  x0, x0, debug_floor@pageoff
     str  x23, [x0]                  // only pause when RSP is deeper than DEBUG
+    mov  x1, #1
+    mov  x28, x1                    // NEXT hot-path mirror
     adrp x0, debug_armed@page
     add  x0, x0, debug_armed@pageoff
-    mov  x1, #1
-    str  x1, [x0]
+    str  x1, [x0]                   // host kernel_debug_armed
     adrp x0, debug_over@page
     add  x0, x0, debug_over@pageoff
     str  xzr, [x0]
@@ -2451,6 +2461,7 @@ XDBGON:
 
     BOOT_WORD "DBG-OFF", "DBG-OFF ( -- ) disarm NEXT stepper", 0, XDBGOFF
 XDBGOFF:
+    mov  x28, #0                    // NEXT hot-path mirror
     adrp x0, debug_armed@page
     add  x0, x0, debug_armed@pageoff
     str  xzr, [x0]
@@ -4366,7 +4377,7 @@ XFORTH_WORDLIST:
 
 // GET-CURRENT ( -- wid )
 
-    BOOT_WORD "GET-CURRENT", "GET-CURRENT ( -- wid )", 0, XGET_CURRENT
+    BOOT_WORD "GET-CURRENT", "GET-CURRENT ( -- wid ) wid of the compilation wordlist", 0, XGET_CURRENT
 XGET_CURRENT:
     DPUSH
     adrp x0, current_var@page
@@ -4376,7 +4387,7 @@ XGET_CURRENT:
 
 // SET-CURRENT ( wid -- )
 
-    BOOT_WORD "SET-CURRENT", "SET-CURRENT ( wid -- )", 0, XSET_CURRENT
+    BOOT_WORD "SET-CURRENT", "SET-CURRENT ( wid -- ) set the compilation wordlist", 0, XSET_CURRENT
 XSET_CURRENT:
     adrp x0, current_var@page
     add  x0, x0, current_var@pageoff
@@ -4386,7 +4397,7 @@ XSET_CURRENT:
 
 // GET-ORDER ( -- widn ... wid1 n )
 
-    BOOT_WORD "GET-ORDER", "GET-ORDER ( -- widn ... wid1 n )", 0, XGET_ORDER
+    BOOT_WORD "GET-ORDER", "GET-ORDER ( -- widn ... wid1 n ) copy search order; wid1 is searched first", 0, XGET_ORDER
 XGET_ORDER:
     adrp x0, search_order_n@page
     add  x0, x0, search_order_n@pageoff
@@ -4409,7 +4420,7 @@ XGET_ORDER:
 
 // SET-ORDER ( widn ... wid1 n -- )  n=-1 → ONLY
 
-    BOOT_WORD "SET-ORDER", "SET-ORDER ( widn ... wid1 n -- )", 0, XSET_ORDER
+    BOOT_WORD "SET-ORDER", "SET-ORDER ( widn ... wid1 n -- ) replace search order; n=0 means minimum order", 0, XSET_ORDER
 XSET_ORDER:
     mov  x1, x20                   // n
     ldr  x20, [x22], #8
@@ -5578,7 +5589,7 @@ XLOCAL_INIT:
     add  x3, x3, local_frame_depth@pageoff
     ldr  x4, [x3]
     cmp  x4, #LOCAL_FRAME_MAX
-    b.hs 9f                        // overflow: drop inits and ignore
+    b.hs 9f                        // overflow: drop nInit cells, ignore frame
     // frame base = local_frames + depth * LOCAL_MAX * 8
     mov  x5, #LOCAL_MAX
     mul  x5, x5, x4
@@ -5625,7 +5636,16 @@ XLOCAL_INIT:
     str  x0, [x5, x4, lsl #3]
     add  x4, x4, #1
     str  x4, [x3]
+    NEXT
 9:
+    // Frame table full: control args already popped; drain nInit values.
+    mov  x7, x1
+10:
+    cbz  x7, 11f
+    ldr  x20, [x22], #8
+    sub  x7, x7, #1
+    b    10b
+11:
     NEXT
 
 // (LOCAL@) ( idx -- x )  replace TOS index with local value (do NOT drop under)
@@ -6986,7 +7006,7 @@ _file_op_call:
 
 // OPEN-FILE ( c-addr u fam -- fileid ior )
 
-    BOOT_WORD "OPEN-FILE", "OPEN-FILE ( c-addr u fam -- fileid ior )", 0, XOPEN_FILE
+    BOOT_WORD "OPEN-FILE", "OPEN-FILE ( c-addr u fam -- fileid ior ) open existing file; fam is R/O W/O R/W etc.", 0, XOPEN_FILE
 XOPEN_FILE:
     mov  x3, x20                   // fam -> c
     ldr  x2, [x22], #8             // u -> b
@@ -7008,7 +7028,7 @@ XOPEN_FILE:
 
 // CREATE-FILE ( c-addr u fam -- fileid ior )
 
-    BOOT_WORD "CREATE-FILE", "CREATE-FILE ( c-addr u fam -- fileid ior )", 0, XCREATE_FILE
+    BOOT_WORD "CREATE-FILE", "CREATE-FILE ( c-addr u fam -- fileid ior ) create or truncate file and open it", 0, XCREATE_FILE
 XCREATE_FILE:
     mov  x3, x20
     ldr  x2, [x22], #8
@@ -7027,7 +7047,7 @@ XCREATE_FILE:
 
 // CLOSE-FILE ( fileid -- ior )
 
-    BOOT_WORD "CLOSE-FILE", "CLOSE-FILE ( fileid -- ior )", 0, XCLOSE_FILE
+    BOOT_WORD "CLOSE-FILE", "CLOSE-FILE ( fileid -- ior ) close an open file", 0, XCLOSE_FILE
 XCLOSE_FILE:
     mov  x1, x20
     mov  x0, #FOP_CLOSE
@@ -7043,7 +7063,7 @@ XCLOSE_FILE:
 
 // READ-FILE ( c-addr u1 fileid -- u2 ior )
 
-    BOOT_WORD "READ-FILE", "READ-FILE ( c-addr u1 fileid -- u2 ior )", 0, XREAD_FILE
+    BOOT_WORD "READ-FILE", "READ-FILE ( c-addr u1 fileid -- u2 ior ) read up to u1 bytes into buffer; u2 bytes read", 0, XREAD_FILE
 XREAD_FILE:
     mov  x1, x20                   // fileid
     ldr  x2, [x22], #8             // u1
@@ -7062,7 +7082,7 @@ XREAD_FILE:
 
 // WRITE-FILE ( c-addr u fileid -- ior )
 
-    BOOT_WORD "WRITE-FILE", "WRITE-FILE ( c-addr u fileid -- ior )", 0, XWRITE_FILE
+    BOOT_WORD "WRITE-FILE", "WRITE-FILE ( c-addr u fileid -- ior ) write u bytes from buffer to file", 0, XWRITE_FILE
 XWRITE_FILE:
     mov  x1, x20
     ldr  x2, [x22], #8
@@ -7078,7 +7098,7 @@ XWRITE_FILE:
 
 // READ-LINE ( c-addr u1 fileid -- u2 flag ior )
 
-    BOOT_WORD "READ-LINE", "READ-LINE ( c-addr u1 fileid -- u2 flag ior )", 0, XREAD_LINE
+    BOOT_WORD "READ-LINE", "READ-LINE ( c-addr u1 fileid -- u2 flag ior ) read one line; flag true if a line was read", 0, XREAD_LINE
 XREAD_LINE:
     mov  x1, x20
     ldr  x2, [x22], #8
@@ -7098,7 +7118,7 @@ XREAD_LINE:
 
 // WRITE-LINE ( c-addr u fileid -- ior )
 
-    BOOT_WORD "WRITE-LINE", "WRITE-LINE ( c-addr u fileid -- ior )", 0, XWRITE_LINE
+    BOOT_WORD "WRITE-LINE", "WRITE-LINE ( c-addr u fileid -- ior ) write u bytes then a line terminator", 0, XWRITE_LINE
 XWRITE_LINE:
     mov  x1, x20
     ldr  x2, [x22], #8
@@ -7114,7 +7134,7 @@ XWRITE_LINE:
 
 // FILE-POSITION ( fileid -- ud ior )
 
-    BOOT_WORD "FILE-POSITION", "FILE-POSITION ( fileid -- ud ior )", 0, XFILE_POSITION
+    BOOT_WORD "FILE-POSITION", "FILE-POSITION ( fileid -- ud ior ) current byte offset in file", 0, XFILE_POSITION
 XFILE_POSITION:
     mov  x1, x20
     FILE_POP_UNDER
@@ -7134,7 +7154,7 @@ XFILE_POSITION:
 
 // FILE-SIZE ( fileid -- ud ior )
 
-    BOOT_WORD "FILE-SIZE", "FILE-SIZE ( fileid -- ud ior )", 0, XFILE_SIZE
+    BOOT_WORD "FILE-SIZE", "FILE-SIZE ( fileid -- ud ior ) size of file in bytes", 0, XFILE_SIZE
 XFILE_SIZE:
     mov  x1, x20
     FILE_POP_UNDER
@@ -7154,7 +7174,7 @@ XFILE_SIZE:
 
 // REPOSITION-FILE ( ud fileid -- ior )
 
-    BOOT_WORD "REPOSITION-FILE", "REPOSITION-FILE ( ud fileid -- ior )", 0, XREPOSITION_FILE
+    BOOT_WORD "REPOSITION-FILE", "REPOSITION-FILE ( ud fileid -- ior ) set file position to ud", 0, XREPOSITION_FILE
 XREPOSITION_FILE:
     mov  x1, x20                   // fileid
     ldr  x3, [x22], #8             // hi
@@ -7170,7 +7190,7 @@ XREPOSITION_FILE:
 
 // RESIZE-FILE ( ud fileid -- ior )
 
-    BOOT_WORD "RESIZE-FILE", "RESIZE-FILE ( ud fileid -- ior )", 0, XRESIZE_FILE
+    BOOT_WORD "RESIZE-FILE", "RESIZE-FILE ( ud fileid -- ior ) set file size to ud", 0, XRESIZE_FILE
 XRESIZE_FILE:
     mov  x1, x20
     ldr  x3, [x22], #8
@@ -7186,7 +7206,7 @@ XRESIZE_FILE:
 
 // DELETE-FILE ( c-addr u -- ior )
 
-    BOOT_WORD "DELETE-FILE", "DELETE-FILE ( c-addr u -- ior )", 0, XDELETE_FILE
+    BOOT_WORD "DELETE-FILE", "DELETE-FILE ( c-addr u -- ior ) delete named file", 0, XDELETE_FILE
 XDELETE_FILE:
     mov  x2, x20                   // u
     ldr  x5, [x22], #8             // c-addr
@@ -7202,7 +7222,7 @@ XDELETE_FILE:
 
 // RENAME-FILE ( c-addr1 u1 c-addr2 u2 -- ior )
 
-    BOOT_WORD "RENAME-FILE", "RENAME-FILE ( c-addr1 u1 c-addr2 u2 -- ior )", 0, XRENAME_FILE
+    BOOT_WORD "RENAME-FILE", "RENAME-FILE ( c-addr1 u1 c-addr2 u2 -- ior ) rename file name1 to name2", 0, XRENAME_FILE
 XRENAME_FILE:
     mov  x4, x20                   // u2 = d
     ldr  x3, [x22], #8             // c-addr2 as integer ptr = c
@@ -7218,7 +7238,7 @@ XRENAME_FILE:
 
 // FILE-STATUS ( c-addr u -- x ior )
 
-    BOOT_WORD "FILE-STATUS", "FILE-STATUS ( c-addr u -- x ior )", 0, XFILE_STATUS
+    BOOT_WORD "FILE-STATUS", "FILE-STATUS ( c-addr u -- x ior ) status of named file; x implementation-defined", 0, XFILE_STATUS
 XFILE_STATUS:
     mov  x2, x20
     ldr  x5, [x22], #8
@@ -7237,7 +7257,7 @@ XFILE_STATUS:
 
 // FLUSH-FILE ( fileid -- ior )
 
-    BOOT_WORD "FLUSH-FILE", "FLUSH-FILE ( fileid -- ior )", 0, XFLUSH_FILE
+    BOOT_WORD "FLUSH-FILE", "FLUSH-FILE ( fileid -- ior ) flush file buffers to storage", 0, XFLUSH_FILE
 XFLUSH_FILE:
     mov  x1, x20
     mov  x0, #FOP_FLUSH
@@ -8552,10 +8572,7 @@ XCATCH:
     mov x21, x5                    // W = xt (CFA)
     // Colon words are stepped by NEXT in the body. CODE/primitives never
     // hit that NEXT *before* the xt, so pause once here when DEBUG is armed.
-    adrp x1, debug_armed@page
-    add x1, x1, debug_armed@pageoff
-    ldr x1, [x1]
-    cbz x1, 1f
+    cbz x28, 1f
     adrp x1, debug_floor@page
     add x1, x1, debug_floor@pageoff
     ldr x1, [x1]
@@ -12743,10 +12760,15 @@ _pxn_q:
 
 // Pause at NEXT: show upcoming xt, data stack, return stack; wait for key.
 // F6/F7 = step (over/into later); F8 reserved (out); 134 = continue (⌘⇧Y).
+// Must preserve full VM (esp. TOS x20): sync/highlight push onto the data
+// stack and leave x20 clobbered; restoring only DSP used to corrupt TYPE args
+// after a few F6 steps (e.g. ptr=0x1c, u=3 on ."  ?").
 _debug_pause:
-    stp x29, x30, [sp, #-16]!
+    stp x29, x30, [sp, #-48]!
     mov x29, sp
-    stp x21, x22, [sp, #-16]!
+    stp x19, x20, [sp, #16]
+    stp x21, x22, [sp, #32]
+    stp x23, x24, [sp, #-16]!
     adrp x0, debug_xt@page
     add x0, x0, debug_xt@pageoff
     str x21, [x0]
@@ -12836,6 +12858,7 @@ _debug_pause:
     str xzr, [x1]
     b 4f
 3:
+    mov x28, #0                    // go: disarm NEXT mirror + host flag
     adrp x1, debug_armed@page
     add x1, x1, debug_armed@pageoff
     str xzr, [x1]
@@ -12844,8 +12867,14 @@ _debug_pause:
     str xzr, [x1]
     bl _host_debug_paint
 4:
-    ldp x21, x22, [sp], #16
-    ldp x29, x30, [sp], #16
+    // Reload DBG mirror (go / DBG-OFF may have cleared memory)
+    adrp x0, debug_armed@page
+    add x0, x0, debug_armed@pageoff
+    ldr x28, [x0]
+    ldp x23, x24, [sp], #16
+    ldp x19, x20, [sp, #16]
+    ldp x21, x22, [sp, #32]
+    ldp x29, x30, [sp], #48
     ret
 
 // Run Forth xt (x0) then return here. VM x19–x23 restored from debug_vmsave.
@@ -12873,6 +12902,77 @@ XDBG_CALL_DONE:
     ldp x21, x22, [x1, #16]
     ldp x23, x24, [x1, #32]
     ldp x29, x30, [x1, #48]
+    ret
+
+// Save user data stack (TOS + under cells) to debug_dsave, then empty it.
+// Nested DBG-SYNC/HIGHLIGHT Forth must not ROT DROP / CMOVE over user cells.
+_debug_ds_isolate:
+    stp x29, x30, [sp, #-16]!
+    stp x19, x21, [sp, #-16]!
+    adrp x19, data_stack@page
+    add x19, x19, data_stack@pageoff
+    add x19, x19, #4096                // SP0
+    adrp x0, debug_dsave_tos@page
+    add x0, x0, debug_dsave_tos@pageoff
+    str x20, [x0]
+    adrp x0, debug_dsave_dsp@page
+    add x0, x0, debug_dsave_dsp@pageoff
+    str x22, [x0]
+    mov x1, #0
+    cmp x22, x19
+    b.hs 2f
+    sub x1, x19, x22
+    lsr x1, x1, #3                     // cells under TOS
+    cmp x1, #DBG_DSAVE_MAX
+    b.ls 1f
+    mov x1, #DBG_DSAVE_MAX
+1:
+    adrp x0, debug_dsave_buf@page
+    add x0, x0, debug_dsave_buf@pageoff
+    mov x2, #0
+3:
+    cmp x2, x1
+    b.hs 2f
+    ldr x3, [x22, x2, lsl #3]
+    str x3, [x0, x2, lsl #3]
+    add x2, x2, #1
+    b 3b
+2:
+    adrp x0, debug_dsave_n@page
+    add x0, x0, debug_dsave_n@pageoff
+    str x1, [x0]
+    mov x22, x19                       // empty
+    mov x20, #0
+    ldp x19, x21, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+_debug_ds_restore:
+    stp x29, x30, [sp, #-16]!
+    stp x19, x21, [sp, #-16]!
+    adrp x0, debug_dsave_n@page
+    add x0, x0, debug_dsave_n@pageoff
+    ldr x1, [x0]
+    adrp x0, debug_dsave_dsp@page
+    add x0, x0, debug_dsave_dsp@pageoff
+    ldr x22, [x0]
+    adrp x0, debug_dsave_tos@page
+    add x0, x0, debug_dsave_tos@pageoff
+    ldr x20, [x0]
+    cbz x1, 2f
+    adrp x0, debug_dsave_buf@page
+    add x0, x0, debug_dsave_buf@pageoff
+    mov x2, #0
+1:
+    cmp x2, x1
+    b.hs 2f
+    ldr x3, [x0, x2, lsl #3]
+    str x3, [x22, x2, lsl #3]
+    add x2, x2, #1
+    b 1b
+2:
+    ldp x19, x21, [sp], #16
+    ldp x29, x30, [sp], #16
     ret
 
 // If IP sits in a different colon word than last pause, HYPER-VIEW it.
@@ -12922,11 +13022,19 @@ _debug_sync_view:
     add x1, x1, debug_view_name@pageoff
     ldrb w2, [x1], #1
     cbz w2, 9f
+    // Isolate user data stack, push name only, call, restore cells.
+    stp x1, x2, [sp, #-16]!            // c-addr, u
+    bl _debug_ds_isolate
+    ldp x1, x2, [sp], #16
     str x20, [x22, #-8]!
-    mov x20, x1                    // c-addr
+    mov x20, x1                        // c-addr
     str x20, [x22, #-8]!
-    mov x20, x2                    // u
+    mov x20, x2                        // u
+    adrp x0, debug_show_xt@page
+    add x0, x0, debug_show_xt@pageoff
+    ldr x0, [x0]
     bl _debug_call_xt
+    bl _debug_ds_restore
 9:
     ldp x29, x30, [sp], #16
     ret
@@ -12937,10 +13045,14 @@ _debug_wheel:
     add x1, x1, debug_wheel_xt@pageoff
     ldr x1, [x1]
     cbz x1, 1f
+    stp x0, x1, [sp, #-16]!            // key, xt
+    bl _debug_ds_isolate
+    ldp x0, x1, [sp], #16
     str x20, [x22, #-8]!
-    mov x20, x0                    // key
+    mov x20, x0                        // key
     mov x0, x1
     bl _debug_call_xt
+    bl _debug_ds_restore
     bl _host_debug_paint
 1:
     ldp x29, x30, [sp], #16
@@ -12958,11 +13070,18 @@ _debug_highlight:
     add x1, x1, debug_name@pageoff
     ldrb w2, [x1], #1
     cbz w2, 9f
+    stp x1, x2, [sp, #-16]!            // c-addr, u
+    bl _debug_ds_isolate
+    ldp x1, x2, [sp], #16
     str x20, [x22, #-8]!
-    mov x20, x1                    // c-addr
+    mov x20, x1                        // c-addr
     str x20, [x22, #-8]!
-    mov x20, x2                    // u
+    mov x20, x2                        // u
+    adrp x0, debug_hl_xt@page
+    add x0, x0, debug_hl_xt@pageoff
+    ldr x0, [x0]
     bl _debug_call_xt
+    bl _debug_ds_restore
 9:
     ldp x29, x30, [sp], #16
     ret
@@ -13427,7 +13546,7 @@ embed_mode:     .quad 0            // 0 = terminal cold start, 1 = host embed
 emit_hook:      .quad 0            // void (*)(int c)
 emit_buf_hook:  .quad 0            // void (*)(const char *buf, size_t n) — bulk UTF-8 TYPE
 xchar_emit_buf: .skip 8            // temp for XXCHAR_EMIT (max 4 UTF-8 bytes)
-debug_armed:    .quad 0            // nonzero → NEXT pauses before each xt
+debug_armed:    .quad 0            // nonzero → NEXT pauses; mirrored in x28 for hot path
 tdebug_armed:   .quad 0            // nonzero → host steals F6/F7 for TCOMDBG (not NEXT)
 debug_busy:     .quad 0            // set while _debug_pause runs
 debug_floor:    .quad 0            // RSP at DBG-ON; pause only if x23 < floor
@@ -13443,13 +13562,17 @@ debug_ret_cfa:  .quad XDBG_CALL_DONE
 debug_ret_ipcell: .quad debug_ret_cfa
 debug_skip_nl:  .quad 0            // skip leftover CR from the DEBUG command line
 debug_xt:       .quad 0            // peek xt at last pause
-.equ DBG_STACK_MAX, 16
 debug_scnt:     .quad 0
 debug_sbuf:     .skip DBG_STACK_MAX * 8
 debug_rcnt:     .quad 0
 debug_rbuf:     .skip DBG_STACK_MAX * 8
 debug_name:     .skip 32
 debug_rlab:     .skip DBG_STACK_MAX * 32
+debug_dsave_n:  .quad 0
+debug_dsave_tos: .quad 0
+debug_dsave_dsp: .quad 0
+debug_dsave_buf: .skip DBG_DSAVE_MAX * 8
+
 key_hook:       .quad 0            // int (*)(void) — KEY (blocking)
 key_q_hook:     .quad 0            // int (*)(void) — KEY? (non-zero if ready)
 time_date_hook: .quad 0            // void (*)(int64_t out[6]) — TIME&DATE

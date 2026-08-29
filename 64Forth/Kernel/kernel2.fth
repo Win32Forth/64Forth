@@ -93,6 +93,7 @@ DOC" DEBUG ( 'name' -- ) F6 step over, F7 into, Cmd-Shift-Y go"
 : DEBUG ' DBG-ON CATCH DBG-OFF THROW ;
 DOC" HELP ( 'name' -- ) show help and decompile word (same as SEE)"
 : HELP SEE ;
+DOC" FLOAD ( 'name' -- ) synonym of INCLUDE; load and interpret a file"
 ' INCLUDE ALIAS FLOAD
 DOC" REQUIRE ( 'name' -- ) load file once (PARSE-NAME REQUIRED)"
 : REQUIRE PARSE-NAME REQUIRED ;
@@ -317,13 +318,56 @@ DOC" FIELD: ( n1 'name' -- n2 ) aligned cell field"
 : FIELD: ALIGNED 1 CELLS +FIELD ;
 DOC" CFIELD: ( n1 'name' -- n2 ) character field"
 : CFIELD: 1 CHARS +FIELD ;
-1 CONSTANT K-LEFT  2 CONSTANT K-RIGHT  3 CONSTANT K-UP  4 CONSTANT K-DOWN
-5 CONSTANT K-HOME  6 CONSTANT K-END  7 CONSTANT K-PRIOR  8 CONSTANT K-NEXT
-9 CONSTANT K-INSERT  10 CONSTANT K-DELETE
-11 CONSTANT K-F1  12 CONSTANT K-F2  13 CONSTANT K-F3  14 CONSTANT K-F4
-15 CONSTANT K-F5  16 CONSTANT K-F6  17 CONSTANT K-F7  18 CONSTANT K-F8
-19 CONSTANT K-F9  20 CONSTANT K-F10  21 CONSTANT K-F11  22 CONSTANT K-F12
-$2000 CONSTANT K-SHIFT-MASK  $4000 CONSTANT K-CTRL-MASK  $8000 CONSTANT K-ALT-MASK
+DOC" K-LEFT ( -- u ) EKEY>FKEY code: left arrow"
+1 CONSTANT K-LEFT
+DOC" K-RIGHT ( -- u ) EKEY>FKEY code: right arrow"
+2 CONSTANT K-RIGHT
+DOC" K-UP ( -- u ) EKEY>FKEY code: up arrow"
+3 CONSTANT K-UP
+DOC" K-DOWN ( -- u ) EKEY>FKEY code: down arrow"
+4 CONSTANT K-DOWN
+DOC" K-HOME ( -- u ) EKEY>FKEY code: Home"
+5 CONSTANT K-HOME
+DOC" K-END ( -- u ) EKEY>FKEY code: End"
+6 CONSTANT K-END
+DOC" K-PRIOR ( -- u ) EKEY>FKEY code: Page Up"
+7 CONSTANT K-PRIOR
+DOC" K-NEXT ( -- u ) EKEY>FKEY code: Page Down"
+8 CONSTANT K-NEXT
+DOC" K-INSERT ( -- u ) EKEY>FKEY code: Insert"
+9 CONSTANT K-INSERT
+DOC" K-DELETE ( -- u ) EKEY>FKEY code: Delete"
+10 CONSTANT K-DELETE
+DOC" K-F1 ( -- u ) EKEY>FKEY code: function key F1"
+11 CONSTANT K-F1
+DOC" K-F2 ( -- u ) EKEY>FKEY code: function key F2"
+12 CONSTANT K-F2
+DOC" K-F3 ( -- u ) EKEY>FKEY code: function key F3"
+13 CONSTANT K-F3
+DOC" K-F4 ( -- u ) EKEY>FKEY code: function key F4"
+14 CONSTANT K-F4
+DOC" K-F5 ( -- u ) EKEY>FKEY code: function key F5"
+15 CONSTANT K-F5
+DOC" K-F6 ( -- u ) EKEY>FKEY code: function key F6"
+16 CONSTANT K-F6
+DOC" K-F7 ( -- u ) EKEY>FKEY code: function key F7"
+17 CONSTANT K-F7
+DOC" K-F8 ( -- u ) EKEY>FKEY code: function key F8"
+18 CONSTANT K-F8
+DOC" K-F9 ( -- u ) EKEY>FKEY code: function key F9"
+19 CONSTANT K-F9
+DOC" K-F10 ( -- u ) EKEY>FKEY code: function key F10"
+20 CONSTANT K-F10
+DOC" K-F11 ( -- u ) EKEY>FKEY code: function key F11"
+21 CONSTANT K-F11
+DOC" K-F12 ( -- u ) EKEY>FKEY code: function key F12"
+22 CONSTANT K-F12
+DOC" K-SHIFT-MASK ( -- u ) bit mask: Shift held with K-* key"
+$2000 CONSTANT K-SHIFT-MASK
+DOC" K-CTRL-MASK ( -- u ) bit mask: Ctrl held with K-* key"
+$4000 CONSTANT K-CTRL-MASK
+DOC" K-ALT-MASK ( -- u ) bit mask: Alt/Option held with K-* key"
+$8000 CONSTANT K-ALT-MASK
 DOC" LOCALS| ( name...name | -- ) declare locals (obsolescent; immediate)"
 : LOCALS| BEGIN BL WORD COUNT OVER C@ 124 - OVER 1 - OR WHILE (LOCAL) REPEAT 2DROP 0 0 (LOCAL) ; IMMEDIATE
 DOC" WARNING ( -- addr ) variable; used by some test suites"
@@ -374,86 +418,167 @@ DOC" LIST ( u -- ) display block u as 16 lines of 64 chars"
 : LIST DUP SCR ! BLOCK 16 0 DO CR I 3 .R SPACE DUP 64 TYPE 64 + LOOP DROP CR ;
 
 \ --- Floating-point word set in FP vocabulary ---
+\ DOC" lines are minimal; F: marks the floating-point stack.
 ALSO FP DEFINITIONS
+DOC" FDEPTH ( -- n ) floating-point stack depth"
 : FDEPTH 1 (F-OP) ;
+DOC" FDROP ( F: r -- ) drop float"
 : FDROP 2 (F-OP) ;
+DOC" FDUP ( F: r -- r r ) duplicate float"
 : FDUP 3 (F-OP) ;
+DOC" FSWAP ( F: r1 r2 -- r2 r1 ) swap floats"
 : FSWAP 4 (F-OP) ;
+DOC" FOVER ( F: r1 r2 -- r1 r2 r1 ) copy second float"
 : FOVER 5 (F-OP) ;
+DOC" FROT ( F: r1 r2 r3 -- r2 r3 r1 ) rotate top three floats"
 : FROT 6 (F-OP) ;
+DOC" F+ ( F: r1 r2 -- r3 ) add floats"
 : F+ 7 (F-OP) ;
+DOC" F- ( F: r1 r2 -- r3 ) subtract floats"
 : F- 8 (F-OP) ;
+DOC" F* ( F: r1 r2 -- r3 ) multiply floats"
 : F* 9 (F-OP) ;
+DOC" F/ ( F: r1 r2 -- r3 ) divide floats"
 : F/ 10 (F-OP) ;
+DOC" FNEGATE ( F: r1 -- r2 ) negate float"
 : FNEGATE 11 (F-OP) ;
+DOC" FABS ( F: r1 -- r2 ) absolute value"
 : FABS 12 (F-OP) ;
+DOC" FMAX ( F: r1 r2 -- r3 ) maximum"
 : FMAX 13 (F-OP) ;
+DOC" FMIN ( F: r1 r2 -- r3 ) minimum"
 : FMIN 14 (F-OP) ;
+DOC" F0= ( F: r -- ) ( -- flag ) true if float is zero"
 : F0= 15 (F-OP) ;
+DOC" F0< ( F: r -- ) ( -- flag ) true if float is negative"
 : F0< 16 (F-OP) ;
+DOC" F< ( F: r1 r2 -- ) ( -- flag ) true if r1 < r2"
 : F< 17 (F-OP) ;
+DOC" F> ( F: r1 r2 -- ) ( -- flag ) true if r1 > r2"
 : F> 18 (F-OP) ;
+DOC" F= ( F: r1 r2 -- ) ( -- flag ) true if r1 = r2"
 : F= 19 (F-OP) ;
+DOC" F<> ( F: r1 r2 -- ) ( -- flag ) true if r1 <> r2"
 : F<> 20 (F-OP) ;
+DOC" F~ ( F: r1 r2 r3 -- ) ( -- flag ) approximately equal (r3 tolerance)"
 : F~ 21 (F-OP) ;
+DOC" F@ ( addr -- ) ( F: -- r ) fetch 64-bit float"
 : F@ 22 (F-OP) ;
+DOC" F! ( addr -- ) ( F: r -- ) store 64-bit float"
 : F! 23 (F-OP) ;
+DOC" SF@ ( addr -- ) ( F: -- r ) fetch 32-bit float"
 : SF@ 24 (F-OP) ;
+DOC" SF! ( addr -- ) ( F: r -- ) store 32-bit float"
 : SF! 25 (F-OP) ;
+DOC" DF@ ( addr -- ) ( F: -- r ) fetch 64-bit float (synonym of F@)"
 : DF@ 26 (F-OP) ;
+DOC" DF! ( addr -- ) ( F: r -- ) store 64-bit float (synonym of F!)"
 : DF! 27 (F-OP) ;
+DOC" S>F ( n -- ) ( F: -- r ) single integer to float"
 : S>F 28 (F-OP) ;
+DOC" F>S ( -- n ) ( F: r -- ) float to single integer"
 : F>S 29 (F-OP) ;
+DOC" D>F ( d -- ) ( F: -- r ) double integer to float"
 : D>F 30 (F-OP) ;
+DOC" F>D ( -- d ) ( F: r -- ) float to double integer"
 : F>D 31 (F-OP) ;
+DOC" >FLOAT ( c-addr u -- true | false ) ( F: -- r | ) parse float from string"
 : >FLOAT 32 (F-OP) ;
+DOC" F. ( F: r -- ) print float (fixed style)"
 : F. 33 (F-OP) ;
+DOC" FS. ( F: r -- ) print float scientific"
 : FS. 34 (F-OP) ;
+DOC" FE. ( F: r -- ) print float engineering"
 : FE. 35 (F-OP) ;
+DOC" PRECISION ( -- u ) digits used by F. / FS. / FE."
 : PRECISION 36 (F-OP) ;
+DOC" SET-PRECISION ( u -- ) set float print precision"
 : SET-PRECISION 37 (F-OP) ;
+DOC" REPRESENT ( c-addr u -- n flag1 flag2 ) ( F: r -- ) classic float→text"
 : REPRESENT 38 (F-OP) ;
+DOC" FLOATS ( n1 -- n2 ) n1 floats in address units"
 : FLOATS 39 (F-OP) ;
+DOC" FLOAT+ ( addr1 -- addr2 ) add size of one float"
 : FLOAT+ 40 (F-OP) ;
+DOC" SFLOATS ( n1 -- n2 ) n1 single-floats in address units"
 : SFLOATS 41 (F-OP) ;
+DOC" SFLOAT+ ( addr1 -- addr2 ) add size of one single-float"
 : SFLOAT+ 42 (F-OP) ;
+DOC" DFLOATS ( n1 -- n2 ) n1 double-floats in address units"
 : DFLOATS 43 (F-OP) ;
+DOC" DFLOAT+ ( addr1 -- addr2 ) add size of one double-float"
 : DFLOAT+ 44 (F-OP) ;
+DOC" FSQRT ( F: r1 -- r2 ) square root"
 : FSQRT 45 (F-OP) ;
+DOC" F** ( F: r1 r2 -- r3 ) r1 raised to r2"
 : F** 46 (F-OP) ;
+DOC" FEXP ( F: r1 -- r2 ) e**r1"
 : FEXP 47 (F-OP) ;
+DOC" FEXPM1 ( F: r1 -- r2 ) e**r1 - 1"
 : FEXPM1 48 (F-OP) ;
+DOC" FLN ( F: r1 -- r2 ) natural log"
 : FLN 49 (F-OP) ;
+DOC" FLNP1 ( F: r1 -- r2 ) ln(1+r1)"
 : FLNP1 50 (F-OP) ;
+DOC" FLOG ( F: r1 -- r2 ) log base 10"
 : FLOG 51 (F-OP) ;
+DOC" FALOG ( F: r1 -- r2 ) 10**r1"
 : FALOG 52 (F-OP) ;
+DOC" FSIN ( F: r1 -- r2 ) sine (radians)"
 : FSIN 53 (F-OP) ;
+DOC" FCOS ( F: r1 -- r2 ) cosine (radians)"
 : FCOS 54 (F-OP) ;
+DOC" FTAN ( F: r1 -- r2 ) tangent (radians)"
 : FTAN 55 (F-OP) ;
+DOC" FASIN ( F: r1 -- r2 ) arcsine"
 : FASIN 56 (F-OP) ;
+DOC" FACOS ( F: r1 -- r2 ) arccosine"
 : FACOS 57 (F-OP) ;
+DOC" FATAN ( F: r1 -- r2 ) arctangent"
 : FATAN 58 (F-OP) ;
+DOC" FATAN2 ( F: r1 r2 -- r3 ) atan2(r1,r2)"
 : FATAN2 59 (F-OP) ;
+DOC" FSINCOS ( F: r1 -- r2 r3 ) sine and cosine"
 : FSINCOS 60 (F-OP) ;
+DOC" FSINH ( F: r1 -- r2 ) hyperbolic sine"
 : FSINH 61 (F-OP) ;
+DOC" FCOSH ( F: r1 -- r2 ) hyperbolic cosine"
 : FCOSH 62 (F-OP) ;
+DOC" FTANH ( F: r1 -- r2 ) hyperbolic tangent"
 : FTANH 63 (F-OP) ;
+DOC" FASINH ( F: r1 -- r2 ) inverse hyperbolic sine"
 : FASINH 64 (F-OP) ;
+DOC" FACOSH ( F: r1 -- r2 ) inverse hyperbolic cosine"
 : FACOSH 65 (F-OP) ;
+DOC" FATANH ( F: r1 -- r2 ) inverse hyperbolic tangent"
 : FATANH 66 (F-OP) ;
+DOC" FLOOR ( F: r1 -- r2 ) floor"
 : FLOOR 67 (F-OP) ;
+DOC" FROUND ( F: r1 -- r2 ) round to nearest"
 : FROUND 68 (F-OP) ;
+DOC" FMOD ( F: r1 r2 -- r3 ) floating remainder"
 : FMOD 69 (F-OP) ;
+DOC" FALIGNED ( addr -- a-addr ) next float-aligned address"
 : FALIGNED 73 (F-OP) ;
+DOC" SFALIGNED ( addr -- a-addr ) next single-float-aligned address"
 : SFALIGNED 74 (F-OP) ;
+DOC" DFALIGNED ( addr -- a-addr ) next double-float-aligned address"
 : DFALIGNED 75 (F-OP) ;
+DOC" FALIGN ( -- ) align HERE for float"
 : FALIGN HERE DUP FALIGNED SWAP - ALLOT ;
+DOC" SFALIGN ( -- ) align HERE for single-float"
 : SFALIGN HERE DUP SFALIGNED SWAP - ALLOT ;
+DOC" DFALIGN ( -- ) align HERE for double-float"
 : DFALIGN FALIGN ;
+DOC" F, ( F: r -- ) compile a float into the dictionary"
 : F, HERE 8 ALLOT F! ;
+DOC" FVARIABLE ( 'name' -- ) create a float variable"
 : FVARIABLE CREATE 8 ALLOT ;
+DOC" FCONSTANT ( F: r 'name' -- ) create a float constant"
 : FCONSTANT CREATE F, DOES> F@ ;
+DOC" FVALUE ( F: r 'name' -- ) create a float value; change with TO"
 : FVALUE CREATE F, DOES> F@ ;
+DOC" FLITERAL ( F: r -- ) compile float literal (immediate)"
 : FLITERAL 102 (F-OP) FLIT-ADDR , , ; IMMEDIATE
 ONLY FORTH DEFINITIONS
 
