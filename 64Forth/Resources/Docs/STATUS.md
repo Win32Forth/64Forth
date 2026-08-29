@@ -1,23 +1,31 @@
 # 64Forth development status
 
-**Current shipped:** **1.1.8**  
-**Last updated:** 2026-08-29 (unreleased main; no version bump / DMG)
+**Current shipped:** **1.1.9**  
+**Last updated:** 2026-08-29 (DMG + GitHub release `v1.1.9`)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
 
 ---
 
-## Unreleased (on main after 1.1.8)
+## v1.1.9 — ITC DEBUG stack isolation + NEXT x28
 
-Version strings remain **1.1.8** / build **25** until the next release.
+**Version strings:** marketing **1.1.9**, build **26** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
 
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.1.9 === Aug 29, 2026 12:11 PM ===
+```
+
+**Highlights (vs 1.1.8):**
 - Kernel: `NEXT` mirrors `debug_armed` in **x28** (hot path `cbnz`; memory cell still for host)
 - Kernel: `_debug_pause` saves/restores full VM; nested SYNC/HIGHLIGHT/WHEEL **isolate** the data stack
 - Editor: `SZ-HIGHLIGHT-NAME` no longer `ROT DROP`s under highlight args (was corrupting ITC `DEBUG` stack → bad `C@`/`TYPE`)
 - Host: `kernelEmitBufTrampoline` rejects near-NULL TYPE buffers
 - Kernel: `(LOCAL-INIT)` overflow drain + ANSValidate locals coverage; more `BOOT_WORD` / `DOC"` help
-- Kernel/docs: `kernel1.fth`/`kernel2.fth` bootstrap already on 1.1.8; further DOC" / help sync; `HYPER.NDX` regen as needed
+- Hyper: `HYPER.NDX` regenerated as needed for kernel source sync
+- Release: `64Forth/releases/64Forth-1.1.9-macOS.dmg` + GitHub `v1.1.9`
 
 ---
 

@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-08-23 — **v1.1.8** (TCOM TDBG host hooks; v1.1.7 ASMARM64 Library; v1.1.6 DEBUG stepper; v1.1.5 caret; v1.1.4 GRAPHICS + tetra `\ANS` + TONE).
+**Updated:** 2026-08-29 — **v1.1.9** (ITC DEBUG stack isolation / x28 NEXT; v1.1.8 TCOM TDBG host hooks; v1.1.7 ASMARM64 Library; v1.1.6 DEBUG stepper; v1.1.5 caret; v1.1.4 GRAPHICS + tetra `\ANS` + TONE).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
