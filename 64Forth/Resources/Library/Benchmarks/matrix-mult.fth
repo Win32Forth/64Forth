@@ -7,6 +7,8 @@
 \ RISC project at Stanford. Translated to forth by  Marty Fraeman,
 \ Johns Hopkins University/Applied Physics Laboratory.
 
+[DEFINED] GROWMEMORYMB [IF] UNUSED 2000000 < [IF] 2 GROWMEMORYMB [THEN] [THEN]
+
 \ MM forth2c doesn't have it !
 : mybounds  over + swap ;
 

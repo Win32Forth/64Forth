@@ -19,10 +19,10 @@
 		B1000012 /* FileAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000112 /* FileAccess.swift */; };
 		B1000013 /* FloatHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000113 /* FloatHost.swift */; };
 		B1000014 /* FacilityTerminal.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000114 /* FacilityTerminal.swift */; };
-		B1000018 /* AppOutputHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000119 /* AppOutputHost.swift */; };
 		B1000015 /* ForthApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000116 /* ForthApplication.swift */; };
 		B1000016 /* AppMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000117 /* AppMain.swift */; };
 		B1000017 /* AgentChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000118 /* AgentChannel.swift */; };
+		B1000018 /* AppOutputHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000119 /* AppOutputHost.swift */; };
 		FA6AA0DF301916D30007C369 /* 64Forth.jpg in Resources */ = {isa = PBXBuildFile; fileRef = FA6AA0DE301916D30007C369 /* 64Forth.jpg */; };
 /* End PBXBuildFile section */
 
@@ -48,12 +48,14 @@
 		B1000112 /* FileAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileAccess.swift; sourceTree = "<group>"; };
 		B1000113 /* FloatHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatHost.swift; sourceTree = "<group>"; };
 		B1000114 /* FacilityTerminal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FacilityTerminal.swift; sourceTree = "<group>"; };
-		B1000119 /* AppOutputHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOutputHost.swift; sourceTree = "<group>"; };
 		B1000115 /* Config */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Config; sourceTree = "<group>"; };
 		B1000116 /* ForthApplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForthApplication.swift; sourceTree = "<group>"; };
 		B1000117 /* AppMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMain.swift; sourceTree = "<group>"; };
 		B1000118 /* AgentChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChannel.swift; sourceTree = "<group>"; };
+		B1000119 /* AppOutputHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOutputHost.swift; sourceTree = "<group>"; };
 		FA6AA0DE301916D30007C369 /* 64Forth.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = 64Forth.jpg; sourceTree = "<group>"; };
+		FAEB4C7E30425AF900F5334E /* kernel1.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = kernel1.fth; sourceTree = "<group>"; };
+		FAEB4C7F30425B4800F5334E /* kernel2.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = kernel2.fth; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -122,6 +124,8 @@
 		B1000304 /* Kernel */ = {
 			isa = PBXGroup;
 			children = (
+				FAEB4C7F30425B4800F5334E /* kernel2.fth */,
+				FAEB4C7E30425AF900F5334E /* kernel1.fth */,
 				B1000106 /* forth.s */,
 				B100010B /* boot_words.inc */,
 				B100010C /* colon_words.inc */,
@@ -252,7 +256,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nSRC=\"${SRCROOT}/64Forth/Resources/Library\"\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Library\"\nKERN=\"${SRCROOT}/64Forth/Kernel\"\nLIBSRC=\"${SRC}/Sources\"\n\n# 1) Sync Kernel → Resources/Library/Sources (source tree) so repo VIEW/index\n#    and the bundle all match the assembly that is being linked.\nmkdir -p \"${LIBSRC}\"\nif [ -d \"${KERN}\" ]; then\n  for f in forth.s boot_words.inc boot_words_end.inc colon_words.inc kernel_api.h; do\n    if [ -f \"${KERN}/$f\" ]; then\n      cp -f \"${KERN}/$f\" \"${LIBSRC}/\"\n    fi\n  done\nfi\n\n# 2) Fresh copy Library → app bundle (includes updated Sources/).\n#    Avoids stale FROMLIB sources from folder-ref caching.\nrm -rf \"${DEST}\"\nmkdir -p \"${DEST}\"\nif [ -d \"${SRC}\" ]; then\n  for f in \"${SRC}\"/* \"${SRC}\"/.[!.]* \"${SRC}\"/..?*; do\n    [ -e \"$f\" ] || continue\n    base=$(basename \"$f\")\n    case \"$base\" in\n      .DS_Store|*.swp|*~) continue ;;\n    esac\n    if [ -f \"$f\" ]; then\n      cp -f \"$f\" \"${DEST}/\"\n    elif [ -d \"$f\" ]; then\n      cp -R \"$f\" \"${DEST}/\"\n    fi\n  done\nfi\n";
+			shellScript = "set -e\nSRC=\"${SRCROOT}/64Forth/Resources/Library\"\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Library\"\nKERN=\"${SRCROOT}/64Forth/Kernel\"\nLIBSRC=\"${SRC}/Sources\"\n\n# 1) Sync Kernel → Resources/Library/Sources (source tree) so repo VIEW/index\n#    and the bundle all match the assembly that is being linked.\nmkdir -p \"${LIBSRC}\"\nif [ -d \"${KERN}\" ]; then\n  for f in forth.s boot_words.inc boot_words_end.inc colon_words.inc kernel_api.h kernel1.fth kernel2.fth; do\n    if [ -f \"${KERN}/$f\" ]; then\n      cp -f \"${KERN}/$f\" \"${LIBSRC}/\"\n    fi\n  done\nfi\n\n# 2) Fresh copy Library → app bundle (includes updated Sources/).\n#    Avoids stale FROMLIB sources from folder-ref caching.\nrm -rf \"${DEST}\"\nmkdir -p \"${DEST}\"\nif [ -d \"${SRC}\" ]; then\n  for f in \"${SRC}\"/* \"${SRC}\"/.[!.]* \"${SRC}\"/..?*; do\n    [ -e \"$f\" ] || continue\n    base=$(basename \"$f\")\n    case \"$base\" in\n      .DS_Store|*.swp|*~) continue ;;\n    esac\n    if [ -f \"$f\" ]; then\n      cp -f \"$f\" \"${DEST}/\"\n    elif [ -d \"$f\" ]; then\n      cp -R \"$f\" \"${DEST}/\"\n    fi\n  done\nfi\n";
 		};
 		B1000703 /* Copy Docs */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -441,7 +445,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 26.6;
+				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
 				MARKETING_VERSION = 1.1.8;
 				OTHER_CFLAGS = "-I$(SRCROOT)/64Forth/Kernel";
 				PRODUCT_BUNDLE_IDENTIFIER = com.win32forth.SixtyFourForth;
@@ -475,7 +479,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 26.6;
+				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
 				MARKETING_VERSION = 1.1.8;
 				OTHER_CFLAGS = "-I$(SRCROOT)/64Forth/Kernel";
 				PRODUCT_BUNDLE_IDENTIFIER = com.win32forth.SixtyFourForth;
