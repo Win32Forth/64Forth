@@ -67,8 +67,9 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ---
 
-## Status (v1.2.0)
+## Status (v1.2.1)
 
+- [x] **v1.2.1:** DEBUG help column; resize while paused; LIT/BRANCH/0BRANCH/(LOOP)/(+LOOP) inline ±CELLS; S(n):/R(n):; DO/LOOP highlight; no blank pause lines; `ok(n)>` focus after DEBUG / ⌘W
 - [x] **v1.2.0:** ITC DEBUG source-alias highlight (`LIT`/`0BRANCH`/`BRANCH`/`EXIT`); F8 step-out; Esc/`q` abort; ⌘Q while paused; DMG + GitHub release
 - [x] **v1.1.9:** ITC DEBUG pause stack isolation + x28 NEXT mirror; locals drain; DOC"/help; DMG + GitHub release
 - [x] **v1.1.8:** TCOM debugger host hooks (`TDBG-ARM-KEYS`, `SZ-SIDE-HOOK`); editor/`DEBUG` highlight (`SZ-HIGHLIGHT-NAME`, `DBG-HL-XT`); DMG + GitHub release
@@ -80,7 +81,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 - [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Agent-channel.md`
 - [ ] **Later (optional):** DMG `/Volumes/…` open noise — see STATUS
 
-**Console header** (GUI): `=== 64Forth 1.2.0 === Aug 31, 2026 7:10 PM ===`  
+**Console header** (GUI): `=== 64Forth 1.2.1 === Aug 31, 2026 11:04 PM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
 
 ## Status (v1.1.1)

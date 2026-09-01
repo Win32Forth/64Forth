@@ -285,7 +285,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #15                    // "64Forth v1.2.0\n"
+    mov x2, #15                    // "64Forth v1.2.1\n"
     mov x16, #4
     svc #0x80
 
@@ -1833,9 +1833,27 @@ _boot_cache_cfa:
     adrp x1, boot_cmp_comma@page
     add x1, x1, boot_cmp_comma@pageoff
     bl _zcmp
-    cbnz x0, 9f
+    cbnz x0, 87f
     adrp x2, cfa_comma@page
     add x2, x2, cfa_comma@pageoff
+    str x20, [x2]
+    b 9f
+87: mov x0, x19
+    adrp x1, boot_cmp_loop@page
+    add x1, x1, boot_cmp_loop@pageoff
+    bl _zcmp
+    cbnz x0, 88f
+    adrp x2, cfa_loop@page
+    add x2, x2, cfa_loop@pageoff
+    str x20, [x2]
+    b 9f
+88: mov x0, x19
+    adrp x1, boot_cmp_plusloop@page
+    add x1, x1, boot_cmp_plusloop@pageoff
+    bl _zcmp
+    cbnz x0, 9f
+    adrp x2, cfa_plusloop@page
+    add x2, x2, cfa_plusloop@pageoff
     str x20, [x2]
 9:
     ldp x19, x20, [sp], #16
@@ -2463,6 +2481,9 @@ XDBGON:
     adrp x0, debug_skip_nl@page
     add  x0, x0, debug_skip_nl@pageoff
     str  x1, [x0]
+    adrp x0, debug_midline@page
+    add  x0, x0, debug_midline@pageoff
+    str  xzr, [x0]                  // fresh session: next pause starts a line
     NEXT
 
     BOOT_WORD "DBG-OFF", "DBG-OFF ( -- ) disarm NEXT stepper", 0, XDBGOFF
@@ -2470,6 +2491,9 @@ XDBGOFF:
     mov  x28, #0                    // NEXT hot-path mirror
     adrp x0, debug_armed@page
     add  x0, x0, debug_armed@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_midline@page
+    add  x0, x0, debug_midline@pageoff
     str  xzr, [x0]
     adrp x0, debug_floor@page
     add  x0, x0, debug_floor@pageoff
@@ -2488,8 +2512,7 @@ XDBGOFF:
     str  xzr, [x0]
     SAVE_VM
     bl _host_debug_paint
-    mov x0, #10
-    bl _putchar
+    // No leading NL: last pause line already ended with \n (avoids a blank line).
     mov x0, #'D'
     bl _putchar
     mov x0, #'E'
@@ -10996,6 +11019,28 @@ _emit_depth_prompt:
 _putchar:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
+    // Optional DEBUG word-field width counter (see _debug_pause).
+    adrp x1, debug_field_count@page
+    add  x1, x1, debug_field_count@pageoff
+    ldr  x1, [x1]
+    cbz  x1, 0f
+    adrp x2, debug_field_len@page
+    add  x2, x2, debug_field_len@pageoff
+    ldr  x3, [x2]
+    add  x3, x3, #1
+    str  x3, [x2]
+0:
+    // Track mid-line for DEBUG pause spacing (only while stepper armed).
+    adrp x1, debug_armed@page
+    add  x1, x1, debug_armed@pageoff
+    ldr  x1, [x1]
+    cbz  x1, 1f
+    adrp x2, debug_midline@page
+    add  x2, x2, debug_midline@pageoff
+    cmp  w0, #10
+    cset x3, ne                // 1 if not NL
+    str  x3, [x2]
+1:
     // emit_hook?
     adrp x1, emit_hook@page
     add  x1, x1, emit_hook@pageoff
@@ -11044,6 +11089,17 @@ _write_stdout:
     ldr  x0, [x0]
     cbz  x0, _ws_try_byte
     cbz  x20, _ws_done
+    // DEBUG word-field tally: bulk emit bypasses _putchar, so add len here.
+    adrp x3, debug_field_count@page
+    add  x3, x3, debug_field_count@pageoff
+    ldr  x3, [x3]
+    cbz  x3, 2f
+    adrp x3, debug_field_len@page
+    add  x3, x3, debug_field_len@pageoff
+    ldr  x4, [x3]
+    add  x4, x4, x20
+    str  x4, [x3]
+2:
     mov  x1, x20                   // n
     mov  x2, x0                    // keep hook
     mov  x0, x19                   // buf
@@ -11055,6 +11111,17 @@ _ws_try_byte:
     ldr  x0, [x0]
     cbnz x0, _ws_hook
     cbz  x20, _ws_done
+    // Direct write(1) also skips _putchar — tally when counting a word field.
+    adrp x3, debug_field_count@page
+    add  x3, x3, debug_field_count@pageoff
+    ldr  x3, [x3]
+    cbz  x3, 3f
+    adrp x3, debug_field_len@page
+    add  x3, x3, debug_field_len@pageoff
+    ldr  x4, [x3]
+    add  x4, x4, x20
+    str  x4, [x3]
+3:
     mov  x0, #1
     mov  x1, x19
     mov  x2, x20
@@ -12376,8 +12443,12 @@ _print_dots:
     sub x21, x19, x22
     lsr x21, x21, #3               // mem_cells >= 1; depth == mem_cells
 
+    mov x0, #40                    // '('
+    bl _putchar
     mov x0, x21
     bl _print_unsigned
+    mov x0, #41                    // ')'
+    bl _putchar
     mov x0, #58                    // ':'
     bl _putchar
     mov x0, #32
@@ -12405,7 +12476,11 @@ _pd_print_tos:
     b _pd_done
 
 _pd_empty:
+    mov x0, #40                    // '('
+    bl _putchar
     mov x0, #48                    // '0'
+    bl _putchar
+    mov x0, #41                    // ')'
     bl _putchar
     mov x0, #58                    // ':'
     bl _putchar
@@ -12462,9 +12537,13 @@ _print_rstack:
     b 2b
 4:
     cbz x19, _pr_empty
+    mov x0, #40                    // '('
+    bl _putchar
     mov x0, x19
     bl _print_unsigned
-    mov x0, #58
+    mov x0, #41                    // ')'
+    bl _putchar
+    mov x0, #58                    // ':'
     bl _putchar
     mov x0, #32
     bl _putchar
@@ -12485,9 +12564,13 @@ _print_rstack:
     add x20, x20, #1
     b 5b
 _pr_empty:
-    mov x0, #48
+    mov x0, #40                    // '('
     bl _putchar
-    mov x0, #58
+    mov x0, #48                    // '0'
+    bl _putchar
+    mov x0, #41                    // ')'
+    bl _putchar
+    mov x0, #58                    // ':'
     bl _putchar
 _pr_done:
     ldp x21, x22, [sp], #16
@@ -12614,34 +12697,39 @@ _dec_u64_buf:
     ldp x19, x20, [sp], #16
     ret
 
-// x0=IP, x1=dest, x2=max (>=2). Writes "NAME +off" or hex fallback, NUL.
+// x0=IP, x1=dest, x2=max (>=2). Writes "NAME +N CELLS" / "NAME -N CELLS"
+// (signed byte offset from colon body ÷ 8) or hex fallback, NUL.
 _fmt_ip_label:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
-    mov x19, x1
-    mov x20, x2
+    stp x23, x24, [sp, #-16]!
+    mov x19, x1                    // dest cursor
+    add x23, x1, x2                // one past buffer
+    sub x23, x23, #1               // leave 1 byte for NUL
     mov x21, x0                    // ip
-    cmp x20, #2
+    cmp x2, #2
     b.lt 9f
     bl _ip_find_colon
     cbz x0, 7f
-    mov x22, x1                    // offset
+    mov x22, x1                    // byte offset from body
+    asr x22, x22, #3               // → cells (signed; backward = negative)
     ldr x1, [x0, #-8]
     and x1, x1, #0xFFFF
     cbz x1, 7f
     cmp x1, #4096
     b.hs 7f
-    sub x0, x0, x1
+    sub x0, x0, x1                 // NFA
     ldrb w1, [x0], #1
     cbz w1, 7f
     cmp w1, #16
     b.ls 1f
     mov w1, #16
 1:
-    sub x2, x20, #8                // leave room for " +dddd"
-    cmp x2, #1
-    b.ge 2f
+    // Cap name so " +NNNN CELLS" (≤14) still fits before NUL.
+    sub x2, x23, x19
+    subs x2, x2, #14
+    b.gt 2f
     mov x2, #1
 2:
     cmp x1, x2
@@ -12658,23 +12746,50 @@ _fmt_ip_label:
     b 4b
 5:
     add x19, x19, x1
-    sub x20, x20, x1
-    cmp x20, #3
+    // Need room for " +"/" -" + ≥1 digit + " CELLS"
+    sub x2, x23, x19
+    cmp x2, #9
     b.lt 8f
     mov w4, #' '
     strb w4, [x19], #1
+    tbnz x22, #63, 10f
     mov w4, #'+'
+    b 11f
+10:
+    mov w4, #'-'
+    neg x22, x22
+11:
     strb w4, [x19], #1
-    sub x20, x20, #2
+    // Digits: leave 6 bytes for " CELLS"
+    sub x2, x23, x19
+    subs x2, x2, #6
+    b.gt 14f
+    mov x2, #1
+14:
     mov x0, x22
     mov x1, x19
-    mov x2, x20
     bl _dec_u64_buf
     mov x19, x1
+    sub x2, x23, x19
+    cmp x2, #6
+    b.lt 8f
+    mov w4, #' '
+    strb w4, [x19], #1
+    mov w4, #'C'
+    strb w4, [x19], #1
+    mov w4, #'E'
+    strb w4, [x19], #1
+    mov w4, #'L'
+    strb w4, [x19], #1
+    mov w4, #'L'
+    strb w4, [x19], #1
+    mov w4, #'S'
+    strb w4, [x19], #1
     b 8f
 7:
     // fallback: 8 hex digits
-    cmp x20, #9
+    sub x2, x23, x19
+    cmp x2, #8
     b.lt 8f
     mov x0, x21
     mov x2, #8
@@ -12692,6 +12807,7 @@ _fmt_ip_label:
 8:
     strb wzr, [x19]
 9:
+    ldp x23, x24, [sp], #16
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
@@ -12714,6 +12830,82 @@ _print_r_ip:
     b 1b
 2:
     add sp, sp, #32
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// After xt name: LIT → " n"; BRANCH/0BRANCH/(LOOP)/(+LOOP) → " ±n CELLS".
+// Offset cell is bytes (add to IP); display ÷8 as signed cell count.
+_debug_print_inline_suffix:
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    adrp x0, debug_xt@page
+    add x0, x0, debug_xt@pageoff
+    ldr x19, [x0]                  // xt
+    cbz x19, 9f
+    adrp x0, debug_inline@page
+    add x0, x0, debug_inline@pageoff
+    ldr x20, [x0]                  // inline cell
+    // LIT?
+    adrp x1, cfa_lit@page
+    add x1, x1, cfa_lit@pageoff
+    ldr x1, [x1]
+    cmp x19, x1
+    b.ne 2f
+    mov x0, #32
+    bl _putchar
+    mov x0, x20
+    bl _print_signed
+    b 9f
+2:
+    // BRANCH / 0BRANCH / (LOOP) / (+LOOP)?
+    adrp x1, cfa_branch@page
+    add x1, x1, cfa_branch@pageoff
+    ldr x1, [x1]
+    cmp x19, x1
+    b.eq 3f
+    adrp x1, cfa_0branch@page
+    add x1, x1, cfa_0branch@pageoff
+    ldr x1, [x1]
+    cmp x19, x1
+    b.eq 3f
+    adrp x1, cfa_loop@page
+    add x1, x1, cfa_loop@pageoff
+    ldr x1, [x1]
+    cmp x19, x1
+    b.eq 3f
+    adrp x1, cfa_plusloop@page
+    add x1, x1, cfa_plusloop@pageoff
+    ldr x1, [x1]
+    cmp x19, x1
+    b.ne 9f
+3:
+    mov x0, #32
+    bl _putchar
+    asr x20, x20, #3               // bytes → cells
+    tbnz x20, #63, 4f
+    mov x0, #'+'
+    bl _putchar
+    mov x0, x20
+    bl _print_unsigned
+    b 5f
+4:
+    mov x0, x20
+    bl _print_signed               // leading '-'
+5:
+    mov x0, #' '
+    bl _putchar
+    mov x0, #'C'
+    bl _putchar
+    mov x0, #'E'
+    bl _putchar
+    mov x0, #'L'
+    bl _putchar
+    mov x0, #'L'
+    bl _putchar
+    mov x0, #'S'
+    bl _putchar
+9:
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
@@ -12759,6 +12951,7 @@ _pxn_q:
 
 // Pause at NEXT: show upcoming xt, data stack, return stack; wait for key.
 // F6=over F7=into F8=out; Esc/q=abort; 134/g=continue (⌘⇧Y).
+// Key 0 = host window-resize wake → DBG-WHEEL → SZ-REDRAW (SZ-SYNC-SIZE).
 // Must preserve full VM (esp. TOS x20): sync/highlight push onto the data
 // stack and leave x20 clobbered; restoring only DSP used to corrupt TYPE args
 // after a few F6 steps (e.g. ptr=0x1c, u=3 on ."  ?").
@@ -12776,18 +12969,61 @@ _debug_pause:
     adrp x1, debug_inline@page
     add x1, x1, debug_inline@pageoff
     str x0, [x1]
+    // Newline only if the last emit was not already EOL (avoids blank lines
+    // between consecutive pauses; still separates after "." / TYPE mid-line).
+    adrp x0, debug_midline@page
+    add x0, x0, debug_midline@pageoff
+    ldr x1, [x0]
+    cbz x1, 20f
+    str xzr, [x0]
     mov x0, #10
     bl _putchar
+20:
     mov x0, #62                    // '>'
     bl _putchar
     mov x0, #62
     bl _putchar
     mov x0, #32
     bl _putchar
+    // Word (+ LIT / ±CELLS) in a 20-col field after ">> "; stacks at col 20.
+    // Wider than 20 → print word then one space (stacks not aligned).
+    adrp x0, debug_field_len@page
+    add x0, x0, debug_field_len@pageoff
+    str xzr, [x0]
+    mov x1, #1
+    adrp x0, debug_field_count@page
+    add x0, x0, debug_field_count@pageoff
+    str x1, [x0]
     mov x0, x21
     bl _print_xt_name
+    bl _debug_print_inline_suffix   // LIT value / branch±CELLS
+    adrp x0, debug_field_count@page
+    add x0, x0, debug_field_count@pageoff
+    str xzr, [x0]
+    adrp x0, debug_field_len@page
+    add x0, x0, debug_field_len@pageoff
+    ldr x24, [x0]
+    cmp x24, #20
+    b.hs 21f
+    mov x0, #20
+    sub x0, x0, x24                // spaces to reach col 20
+    stp x0, xzr, [sp, #-16]!
+22:
+    ldr x0, [sp]
+    cbz x0, 24f
+    sub x0, x0, #1
+    str x0, [sp]
     mov x0, #32
     bl _putchar
+    b 22b
+24:
+    add sp, sp, #16
+    b 23f
+21:
+    b.eq 23f                       // exactly 20: stacks abut field end
+    mov x0, #32                    // overflow: one separating space
+    bl _putchar
+23:
     mov x0, #83                    // 'S'
     bl _putchar
     bl _print_dots
@@ -12871,6 +13107,8 @@ _debug_pause:
     b.eq 11f
     cmp w0, #7                     // SZ-VSCROLL-DN
     b.eq 11f
+    cmp w0, #0                     // host resize wake (pushKey 0) → SZ-REDRAW
+    b.eq 11f
     b 1b
 11:
     bl _debug_wheel
@@ -12923,6 +13161,9 @@ _debug_pause:
     adrp x1, debug_armed@page
     add x1, x1, debug_armed@pageoff
     str xzr, [x1]
+    adrp x1, debug_midline@page
+    add x1, x1, debug_midline@pageoff
+    str xzr, [x1]
     adrp x1, debug_over@page
     add x1, x1, debug_over@pageoff
     str xzr, [x1]
@@ -12935,6 +13176,9 @@ _debug_pause:
     mov x28, #0                    // go: disarm NEXT mirror + host flag
     adrp x1, debug_armed@page
     add x1, x1, debug_armed@pageoff
+    str xzr, [x1]
+    adrp x1, debug_midline@page
+    add x1, x1, debug_midline@pageoff
     str xzr, [x1]
     adrp x1, debug_over@page
     add x1, x1, debug_over@pageoff
@@ -13304,6 +13548,14 @@ _debug_capture:
     ldp x29, x30, [sp], #16
     ret
 
+// int64_t kernel_debug_inline(void) — cell after paused IP (LIT payload).
+.globl _kernel_debug_inline
+_kernel_debug_inline:
+    adrp x0, debug_inline@page
+    add x0, x0, debug_inline@pageoff
+    ldr x0, [x0]
+    ret
+
 // void kernel_debug_get(int64_t *s, int *ns, int64_t *r, int *nr, char *name, int nmax)
 .globl _kernel_debug_get
 _kernel_debug_get:
@@ -13587,7 +13839,7 @@ env_n_file:     .asciz "FILE"
 env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
-str_hello:  .asciz "64Forth v1.2.0\n"
+str_hello:  .asciz "64Forth v1.2.1\n"
 str_dbg_keys: .asciz " [F6=over F7=into F8=out Esc/q=abort Cmd-Shift-Y=go]\n"
 str_dbg_abort: .asciz "DEBUG aborted\n"
 str_prompt: .asciz "\nok> "
@@ -13626,6 +13878,9 @@ emit_buf_hook:  .quad 0            // void (*)(const char *buf, size_t n) — bu
 xchar_emit_buf: .skip 8            // temp for XXCHAR_EMIT (max 4 UTF-8 bytes)
 debug_armed:    .quad 0            // nonzero → NEXT pauses; mirrored in x28 for hot path
 tdebug_armed:   .quad 0            // nonzero → host steals F6/F7 for TCOMDBG (not NEXT)
+debug_midline:  .quad 0            // 1 if last DEBUG emit was not NL (pause spacing)
+debug_field_count: .quad 0         // nonzero → _putchar tallies debug_field_len
+debug_field_len:   .quad 0         // chars in DEBUG word field (name + inline)
 debug_busy:     .quad 0            // set while _debug_pause runs
 debug_floor:    .quad 0            // RSP at DBG-ON; pause only if x23 < floor
 debug_over:     .quad 0            // F6: skip pause while x23 < this RSP
@@ -13735,6 +13990,8 @@ cfa_cstr:       .quad 0
 cfa_type:       .quad 0
 cfa_branch:     .quad 0
 cfa_0branch:    .quad 0
+cfa_loop:       .quad 0            // (LOOP)
+cfa_plusloop:   .quad 0            // (+LOOP)
 cfa_does_rt:    .quad 0
 cfa_catch_ok:   .quad 0
 cfa_local_init: .quad 0

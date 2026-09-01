@@ -1,10 +1,29 @@
 # 64Forth development status
 
-**Current shipped:** **1.2.0**  
-**Last updated:** 2026-08-31 (DMG + GitHub release `v1.2.0`)
+**Current:** **1.2.1** (build **28**; not yet DMG/GitHub-tagged unless noted below)  
+**Last updated:** 2026-08-31 (version bump to 1.2.1)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.2.1 — DEBUG UX polish (help, inline, focus)
+
+**Version strings:** marketing **1.2.1**, build **28** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.2.1 === Aug 31, 2026 11:04 PM ===
+```
+
+**Highlights (vs 1.2.0):**
+- Editor: debug-only help column (F6/F7/F8, Esc/`q`, Cmd-Shift-Y); resize-while-paused wakes `DBG-WHEEL` → `SZ-REDRAW`
+- Kernel/host: pause line + Files column show **LIT** value and **BRANCH**/**0BRANCH**/**(LOOP)**/**(+LOOP)** as ±N CELLS; `S(n):` / `R(n):`; R-stack end labels as ±N CELLS
+- Editor: highlight **DO**/`?DO`/`LOOP`/`+LOOP` (with `(DO)`/`(LOOP)` aliases)
+- Kernel: no blank lines between consecutive `>>` pauses (`debug_midline`); no blank before `DEBUG done`
+- Host: `ok(n)>` + caret/focus after DEBUG ends or aborts; same after ⌘W / `FACILITY-OFF` restores the full console
 
 ---
 

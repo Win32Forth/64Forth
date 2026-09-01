@@ -61,6 +61,12 @@ Keys while editing (SZ-KEY)
   Line# gutter      place caret only (reserved; e.g. future breakpoints)
   Cmd-X / Cmd-C / Cmd-V   cut / copy / paste
 
+Debug help (DBG / DEBUG / TDBG — only while a session is armed)
+----------------------------------------------------------------
+  A 5th help column appears to the right of "find Cmd-F/G":
+    Step:  F6=over  F7=in  F8=out
+    Escape/q=abort Cmd-Shift-Y=go
+
 Display
 -------
   width height SET-EDIT-WINDOW   \ e.g. 100 50 SET-EDIT-WINDOW

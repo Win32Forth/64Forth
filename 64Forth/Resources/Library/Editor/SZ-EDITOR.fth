@@ -63,6 +63,16 @@ ONLY FORTH ALSO EDITOR
 : EDIT  ( 'name' -- )   \ allow EDIT to invoke SZEDIT
     SZEDIT ;
 
+\ While SZ-EDITOR is loaded: DEBUG also toggles the editor's debug help strip
+\ (5th column right of find) when the facility editor is active.
+: DEBUG  ( 'name' -- )
+   ALSO EDITOR  SZ-DBG-KEYS-ON  PREVIOUS
+   ' DBG-ON CATCH
+   DBG-OFF
+   ALSO EDITOR  SZ-DBG-KEYS-OFF  PREVIOUS
+   DUP -1 = IF  DROP ELSE  THROW  THEN
+;
+
 ONLY FORTH DEFINITIONS
 
 \ If Hyper is already loaded, refresh bound XTs (SZ-HIGHLIGHT-NAME, etc.)

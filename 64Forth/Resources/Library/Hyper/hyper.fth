@@ -1053,7 +1053,7 @@ PREVIOUS
    CR
    ." LOCATE <name>     print path:line  [n/m] if multiple" CR
    ." VIEW <name>       open in SZ-EDITOR at line" CR
-   ." DBG <name>        VIEW or untitled, then DEBUG (F6 over, F7 into, Cmd-Shift-Y go)" CR
+   ." DBG <name>        VIEW or untitled, then DEBUG (F6/F7/F8; Esc abort; Cmd-Shift-Y go)" CR
    ." SEE <name>        VIEW if editor loaded, else decompile" CR
    ." Cmd-PgUp/PgDn     visit history (back/forward); else multi-hit n/m" CR
    ." Cmd-Left/Right    prev/next occurrence in current editor file" CR

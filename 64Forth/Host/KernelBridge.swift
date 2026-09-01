@@ -45,6 +45,9 @@ private func kernel_debug_get(
     _ rlabels: UnsafeMutablePointer<CChar>?
 )
 
+@_silgen_name("kernel_debug_inline")
+private func kernel_debug_inline() -> Int64
+
 @_silgen_name("kernel_take_repl_batch_stop")
 private func kernel_take_repl_batch_stop() -> Int32
 
@@ -571,6 +574,8 @@ public func host_debug_paint() {
     guard term.isActive else { return }
 
     if kernel_debug_armed() == 0 {
+        // DBG-OFF / abort / go: next ok(n)> should reclaim the command pane.
+        KernelBridge.shared.requestCommandFocusAfterDebug()
         let restore: () -> Void = {
             _ = KernelBridge.shared.pushKey(0)
         }
@@ -598,6 +603,7 @@ public func host_debug_paint() {
         }
     }
     let name = String(cString: nameBuf)
+    let inlineVal = kernel_debug_inline()
 
     let cols = max(1, term.cols)
     let rows = max(1, term.rows)
@@ -607,7 +613,20 @@ public func host_debug_paint() {
     let textBot = max(textTop, rows - 5)
     let mid = (textTop + textBot) / 2
 
-    let wordLine = name.isEmpty ? " >> ?" : " >> \(name)"
+    // LIT: numeric payload. BRANCH/0BRANCH/(LOOP)/(+LOOP): ±cells (byte off÷8).
+    let wordLine: String
+    if name.isEmpty {
+        wordLine = " >> ?"
+    } else if name == "LIT" {
+        wordLine = " >> LIT \(inlineVal)"
+    } else if name == "BRANCH" || name == "0BRANCH"
+                || name == "(LOOP)" || name == "(+LOOP)" {
+        let cells = inlineVal / 8
+        let off = cells >= 0 ? "+\(cells)" : "\(cells)"
+        wordLine = " >> \(name) \(off) CELLS"
+    } else {
+        wordLine = " >> \(name)"
+    }
     term.writePadded(col: sideLeft, row: textTop, width: side, text: wordLine)
     term.writePadded(col: sideLeft, row: textTop + 1, width: side, text: " Data \(ns)")
     let sRows = max(0, mid - (textTop + 2))
@@ -883,7 +902,9 @@ final class KernelBridge {
         guard changed else { return }
         lastPreferredFacilityCols = cells.cols
         lastPreferredFacilityRows = cells.rows
-        // Wake the editor so SZ-REDRAW → SZ-SYNC-SIZE can apply the new size.
+        // Wake KEY with 0 so SZ-REDRAW → SZ-SYNC-SIZE can apply the new size.
+        // Editor loop swallows 0 then redraws; ITC DEBUG pause routes 0 via
+        // DBG-WHEEL (same as wheel) so resize works while stepped.
         // Coalesce: split/layout fires many metric changes; each used to REDRAW
         // and flash the facility grid for a second or two.
         if isEvaluating, isFacilityTerminalActive {
@@ -1257,6 +1278,9 @@ final class KernelBridge {
     /// FR-based reads left KEY routing stuck on the console until restart.
     private var commandPaneFocusedFlag = false
     private let commandPaneFocusLock = NSLock()
+    /// Set when ITC DEBUG / DBG-OFF disarms; consumed by `(SZ-CMD-DONE)` so the
+    /// command pane reclaims focus even if the user clicked the facility while stepping.
+    private var forceCommandFocusAfterDebugFlag = false
 
     /// True when the lower command pane should own typing / clipboard.
     var isCommandPaneFocused: Bool {
@@ -1272,6 +1296,21 @@ final class KernelBridge {
         commandPaneFocusLock.lock()
         commandPaneFocusedFlag = on
         commandPaneFocusLock.unlock()
+    }
+
+    func requestCommandFocusAfterDebug() {
+        commandPaneFocusLock.lock()
+        forceCommandFocusAfterDebugFlag = true
+        commandPaneFocusLock.unlock()
+    }
+
+    /// Returns true once if DBG just ended and the command pane should reclaim focus.
+    func consumeForceCommandFocusAfterDebug() -> Bool {
+        commandPaneFocusLock.lock()
+        defer { commandPaneFocusLock.unlock() }
+        let v = forceCommandFocusAfterDebugFlag
+        forceCommandFocusAfterDebugFlag = false
+        return v
     }
 
     /// Drop coalesced mouse events left over if SZ-MOUSE was not drained (e.g. during

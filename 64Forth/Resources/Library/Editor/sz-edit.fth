@@ -611,25 +611,37 @@ VARIABLE SZ-DBG-XT
 
 : SZ-DBG-ARM  ( xt -- )  SZ-DBG-XT ! ;
 
-\ Wheel while NEXT is paused (keys 3 / 7). Stay in the stepper.
-\ View-only scroll keeps debug highlight on the same file token.
+\ While NEXT is paused: wheel (3/7) scrolls; key 0 is host window-resize wake.
+\ Both stay in the stepper; SZ-REDRAW runs SZ-SYNC-SIZE so the grid matches.
 : DBG-WHEEL  ( c -- )
+   DUP 0= IF  DROP SZ-REDRAW EXIT  THEN
    DUP 3 = IF  DROP SZ-SCROLL-UP  SZ-REDRAW EXIT  THEN
    DUP 7 = IF  DROP SZ-SCROLL-DOWN SZ-REDRAW EXIT  THEN
    DROP
 ;
 ' DBG-WHEEL DBG-WHEEL-XT !
 
+\ Set by SZ-DBG-RUN after it posts (SZ-CMD-DONE), so SZ-DO-CONSOLE-LINE
+\ does not append a second ok(n)> when DBG ran inside EVALUATE.
+VARIABLE SZ-DBG-DID-OK
+0 SZ-DBG-DID-OK !
+
 : SZ-DBG-RUN  ( -- )
    SZ-DBG-XT @ DUP 0= IF  DROP EXIT  THEN
    0 SZ-DBG-XT !
    \ Idle-console DBG has no command-pane emit; keep >> lines off the grid.
    -1 (SZ-CONSOLE-EMIT)
+   SZ-DBG-KEYS-ON                 \ 5th help column: step / abort / go
    DBG-ON CATCH               ( ior )
-   0 (SZ-CONSOLE-EMIT)
    DBG-OFF
+   SZ-DBG-KEYS-OFF
+   0 (SZ-CONSOLE-EMIT)
    \ Esc/q abort uses THROW -1; drop it so the editor stays up at the prompt.
    DUP -1 = IF  DROP ELSE  THROW  THEN
+   \ Edit-loop DBG never reaches SZ-DO-CONSOLE-LINE's (SZ-CMD-DONE); always
+   \ ask the host for ok(n)> + command-pane focus. Outer EVALUATE skips a dup.
+   (SZ-CMD-DONE)
+   -1 SZ-DBG-DID-OK !
 ;
 
 \ Pending xt for TCOM TDBG (no ITC DBG-ON). Cleared before CATCH.
@@ -640,7 +652,9 @@ VARIABLE SZ-TDBG-XT
    SZ-TDBG-XT @ DUP 0= IF  DROP EXIT  THEN
    0 SZ-TDBG-XT !
    -1 (SZ-CONSOLE-EMIT)
+   SZ-DBG-KEYS-ON                 \ same debug help strip while TDBG runs
    CATCH                      ( ior )  \ xt on stack for CATCH
+   SZ-DBG-KEYS-OFF
    0 (SZ-CONSOLE-EMIT)
    ?DUP IF  ." TDBG: editor session error " . CR  THEN
 ;
@@ -649,11 +663,14 @@ VARIABLE SZ-TDBG-XT
    SZ-CMD-BUF 255 (SZ-CMD@)                   \ u
    DUP 0= IF  DROP EXIT  THEN
    0 SZ-FIND-EDIT !                           \ leave find-edit if open
+   0 SZ-DBG-DID-OK !                          \ SZ-DBG-RUN may set this
    -1 (SZ-CONSOLE-EMIT)                       \ host stream for this command
    SZ-CMD-BUF SWAP                            \ a u
    ['] EVALUATE CATCH DROP                    \ drop 0 or throw code; keep editor usable
    0 (SZ-CONSOLE-EMIT)                        \ flush + stop routing to command pane
-   (SZ-CMD-DONE)                              \ host appends ok(n)> on main thread
+   \ DBG's SZ-DBG-RUN already posted ok(n)>; plain commands still need it.
+   SZ-DBG-DID-OK @ 0= IF  (SZ-CMD-DONE)  THEN
+   0 SZ-DBG-DID-OK !
    SZ-REDRAW                                  \ refresh facility after command I/O
 ;
 
@@ -1980,6 +1997,25 @@ VARIABLE SZ-HL-PRUNE-HI
    R> DROP
 ;
 
+\ Prune history ends in (DO|?DO, hi] for counted loops (like BEGIN for UNTIL).
+: SZ-HL-PRUNE-BACK-TO-DO  ( hi -- )
+   >R
+   S" DO"
+   63 MIN DUP SZ-TOKEN C!
+   SZ-TOKEN CHAR+ SWAP CMOVE
+   R@ SZ-SEARCH-BWD
+   DUP IF
+      R> SZ-HL-HIST-PRUNE-RANGE EXIT
+   THEN
+   DROP
+   S" ?DO"
+   63 MIN DUP SZ-TOKEN C!
+   SZ-TOKEN CHAR+ SWAP CMOVE
+   R@ SZ-SEARCH-BWD
+   DUP 0= IF  DROP R> DROP EXIT  THEN
+   R> SZ-HL-HIST-PRUNE-RANGE
+;
+
 \ Debug highlight: reverse-video a name token without touching the clip.
 \ Guard against stale SZ-CUR after buffer resize/reload (else C@ faults).
 : SZ-HIGHLIGHT-SET  ( addr -- )
@@ -2078,6 +2114,62 @@ VARIABLE SZ-HL-PRUNE-HI
 : SZ-HL-BRANCH-NAME?   ( c-addr u -- flag )  S" BRANCH"  SZ-STR-I= ;
 : SZ-HL-EXIT-NAME?     ( c-addr u -- flag )  S" EXIT"    SZ-STR-I= ;
 : SZ-HL-LIT-NAME?      ( c-addr u -- flag )  S" LIT"     SZ-STR-I= ;
+: SZ-HL-DO-NAME?       ( c-addr u -- flag )
+   2DUP S" (DO)" SZ-STR-I= IF  2DROP TRUE EXIT  THEN
+   S" (?DO)" SZ-STR-I= ;
+: SZ-HL-LOOP-NAME?     ( c-addr u -- flag )  S" (LOOP)"  SZ-STR-I= ;
+: SZ-HL-PLUSLOOP-NAME? ( c-addr u -- flag )  S" (+LOOP)" SZ-STR-I= ;
+
+\ (DO)/(?DO) → nearby DO or ?DO in source.
+: SZ-HIGHLIGHT-DO-NEAR  ( -- flag )
+   SZ-HL-NEAR-FROM
+   DUP SZ-HL-NEAR-MAX + >R
+   BEGIN
+      DUP R@ SZ-U>= IF  R> DROP DROP FALSE EXIT  THEN
+      DUP >R
+      R@ S" ?DO" SZ-HL-MATCH IF
+         R> R> DROP SZ-HIGHLIGHT-SET TRUE EXIT
+      THEN
+      R@ S" DO"  SZ-HL-MATCH IF
+         R> R> DROP SZ-HIGHLIGHT-SET TRUE EXIT
+      THEN
+      R> 1+
+   AGAIN
+;
+
+\ (LOOP) → LOOP; prune hist back to DO so body names rematch on next pass.
+: SZ-HIGHLIGHT-LOOP-NEAR  ( -- flag )
+   SZ-HL-NEAR-FROM
+   DUP SZ-HL-NEAR-MAX + >R
+   BEGIN
+      DUP R@ SZ-U>= IF  R> DROP DROP FALSE EXIT  THEN
+      DUP >R
+      R@ S" LOOP" SZ-HL-MATCH IF
+         R> R> DROP
+         DUP >R  SZ-HIGHLIGHT-SET
+         R> SZ-HL-PRUNE-BACK-TO-DO
+         TRUE EXIT
+      THEN
+      R> 1+
+   AGAIN
+;
+
+\ (+LOOP) → +LOOP; same DO prune as LOOP.
+: SZ-HIGHLIGHT-PLUSLOOP-NEAR  ( -- flag )
+   SZ-HL-NEAR-FROM
+   DUP SZ-HL-NEAR-MAX + >R
+   BEGIN
+      DUP R@ SZ-U>= IF  R> DROP DROP FALSE EXIT  THEN
+      DUP >R
+      R@ S" +LOOP" SZ-HL-MATCH IF
+         R> R> DROP
+         DUP >R  SZ-HIGHLIGHT-SET
+         R> SZ-HL-PRUNE-BACK-TO-DO
+         TRUE EXIT
+      THEN
+      R> 1+
+   AGAIN
+;
 
 \ Fill SZ-TOKEN with signed decimal of n (no <# #S — safer during DBG pause).
 \ DIGTMP holds LSD-first digits; we reverse into SZ-TOKEN.
@@ -2166,13 +2258,22 @@ VARIABLE SZ-HL-NEGF
    DUP 0= IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
    SZ-TBUF 0= IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
    DEPTH 2 < IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
-   \ BRANCH/0BRANCH/EXIT: map to nearby source control word (short window).
-   \ On miss, keep the previous highlight — do not clear to empty.
+   \ Runtime prims → nearby source control words (short window).
+   \ BRANCH already covers AGAIN/REPEAT/ELSE/AHEAD. On miss, keep prior HL.
    2DUP SZ-HL-0BRANCH-NAME? IF
       2DROP  SZ-HIGHLIGHT-0BRANCH-NEAR DROP  EXIT
    THEN
    2DUP SZ-HL-BRANCH-NAME? IF
       2DROP  SZ-HIGHLIGHT-BRANCH-NEAR DROP  EXIT
+   THEN
+   2DUP SZ-HL-DO-NAME? IF
+      2DROP  SZ-HIGHLIGHT-DO-NEAR DROP  EXIT
+   THEN
+   2DUP SZ-HL-LOOP-NAME? IF
+      2DROP  SZ-HIGHLIGHT-LOOP-NEAR DROP  EXIT
+   THEN
+   2DUP SZ-HL-PLUSLOOP-NAME? IF
+      2DROP  SZ-HIGHLIGHT-PLUSLOOP-NEAR DROP  EXIT
    THEN
    2DUP SZ-HL-EXIT-NAME? IF
       2DROP  SZ-HIGHLIGHT-EXIT-NEAR DROP  EXIT

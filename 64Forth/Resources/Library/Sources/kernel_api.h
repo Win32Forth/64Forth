@@ -33,8 +33,11 @@ int kernel_tdebug_armed(void);
 int kernel_any_debug_armed(void);
 
 /// Copy last DEBUG snapshot (data stack, return IPs, upcoming counted name as C string).
-/// rlabels is 16 slots of 32 bytes ("NAME +off") if non-NULL.
+/// rlabels is 16 slots of 32 bytes ("NAME +N CELLS" / "NAME -N CELLS") if non-NULL.
 void kernel_debug_get(int64_t *s, int *ns, int64_t *r, int *nr, char *name, int nmax, char *rlabels);
+
+/// Cell after paused IP (LIT's value when the upcoming word is LIT).
+int64_t kernel_debug_inline(void);
 
 void kernel_set_emit(void (*fn)(int c));
 /// Bulk TYPE path: emit `n` bytes at `buf` as one UTF-8 (or Latin-1 fallback) chunk.

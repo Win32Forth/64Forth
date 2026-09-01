@@ -849,33 +849,47 @@ VARIABLE SZ-NUMN
 ;
 
 \ -----------------------------------------------------------------------------
-\ Help panel: 4 columns with graphic │ separators aligned on both rows.
-\ Fixed field widths so row1/row2 separators line up; last col takes the rest.
-\ Outer bottom bar uses matching ┴ tees so the help grid is fully boxed.
+\ Help panel: 4 columns (+ optional 5th while debugging) with graphic │ seps.
+\ Fixed field widths so row1/row2 separators line up; W4 takes the rest (or
+\ remaining after W5 when SZ-DBG-KEYS is set). Outer bottom bar uses matching
+\ ┴ tees so the help grid is fully boxed.
 \ -----------------------------------------------------------------------------
 \ Field widths include one leading + one trailing space around the message.
 \ (Was 16/18/15 before padding; +2 so strings are not clipped.)
+\ Help text uses SZ-ROOM-TYPE (byte EMIT) — keep ASCII in field strings.
  18 CONSTANT SZ-HELP-W1          \ " Cmd-E/click VIEW " / " drag/Shift-click "
  20 CONSTANT SZ-HELP-W2          \ " Cmd-PgUp/Dn visits " / " dbl-word tri-line "
  17 CONSTANT SZ-HELP-W3          \ " side: line# [X] " / " Cmd-click VIEW "
-\ W4 = remaining inner width after W1+W2+W3 + 3 separators
+ 32 CONSTANT SZ-HELP-W5          \ debug only: step/abort lines (~30 chars + pads)
+\ W4 = remaining inner width after W1+W2+W3 [+W5] + separators
+
+\ Nonzero while an ITC/TCOM debug session is armed — shows the 5th help column.
+VARIABLE SZ-DBG-KEYS
+0 SZ-DBG-KEYS !
 
 VARIABLE SZ-HELP-R
 VARIABLE SZ-HELP-A1  VARIABLE SZ-HELP-U1
 VARIABLE SZ-HELP-A2  VARIABLE SZ-HELP-U2
 VARIABLE SZ-HELP-A3  VARIABLE SZ-HELP-U3
 VARIABLE SZ-HELP-A4  VARIABLE SZ-HELP-U4
+VARIABLE SZ-HELP-A5  VARIABLE SZ-HELP-U5
 
 : SZ-HELP-INNER  ( -- n )  SZ-COLS @ 2 - 0 MAX ;
 
+\ Separator count: 3 normally, 4 when the debug column is visible.
+: SZ-HELP-NSEPS  ( -- n )  SZ-DBG-KEYS @ IF  4 ELSE  3  THEN ;
+
 : SZ-HELP-W4  ( -- n )
-   SZ-HELP-INNER SZ-HELP-W1 - SZ-HELP-W2 - SZ-HELP-W3 - 3 - 0 MAX
+   SZ-HELP-INNER SZ-HELP-W1 - SZ-HELP-W2 - SZ-HELP-W3 -
+   SZ-DBG-KEYS @ IF  SZ-HELP-W5 -  THEN
+   SZ-HELP-NSEPS - 0 MAX
 ;
 
-\ Absolute facility columns of the three help separators (for tees / verticals).
+\ Absolute facility columns of the help separators (for tees / verticals).
 : SZ-HELP-SEP1  ( -- col )  1 SZ-HELP-W1 + ;
 : SZ-HELP-SEP2  ( -- col )  SZ-HELP-SEP1 1+ SZ-HELP-W2 + ;
 : SZ-HELP-SEP3  ( -- col )  SZ-HELP-SEP2 1+ SZ-HELP-W3 + ;
+: SZ-HELP-SEP4  ( -- col )  SZ-HELP-SEP3 1+ SZ-HELP-W4 + ;
 
 \ Exactly `width` cols: " " + text + pad spaces + " ". Uses SZ-ROOM.
 \ Must emit precisely `width` so the following │ (SZ-HELP-V / SEP AT-XY) stay aligned.
@@ -899,6 +913,7 @@ VARIABLE SZ-HELP-A4  VARIABLE SZ-HELP-U4
 ;
 
 \ Paint four fixed-width help fields + │ seps on `row`.
+\ When SZ-DBG-KEYS: also paint W5 (debug keys) after W4 with a 4th │.
 : SZ-HELP-LINE  ( a1 u1 a2 u2 a3 u3 a4 u4 row -- )
    SZ-HELP-R !                                \ row
    SZ-HELP-U4 !  SZ-HELP-A4 !
@@ -912,11 +927,18 @@ VARIABLE SZ-HELP-A4  VARIABLE SZ-HELP-U4
    SZ-HELP-A2 @ SZ-HELP-U2 @ SZ-HELP-W2 SZ-HELP-FIELD  SZ-HELP-V
    SZ-HELP-A3 @ SZ-HELP-U3 @ SZ-HELP-W3 SZ-HELP-FIELD  SZ-HELP-V
    SZ-HELP-A4 @ SZ-HELP-U4 @ SZ-HELP-W4 SZ-HELP-FIELD
+   SZ-DBG-KEYS @ IF
+      SZ-HELP-V
+      SZ-HELP-A5 @ SZ-HELP-U5 @ SZ-HELP-W5 SZ-HELP-FIELD
+   THEN
    \ Outer + column │ (blank wiped them)
    SZ-HELP-R @ SZ-DRAW-V-OUTER
    SZ-HELP-SEP1 SZ-HELP-R @ AT-XY  SZ-BOX-V SZ-XEMIT
    SZ-HELP-SEP2 SZ-HELP-R @ AT-XY  SZ-BOX-V SZ-XEMIT
    SZ-HELP-SEP3 SZ-HELP-R @ AT-XY  SZ-BOX-V SZ-XEMIT
+   SZ-DBG-KEYS @ IF
+      SZ-HELP-SEP4 SZ-HELP-R @ AT-XY  SZ-BOX-V SZ-XEMIT
+   THEN
 ;
 
 \ Bottom outer bar with ┴ at help-column separators (aligned with help │).
@@ -930,20 +952,41 @@ VARIABLE SZ-HELP-A4  VARIABLE SZ-HELP-U4
    SZ-HELP-W3 0 MAX SZ-BOX-H-N
    SZ-BOX-BU SZ-XEMIT
    SZ-HELP-W4 SZ-BOX-H-N
+   SZ-DBG-KEYS @ IF
+      SZ-BOX-BU SZ-XEMIT                      \ ┴ under sep4 (before debug col)
+      SZ-HELP-W5 SZ-BOX-H-N
+   THEN
    SZ-BOX-BR SZ-XEMIT
 ;
 
 \ Two help rows with aligned │ columns + bottom tees.
+\ Optional 5th column (debug keys) when SZ-DBG-KEYS is set — right of find.
 : SZ-SHOW-HELP  ( -- )
+   SZ-DBG-KEYS @ IF
+      S" Step:  F6=over  F7=in  F8=out" SZ-HELP-U5 ! SZ-HELP-A5 !
+   THEN
    \ Row1 — W1 matches "Cmd-E/click VIEW" (16); row2 pads to same width
    S" Cmd-E/click VIEW" S" Cmd-PgUp/Dn visits"
    S" side: line# [X]" S" find Cmd-F/G"
    SZ-HELP1 @ SZ-HELP-LINE
+   SZ-DBG-KEYS @ IF
+      S" Escape/q=abort Cmd-Shift-Y=go" SZ-HELP-U5 ! SZ-HELP-A5 !
+   THEN
    \ Row2 — "drag/Shift-click" (15) padded to W1=16 so │ lines up under row1
    S" drag/Shift-click" S" dbl-word tri-line"
    S" Cmd-click VIEW" S" Cmd-X/C/V/S/W"
    SZ-HELP2 @ SZ-HELP-LINE
    SZ-DRAW-HELP-BOT
+;
+
+\ Show/hide the debug key column and refresh help chrome (editor live only).
+: SZ-DBG-KEYS-ON   ( -- )
+   -1 SZ-DBG-KEYS !
+   SZ-EDITOR-ACTIVE @ IF  SZ-SHOW-HELP  TERMINAL-REFRESH  THEN
+;
+: SZ-DBG-KEYS-OFF  ( -- )
+   0 SZ-DBG-KEYS !
+   SZ-EDITOR-ACTIVE @ IF  SZ-SHOW-HELP  TERMINAL-REFRESH  THEN
 ;
 
 \ True if SZ-CUR lies on the logical line starting at `ls`.

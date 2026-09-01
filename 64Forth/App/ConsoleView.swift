@@ -53,7 +53,7 @@ extension Notification.Name {
 // Update the date/time stamp only when finishing a change set for a version —
 // just before DMG + commit/push (not on every intermediate build).
 // Format: === 64Forth M.N.P === Mon D, YYYY H:MM AM/PM ===
-private let banner = "=== 64Forth 1.2.0 === Aug 31, 2026 7:10 PM ===\n"
+private let banner = "=== 64Forth 1.2.1 === Aug 31, 2026 11:04 PM ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner
@@ -333,6 +333,7 @@ struct ConsoleView: View {
             if self.suppressNextCommandPrompt {
                 self.suppressNextCommandPrompt = false
                 self.preferCommandFocusAfterEval = false
+                _ = self.kernel.consumeForceCommandFocusAfterDebug()
                 return
             }
             // Always append the prompt in the lower pane (never facility/consoleText).
@@ -341,21 +342,35 @@ struct ConsoleView: View {
             }
             let n = self.kernel.dataStackDepth
             self.appendCommandOutput("ok(\(n))> ")
-            // Reclaim command focus only if prefer is *still* set. Facility click
-            // clears prefer; checking after append avoids the race where we captured
-            // keep=true, user clicked the editor (sticky cleared), then we set sticky
-            // true again and left the editor dead for KEY.
-            guard self.preferCommandFocusAfterEval else { return }
+            // Reclaim command focus if Return left prefer set, or DBG just ended
+            // (facility click while stepping clears prefer; still want the prompt).
+            let forceAfterDebug = self.kernel.consumeForceCommandFocusAfterDebug()
+            let prefer = self.preferCommandFocusAfterEval
             self.preferCommandFocusAfterEval = false
+            guard prefer || forceAfterDebug else { return }
             self.commandPinCaretRequest += 1
             self.isCommandFocused = true
+            self.isFocused = false
             self.kernel.setCommandPaneFocused(true)
             #if os(macOS)
-            if let tv = self.commandTextView, let win = tv.window {
-                win.makeFirstResponder(tv)
-                let end = (tv.string as NSString).length
-                tv.setSelectedRange(NSRange(location: end, length: 0))
+            (self.consoleTextView as? ConsoleNSTextView)?.hideFacilityLineCaret()
+            // After SZ-REDRAW / Files restore, re-assert FR on the next turns so a
+            // racing facility paint cannot leave the caret stranded in the editor.
+            func claimCommandFocus(attempts: Int) {
+                guard attempts > 0 else { return }
+                guard self.kernel.isCommandPaneFocused else { return }
+                if let tv = self.commandTextView, let win = tv.window {
+                    win.makeFirstResponder(tv)
+                    let end = (tv.string as NSString).length
+                    tv.setSelectedRange(NSRange(location: end, length: 0))
+                }
+                if attempts > 1 {
+                    DispatchQueue.main.async {
+                        claimCommandFocus(attempts: attempts - 1)
+                    }
+                }
             }
+            claimCommandFocus(attempts: 3)
             #endif
         }
         // Facility terminal (PAGE/AT-XY): replace upper pane with grid paint.
@@ -854,13 +869,51 @@ struct ConsoleView: View {
         (consoleTextView as? ConsoleNSTextView)?.hideFacilityLineCaret()
         #endif
         isProgrammaticConsoleAppend = false
+        isCommandFocused = false
         isFocused = true
+        kernel.setCommandPaneFocused(false)
         // Already ends with ok(n)> from the command pane in the usual case.
         if !consoleText.hasSuffix("> ") {
             ensureInputPrompt()
         }
         keepCursorVisible(followPrompt: true)
+        // Split teardown replaces the facility NSTextView with the full console.
+        // Claim FR + caret on the *new* view across a few frames (same race as
+        // post-DEBUG ok>); an immediate pinCaret often still hits the dying pane.
+        #if os(macOS)
+        claimFullConsoleFocusAfterEditorClose(attempts: 6)
+        #endif
     }
+
+    #if os(macOS)
+    /// After ⌘W / FACILITY-OFF: put the caret at end of the restored transcript.
+    private func claimFullConsoleFocusAfterEditorClose(attempts: Int) {
+        guard attempts > 0 else { return }
+        guard !isEditorSplitActive else {
+            DispatchQueue.main.async {
+                self.claimFullConsoleFocusAfterEditorClose(attempts: attempts - 1)
+            }
+            return
+        }
+        if let tv = consoleTextView as? ConsoleNSTextView, tv.paneKind == .full,
+           let win = tv.window {
+            // Sync live string if SwiftUI binding raced the text view.
+            if tv.string != consoleText {
+                tv.string = consoleText
+            }
+            win.makeFirstResponder(tv)
+            let end = (tv.string as NSString).length
+            tv.setSelectedRange(NSRange(location: end, length: 0))
+            ConsoleTextView.scrollToEndNow(in: tv, pinCaret: true)
+            pinCaretRequest += 1
+            isFocused = true
+            return
+        }
+        DispatchQueue.main.async {
+            self.claimFullConsoleFocusAfterEditorClose(attempts: attempts - 1)
+        }
+    }
+    #endif
 
     private func keepCursorVisible(followPrompt: Bool = false) {
         if followPrompt {
