@@ -89,8 +89,9 @@ DOC" (SEE-STEP) ( addr -- addr' ) decompile one body cell; advances addr"
 DOC" SEE ( 'name' -- ) show help and decompile word"
 : SEE ' DUP (SEE-HDR) DUP DOCOL? 0= IF (SEE-PRIM) EXIT THEN
   >BODY BEGIN (SEE-STEP) DUP 0= UNTIL DROP ;
-DOC" DEBUG ( 'name' -- ) F6 step over, F7 into, Cmd-Shift-Y go"
-: DEBUG ' DBG-ON CATCH DBG-OFF THROW ;
+DOC" DEBUG ( 'name' -- ) F6 over, F7 into, F8 out, Esc/q abort, Cmd-Shift-Y go"
+\ Esc/q aborts with THROW -1; swallow that so we return to the prompt quietly.
+: DEBUG ' DBG-ON CATCH DBG-OFF DUP -1 = IF DROP ELSE THROW THEN ;
 DOC" HELP ( 'name' -- ) show help and decompile word (same as SEE)"
 : HELP SEE ;
 DOC" FLOAD ( 'name' -- ) synonym of INCLUDE; load and interpret a file"

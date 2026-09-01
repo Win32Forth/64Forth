@@ -1,10 +1,30 @@
 # 64Forth development status
 
-**Current shipped:** **1.1.9**  
-**Last updated:** 2026-08-29 (DMG + GitHub release `v1.1.9`)
+**Current shipped:** **1.2.0** (pending DMG / GitHub release)  
+**Last updated:** 2026-08-31 (version bump + ITC DEBUG UX)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.2.0 — ITC DEBUG source highlight + step-out / abort
+
+**Version strings:** marketing **1.2.0**, build **27** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.2.0 === Aug 31, 2026 7:10 PM ===
+```
+
+**Highlights (vs 1.1.9):**
+- Editor: ITC `DEBUG`/`DBG` maps runtime names to source — `0BRANCH`→`IF`/`WHILE`/`UNTIL`, `BRANCH`→`ELSE`/`REPEAT`/`AGAIN`, `EXIT`→`;`, **`LIT`→decimal** via kernel `DBG-INLINE` (`[IP+8]` at pause)
+- Editor: same-name highlight history + loop prune (`REPEAT`/`AGAIN`/`WHILE`/`UNTIL`) so nested/`test2` call sites advance correctly
+- Kernel: **F8 step-out** (`debug_out`); **Esc / `q` abort** (`DEBUG aborted`, back to prompt); Space/`o`/`i`/`g` aliases honored in `_debug_pause`
+- Host: **⌘Q while DBG paused** aborts the stepper then closes the editor (quit-after-close); dirty S/D still applies
+- Docs: `STATUSDBG64.md` key table updated for F8 / Esc
+- Release: `64Forth/releases/64Forth-1.2.0-macOS.dmg` + GitHub `v1.2.0` (after DMG)
 
 ---
 

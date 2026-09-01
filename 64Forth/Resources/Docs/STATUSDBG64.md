@@ -4,11 +4,11 @@
 Canonical plan: session `plan.md` (Phase 4.0).  
 Shared roadmap blurb: [`STATUS.md`](STATUS.md) § Debugger.
 
-**Last updated:** 2026-08-23  
+**Last updated:** 2026-08-31  
 **Pack release:** 64TCOM ARM64 **Version 0.9**  
 **Phase:** 64TCOM **4.0** utilities (slice 1 **shipped** in 0.9; editor next)  
 **Backend:** **SIMARM64 first** (native traps later)  
-**64Forth ITC `DEBUG` / `DBG`:** unchanged (v1.1.6)
+**64Forth ITC `DEBUG` / `DBG`:** **1.2.0** — source-alias highlight (`LIT`/`0BRANCH`/`BRANCH`/`EXIT`), F8 step-out, Esc/`q` abort, ⌘Q while paused
 
 ---
 
@@ -83,8 +83,23 @@ CHDIR …/64TCOMARM64
 FLOAD TARGETARM64.fth
 ARM64-DEMO          \ or TCOM path/to/app.fth
 TDBG ANS            \ alias of TDEBUG ANS
-\ F6 step over  F7 into  Cmd-Shift-Y go  q quit
+\ F6 over  F7 into  Cmd-Shift-Y/g go  Space/o over  i into  q quit
 ```
+
+### Key parity vs ITC `DEBUG`
+
+Same *intent* and shared host steal (`kernel_any_debug_armed`), different backends:
+
+| Key | ITC `DEBUG` (1.2.0+) | `TDBG` |
+|-----|----------------------|--------|
+| F6 / Space / `o` | over (`debug_over`) | over (`TDBG-STEP-OVER-SRC`) |
+| F7 / `i` | into | into |
+| F8 | step-out (`debug_out`); top word finishes session | not implemented |
+| ⌘⇧Y / `g` | go | go |
+| Esc / `q` | abort (`DEBUG aborted` → prompt) | `q` quits session |
+| ⌘Q | abort stepper + close editor + quit app | same host path when editor up |
+
+**Editor wait must be `EKEY`:** `KEY` skips tagged F-keys `((2<<24)|K-*)`, so F6/F7 never reached `TDBG-HANDLE-KEY` while the editor was up (Space still worked). Fixed in `TCOMDBG-ED` (`TDBG-WAIT-KEY-ED`).
 
 ---
 
@@ -110,9 +125,12 @@ TDBG ANS            \ alias of TDEBUG ANS
 - [x] Console quiet when editor up (`TDBG-QUIET` via `TCOMDBG-ED`)
 - [x] `TDBG` alias works
 - [x] ITC `DEBUG` unchanged
+- [x] Editor-mode F6/F7 via `EKEY` wait (`TCOMDBG-ED`; was broken under `KEY`)
 
 **Note:** Rebuild 64Forth in Xcode to pick up `TDBG-ARM-KEYS` / `kernel_tdebug_armed` (F6/F7 steal while editor focused). Agent CLI tools already smoke the sim path without that rebuild.
 
 **Bugfix (2026-08-23):** `S" TDBG-ARM-KEYS" FIND` crashed in `XFIND` at address `0xd` (string length 13 used as pointer). Host arm/disarm now binds at load via `[UNDEFINED]` — never `S" … FIND`.
+
+**Bugfix (editor F6/F7):** `TDBG-WAIT-KEY-ED` used `KEY`, which drops Facility Ext F-key tags; switched to `EKEY` so host-stolen F6/F7 reach `TDBG-HANDLE-KEY`.
 
 **SEE vs SEE-T:** Host `SEE` only finds 64Forth dictionary words. TCOM targets live in `SYM-*` — use **`SEE-T ANS`** (hex dump to next symbol; tags RET/BLR/BL).

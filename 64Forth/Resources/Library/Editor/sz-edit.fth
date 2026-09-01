@@ -108,10 +108,10 @@ VARIABLE SZ-DONE
    -1
 ;
 
-\ Clear active multi-byte selection (motion / plain click / wheel). Paint uses
+\ Clear active multi-byte selection (motion / plain click). Paint uses
 \ SZ-SEL-OK for reverse-video. Do NOT clear SZ-SEL-WORD — that is the Select/Find
-\ type-in field (and stays in sync with SZ-TOKEN). Wheel scroll used to blank the
-\ find box because SZ-SCROLL-* call SZ-GO-UP/DOWN → SZ-CLEAR-SEL.
+\ type-in field (and stays in sync with SZ-TOKEN). Wheel scroll is view-only and
+\ must not call this (debug/find highlight must survive pan).
 : SZ-CLEAR-SEL  ( -- )
    0 SZ-SEL-OK !
 ;
@@ -195,6 +195,7 @@ VARIABLE SZ-DONE
 ;
 
 : SZ-GO-LEFT  ( -- )
+   SZ-VIEW-RELEASE
    SZ-CLEAR-SEL
    \ Use unsigned compare — heap buffer addresses must not use signed >
    SZ-CUR @ SZ-TBUF U> IF  -1 SZ-CUR +!  THEN
@@ -202,6 +203,7 @@ VARIABLE SZ-DONE
 ;
 
 : SZ-GO-RIGHT  ( -- )
+   SZ-VIEW-RELEASE
    SZ-CLEAR-SEL
    \ Advance within the line, including the append point at true EOL (TEND
    \ when the last line has no trailing newline). Do not wrap to next line.
@@ -216,6 +218,7 @@ VARIABLE SZ-DONE
 \ after horizontal scroll CUR-COL can be huge and then MIN onto a short line is OK,
 \ but overwriting PREF from a short line destroyed the goal for the next long line.
 : SZ-GO-UP  ( -- )
+   SZ-VIEW-RELEASE
    SZ-CLEAR-SEL
    SZ-CUR-LINE DUP SZ-TBUF = IF  DROP EXIT  THEN
    SZ-PREV-LINE
@@ -233,6 +236,7 @@ VARIABLE SZ-DONE
 
 \ Down one line. Never invents phantom lines past EOF.
 : SZ-GO-DOWN  ( -- )
+   SZ-VIEW-RELEASE
    SZ-CLEAR-SEL
    SZ-CUR @ SZ-TEND = IF  EXIT  THEN       \ already at absolute end
    SZ-CUR-LINE DUP SZ-NEXT-LINE            \ ls nx
@@ -293,23 +297,22 @@ VARIABLE SZ-DONE
    SZ-TEXT-ROWS 1- >
 ;
 
-\ Wheel: move SZ-TOP and SZ-CUR together so the caret stays on the same screen
-\ row while text scrolls under it. No scroll if the file fits in the window.
-\ Stop at BOF; stop scroll-down when the last line sits on the bottom row.
+\ Wheel: view-only pan. Keep SZ-CUR and SZ-SEL at the same file bytes so the
+\ caret/highlight move with the text (and may leave the window). SZ-VIEW-HOLD
+\ stops SZ-ENSURE-VISIBLE from snapping TOP back on the next redraw.
+\ No scroll if the file fits; stop at BOF; stop scroll-down at last line.
 : SZ-SCROLL-UP  ( -- )
    SZ-WHEEL-SCROLLABLE? 0= IF  EXIT  THEN
-   SZ-CUR-LINE SZ-TBUF = IF  EXIT  THEN    \ caret already at first line
-   SZ-TOP @ SZ-TBUF = IF  EXIT  THEN       \ view already at start
+   SZ-TOP @ SZ-TBUF = IF  EXIT  THEN
    SZ-TOP @ SZ-PREV-LINE SZ-TOP !
-   SZ-GO-UP
+   SZ-VIEW-HOLD-ON
 ;
 
 : SZ-SCROLL-DOWN  ( -- )
    SZ-WHEEL-SCROLLABLE? 0= IF  EXIT  THEN
-   SZ-TOP-CAN-DOWN? 0= IF  EXIT  THEN      \ last line already as low as possible
-   SZ-CUR-CAN-DOWN? 0= IF  EXIT  THEN
+   SZ-TOP-CAN-DOWN? 0= IF  EXIT  THEN
    SZ-TOP @ SZ-NEXT-LINE SZ-TOP !
-   SZ-GO-DOWN
+   SZ-VIEW-HOLD-ON
 ;
 
 \ View-only pan (do NOT move CUR / clear selection). Drag-edge scroll uses these
@@ -320,23 +323,28 @@ VARIABLE SZ-DONE
 : SZ-VIEW-LINE-UP  ( -- )
    SZ-TOP @ SZ-TBUF = IF  EXIT  THEN
    SZ-TOP @ SZ-PREV-LINE SZ-TOP !
+   SZ-VIEW-HOLD-ON
 ;
 
 : SZ-VIEW-LINE-DOWN  ( -- )
    SZ-TOP-CAN-DOWN? 0= IF  EXIT  THEN
    SZ-TOP @ SZ-NEXT-LINE SZ-TOP !
+   SZ-VIEW-HOLD-ON
 ;
 
 : SZ-VIEW-COL-LEFT  ( -- )
    SZ-HCOL @ 0= IF  EXIT  THEN
    SZ-HCOL @ SZ-HSCROLL-STEP - 0 MAX SZ-HCOL !
+   SZ-VIEW-HOLD-ON
 ;
 
 : SZ-VIEW-COL-RIGHT  ( -- )
    SZ-HCOL @ SZ-HSCROLL-STEP + 8192 MIN SZ-HCOL !
+   SZ-VIEW-HOLD-ON
 ;
 
 : SZ-GO-HOME-LINE  ( -- )
+   SZ-VIEW-RELEASE
    SZ-CLEAR-SEL
    SZ-CUR-LINE SZ-CUR !
    0 SZ-HCOL !
@@ -345,6 +353,7 @@ VARIABLE SZ-DONE
 
 \ Jump to true end of line and scroll horizontally so that end is visible.
 : SZ-GO-END-LINE  ( -- )
+   SZ-VIEW-RELEASE
    SZ-CLEAR-SEL
    SZ-CUR-LINE SZ-PARSE-LINE + SZ-CUR !
    SZ-REMEMBER-COL
@@ -352,6 +361,7 @@ VARIABLE SZ-DONE
 ;
 
 : SZ-GO-HOME-FILE  ( -- )
+   SZ-VIEW-RELEASE
    SZ-CLEAR-SEL
    SZ-TBUF SZ-CUR !
    0 SZ-HCOL !
@@ -360,6 +370,7 @@ VARIABLE SZ-DONE
 
 \ End of file = end of last *content* line (not a phantom empty row after a final EOL).
 : SZ-GO-END-FILE  ( -- )
+   SZ-VIEW-RELEASE
    SZ-CLEAR-SEL
    SZ-TLEN @ 0= IF  SZ-TBUF SZ-CUR !  0 SZ-HCOL !  0 SZ-PREF-COL !  EXIT  THEN
    SZ-TEND SZ-CUR !
@@ -601,6 +612,7 @@ VARIABLE SZ-DBG-XT
 : SZ-DBG-ARM  ( xt -- )  SZ-DBG-XT ! ;
 
 \ Wheel while NEXT is paused (keys 3 / 7). Stay in the stepper.
+\ View-only scroll keeps debug highlight on the same file token.
 : DBG-WHEEL  ( c -- )
    DUP 3 = IF  DROP SZ-SCROLL-UP  SZ-REDRAW EXIT  THEN
    DUP 7 = IF  DROP SZ-SCROLL-DOWN SZ-REDRAW EXIT  THEN
@@ -616,7 +628,8 @@ VARIABLE SZ-DBG-XT
    DBG-ON CATCH               ( ior )
    0 (SZ-CONSOLE-EMIT)
    DBG-OFF
-   THROW
+   \ Esc/q abort uses THROW -1; drop it so the editor stays up at the prompt.
+   DUP -1 = IF  DROP ELSE  THROW  THEN
 ;
 
 \ Pending xt for TCOM TDBG (no ITC DBG-ON). Cleared before CATCH.
@@ -725,6 +738,7 @@ VARIABLE SZ-TDBG-XT
 
 \ VIEW / Hyper: go to line and scroll it near the top of the window.
 : SZ-GOTO-LINE  ( n -- )
+   SZ-VIEW-RELEASE
    SZ-GOTO-LINE-RAW
    SZ-REVEAL-NEAR-TOP
 ;
@@ -1209,6 +1223,7 @@ VARIABLE SZ-DR-N
 \ Redefine insert/delete so typing replaces the active drag/range selection.
 : SZ-INSERT-CH  ( c -- )
    DUP BL < OVER 126 > OR IF  DROP EXIT  THEN
+   SZ-VIEW-RELEASE
    SZ-DELETE-SEL-IF DROP
    1 SZ-OPEN-HOLE 0= IF  DROP EXIT  THEN
    SZ-CUR @ C!
@@ -1218,6 +1233,7 @@ VARIABLE SZ-DR-N
 ;
 
 : SZ-INSERT-TAB  ( -- )
+   SZ-VIEW-RELEASE
    SZ-DELETE-SEL-IF DROP
    4  SZ-CUR-COL 4 MOD -
    BEGIN  DUP WHILE
@@ -1227,6 +1243,7 @@ VARIABLE SZ-DR-N
 ;
 
 : SZ-INSERT-CRLF  ( -- )
+   SZ-VIEW-RELEASE
    SZ-DELETE-SEL-IF DROP
    SZ-CLAMP-CUR
    1 SZ-OPEN-HOLE 0= IF  EXIT  THEN
@@ -1238,6 +1255,7 @@ VARIABLE SZ-DR-N
 ;
 
 : SZ-BACKSPACE  ( -- )
+   SZ-VIEW-RELEASE
    SZ-SEL-OK @ IF  SZ-DELETE-SEL-IF DROP EXIT  THEN
    SZ-CUR @ SZ-TBUF = IF  EXIT  THEN
    -1 SZ-CUR +!
@@ -1253,6 +1271,7 @@ VARIABLE SZ-DR-N
 ;
 
 : SZ-DELETE-FWD  ( -- )
+   SZ-VIEW-RELEASE
    SZ-SEL-OK @ IF  SZ-DELETE-SEL-IF DROP EXIT  THEN
    SZ-CUR @ SZ-TEND = IF  EXIT  THEN
    SZ-CUR @ C@ SZ-CH-CR =
@@ -1768,6 +1787,7 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
 \ Facility mouse → buffer (key 25).
 \ (SZ-CLICK) → col row flag; bits: 0=valid 1=⌘ 2-3=phase 4=⇧ 5=double 6=triple.
 : SZ-DO-MOUSE  ( -- )
+   SZ-VIEW-RELEASE
    (SZ-CLICK) DUP 0= IF  DROP 2DROP EXIT  THEN
    DUP 2 AND SZ-CLICK-EXTEND !                 \ ⌘
    DUP 16 AND SZ-CLICK-SHIFT !                 \ ⇧
@@ -1835,10 +1855,135 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
       DUP SZ-WORD-HIT? IF  EXIT  THEN
    AGAIN ;
 
+\ Case-insensitive string equality (for BRANCH / 0BRANCH detection).
+\ Lengths are u1/u2: DUP 3 PICK compares u2 with u1. Do NOT use
+\ `3 PICK OVER` — that compares a1 (address) with u2 and never matches.
+: SZ-STR-I=  ( a1 u1 a2 u2 -- flag )
+   DUP 3 PICK <> IF  2DROP 2DROP FALSE EXIT  THEN
+   DROP                                              \ a1 u1 a2
+   SWAP                                              \ a1 a2 u
+   0 ?DO
+      OVER I + C@  OVER I + C@  SZ-CH= 0= IF
+         UNLOOP 2DROP FALSE EXIT
+      THEN
+   LOOP
+   2DROP TRUE
+;
+
+\ --- Debug highlight history (same-name advance) -----------------------------
+\ Remembers recent highlight ends by name so a second call site (e.g. TEST
+\ calling TEST2 twice) searches after the first site instead of re-hitting it.
+\ Loop-back (REPEAT→BEGIN) prunes entries inside the loop so DUP can rematch.
+16 CONSTANT SZ-HL-HIST-MAX
+64 CONSTANT SZ-HL-HIST-NSZ
+CREATE SZ-HL-HIST-END  SZ-HL-HIST-MAX CELLS ALLOT
+CREATE SZ-HL-HIST-NAME  SZ-HL-HIST-MAX SZ-HL-HIST-NSZ * ALLOT
+VARIABLE SZ-HL-HIST-N
+0 SZ-HL-HIST-N !
+VARIABLE SZ-HL-PRUNE-LO
+VARIABLE SZ-HL-PRUNE-HI
+
+: SZ-HL-HIST-CLEAR  ( -- )  0 SZ-HL-HIST-N ! ;
+
+: SZ-HL-HIST-NADDR  ( i -- addr )
+   SZ-HL-HIST-NSZ * SZ-HL-HIST-NAME + ;
+
+: SZ-HL-HIST-EADDR  ( i -- addr )
+   CELLS SZ-HL-HIST-END + ;
+
+: SZ-HL-HIST-PUSH  ( end -- )
+   DUP SZ-TBUF U< OVER SZ-TEND U> OR IF  DROP EXIT  THEN
+   SZ-TOKEN C@ 0= IF  DROP EXIT  THEN
+   SZ-HL-HIST-N @ SZ-HL-HIST-MAX >= IF
+      0
+      BEGIN  DUP 1+ SZ-HL-HIST-MAX < WHILE
+         DUP 1+ SZ-HL-HIST-EADDR @  OVER SZ-HL-HIST-EADDR !
+         DUP 1+ SZ-HL-HIST-NADDR  OVER SZ-HL-HIST-NADDR  SZ-HL-HIST-NSZ CMOVE
+         1+
+      REPEAT
+      DROP
+      SZ-HL-HIST-MAX 1- SZ-HL-HIST-N !
+   THEN
+   SZ-HL-HIST-N @ >R
+   R@ SZ-HL-HIST-EADDR !
+   SZ-TOKEN COUNT 63 MIN  R@ SZ-HL-HIST-NADDR  PLACE
+   R> DROP
+   1 SZ-HL-HIST-N +!
+;
+
+: SZ-HL-HIST-FIND  ( -- end|0 )
+   SZ-TOKEN C@ 0= IF  0 EXIT  THEN
+   SZ-HL-HIST-N @
+   BEGIN  DUP WHILE
+      1-
+      DUP SZ-HL-HIST-NADDR COUNT  SZ-TOKEN COUNT  SZ-STR-I= IF
+         SZ-HL-HIST-EADDR @ EXIT
+      THEN
+   REPEAT
+   DROP 0
+;
+
+\ True if end is in (lo, hi] with lo/hi in SZ-HL-PRUNE-*.
+: SZ-HL-END-IN-PRUNE?  ( end -- flag )
+   DUP SZ-HL-PRUNE-LO @ U>
+   OVER SZ-HL-PRUNE-HI @ SZ-U<= AND
+   NIP
+;
+
+\ Drop history ends in (lo, hi]; compact remaining slots.
+: SZ-HL-HIST-PRUNE-RANGE  ( lo hi -- )
+   SZ-HL-PRUNE-HI !  SZ-HL-PRUNE-LO !
+   0                                     \ dst
+   0                                     \ src
+   BEGIN  DUP SZ-HL-HIST-N @ < WHILE
+      DUP SZ-HL-HIST-EADDR @ SZ-HL-END-IN-PRUNE? IF
+         1+                              \ skip src
+      ELSE
+         2DUP <> IF
+            OVER >R                      \ R: dst ; src
+            DUP SZ-HL-HIST-EADDR @  R@ SZ-HL-HIST-EADDR !
+            DUP SZ-HL-HIST-NADDR  R@ SZ-HL-HIST-NADDR  SZ-HL-HIST-NSZ CMOVE
+            R> DROP
+         THEN
+         SWAP 1+ SWAP 1+                 \ dst++ src++
+      THEN
+   REPEAT
+   DROP
+   SZ-HL-HIST-N !
+;
+
+\ Prune history ends in (BEGIN, hi]. Leaves SZ-TOKEN as BEGIN (caller may
+\ overwrite). hi = WHILE/REPEAT/AGAIN address. Exit via WHILE never hits
+\ REPEAT, so WHILE must prune too — else the last DUP in the loop stays in
+\ hist and the next nest finds DUP in the caller (e.g. TEST) instead.
+: SZ-HL-PRUNE-BACK-TO-BEGIN  ( hi -- )
+   >R
+   S" BEGIN"
+   63 MIN DUP SZ-TOKEN C!
+   SZ-TOKEN CHAR+ SWAP CMOVE
+   R@ SZ-SEARCH-BWD                      \ begin|0
+   DUP 0= IF  DROP R> DROP EXIT  THEN
+   R> SZ-HL-HIST-PRUNE-RANGE
+;
+
+\ After REPEAT/AGAIN: CUR after BEGIN; prune in-loop hist so body names rematch.
+: SZ-HL-MARK-LOOP-DEST  ( repeat-ha -- )
+   DUP >R
+   SZ-HL-PRUNE-BACK-TO-BEGIN             \ TOKEN is BEGIN now
+   R@ SZ-SEARCH-BWD                      \ begin|0 again (TOKEN still BEGIN)
+   DUP 0= IF  DROP R> DROP EXIT  THEN
+   SZ-TOKEN C@ +                         \ after BEGIN
+   DUP SZ-TBUF U< OVER SZ-TEND U> OR IF
+      DROP R> DROP EXIT
+   THEN
+   SZ-CUR !
+   R> DROP
+;
+
 \ Debug highlight: reverse-video a name token without touching the clip.
-\ Must follow SZ-SEARCH-FWD. Search from SZ-CUR, then wrap from buffer start.
 \ Guard against stale SZ-CUR after buffer resize/reload (else C@ faults).
 : SZ-HIGHLIGHT-SET  ( addr -- )
+   SZ-VIEW-RELEASE
    DUP 0= IF  DROP  0 SZ-SEL-OK !  EXIT  THEN
    DUP SZ-TOKEN C@ +                           \ beg end
    2DUP U> IF  SWAP  THEN
@@ -1846,14 +1991,195 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    2DUP SZ-SEL-END ! SZ-SEL-BEG !
    -1 SZ-SEL-OK !
    OVER SZ-CUR !
-   2DROP
+   NIP SZ-HL-HIST-PUSH                         \ record end for same-name advance
    SZ-ENSURE-VISIBLE
+;
+
+\ ITC control flow compiles BRANCH/0BRANCH; source still has IF/ELSE/….
+\ From last highlight end (or CUR), scan at most SZ-HL-NEAR-MAX bytes for a
+\ whole-word alias. A short scan (not "file search") so we tolerate newline,
+\ indent, and paren comments like:  DUP ( n ) IF
+48 CONSTANT SZ-HL-NEAR-MAX
+
+: SZ-HL-NEAR-FROM  ( -- addr )
+   SZ-SEL-OK @ IF  SZ-SEL-END @ ELSE  SZ-CUR @  THEN
+   DUP SZ-TBUF U< IF  DROP SZ-TBUF  THEN
+   DUP SZ-TEND U> IF  DROP SZ-TEND  THEN
+;
+
+\ ( ha c-addr u -- flag ) load alias; true if whole-word match at ha.
+: SZ-HL-MATCH  ( ha c-addr u -- flag )
+   ROT >R
+   63 MIN DUP SZ-TOKEN C!
+   SZ-TOKEN CHAR+ SWAP CMOVE
+   R> SZ-WORD-HIT?
+;
+
+\ ( -- flag ) scan window for first IF/WHILE/UNTIL.
+: SZ-HIGHLIGHT-0BRANCH-NEAR  ( -- flag )
+   SZ-HL-NEAR-FROM
+   DUP SZ-HL-NEAR-MAX + >R                    \ R: limit
+   BEGIN
+      DUP R@ SZ-U>= IF  R> DROP DROP FALSE EXIT  THEN
+      DUP >R                                  \ R: limit ha
+      R@ S" IF"    SZ-HL-MATCH IF
+         R> R> DROP SZ-HIGHLIGHT-SET TRUE EXIT
+      THEN
+      R@ S" WHILE" SZ-HL-MATCH IF
+         R> R> DROP                      \ ha
+         DUP >R  SZ-HIGHLIGHT-SET
+         R> SZ-HL-PRUNE-BACK-TO-BEGIN    \ drop body hist (DUP…) even on exit
+         TRUE EXIT
+      THEN
+      R@ S" UNTIL" SZ-HL-MATCH IF
+         R> R> DROP
+         DUP >R  SZ-HIGHLIGHT-SET
+         R> SZ-HL-PRUNE-BACK-TO-BEGIN
+         TRUE EXIT
+      THEN
+      R> 1+
+   AGAIN
+;
+
+\ ( -- flag ) scan window for first ELSE/REPEAT/AGAIN/AHEAD.
+\ REPEAT/AGAIN: remember resume point after matching BEGIN so the next
+\ name highlight searches from the BRANCH destination (not past REPEAT
+\ into a later definition's same token, e.g. DUP in TEST vs TEST2).
+: SZ-HIGHLIGHT-BRANCH-NEAR  ( -- flag )
+   SZ-HL-NEAR-FROM
+   DUP SZ-HL-NEAR-MAX + >R
+   BEGIN
+      DUP R@ SZ-U>= IF  R> DROP DROP FALSE EXIT  THEN
+      DUP >R
+      R@ S" ELSE"   SZ-HL-MATCH IF
+         R> R> DROP SZ-HIGHLIGHT-SET TRUE EXIT
+      THEN
+      R@ S" REPEAT" SZ-HL-MATCH IF
+         R> R> DROP                      \ ha
+         DUP >R  SZ-HIGHLIGHT-SET
+         R> SZ-HL-MARK-LOOP-DEST
+         TRUE EXIT
+      THEN
+      R@ S" AGAIN"  SZ-HL-MATCH IF
+         R> R> DROP
+         DUP >R  SZ-HIGHLIGHT-SET
+         R> SZ-HL-MARK-LOOP-DEST
+         TRUE EXIT
+      THEN
+      R@ S" AHEAD"  SZ-HL-MATCH IF
+         R> R> DROP SZ-HIGHLIGHT-SET TRUE EXIT
+      THEN
+      R> 1+
+   AGAIN
+;
+
+\ True if (c-addr u) is a runtime branch prim that needs source-alias highlight.
+: SZ-HL-0BRANCH-NAME?  ( c-addr u -- flag )  S" 0BRANCH" SZ-STR-I= ;
+: SZ-HL-BRANCH-NAME?   ( c-addr u -- flag )  S" BRANCH"  SZ-STR-I= ;
+: SZ-HL-EXIT-NAME?     ( c-addr u -- flag )  S" EXIT"    SZ-STR-I= ;
+: SZ-HL-LIT-NAME?      ( c-addr u -- flag )  S" LIT"     SZ-STR-I= ;
+
+\ Fill SZ-TOKEN with signed decimal of n (no <# #S — safer during DBG pause).
+\ DIGTMP holds LSD-first digits; we reverse into SZ-TOKEN.
+CREATE SZ-HL-DIGTMP  24 ALLOT
+VARIABLE SZ-HL-NEGF
+: SZ-HL-NUM>TOKEN  ( n -- )
+   DUP 0= IF
+      DROP  1 SZ-TOKEN C!  [CHAR] 0 SZ-TOKEN 1+ C!  EXIT
+   THEN
+   DUP 0< SZ-HL-NEGF !
+   ABS
+   0 >R                                  \ R: count
+   BEGIN
+      10 /MOD                            \ rem quot
+      SWAP [CHAR] 0 +
+      SZ-HL-DIGTMP R@ + C!
+      R> 1+ >R
+      DUP 0=
+   UNTIL
+   DROP
+   R>                                    \ count
+   SZ-HL-NEGF @ IF
+      DUP 1+ SZ-TOKEN C!
+      [CHAR] - SZ-TOKEN 1+ C!
+      DUP 0 DO
+         DUP 1- I - SZ-HL-DIGTMP + C@
+         SZ-TOKEN CHAR+ CHAR+ I + C!
+      LOOP
+      DROP
+   ELSE
+      DUP SZ-TOKEN C!
+      DUP 0 DO
+         DUP 1- I - SZ-HL-DIGTMP + C@
+         SZ-TOKEN CHAR+ I + C!
+      LOOP
+      DROP
+   THEN
+;
+
+\ LIT: highlight the source number matching DBG-INLINE (cell after paused IP).
+\ Near window first (same idea as BRANCH aliases); on miss, whole-buffer
+\ SEARCH-FWD from CUR then TBUF so ": test 3 …" still hits when CUR is at
+\ file start and 3 sits just past SZ-HL-NEAR-MAX.
+: SZ-HIGHLIGHT-LIT-NEAR  ( -- flag )
+   [DEFINED] DBG-INLINE [IF]
+      DBG-INLINE SZ-HL-NUM>TOKEN
+   [ELSE]
+      FALSE EXIT
+   [THEN]
+   SZ-TOKEN C@ 0= IF  FALSE EXIT  THEN
+   SZ-HL-NEAR-FROM
+   DUP SZ-HL-NEAR-MAX + >R
+   BEGIN
+      DUP R@ SZ-U>= IF  R> 2DROP
+         SZ-CUR @ DUP SZ-TBUF U< OVER SZ-TEND U> OR IF  DROP SZ-TBUF  THEN
+         SZ-SEARCH-FWD
+         DUP 0= IF  DROP SZ-TBUF SZ-SEARCH-FWD  THEN
+         DUP IF  SZ-HIGHLIGHT-SET TRUE ELSE  DROP FALSE  THEN
+         EXIT
+      THEN
+      DUP SZ-WORD-HIT? IF
+         R> DROP SZ-HIGHLIGHT-SET TRUE EXIT
+      THEN
+      1+
+   AGAIN
+;
+
+\ ; compiles EXIT; prefer highlighting the semicolon (or an explicit EXIT).
+: SZ-HIGHLIGHT-EXIT-NEAR  ( -- flag )
+   SZ-HL-NEAR-FROM
+   DUP SZ-HL-NEAR-MAX + >R
+   BEGIN
+      DUP R@ SZ-U>= IF  R> DROP DROP FALSE EXIT  THEN
+      DUP >R
+      R@ S" ;"    SZ-HL-MATCH IF
+         R> R> DROP SZ-HIGHLIGHT-SET TRUE EXIT
+      THEN
+      R@ S" EXIT" SZ-HL-MATCH IF
+         R> R> DROP SZ-HIGHLIGHT-SET TRUE EXIT
+      THEN
+      R> 1+
+   AGAIN
 ;
 
 : SZ-HIGHLIGHT-NAME  ( c-addr u -- )
    DUP 0= IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
    SZ-TBUF 0= IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
    DEPTH 2 < IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
+   \ BRANCH/0BRANCH/EXIT: map to nearby source control word (short window).
+   \ On miss, keep the previous highlight — do not clear to empty.
+   2DUP SZ-HL-0BRANCH-NAME? IF
+      2DROP  SZ-HIGHLIGHT-0BRANCH-NEAR DROP  EXIT
+   THEN
+   2DUP SZ-HL-BRANCH-NAME? IF
+      2DROP  SZ-HIGHLIGHT-BRANCH-NEAR DROP  EXIT
+   THEN
+   2DUP SZ-HL-EXIT-NAME? IF
+      2DROP  SZ-HIGHLIGHT-EXIT-NEAR DROP  EXIT
+   THEN
+   2DUP SZ-HL-LIT-NAME? IF
+      2DROP  SZ-HIGHLIGHT-LIT-NEAR DROP  EXIT
+   THEN
    \ Do NOT `DEPTH 2 - … ROT DROP` here. ITC DEBUG pauses with the user's
    \ stack under these args; stripping "poison" overwrites those cells.
    \ (Restoring DSP/TOS after the pause does not undo the stores.) TCOM
@@ -1863,7 +2189,11 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    63 MIN
    DUP SZ-TOKEN C!
    SZ-TOKEN CHAR+ SWAP CMOVE          \ ( c-addr u -- )
-   SZ-CUR @
+   \ Prefer after last highlight of this same name (2nd TEST2 call site).
+   \ Else SZ-CUR (MARK-LOOP-DEST leaves CUR past BEGIN on REPEAT/AGAIN).
+   SZ-HL-HIST-FIND DUP 0= IF
+      DROP SZ-CUR @
+   THEN
    DUP SZ-TBUF U< OVER SZ-TEND U> OR IF  DROP SZ-TBUF  THEN
    SZ-SEARCH-FWD
    DUP 0= IF  DROP SZ-TBUF SZ-SEARCH-FWD  THEN
@@ -1953,6 +2283,7 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    \ Place caret at match start; keep TOKEN as the query (do not re-expand —
    \ re-expand used to turn SM/REM into REM when '/' was a separator).
    \ Reverse-video the match so find hits are easy to see.
+   SZ-VIEW-RELEASE
    DUP SZ-CUR !
    DUP SZ-WORD-BEG !
    DUP SZ-TOKEN C@ +                          \ beg end

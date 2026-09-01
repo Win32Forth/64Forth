@@ -20,12 +20,11 @@ final class SixtyFourForthAppDelegate: NSObject, NSApplicationDelegate {
 
     /// ⌘Q while SZ-EDITOR is open: close the editor first (S/D prompt if dirty).
     /// Cancel (any other key on the prompt) keeps the app running.
+    /// If ITC DEBUG / TDBG is paused in KEY, abort the stepper first so close can run.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let k = KernelBridge.shared
         if k.isEvaluating && k.isFacilityTerminalActive {
-            k.requestQuitAppAfterEditorClose()
-            // 17 = SZ-CTRL-Q → SZ-DO-QUIT (same as ⌘W close editor)
-            k.pushKey(17)
+            k.requestQuitFromEditor()
             return .terminateCancel
         }
         return .terminateNow

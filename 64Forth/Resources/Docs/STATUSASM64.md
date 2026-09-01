@@ -8,7 +8,7 @@ Canonical code: `64TCOMARM64/ASMARM64.fth`.
 
 **Last updated:** 2026-08-23 3:16 PM (assembler twins synced)  
 **Phase target:** 3.2 Assembler toolkit  
-**Pack release:** 64TCOM ARM64 **Version 0.9** (with 64Forth **1.1.9**; last dual ship was **1.1.8**)  
+**Pack release:** 64TCOM ARM64 **Version 0.9** (with 64Forth **1.2.0**; last dual ship was **1.1.9**)  
 **Assembler sync stamp:** `Synced Aug 23, 2026 3:16 PM` in both `ASMARM64.fth` headers
 
 ---

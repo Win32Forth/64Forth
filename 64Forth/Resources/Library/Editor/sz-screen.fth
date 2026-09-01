@@ -54,6 +54,11 @@ VARIABLE SZ-EDIT-COLS           \ editor portion through its right '|'
 VARIABLE SZ-HCOL                   \ leftmost visible text column (horizontal scroll)
 VARIABLE SZ-DRAW-LNO               \ running 1-based line # while painting (not on R stack)
 VARIABLE SZ-SAVE-BASE              \ BASE save for gutter (avoid R stack inside DO)
+VARIABLE SZ-VIEW-HOLD              \ nonzero: user panned view; skip ENSURE-VISIBLE
+0 SZ-VIEW-HOLD !
+
+: SZ-VIEW-RELEASE  ( -- )  0 SZ-VIEW-HOLD ! ;
+: SZ-VIEW-HOLD-ON  ( -- )  -1 SZ-VIEW-HOLD ! ;
 
 \ Column of editor right border '|' (left edge of side panel is +1).
 : SZ-EDIT-RIGHT  ( -- col )
@@ -87,6 +92,7 @@ VARIABLE SZ-PREF-COL               \ sticky column for Up/Down (like most editor
    SZ-TBUF DUP SZ-CUR !  SZ-TOP !
    0 SZ-HCOL !
    0 SZ-PREF-COL !
+   SZ-VIEW-RELEASE
 ;
 
 : SZ-CUR-COL  ( -- col )
@@ -111,8 +117,8 @@ VARIABLE SZ-PREF-COL               \ sticky column for Up/Down (like most editor
 : SZ-CUR-LINE-NO  ( -- n )
    SZ-CUR @ SZ-HOST-LINE-NO ;
 
-\ Wheel scroll stubs — redefined in sz-edit.fth so TOP and CUR move together
-\ (caret stays on the same screen row; clamped at BOF/EOF).
+\ Wheel scroll stubs — redefined in sz-edit.fth as view-only pan (TOP moves;
+\ CUR and selection stay at the same file position).
 : SZ-SCROLL-UP    ( -- )  ;
 : SZ-SCROLL-DOWN  ( -- )  ;
 
@@ -140,7 +146,10 @@ VARIABLE SZ-PREF-COL               \ sticky column for Up/Down (like most editor
 \ Keep SZ-CUR's line in the text window. Host computes top so we only scroll
 \ when the cursor line is actually outside the [TOP, TOP+ROWS) range — not on
 \ every Down (old walk-back logic scrolled too early and broke Up).
+\ While SZ-VIEW-HOLD is set (mouse-wheel / view pan), leave TOP alone so the
+\ caret can scroll off-screen and selection/highlight stay in file.
 : SZ-ENSURE-VISIBLE  ( -- )
+   SZ-VIEW-HOLD @ IF  EXIT  THEN
    SZ-CUR @  SZ-TOP @  SZ-TEXT-ROWS  SZ-HOST-ENSURE-TOP
    SZ-TOP !
    SZ-ENSURE-HVISIBLE
@@ -966,6 +975,12 @@ VARIABLE SZ-HAVE-AT
    -1 SZ-HAVE-AT !
 ;
 
+: SZ-CUR-IN-VIEW?  ( -- flag )
+   SZ-CUR @ SZ-TOP @ U< IF  0 EXIT  THEN
+   SZ-TOP @ SZ-CUR-LINE SZ-LINE-STEPS
+   SZ-TEXT-ROWS <
+;
+
 : SZ-PLACE-CURSOR  ( -- )
    \ Cmd-F: caret stays in the type-in area until Esc/Enter (never in document)
    SZ-FIND-EDIT @ IF
@@ -977,7 +992,11 @@ VARIABLE SZ-HAVE-AT
    SZ-HAVE-AT @ IF
       SZ-AT-COL @ SZ-AT-ROW @ AT-XY
    ELSE
-      \ Fallback if CUR not in the window (should be rare after ENSURE-VISIBLE)
+      \ CUR not painted this frame — usually off-screen after view-hold wheel pan.
+      \ Park on the status row; do not clamp onto the top/bottom text line.
+      SZ-CUR-IN-VIEW? 0= IF
+         1 SZ-STAT-ROW AT-XY  EXIT
+      THEN
       SZ-CUR-COL SZ-HCOL @ -  0 MAX  SZ-TEXT-WIDTH @ 1- MIN
       SZ-TEXT-LEFT +
       SZ-TOP @ SZ-CUR-LINE SZ-LINE-STEPS SZ-TEXT-TOP +

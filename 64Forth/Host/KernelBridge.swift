@@ -951,8 +951,8 @@ final class KernelBridge {
         #endif
     }
 
-    /// Map scroll-wheel / trackpad into SZ-EDITOR view scroll (keys 9 / 12).
-    /// Does not move the caret — only SZ-TOP (see SZ-SCROLL-UP/DOWN).
+    /// Map scroll-wheel / trackpad into SZ-EDITOR view pan (keys 3 / 7).
+    /// Forth `SZ-SCROLL-*` moves only `SZ-TOP` (caret/selection stay in-file).
     /// Direction follows the system Natural scrolling preference via raw `deltaY`
     /// plus `systemNaturalScrolling` (not a second invert of `scrollingDeltaY`).
     func reportFacilityScroll(_ event: NSEvent) {
@@ -2006,9 +2006,9 @@ final class KernelBridge {
     }
 
     /// Xcode-like DEBUG / TDBG keys while a stepper is paused.
-    /// F6 step over, F7 step into, F8 step out (reserved), ⌘⇧Y continue.
-    /// Also Space/Return/o = over, i = into, g = go, q = quit — needed when
-    /// running under Xcode, which often steals F6/F7 for its own debugger.
+    /// F6 over, F7 into, F8 out, Esc/q abort, ⌘⇧Y/g continue.
+    /// Also Space/Return/o = over, i = into — needed when running under Xcode,
+    /// which often steals F6/F7 for its own debugger.
     /// Returns true if the event must not reach the editor / command pane.
     @discardableResult
     private func deliverDebugStepperKey(_ event: NSEvent) -> Bool {
@@ -2024,6 +2024,7 @@ final class KernelBridge {
         case 97:  pushKey(FacilityFKey.event(FacilityFKey.f6)); return true
         case 98:  pushKey(FacilityFKey.event(FacilityFKey.f7)); return true
         case 100: pushKey(FacilityFKey.event(FacilityFKey.f8)); return true
+        case 53:  pushKey(27); return true  // Esc = abort DEBUG
         case 49:  pushKey(Int32(Character(" ").asciiValue ?? 32)); return true  // Space = over
         case 36, 76: pushKey(13); return true  // Return / keypad Enter = over
         default:
@@ -2081,8 +2082,7 @@ final class KernelBridge {
                     return true
                 }
                 if ch == "q", !mods.contains(.shift) {
-                    requestQuitAppAfterEditorClose()
-                    pushKey(17)
+                    requestQuitFromEditor()
                     return true
                 }
                 if ch == "f", !mods.contains(.shift) {
@@ -2215,8 +2215,7 @@ final class KernelBridge {
                         return nil
                     }
                     if ch == "q", !mods.contains(.shift) {
-                        self.requestQuitAppAfterEditorClose()
-                        self.pushKey(17)
+                        self.requestQuitFromEditor()
                         return nil
                     }
                     // ⌘E → VIEW word under command caret (ConsoleView notification)
@@ -2474,6 +2473,18 @@ final class KernelBridge {
     /// ⌘Q while editor open: after SZ-EDIT-LOOP ends, terminate the app.
     func requestQuitAppAfterEditorClose() {
         kernel_set_sz_app_quit()
+    }
+
+    /// ⌘Q while the facility editor is up (possibly inside ITC DEBUG / TDBG KEY).
+    /// Arm quit-after-close, abort any paused stepper so KEY returns, then close
+    /// the editor (17). Without the abort, close sits unread in the debug wait.
+    func requestQuitFromEditor() {
+        requestQuitAppAfterEditorClose()
+        if kernel_any_debug_armed() != 0 {
+            // ITC: q aborts (THROW -1). TDBG: q ends the session.
+            pushKey(Int32(Character("q").asciiValue ?? 113))
+        }
+        pushKey(17)  // SZ-CTRL-Q → SZ-DO-QUIT
     }
 
     func clearQuitAppAfterEditorClose() {

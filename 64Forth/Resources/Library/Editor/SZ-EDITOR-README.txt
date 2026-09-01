@@ -57,7 +57,7 @@ Keys while editing (SZ-KEY)
   Mouse click       place caret; body shows word under click in status
   Mouse drag / ⇧    range select; double-click = space-delimited word
   Cmd-click         VIEW word under click (same as click + Cmd-E; needs Hyper)
-  Wheel / trackpad  scroll view (caret stays on row; short files locked)
+  Wheel / trackpad  pan view (caret/highlight stay in file; short files locked)
   Line# gutter      place caret only (reserved; e.g. future breakpoints)
   Cmd-X / Cmd-C / Cmd-V   cut / copy / paste
 

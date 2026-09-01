@@ -67,8 +67,9 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ---
 
-## Status (v1.1.9)
+## Status (v1.2.0)
 
+- [x] **v1.2.0:** ITC DEBUG source-alias highlight (`LIT`/`0BRANCH`/`BRANCH`/`EXIT`); F8 step-out; Esc/`q` abort; ⌘Q while paused; DMG + GitHub release (pending DMG)
 - [x] **v1.1.9:** ITC DEBUG pause stack isolation + x28 NEXT mirror; locals drain; DOC"/help; DMG + GitHub release
 - [x] **v1.1.8:** TCOM debugger host hooks (`TDBG-ARM-KEYS`, `SZ-SIDE-HOOK`); editor/`DEBUG` highlight (`SZ-HIGHLIGHT-NAME`, `DBG-HL-XT`); DMG + GitHub release
 - [x] **v1.1.7:** ASMARM64 Library toolkit + `ASM-TESTS`; Open/New/Save As while editor KEY waits; docs `STATUSASM64.md`
@@ -79,7 +80,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 - [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Agent-channel.md`
 - [ ] **Later (optional):** DMG `/Volumes/…` open noise — see STATUS
 
-**Console header** (GUI): `=== 64Forth 1.1.9 === Aug 29, 2026 12:11 PM ===`  
+**Console header** (GUI): `=== 64Forth 1.2.0 === Aug 31, 2026 7:10 PM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
 
 ## Status (v1.1.1)

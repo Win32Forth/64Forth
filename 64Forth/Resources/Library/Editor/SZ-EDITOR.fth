@@ -65,3 +65,15 @@ ONLY FORTH ALSO EDITOR
 
 ONLY FORTH DEFINITIONS
 
+\ If Hyper is already loaded, refresh bound XTs (SZ-HIGHLIGHT-NAME, etc.)
+\ so DBG highlight survives ANEW SZ-EDITOR without a Hyper reload.
+\ FIND wants a *counted* string — never pass S" (c-addr u) straight to FIND
+\ (count byte would be 'H' → XFIND fault). HYPER-BIND-EDITOR lives in HYPER-VOC.
+[DEFINED] HYPER-VOC [IF]
+  ALSO HYPER-VOC
+  [DEFINED] HYPER-BIND-EDITOR [IF]
+    HYPER-BIND-EDITOR DROP
+  [THEN]
+  PREVIOUS
+[THEN]
+

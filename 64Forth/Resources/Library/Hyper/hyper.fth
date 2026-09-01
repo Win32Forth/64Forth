@@ -422,6 +422,8 @@ CREATE HYPER-ORDER-TMP  16 CELLS ALLOT
 0 VALUE HYPER-FL-CLR-XT              \ SZ-FL-CLEAR ( -- )
 0 VALUE HYPER-FL-PUT-XT              \ SZ-FL-PUT ( a u line i -- )
 0 VALUE HYPER-FL-SCUR-XT             \ SZ-FL-SET-CUR ( i -- )
+0 VALUE HYPER-HL-XT                  \ SZ-HIGHLIGHT-NAME ( c-addr u -- )
+0 VALUE HYPER-REDRAW-XT              \ SZ-REDRAW ( -- )
 FALSE VALUE HYPER-SKIP-NOTE?         \ true → next VIEW-NAME skips HIST-NOTE
 
 \ -----------------------------------------------------------------------------
@@ -501,6 +503,10 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    HYPER-CMD FIND IF  TO HYPER-FL-PUT-XT  ELSE  DROP 0 TO HYPER-FL-PUT-XT  THEN
    S" SZ-FL-SET-CUR" HYPER-CMD HYPER-PLACE
    HYPER-CMD FIND IF  TO HYPER-FL-SCUR-XT  ELSE  DROP 0 TO HYPER-FL-SCUR-XT  THEN
+   S" SZ-HIGHLIGHT-NAME" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  TO HYPER-HL-XT  ELSE  DROP 0 TO HYPER-HL-XT  THEN
+   S" SZ-REDRAW" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  TO HYPER-REDRAW-XT  ELSE  DROP 0 TO HYPER-REDRAW-XT  THEN
    ONLY FORTH
    HYPER-EDIT-XT 0<> ;
 
@@ -976,10 +982,13 @@ ALSO EDITOR
 ' DBG-SYNC-VIEW DBG-SHOW-XT !
 
 \ Highlight the upcoming threaded word token in the editor buffer (every pause).
+\ Use bound XTs (HYPER-BIND-EDITOR) — never ALSO/FIND here (DBG pause search
+\ order is hostile; ANEW Editor is fixed by rebind at end of SZ-EDITOR load).
 : DBG-HIGHLIGHT-NAME  ( c-addr u -- )
    HYPER-EDITOR-ACTIVE? 0= IF  2DROP EXIT  THEN
-   SZ-HIGHLIGHT-NAME
-   SZ-REDRAW
+   HYPER-HL-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
+   HYPER-HL-XT IF  HYPER-HL-XT EXECUTE  ELSE  2DROP  THEN
+   HYPER-REDRAW-XT IF  HYPER-REDRAW-XT EXECUTE  THEN
 ;
 ' DBG-HIGHLIGHT-NAME DBG-HL-XT !
 

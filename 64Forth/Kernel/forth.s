@@ -140,7 +140,7 @@
 //   LATEST                DP is ANS-style; LATEST is system
 //   LIT BRANCH 0BRANCH and *-ADDR plumbing
 //   ALIAS SEE WORDS .S R.S DUMP FORGET ANEW USER-DICT REDEF-WARNING
-//   DEBUG DBG-ON DBG-OFF   NEXT stepper (F6/F7 step, Cmd-Shift-Y go)
+//   DEBUG DBG-ON DBG-OFF   NEXT stepper (F6/F7/F8, Esc abort, Cmd-Shift-Y go)
 //   FILE-ECHO ON OFF      echo INCLUDE/FLOAD source lines when FILE-ECHO is on
 //   .FREE GROWMEMORYMB MS@ ELAPSED .ELAPSED CONTAINS
 //   Line editor + history; "undefined:" and stack error reporting
@@ -172,35 +172,13 @@
     br x1
 .endm
 
-// Debug version of NEXT
-.macro DEBUG_NEXT
-    ldr x21, [x19], #8
-    ldr x1, [x21]
-    // Store crash diagnostics and write to stderr
-    stp x0, x1, [sp, #-16]!
-    adrp x0, next_diag@page
-    add x0, x0, next_diag@pageoff
-    str x19, [x0]
-    str x21, [x0, #8]
-    str x1, [x0, #16]
-    // Write to stderr (fd=2)
-    mov x0, #2
-    adr next_diag@page
-    add x1, x1, next_diag@pageoff
-    mov x2, #24
-    mov x16, #4
-    svc #0x80
-    ldp x0, x1, [sp], #16
-    br x1
-.endm
-
 .macro DPUSH
     str x20, [x22, #-8]!
     mov x20, x0
 .endm
 
-.macro DPOP
-    mov x0, x20
+.macro DPOP reg=x0
+    mov \reg, x20
     ldr x20, [x22], #8
 .endm
 
@@ -239,6 +217,14 @@ next_debug:
     cbz  x2, 2f
     cmp  x23, x2
     b.hs 1f                         // not nested under DEBUG → no pause
+    // F8 step-out: skip while RSP at/deeper than mark (x23 <= debug_out)
+    adrp x2, debug_out@page
+    add  x2, x2, debug_out@pageoff
+    ldr  x2, [x2]
+    cbz  x2, 5f
+    cmp  x23, x2
+    b.ls 1f
+5:
     adrp x2, debug_over@page
     add  x2, x2, debug_over@pageoff
     ldr  x2, [x2]
@@ -259,14 +245,25 @@ next_debug:
     adrp x2, debug_over@page
     add  x2, x2, debug_over@pageoff
     str  xzr, [x2]                  // this stop completes a step-over
+    adrp x2, debug_out@page
+    add  x2, x2, debug_out@pageoff
+    str  xzr, [x2]                  // …or a step-out
     mov  x2, #1
     str  x2, [x1]
     stp  x29, x30, [sp, #-16]!
-    bl   _debug_pause               // uses live x19–x23; go clears debug_armed + x28
+    bl   _debug_pause               // uses live x19–x23; go/abort clear debug_armed
     ldp  x29, x30, [sp], #16
     adrp x1, debug_busy@page
     add  x1, x1, debug_busy@pageoff
     str  xzr, [x1]
+    // Esc/q: abort DEBUG'd word via THROW -1 (DEBUG/SZ-DBG-RUN swallow it)
+    adrp x1, debug_abort@page
+    add  x1, x1, debug_abort@pageoff
+    ldr  x2, [x1]
+    cbz  x2, 1f
+    str  xzr, [x1]
+    mov  x20, x2
+    b    XTHROW
 1:
     ldr x21, [x19], #8
     ldr x1, [x21]
@@ -288,7 +285,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #15                    // "64Forth v1.1.9\n"
+    mov x2, #15                    // "64Forth v1.2.0\n"
     mov x16, #4
     svc #0x80
 
@@ -667,8 +664,7 @@ XSZ_CMD_FETCH:
 // (SZ-CONSOLE-EMIT) ( f -- )  nonzero → TYPE/EMIT to host even if facility active
     BOOT_WORD "(SZ-CONSOLE-EMIT)", "(SZ-CONSOLE-EMIT) ( f -- ) route EMIT to host command pane", 0, XSZ_CONSOLE_EMIT
 XSZ_CONSOLE_EMIT:
-    mov  x1, x20                   // flag
-    ldr  x20, [x22], #8
+    DPOP x1                        // flag
     mov  x0, #7
     mov  x2, #0
     b    _facility_op_go
@@ -733,8 +729,7 @@ XFACILITY_SIZE:
 
     BOOT_WORD "FACILITY-REV", "FACILITY-REV ( f -- ) reverse-video on/off for facility EMIT", 0, XFACILITY_REV
 XFACILITY_REV:
-    mov  x1, x20                   // flag
-    ldr  x20, [x22], #8
+    DPOP x1                        // flag
     mov  x0, #6
     mov  x2, #0
     b    _facility_op_go
@@ -1930,8 +1925,7 @@ XPICK:
 
     BOOT_WORD "ROLL", "ROLL ( xu ... x1 x0 u -- x(u-1) ... x0 xu ) move uth cell to TOS; u=0 no-op, u=1 SWAP, u=2 ROT", 0, XROLL
 XROLL:
-    mov x1, x20                    // u
-    ldr x20, [x22], #8             // pop u; TOS = x0
+    DPOP x1                        // u; prior cell becomes TOS
     cbz x1, _roll_done
     // Under TOS: [DSP+0]=x1 ... [DSP+(u-1)*8]=xu
     sub x2, x1, #1
@@ -2293,8 +2287,7 @@ XBL:
 
     BOOT_WORD "EMIT", "EMIT ( c -- ) emit character", 0, XEMIT
 XEMIT:
-    mov x0, x20
-    ldr x20, [x22], #8
+    DPOP
     SAVE_VM
     bl _putchar
     RESTORE_VM
@@ -2389,10 +2382,18 @@ XDBGWHEELXT:
     add x20, x20, debug_wheel_xt@pageoff
     NEXT
 
+    // Cell after paused IP (LIT payload when upcoming xt is LIT).
+    BOOT_WORD "DBG-INLINE", "DBG-INLINE ( -- x ) cell after paused IP (LIT value)", 0, XDBGINLINE
+XDBGINLINE:
+    str x20, [x22, #-8]!
+    adrp x20, debug_inline@page
+    add x20, x20, debug_inline@pageoff
+    ldr x20, [x20]
+    NEXT
+
     BOOT_WORD ".", ". ( n -- ) print number (with space)", 0, XDOT
 XDOT:
-    mov x0, x20
-    ldr x20, [x22], #8
+    DPOP
     SAVE_VM
     bl _print_signed
     mov x0, #32
@@ -2402,8 +2403,7 @@ XDOT:
 
     BOOT_WORD "U.", "U. ( u -- ) print unsigned", 0, XUDOT
 XUDOT:
-    mov x0, x20
-    ldr x20, [x22], #8
+    DPOP
     SAVE_VM
     bl _print_unsigned
     RESTORE_VM
@@ -2438,7 +2438,7 @@ XTDBGDISARM:
     str  xzr, [x0]
     NEXT
 
-    BOOT_WORD "DBG-ON", "DBG-ON ( -- ) arm NEXT stepper (F6=over F7=into Cmd-Shift-Y=go)", 0, XDBGON
+    BOOT_WORD "DBG-ON", "DBG-ON ( -- ) arm NEXT stepper (F6 over, F7 into, F8 out, Esc abort, Cmd-Shift-Y go)", 0, XDBGON
 XDBGON:
     adrp x0, debug_floor@page
     add  x0, x0, debug_floor@pageoff
@@ -2450,6 +2450,12 @@ XDBGON:
     str  x1, [x0]                   // host kernel_debug_armed
     adrp x0, debug_over@page
     add  x0, x0, debug_over@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_out@page
+    add  x0, x0, debug_out@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_abort@page
+    add  x0, x0, debug_abort@pageoff
     str  xzr, [x0]
     adrp x0, debug_view_cfa@page
     add  x0, x0, debug_view_cfa@pageoff
@@ -2470,6 +2476,12 @@ XDBGOFF:
     str  xzr, [x0]
     adrp x0, debug_over@page
     add  x0, x0, debug_over@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_out@page
+    add  x0, x0, debug_out@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_abort@page
+    add  x0, x0, debug_abort@pageoff
     str  xzr, [x0]
     adrp x0, debug_view_cfa@page
     add  x0, x0, debug_view_cfa@pageoff
@@ -2663,8 +2675,7 @@ _xcfp_1:
     BOOT_WORD "XEMIT", "XEMIT ( xchar -- ) emit UTF-8 xchar to console", 0, XXCHAR_EMIT
 XXCHAR_EMIT:
     // encode into xchar_emit_buf (4 bytes max)
-    mov  x1, x20                   // xchar
-    ldr  x20, [x22], #8
+    DPOP x1                        // xchar
     movz x2, #0xFFFF
     movk x2, #0x10, lsl #16
     cmp  x1, x2
@@ -2797,8 +2808,7 @@ XHERE:
 
     BOOT_WORD "ALLOT", "ALLOT ( n -- ) allocate n bytes in dictionary", 0, XALLOT
 XALLOT:
-    mov x0, x20                    // n
-    ldr x20, [x22], #8
+    DPOP                           // n
     adrp x1, here_ptr@page
     add x1, x1, here_ptr@pageoff
     ldr x2, [x1]                   // HERE
@@ -2833,8 +2843,7 @@ _allot_fail:
 
     BOOT_WORD ",", ", ( n -- ) compile a cell", 0, XCOMMA
 XCOMMA:
-    mov x0, x20
-    ldr x20, [x22], #8
+    DPOP
     bl _compile_cell
     NEXT
 
@@ -4422,8 +4431,7 @@ XGET_ORDER:
 
     BOOT_WORD "SET-ORDER", "SET-ORDER ( widn ... wid1 n -- ) replace search order; n=0 means minimum order", 0, XSET_ORDER
 XSET_ORDER:
-    mov  x1, x20                   // n
-    ldr  x20, [x22], #8
+    DPOP x1                        // n
     cmp  x1, #-1
     b.eq XONLY
     cmp  x1, #0
@@ -5246,8 +5254,7 @@ XFREE_EXEC:
 // false = write MAP_JIT (no execute). No-op-ish on non-MAP_JIT buffers.
     BOOT_WORD "JIT-WPROTECT", "JIT-WPROTECT ( f -- ) MAP_JIT write(0)/exec(1) for this thread", 0, XJIT_WPROTECT
 XJIT_WPROTECT:
-    mov  x0, x20                   // flag
-    ldr  x20, [x22], #8            // pop TOS first (stack under → new TOS)
+    DPOP                           // flag (under → new TOS before host call)
     adrp x1, host_tmp0@page
     add  x1, x1, host_tmp0@pageoff
     str  x0, [x1]
@@ -6741,8 +6748,7 @@ _loop_done:
 XPLUSLOOP_RT:
     ldr x0, [x23], #8              // index
     ldr x1, [x23], #8              // limit
-    mov x2, x20                    // step n
-    ldr x20, [x22], #8
+    DPOP x2                        // step n
     cmp x0, x1
     b.eq _pl_done                  // LEAVE: index == limit
     mov x3, x0                     // old index
@@ -7303,8 +7309,7 @@ XFLIT_ADDR:
 
     BOOT_WORD "(F-OP)", "(F-OP) ( i*x op -- j*x ) float host multiplex (internal)", 0, XFLOAT_OP
 XFLOAT_OP:
-    mov  x9, x20                   // op
-    ldr  x20, [x22], #8            // prior TOS
+    DPOP x9                        // op; prior TOS restored
     mov  x1, #0                    // a
     mov  x2, #0                    // b
     mov  x3, #0
@@ -7359,8 +7364,7 @@ XFLOAT_OP:
     b.eq _fo_cu
     b    _fo_go
 _fo_a1:
-    mov  x1, x20
-    ldr  x20, [x22], #8
+    DPOP x1
     b    _fo_go
 _fo_d2:
     // TOS=hi, under=lo
@@ -7570,8 +7574,7 @@ _bln_done:
 
     BOOT_WORD "MS", "MS ( u -- ) wait at least u milliseconds (OS sleep; yields)", 0, XMS
 XMS:
-    mov x0, x20                    // ms
-    ldr x20, [x22], #8
+    DPOP                           // ms
     cbz x0, _ms_done
     SAVE_VM
     // Split large delays into ≤1s nanosleep chunks so EINTR can resume.
@@ -7678,8 +7681,7 @@ XUSER_DICT:
 
     BOOT_WORD "GROWMEMORYMB", "GROWMEMORYMB ( n -- ) grow user dictionary to n MiB (once/session; no shrink; max 64)", 0, XGROWMEMORYMB
 XGROWMEMORYMB:
-    mov  x0, x20                   // n (MB)
-    ldr  x20, [x22], #8
+    DPOP                           // n (MB)
     // already used?
     adrp x1, grow_memory_used@page
     add  x1, x1, grow_memory_used@pageoff
@@ -7844,8 +7846,7 @@ XSPSTORE:
 
     BOOT_WORD "SPACES", "SPACES ( n -- ) emit n spaces", 0, XSPACES
 XSPACES:
-    mov x1, x20
-    ldr x20, [x22], #8
+    DPOP x1
     cmp x1, #0
     b.le _spaces_done
 _spaces_loop:
@@ -8551,8 +8552,7 @@ XLOAD_RUN:
 
     BOOT_WORD "CATCH", "CATCH ( xt -- n ) execute xt; push 0 or throw code", 0, XCATCH
 XCATCH:
-    mov x5, x20                    // xt
-    ldr x20, [x22], #8             // pop xt → prior TOS
+    DPOP x5                        // xt; prior TOS restored
     adrp x7, throw_handler@page
     add x7, x7, throw_handler@pageoff
     ldr x2, [x7]
@@ -9845,8 +9845,7 @@ _ri_apply:
     mov x20, #0
     NEXT
 _ri_fail:
-    mov x1, x20
-    ldr x20, [x22], #8
+    DPOP x1
 1:
     cbz x1, 2f
     ldr x20, [x22], #8
@@ -12759,7 +12758,7 @@ _pxn_q:
     ret
 
 // Pause at NEXT: show upcoming xt, data stack, return stack; wait for key.
-// F6/F7 = step (over/into later); F8 reserved (out); 134 = continue (⌘⇧Y).
+// F6=over F7=into F8=out; Esc/q=abort; 134/g=continue (⌘⇧Y).
 // Must preserve full VM (esp. TOS x20): sync/highlight push onto the data
 // stack and leave x20 clobbered; restoring only DSP used to corrupt TYPE args
 // after a few F6 steps (e.g. ptr=0x1c, u=3 on ."  ?").
@@ -12772,6 +12771,11 @@ _debug_pause:
     adrp x0, debug_xt@page
     add x0, x0, debug_xt@pageoff
     str x21, [x0]
+    // Inline cell after IP (LIT's value while paused on LIT; else next xt cell).
+    ldr x0, [x19, #8]
+    adrp x1, debug_inline@page
+    add x1, x1, debug_inline@pageoff
+    str x0, [x1]
     mov x0, #10
     bl _putchar
     mov x0, #62                    // '>'
@@ -12820,7 +12824,9 @@ _debug_pause:
     b.eq 9f
     cmp x0, #17                    // K-F7 step into
     b.eq 10f
-    b 1b                           // F8 out: ignore until implemented
+    cmp x0, #18                    // K-F8 step out
+    b.eq 12f
+    b 1b
 2:
     cmp x1, #1
     b.ne 7f
@@ -12839,6 +12845,28 @@ _debug_pause:
 5:
     cmp w0, #134                   // host: ⌘⇧Y continue
     b.eq 3f
+    cmp w0, #'g'
+    b.eq 3f
+    cmp w0, #'G'
+    b.eq 3f
+    cmp w0, #27                    // Esc abort
+    b.eq 13f
+    cmp w0, #'q'
+    b.eq 13f
+    cmp w0, #'Q'
+    b.eq 13f
+    cmp w0, #32                    // Space = over
+    b.eq 9f
+    cmp w0, #13                    // Return = over
+    b.eq 9f
+    cmp w0, #'o'
+    b.eq 9f
+    cmp w0, #'O'
+    b.eq 9f
+    cmp w0, #'i'
+    b.eq 10f
+    cmp w0, #'I'
+    b.eq 10f
     cmp w0, #3                     // SZ-VSCROLL-UP
     b.eq 11f
     cmp w0, #7                     // SZ-VSCROLL-DN
@@ -12848,14 +12876,60 @@ _debug_pause:
     bl _debug_wheel
     b 1b
 9:
+    adrp x1, debug_out@page
+    add x1, x1, debug_out@pageoff
+    str xzr, [x1]                  // cancel step-out
     adrp x1, debug_over@page
     add x1, x1, debug_over@pageoff
     str x23, [x1]                  // skip pauses while RSP deeper than now
     b 4f
 10:
+    adrp x1, debug_out@page
+    add x1, x1, debug_out@pageoff
+    str xzr, [x1]
     adrp x1, debug_over@page
     add x1, x1, debug_over@pageoff
     str xzr, [x1]
+    b 4f
+12:
+    // F8 step out: run until RSP shallower than now (return to caller).
+    // At the DEBUG top word this finishes the session (floor check skips pauses).
+    adrp x1, debug_over@page
+    add x1, x1, debug_over@pageoff
+    str xzr, [x1]
+    adrp x1, debug_out@page
+    add x1, x1, debug_out@pageoff
+    str x23, [x1]
+    b 4f
+13:
+    // Esc/q: abort — next_debug will THROW -1 after we return.
+    adrp x0, str_dbg_abort@page
+    add x0, x0, str_dbg_abort@pageoff
+    stp x0, xzr, [sp, #-16]!
+14:
+    ldr x1, [sp]
+    ldrb w0, [x1], #1
+    str x1, [sp]
+    cbz w0, 15f
+    bl _putchar
+    b 14b
+15:
+    add sp, sp, #16
+    mov x2, #-1
+    adrp x1, debug_abort@page
+    add x1, x1, debug_abort@pageoff
+    str x2, [x1]
+    mov x28, #0
+    adrp x1, debug_armed@page
+    add x1, x1, debug_armed@pageoff
+    str xzr, [x1]
+    adrp x1, debug_over@page
+    add x1, x1, debug_over@pageoff
+    str xzr, [x1]
+    adrp x1, debug_out@page
+    add x1, x1, debug_out@pageoff
+    str xzr, [x1]
+    bl _host_debug_paint
     b 4f
 3:
     mov x28, #0                    // go: disarm NEXT mirror + host flag
@@ -12865,9 +12939,12 @@ _debug_pause:
     adrp x1, debug_over@page
     add x1, x1, debug_over@pageoff
     str xzr, [x1]
+    adrp x1, debug_out@page
+    add x1, x1, debug_out@pageoff
+    str xzr, [x1]
     bl _host_debug_paint
 4:
-    // Reload DBG mirror (go / DBG-OFF may have cleared memory)
+    // Reload DBG mirror (go / abort / DBG-OFF may have cleared memory)
     adrp x0, debug_armed@page
     add x0, x0, debug_armed@pageoff
     ldr x28, [x0]
@@ -13510,8 +13587,9 @@ env_n_file:     .asciz "FILE"
 env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
-str_hello:  .asciz "64Forth v1.1.9\n"
-str_dbg_keys: .asciz " [F6=over F7=into Cmd-Shift-Y=go]\n"
+str_hello:  .asciz "64Forth v1.2.0\n"
+str_dbg_keys: .asciz " [F6=over F7=into F8=out Esc/q=abort Cmd-Shift-Y=go]\n"
+str_dbg_abort: .asciz "DEBUG aborted\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
 str_bye:    .asciz "Bye!\n"
@@ -13551,6 +13629,8 @@ tdebug_armed:   .quad 0            // nonzero → host steals F6/F7 for TCOMDBG 
 debug_busy:     .quad 0            // set while _debug_pause runs
 debug_floor:    .quad 0            // RSP at DBG-ON; pause only if x23 < floor
 debug_over:     .quad 0            // F6: skip pause while x23 < this RSP
+debug_out:      .quad 0            // F8: skip pause while x23 <= this RSP
+debug_abort:    .quad 0            // Esc/q: THROW code for next_debug after pause
 debug_show_xt:  .quad 0            // DBG-SYNC-VIEW xt (set by Hyper)
 debug_hl_xt:    .quad 0            // DBG-HIGHLIGHT-NAME xt (set by Hyper/editor)
 debug_wheel_xt: .quad 0            // DBG-WHEEL xt (set by editor)
@@ -13562,6 +13642,7 @@ debug_ret_cfa:  .quad XDBG_CALL_DONE
 debug_ret_ipcell: .quad debug_ret_cfa
 debug_skip_nl:  .quad 0            // skip leftover CR from the DEBUG command line
 debug_xt:       .quad 0            // peek xt at last pause
+debug_inline:   .quad 0            // [IP+8] at pause (LIT payload when xt is LIT)
 debug_scnt:     .quad 0
 debug_sbuf:     .skip DBG_STACK_MAX * 8
 debug_rcnt:     .quad 0
