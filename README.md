@@ -69,7 +69,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ## Status (v1.2.0)
 
-- [x] **v1.2.0:** ITC DEBUG source-alias highlight (`LIT`/`0BRANCH`/`BRANCH`/`EXIT`); F8 step-out; Esc/`q` abort; ⌘Q while paused; DMG + GitHub release (pending DMG)
+- [x] **v1.2.0:** ITC DEBUG source-alias highlight (`LIT`/`0BRANCH`/`BRANCH`/`EXIT`); F8 step-out; Esc/`q` abort; ⌘Q while paused; DMG + GitHub release
 - [x] **v1.1.9:** ITC DEBUG pause stack isolation + x28 NEXT mirror; locals drain; DOC"/help; DMG + GitHub release
 - [x] **v1.1.8:** TCOM debugger host hooks (`TDBG-ARM-KEYS`, `SZ-SIDE-HOOK`); editor/`DEBUG` highlight (`SZ-HIGHLIGHT-NAME`, `DBG-HL-XT`); DMG + GitHub release
 - [x] **v1.1.7:** ASMARM64 Library toolkit + `ASM-TESTS`; Open/New/Save As while editor KEY waits; docs `STATUSASM64.md`

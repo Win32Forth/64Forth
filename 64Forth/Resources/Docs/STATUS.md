@@ -1,7 +1,7 @@
 # 64Forth development status
 
-**Current shipped:** **1.2.0** (pending DMG / GitHub release)  
-**Last updated:** 2026-08-31 (version bump + ITC DEBUG UX)
+**Current shipped:** **1.2.0**  
+**Last updated:** 2026-08-31 (DMG + GitHub release `v1.2.0`)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
@@ -24,7 +24,7 @@ Append new design sections as we go; mark items done when implemented.
 - Kernel: **F8 step-out** (`debug_out`); **Esc / `q` abort** (`DEBUG aborted`, back to prompt); Space/`o`/`i`/`g` aliases honored in `_debug_pause`
 - Host: **⌘Q while DBG paused** aborts the stepper then closes the editor (quit-after-close); dirty S/D still applies
 - Docs: `STATUSDBG64.md` key table updated for F8 / Esc
-- Release: `64Forth/releases/64Forth-1.2.0-macOS.dmg` + GitHub `v1.2.0` (after DMG)
+- Release: `64Forth/releases/64Forth-1.2.0-macOS.dmg` + GitHub `v1.2.0`
 
 ---
 
