@@ -217,40 +217,40 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 
 | Region | Content |
 |--------|---------|
-| **`.text`** | Machine code for CODE words (`XDUP`, `NEXT`, …). CFAs **point here**. Not limited by the 1 MiB logical dict. |
+| **`.text`** | Machine code for CODE words (`XDUP`, `NEXT`, …). CFAs **point here**. Not limited by the logical dict. |
 | **`user_dict_area`** | Headers, names, help, colon bodies, `ALLOT` data. `HERE` grows upward. |
 | **Host malloc** | `ALLOCATE` / `FREE` / `RESIZE` — separate from the Forth dict |
 
 Cold start: `HERE := user_dict_area`, then `_boot_kernel` + `forth_init_str`. Kernel **headers and colon definitions consume part of the logical dict** (~30–40 KiB today); assembly **implementations** stay in `.text`.
 
-### Sizes
+### Sizes (v1.2.1)
 
 | Constant | Value | Role |
 |----------|--------|------|
-| Logical default | **1 MiB** | Initial `user_dict_size_cell`; ALLOT / `,` / `C,` bound |
-| Physical reserve | **64 MiB** BSS (demand-zero) | Max without relocating CFAs |
+| Logical default | **8 MiB** | Initial `user_dict_size_cell`; ALLOT / `,` / `C,` bound |
+| Physical reserve | **256 MiB** BSS (demand-zero) | Max without relocating CFAs |
 | `GROWMEMORYMB` | `( n -- )` | Set logical size to **n MiB**, once per session |
 
 ### GROWMEMORYMB rules (TZForth-aligned, adapted)
 
 - **Once per process/session**
 - **Cannot shrink** (n MiB must be **greater** than current logical size)
-- **1 ≤ n ≤ 64**
+- **1 ≤ n ≤ 256**
 - Base address **never moves** (unlike a moving `realloc`), so existing CFAs remain valid
 - **No** “forbidden after ALLOCATE” rule (host heap is separate from the dict)
 
 Example:
 
 ```forth
-.FREE                 \ ~1 MiB free after boot (minus kernel headers)
-8 GROWMEMORYMB        \ before large ALLOT / PLDI-style codegen
+.FREE                 \ ~8 MiB free after boot (minus kernel headers)
+16 GROWMEMORYMB       \ before large ALLOT / PLDI-style codegen
 ```
 
 On overflow: clear messages (`ALLOT: dictionary full…`, `dictionary full (code/data space exhausted)`), not a silent SEGV when bounds checks run.
 
 ### Design note (not implemented)
 
-Putting **primitive machine code** inside the 1 MiB dict (so every CFA is “in-dict”) is possible via boot-time copy or generated code into executable pages; 64Forth intentionally keeps primitives in `.text` and only dict data in `user_dict_area`.
+Putting **primitive machine code** inside the logical dict (so every CFA is “in-dict”) is possible via boot-time copy or generated code into executable pages; 64Forth intentionally keeps primitives in `.text` and only dict data in `user_dict_area`.
 
 ---
 
