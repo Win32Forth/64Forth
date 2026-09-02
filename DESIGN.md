@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-08-31 — **v1.2.1** (DEBUG help/resize/inline ±CELLS, pause spacing, ok> focus after DEBUG/⌘W; v1.2.0 LIT/control highlight + F8/Esc; v1.1.9 stack isolation / x28 NEXT; v1.1.8 TCOM TDBG; v1.1.7 ASMARM64; v1.1.6 DEBUG stepper).
+**Updated:** 2026-09-02 — **v1.2.1** (GRAPHICS points; cold-load app-output/app-points; DEBUG help/resize/inline ±CELLS; v1.2.0 LIT/control highlight + F8/Esc; v1.1.9 stack isolation / x28 NEXT; v1.1.8 TCOM TDBG; v1.1.7 ASMARM64; v1.1.6 DEBUG stepper).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 

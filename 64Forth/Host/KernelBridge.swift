@@ -2646,7 +2646,10 @@ final class KernelBridge {
         guard !spec.isEmpty else {
             return evaluate("FLOAD")
         }
-        return evaluate("INCLUDE \(spec)")
+        // Quote so paths with spaces round-trip through INCLUDE's parser.
+        let escaped = spec.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return evaluate("INCLUDE \"\(escaped)\"")
     }
 
     /// Phase 4 AutoLoad boot.

@@ -11,7 +11,6 @@
 \   (APP-PUMP)  ( -- )            \ yield for AppKit while spinning
 \
 \ Dual-load (tetra etc.):
-\   S" AppOutput/app-output.fth" FROMLIB INCLUDED
 \   ONLY FORTH ALSO GRAPHICS
 \   S" /path/to/tetra/tetra.fth" INCLUDED
 \   MAIN
@@ -228,5 +227,3 @@ VARIABLE G-T0-MS                     \ TIME-RESET baseline (MS@)
   ;
 
 FORTH DEFINITIONS
-
-S" AppOutput loaded — ALSO GRAPHICS  GRAPHICS-SMOKE | tetra dual-load: ALSO GRAPHICS then INCLUDED" TYPE CR

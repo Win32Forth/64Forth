@@ -447,7 +447,7 @@ VARIABLE SZ-PAGE-N
 ;
 
 \ -----------------------------------------------------------------------------
-\ Centered Save / Discard / Cancel dialog (keyboard + click)
+\ Centered Save / Don't Save / Cancel dialog (keyboard + click)
 \ -----------------------------------------------------------------------------
 VARIABLE SZ-DLG-C0                    \ box left column
 VARIABLE SZ-DLG-R0                    \ box top row
@@ -455,7 +455,7 @@ VARIABLE SZ-DLG-W
 VARIABLE SZ-DLG-H
 VARIABLE SZ-DLG-BTN-R                 \ row of clickable buttons
 VARIABLE SZ-DLG-S0  VARIABLE SZ-DLG-S1   \ [S] Save  col range [s0,s1)
-VARIABLE SZ-DLG-D0  VARIABLE SZ-DLG-D1   \ [D] Discard
+VARIABLE SZ-DLG-D0  VARIABLE SZ-DLG-D1   \ [D] Don't Save
 VARIABLE SZ-DLG-X0  VARIABLE SZ-DLG-X1   \ [Esc] Cancel
 
 48 CONSTANT SZ-DLG-WIDTH
@@ -495,20 +495,20 @@ VARIABLE SZ-DLG-T2
    SZ-DLG-C0 @ 2 +  SZ-DLG-R0 @ 2 +  AT-XY
    ." Unsaved changes in this file"
    SZ-DLG-R0 @ 4 + SZ-DLG-BTN-R !
-   \ [S] Save   [D] Discard   [Esc] Cancel
+   \ [S] Save   [D] Don't Save   [Esc] Cancel
    SZ-DLG-C0 @ 3 + DUP SZ-DLG-S0 !
    SZ-DLG-BTN-R @ AT-XY  S" [S] Save" TYPE
    SZ-DLG-S0 @ 8 + SZ-DLG-S1 !
    SZ-DLG-S1 @ 3 + DUP SZ-DLG-D0 !
-   SZ-DLG-BTN-R @ AT-XY  S" [D] Discard" TYPE
-   SZ-DLG-D0 @ 11 + SZ-DLG-D1 !
+   SZ-DLG-BTN-R @ AT-XY  S" [D] Don't Save" TYPE
+   SZ-DLG-D0 @ 14 + SZ-DLG-D1 !
    SZ-DLG-D1 @ 3 + DUP SZ-DLG-X0 !
    SZ-DLG-BTN-R @ AT-XY  S" [Esc] Cancel" TYPE
    SZ-DLG-X0 @ 12 + SZ-DLG-X1 !
    TERMINAL-REFRESH
 ;
 
-\ Map click to 0=none 1=save 2=discard 3=cancel
+\ Map click to 0=none 1=save 2=don't-save 3=cancel
 : SZ-DLG-HIT  ( col row -- action )
    SZ-DLG-BTN-R @ <> IF  2DROP 0 EXIT  THEN
    DROP                                       \ col
@@ -518,7 +518,7 @@ VARIABLE SZ-DLG-T2
    DROP 0
 ;
 
-\ KEY char → action (0=ignore)
+\ KEY char → action (0=ignore). D = Don't Save (same key as former Discard).
 : SZ-DLG-KEY  ( c -- action )
    DUP [CHAR] s = OVER [CHAR] S = OR IF  DROP 1 EXIT  THEN
    DUP [CHAR] d = OVER [CHAR] D = OR IF  DROP 2 EXIT  THEN
@@ -547,8 +547,14 @@ VARIABLE SZ-DLG-T2
    AGAIN
 ;
 
-\ True = proceed (buffer is clean: saved or discarded). False = cancel.
+\ Optional override (tests / scripting): nonzero xt replaces the dialog.
+\ xt stack effect must be ( -- flag ) with the same meaning as below.
+VARIABLE SZ-CONFIRM-DIRTY-XT
+0 SZ-CONFIRM-DIRTY-XT !
+
+\ True = proceed (buffer is clean: saved or don't-save). False = cancel.
 : SZ-CONFIRM-DIRTY  ( -- flag )
+   SZ-CONFIRM-DIRTY-XT @ IF  SZ-CONFIRM-DIRTY-XT @ EXECUTE EXIT  THEN
    SZ-MODIFIED @ 0= IF  -1 EXIT  THEN
    BEGIN
       SZ-DRAW-DIRTY-DIALOG
@@ -560,7 +566,7 @@ VARIABLE SZ-DLG-T2
       DUP 1 = IF                           \ Save
          DROP SZ-DO-SAVE
          SZ-MODIFIED @ 0= IF  -1 EXIT  THEN
-      ELSE DUP 2 = IF                      \ Discard
+      ELSE DUP 2 = IF                      \ Don't Save
          DROP SZ-CLEAN  -1 EXIT
       ELSE DUP 3 = IF                      \ Cancel
          DROP 0 EXIT
@@ -850,13 +856,23 @@ VARIABLE SZ-SEL-DONE                   \ nonzero: selection finished on down (sk
 \ Phase 5: load path + goto line for HYPER multi-hit ( a u line -- )
 \ Do not reference Hyper words here (editor loads before Hyper).
 \ Copy path to SZ-PATH-TMP so a/u may safely alias HYPER-HIT across SZ-LOAD.
-\ Always register PATH-TMP in the side list after a successful open (not only
-\ SZ-FNAME via NOTE-CURRENT) so assembly hits like Library/Sources/forth.s
-\ appear and stay highlighted across Cmd-PgUp/PgDn visit navigation.
+\ Same file: keep the buffer (and dirty edits) and only move the caret.
+\ Different file: Save / Don't Save / Cancel via SZ-CONFIRM-DIRTY first.
+: SZ-HYPER-PAINT  ( -- )
+   SZ-EDITOR-ACTIVE @ IF  SZ-REDRAW  THEN ;
+
 : SZ-HYPER-GOTO  ( c-addr u line -- )
    >R                                 \ R: line  ( a u )
    255 MIN SZ-PATH-TMP SZ-PLACE
-   SZ-PATH-TMP COUNT
+   SZ-PATH-TMP COUNT SZ-ENSURE-FTH    \ a u  (normalized like SZ-LOAD)
+   SZ-HAS-NAME? IF
+      2DUP SZ-GET-NAME COMPARE 0= IF
+         2DROP R> SZ-GOTO-LINE SZ-HYPER-PAINT EXIT
+      THEN
+   THEN
+   SZ-CONFIRM-DIRTY 0= IF
+      R> DROP 2DROP SZ-HYPER-PAINT EXIT
+   THEN
    2DUP SZ-LOAD IF
       R> DROP
       SZ-MSG-LINE
@@ -868,7 +884,7 @@ VARIABLE SZ-SEL-DONE                   \ nonzero: selection finished on down (sk
    2DROP
    \ Panel rows come from Hyper VTAB rebuild (HYPER-FL-REBUILD). Just go.
    R> SZ-GOTO-LINE
-   SZ-REDRAW
+   SZ-HYPER-PAINT
 ;
 
 \ ( -- a u line ) current file path + 1-based line (for Hyper jump stack)
@@ -1527,7 +1543,7 @@ VARIABLE SZ-VIEW-NOTED                     \ nonzero: skip next HIST-NOTE
 \ Wire line apply now that SZ-GOTO-LINE exists.
 : SZ-FL-APPLY-LINE  ( n -- )  SZ-GOTO-LINE ;
 
-\ Redefine side-panel goto with dirty-buffer dialog (S/D/Esc or click).
+\ Redefine side-panel goto with dirty-buffer dialog (S / Don't Save / Esc or click).
 \ Do NOT no-op when i = CUR: a mis-painted current row must still open its path
 \ (user report: top forth.s dead-click while listed as current).
 : SZ-FL-GOTO  ( i -- )

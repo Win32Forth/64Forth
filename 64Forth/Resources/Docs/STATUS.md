@@ -1,7 +1,7 @@
 # 64Forth development status
 
 **Current:** **1.2.1** (build **28**; not yet DMG/GitHub-tagged unless noted below)  
-**Last updated:** 2026-08-31 (version bump to 1.2.1)
+**Last updated:** 2026-09-02 (GRAPHICS point primitives; cold-load `app-output.fth` / `app-points.fth`)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
@@ -15,7 +15,7 @@ Append new design sections as we go; mark items done when implemented.
 **Console header stamp** (`ConsoleView.swift` `banner`):
 
 ```text
-=== 64Forth 1.2.1 === Aug 31, 2026 11:04 PM ===
+=== 64Forth 1.2.1 === Sep 2, 2026 10:18 AM ===
 ```
 
 **Highlights (vs 1.2.0):**
@@ -24,6 +24,7 @@ Append new design sections as we go; mark items done when implemented.
 - Editor: highlight **DO**/`?DO`/`LOOP`/`+LOOP` (with `(DO)`/`(LOOP)` aliases)
 - Kernel: no blank lines between consecutive `>>` pauses (`debug_midline`); no blank before `DEBUG done`
 - Host: `ok(n)>` + caret/focus after DEBUG ends or aborts; same after ⌘W / `FACILITY-OFF` restores the full console
+- GRAPHICS: point primitives (`app-points.fth`); `app-output.fth` moved Kernel←Library; both cold-loaded via `forth.s` blobs; mirrored under `Library/Sources/`
 
 ---
 
@@ -226,14 +227,17 @@ MVP smoke is not enough for interactive tetra. Gaps vs TCOM `tcom-textgrid.inc` 
 | Soften **`EMIT` refresh** | Per-char full blit is heavy | **Done** — `DIRTY` / `?REFRESH` (flush on TYPE / KEY / timers / TONE) |
 | **tetra `\ANS` dual-load** | Same `tetra.fth` under GRAPHICS | **Done** — see 64TCOM `tetra/README.txt` |
 
-**GUI check:** rebuild app, then `GRAPHICS-SMOKE` (tone at 440 Hz × 3 tenths). Tetra:
-
+**GUI check:** rebuild app, then `GRAPHICS-SMOKE` (tone at 440 Hz × 3 tenths), Tetra, and Point Graphics.
+Tetra:
 ```forth
-S" AppOutput/app-output.fth" FROMLIB INCLUDED
 ONLY FORTH ALSO GRAPHICS
 S" …/64TCOMARM64/tetra/tetra.fth" INCLUDED
 MAIN
 ```
+Point graphics: 
+```forth
+ONLY FORTH ALSO GRAPHICS 
+GRAPHICS-PSMOKE
 
 ---
 

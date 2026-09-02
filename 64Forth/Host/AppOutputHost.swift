@@ -19,6 +19,13 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
     private var rows = 25
     private var cellW: CGFloat = 9
     private var cellH: CGFloat = 16
+    
+    private var pix: [UInt8] = []
+    private var pixW = 640
+    private var pixH = 400
+    private var pixStride = 80          // (pixW+7)/8
+    private var hasPixels = false
+
     /// Snapshot blitted from Forth (host-owned copy for drawRect).
     private var cells: [UInt8] = []
     private var keyQueue: [Int64] = []
@@ -149,6 +156,38 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Packed 1-bit, LSB = leftmost pixel in the byte, row-major, top row first.
+    func pblit(from addr: UnsafeRawPointer?, count: Int, width: Int = 640, height: Int = 400) {
+        guard opened, let addr, count > 0 else { return }
+        let w = max(1, width)
+        let h = max(1, height)
+        let stride = (w + 7) / 8
+        let n = min(count, stride * h)
+        let work = { [weak self] in
+            guard let self else { return }
+            self.pixW = w
+            self.pixH = h
+            self.pixStride = stride
+            if self.pix.count != stride * h {
+                self.pix = [UInt8](repeating: 0, count: stride * h)
+            }
+            self.pix.withUnsafeMutableBytes { dest in
+                guard let base = dest.baseAddress else { return }
+                memcpy(base, addr, n)
+            }
+            self.hasPixels = true
+            self.gridView?.needsDisplay = true
+            self.window?.displayIfNeeded()
+        }
+        if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
+    }
+
+    fileprivate var pixelBytes: [UInt8] { pix }
+    fileprivate var pixelW: Int { pixW }
+    fileprivate var pixelH: Int { pixH }
+    fileprivate var pixelStride: Int { pixStride }
+    fileprivate var showingPixels: Bool { hasPixels }
+    
     /// Set window title (and remembered name for next open).
     func setAppName(from addr: UnsafeRawPointer?, count: Int) {
         let name: String
@@ -362,9 +401,38 @@ final class AppGridView: NSView {
         guard let host else { return }
         NSColor.black.setFill()
         bounds.fill()
+
+        if host.showingPixels {
+            let fg = NSColor(calibratedRed: 0.7, green: 1.0, blue: 0.7, alpha: 1)
+            fg.setFill()
+            let pw = host.pixelW
+            let ph = host.pixelH
+            let stride = host.pixelStride
+            let bits = host.pixelBytes
+            let dw = bounds.width - 8
+            let dh = bounds.height - 8
+            let sx = dw / CGFloat(pw)
+            let sy = dh / CGFloat(ph)
+            for y in 0..<ph {
+                let row = y * stride
+                for x in 0..<pw {
+                    let byte = bits[row + (x >> 3)]
+                    if (byte & (1 << (x & 7))) != 0 {
+                        let r = NSRect(
+                            x: 4 + CGFloat(x) * sx,
+                            y: 4 + CGFloat(ph - 1 - y) * sy,
+                            width: max(1, sx),
+                            height: max(1, sy)
+                        )
+                        r.fill()
+                    }
+                }
+            }
+        }
+
         let font = NSFont.monospacedSystemFont(ofSize: host.gridCellH - 2, weight: .regular)
-        let fg = NSColor(calibratedRed: 0.7, green: 1.0, blue: 0.7, alpha: 1)
-        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: fg]
+        let textFg = NSColor(calibratedRed: 0.7, green: 1.0, blue: 0.7, alpha: 1)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: textFg]
         let cols = host.gridCols
         let rows = host.gridRows
         let cw = host.gridCellW
@@ -372,21 +440,18 @@ final class AppGridView: NSView {
         for y in 0..<rows {
             for x in 0..<cols {
                 let chv = host.cellAt(col: x, row: y)
+                if chv == 32 { continue }          // leave pixels visible
                 let s: String
-                if chv == 219 {
-                    s = "\u{2588}"
-                } else if chv < 32 || chv > 126 {
-                    s = "?"
-                } else {
-                    s = String(UnicodeScalar(chv))
-                }
+                if chv == 219 { s = "\u{2588}" }
+                else if chv < 32 || chv > 126 { s = "?" }
+                else { s = String(UnicodeScalar(chv)) }
                 let px = CGFloat(x) * cw + 4
                 let py = CGFloat(rows - 1 - y) * ch + 4
                 (s as NSString).draw(at: NSPoint(x: px, y: py), withAttributes: attrs)
             }
         }
     }
-
+    
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         super.mouseDown(with: event)
@@ -416,6 +481,11 @@ public func host_app_close() {
 @_cdecl("host_app_blit")
 public func host_app_blit(_ addr: UnsafeRawPointer?, _ nbytes: Int64) {
     AppOutputHost.shared.blit(from: addr, count: Int(nbytes))
+}
+
+@_cdecl("host_app_pblit")
+public func host_app_pblit(_ addr: UnsafeRawPointer?, _ nbytes: Int64) {
+    AppOutputHost.shared.pblit(from: addr, count: Int(nbytes))
 }
 
 @_cdecl("host_app_keyq")

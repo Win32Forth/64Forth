@@ -750,6 +750,7 @@ _facility_op_go:
 .extern _host_app_open
 .extern _host_app_close
 .extern _host_app_blit
+.extern _host_app_pblit
 .extern _host_app_keyq
 .extern _host_app_key
 .extern _host_app_name
@@ -791,6 +792,19 @@ XAPP_BLIT:
     stp  x29, x30, [sp, #-16]!
     SAVE_VM
     bl   _host_app_blit
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+    NEXT
+
+// (APP-PBLIT) ( c-addr u -- )  1-bit pixel map, stride = (width+7)/8
+    BOOT_WORD "(APP-PBLIT)", "(APP-PBLIT) ( c-addr u -- ) blit 1-bit pixels to graphics window", 0, XAPP_PBLIT
+XAPP_PBLIT:
+    mov  x1, x20                   // u
+    ldr  x0, [x22], #8             // c-addr
+    ldr  x20, [x22], #8
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_pblit
     RESTORE_VM
     ldp  x29, x30, [sp], #16
     NEXT
@@ -13968,6 +13982,8 @@ eval_arg_len:   .quad 0
 forth_init_str:
     .incbin "kernel1.fth"
     .incbin "kernel2.fth"
+    .incbin "app-output.fth"
+    .incbin "app-points.fth"
     .byte 0
 forth_init_end:
 
