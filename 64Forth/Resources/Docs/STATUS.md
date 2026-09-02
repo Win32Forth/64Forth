@@ -1,10 +1,29 @@
 # 64Forth development status
 
-**Current:** **1.3.0** (build **29**; DMG + GitHub `v1.3.0`)  
-**Last updated:** 2026-09-02 (1.3.0 release)
+**Current:** **1.3.1** (build **30**; awaiting DMG + GitHub `v1.3.1`)  
+**Last updated:** 2026-09-02 (1.3.1 prep — interactive CODE/END-CODE)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.3.1 — Interactive CODE / END-CODE (ASSEMBLER.fth)
+
+**Version strings:** marketing **1.3.1**, build **30** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.3.1 === Sep 2, 2026 3:16 PM ===
+```
+
+**Highlights (vs 1.3.0):**
+- New `Library/Assembler/ASSEMBLER.fth`: interactive ITC `CODE` / `END-CODE` / `C;` / `NEXT,` on top of the existing ASMARM64 toolkit
+- Load: `FROMLIB FLOAD Assembler/ASSEMBLER.fth` (auto-loads `asmarm64.fth` if needed)
+- Puts `CODE` in FORTH; switches search order to ASMARM64 while assembling; `END-CODE` emits ITC `NEXT,`, `ASM-MAKE-EXEC`, patches CFA, restores FORTH
+- Does **not** load under 64TCOM and does **not** redefine the `ASSEMBLER` synonym for `ASMARM64`
+- `HYPER.NDX` updated for the new file
 
 ---
 

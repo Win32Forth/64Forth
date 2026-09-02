@@ -1236,6 +1236,15 @@ T-RUN-TIF 274
 T-RUN-UNROLL 287
 ASM-TESTS 297
 ASM-HOST-SMOKE 327
+@ Library/Assembler/ASSEMBLER.fth
+NEXT, 38
+CODE-CFA 47
+( 49
+word; 49
+CODE 50
+( 50
+END-CODE 61
+C; 71
 @ Library/BigInteger/bi-test.fth
 #BI-PASS 13
 #BI-FAIL 14

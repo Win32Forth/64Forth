@@ -8,7 +8,7 @@ Shared roadmap blurb: [`STATUS.md`](STATUS.md) § Debugger.
 **Pack release:** 64TCOM ARM64 **Version 0.9**  
 **Phase:** 64TCOM **4.0** utilities (slice 1 **shipped** in 0.9; editor next)  
 **Backend:** **SIMARM64 first** (native traps later)  
-**64Forth ITC `DEBUG` / `DBG`:** **1.3.0** — help column, LIT/branch ±CELLS inline, pause spacing, ok> focus; **1.2.0** source-alias highlight + F8/Esc/⌘Q
+**64Forth ITC `DEBUG` / `DBG`:** **1.3.0+** (current **1.3.1**) — help column, LIT/branch ±CELLS inline, pause spacing, ok> focus; **1.2.0** source-alias highlight + F8/Esc/⌘Q. Interactive `CODE`/`END-CODE`: see `Assembler/ASSEMBLER.fth` / `STATUSASM64.md`.
 
 ---
 

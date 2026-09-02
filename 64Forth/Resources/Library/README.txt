@@ -17,17 +17,21 @@ Examples
   FROMLIB FLOAD Editor/SZ-EDITOR.fth
   FROMLIB SZEDIT Editor/SZ-EDITOR-README.txt
   FROMLIB FLOAD Assembler/asmarm64.fth     \ AArch64 host toolkit (not used by TCOM)
+  FROMLIB FLOAD Assembler/ASSEMBLER.fth    \ interactive CODE / END-CODE (64Forth only)
   FROMLIB FLOAD Assembler/ASMARMTESTS.fth \ then: ASM-TESTS
 
 Assembler (ASMARM64)
 --------------------
   Full source: Library/Assembler/asmarm64.fth
+  Interactive: Library/Assembler/ASSEMBLER.fth  →  CODE / END-CODE / C; / NEXT,
+               (64Forth ITC only; not loaded by 64TCOM; does not redefine ASSEMBLER)
   Tests:       Library/Assembler/ASMARMTESTS.fth  →  ASM-TESTS
   Twin copies: Documents/64TCOM/64TCOMARM64/ASMARM64.fth + ASMARMTESTS.fth
   Last synced: Aug 23, 2026 3:16 PM (see header stamp in both .fth files)
   TCOM loads only the pack assembler via TARGETARM64.
   Monitor: Docs/STATUSASM64.md (twin of 64TCOM/STATUSASM64.md)
   After load: .ASMARM64  ASM-TESTS  ASMARM64-DISCARD
+  CODE words:  FROMLIB FLOAD Assembler/ASSEMBLER.fth  then  CODE name … END-CODE
 
 After editing Library .fth files, rebuild/run so the bundle copy updates.
 

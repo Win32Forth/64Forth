@@ -6,10 +6,11 @@
 Canonical plan source: session `plan.md` (assembler toolkit).  
 Canonical code: `64TCOMARM64/ASMARM64.fth`.
 
-**Last updated:** 2026-08-23 3:16 PM (assembler twins synced)  
+**Last updated:** 2026-09-02 (64Forth **1.3.1** adds interactive `CODE`/`END-CODE`)  
 **Phase target:** 3.2 Assembler toolkit  
-**Pack release:** 64TCOM ARM64 **Version 0.9** (with 64Forth **1.3.0**; last dual ship was **1.1.9** / pack with **1.2.0**)  
-**Assembler sync stamp:** `Synced Aug 23, 2026 3:16 PM` in both `ASMARM64.fth` headers
+**Pack release:** 64TCOM ARM64 **Version 0.9** (with 64Forth **1.3.1**; last dual ship was **1.1.9** / pack with **1.2.0**)  
+**Assembler sync stamp:** `Synced Aug 23, 2026 3:16 PM` in both `ASMARM64.fth` headers  
+**64Forth-only:** `Library/Assembler/ASSEMBLER.fth` — interactive ITC `CODE` / `END-CODE` (not used by 64TCOM; does not redefine `ASSEMBLER` → `ASMARM64`)
 
 ---
 
@@ -118,6 +119,7 @@ ASMARM64-DISCARD                       \ forget words + free buffers
 |------|--------|
 | Pack home | `64TCOM/64TCOMARM64/ASMARM64.fth` — loaded by `TARGETARM64` only |
 | Library home | `64Forth/.../Library/Assembler/asmarm64.fth` — `FROMLIB` only; **not** loaded by TCOM |
+| Interactive CODE | `Library/Assembler/ASSEMBLER.fth` — 64Forth ITC `CODE`/`END-CODE`/`NEXT,`; **not** loaded by TCOM |
 | Sync | Edit both (or copy pack → Library) when changing the assembler |
 | Load path (TCOM) | `FLOAD TARGETARM64.fth` → `64HOST` → pack `ASMARM64` → OPT/LIB/SIM/… |
 | Emit backend | `W,` → `C,-T` / `HERE-T` / `PATCH-W` / `W@-T` (target CODE image) |
