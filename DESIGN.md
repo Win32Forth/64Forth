@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-09-02 — **v1.2.1** (dict 8 MiB default / 256 MiB max; GRAPHICS points; cold-load app-output/app-points; DEBUG help/resize/inline ±CELLS; v1.2.0 LIT/control highlight + F8/Esc; v1.1.9 stack isolation / x28 NEXT; v1.1.8 TCOM TDBG; v1.1.7 ASMARM64; v1.1.6 DEBUG stepper).
+**Updated:** 2026-09-02 — **v1.3.0** (GRAPHICS points; cold-load app-output/app-points; dict 8 MiB / 256 MiB max; DEBUG UX; v1.2.0 LIT/control highlight + F8/Esc; v1.1.9 stack isolation / x28 NEXT; v1.1.8 TCOM TDBG; v1.1.7 ASMARM64; v1.1.6 DEBUG stepper).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
@@ -223,7 +223,7 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 
 Cold start: `HERE := user_dict_area`, then `_boot_kernel` + `forth_init_str`. Kernel **headers and colon definitions consume part of the logical dict** (~30–40 KiB today); assembly **implementations** stay in `.text`.
 
-### Sizes (v1.2.1)
+### Sizes (v1.3.0)
 
 | Constant | Value | Role |
 |----------|--------|------|

@@ -67,9 +67,9 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ---
 
-## Status (v1.2.1)
+## Status (v1.3.0)
 
-- [x] **v1.2.1:** DEBUG help/resize/inline ±CELLS; GRAPHICS points; cold-load `app-output`/`app-points`; dict default **8 MiB**, max **256 MiB** (`GROWMEMORYMB`)
+- [x] **v1.3.0:** GRAPHICS point primitives; cold-load `app-output`/`app-points`; dict default **8 MiB**, max **256 MiB**; DEBUG UX polish (from unreleased 1.2.1)
 - [x] **v1.2.0:** ITC DEBUG source-alias highlight (`LIT`/`0BRANCH`/`BRANCH`/`EXIT`); F8 step-out; Esc/`q` abort; ⌘Q while paused; DMG + GitHub release
 - [x] **v1.1.9:** ITC DEBUG pause stack isolation + x28 NEXT mirror; locals drain; DOC"/help; DMG + GitHub release
 - [x] **v1.1.8:** TCOM debugger host hooks (`TDBG-ARM-KEYS`, `SZ-SIDE-HOOK`); editor/`DEBUG` highlight (`SZ-HIGHLIGHT-NAME`, `DBG-HL-XT`); DMG + GitHub release
@@ -81,7 +81,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 - [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Agent-channel.md`
 - [ ] **Later (optional):** DMG `/Volumes/…` open noise — see STATUS
 
-**Console header** (GUI): `=== 64Forth 1.2.1 === Sep 2, 2026 10:18 AM ===`  
+**Console header** (GUI): `=== 64Forth 1.3.0 === Sep 2, 2026 11:12 AM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
 
 ## Status (v1.1.1)

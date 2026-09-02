@@ -1,22 +1,33 @@
 # 64Forth development status
 
-**Current:** **1.2.1** (build **28**; not yet DMG/GitHub-tagged unless noted below)  
-**Last updated:** 2026-09-02 (dict default 8 MiB / max 256 MiB; GRAPHICS points; cold-load app-output/app-points)
+**Current:** **1.3.0** (build **29**; not yet DMG/GitHub-tagged unless noted below)  
+**Last updated:** 2026-09-02 (version bump to 1.3.0)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
 
 ---
 
-## v1.2.1 — DEBUG UX polish (help, inline, focus)
+## v1.3.0 — GRAPHICS points, larger dictionary, cold-load AppOutput
 
-**Version strings:** marketing **1.2.1**, build **28** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
+**Version strings:** marketing **1.3.0**, build **29** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
 
 **Console header stamp** (`ConsoleView.swift` `banner`):
 
 ```text
-=== 64Forth 1.2.1 === Sep 2, 2026 10:18 AM ===
+=== 64Forth 1.3.0 === Sep 2, 2026 11:12 AM ===
 ```
+
+**Highlights (vs 1.2.0; absorbs unreleased 1.2.1 tree):**
+- GRAPHICS: point primitives (`app-points.fth`); `app-output.fth` moved into Kernel; both cold-loaded via `forth.s` blobs; mirrored under `Library/Sources/`
+- Dictionary: default logical size **8 MiB** (was 1 MiB); `USER_DICT_MAX` / `GROWMEMORYMB` hard cap **256 MiB** (was 64 MiB; 1 GiB BSS fails to link)
+- DEBUG UX (from 1.2.1 work): help column; resize while paused; LIT/branch ±CELLS inline; `S(n):`/`R(n):`; DO/LOOP highlight; no blank pause lines; `ok(n)>` focus after DEBUG / ⌘W
+
+---
+
+## v1.2.1 — DEBUG UX polish (unreleased; folded into 1.3.0)
+
+**Version strings (historical):** marketing **1.2.1**, build **28** — never DMG/GitHub-tagged; features shipped as **1.3.0**.
 
 **Highlights (vs 1.2.0):**
 - Editor: debug-only help column (F6/F7/F8, Esc/`q`, Cmd-Shift-Y); resize-while-paused wakes `DBG-WHEEL` → `SZ-REDRAW`
@@ -24,8 +35,6 @@ Append new design sections as we go; mark items done when implemented.
 - Editor: highlight **DO**/`?DO`/`LOOP`/`+LOOP` (with `(DO)`/`(LOOP)` aliases)
 - Kernel: no blank lines between consecutive `>>` pauses (`debug_midline`); no blank before `DEBUG done`
 - Host: `ok(n)>` + caret/focus after DEBUG ends or aborts; same after ⌘W / `FACILITY-OFF` restores the full console
-- GRAPHICS: point primitives (`app-points.fth`); `app-output.fth` moved Kernel←Library; both cold-loaded via `forth.s` blobs; mirrored under `Library/Sources/`
-- Dictionary: default logical size **8 MiB** (was 1 MiB); `USER_DICT_MAX` / `GROWMEMORYMB` hard cap **256 MiB** (was 64 MiB)
 
 ---
 
