@@ -1,7 +1,7 @@
 # 64Forth development status
 
 **Current:** **1.2.1** (build **28**; not yet DMG/GitHub-tagged unless noted below)  
-**Last updated:** 2026-09-02 (GRAPHICS point primitives; cold-load `app-output.fth` / `app-points.fth`)
+**Last updated:** 2026-09-02 (dict default 8 MiB / max 256 MiB; GRAPHICS points; cold-load app-output/app-points)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
@@ -25,6 +25,7 @@ Append new design sections as we go; mark items done when implemented.
 - Kernel: no blank lines between consecutive `>>` pauses (`debug_midline`); no blank before `DEBUG done`
 - Host: `ok(n)>` + caret/focus after DEBUG ends or aborts; same after ⌘W / `FACILITY-OFF` restores the full console
 - GRAPHICS: point primitives (`app-points.fth`); `app-output.fth` moved Kernel←Library; both cold-loaded via `forth.s` blobs; mirrored under `Library/Sources/`
+- Dictionary: default logical size **8 MiB** (was 1 MiB); `USER_DICT_MAX` / `GROWMEMORYMB` hard cap **256 MiB** (was 64 MiB)
 
 ---
 

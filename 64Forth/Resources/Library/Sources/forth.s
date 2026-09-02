@@ -7657,10 +7657,11 @@ _ms_done:
     NEXT
 
 // UNUSED ( -- u )  free bytes remaining in user dictionary (logical size)
-// Default logical size 1 MiB; reserve USER_DICT_MAX BSS (demand-zero). GROWMEMORYMB
-// raises the logical limit once per session without relocating CFAs (max 64 MiB).
-.equ USER_DICT_DEFAULT, 1048576    // 1 MiB
-.equ USER_DICT_MAX, 67108864       // 64 MiB reserved / hard cap
+// Default logical size 8 MiB; reserve USER_DICT_MAX BSS (demand-zero). GROWMEMORYMB
+// raises the logical limit once per session without relocating CFAs (max 256 MiB).
+.equ USER_DICT_DEFAULT, 8388608     // 8 MiB
+.equ USER_DICT_MAX, 268435456       // 256 MiB reserved / hard cap
+.equ USER_DICT_MAX_MB, 256          // GROWMEMORYMB upper bound (MiB)
 
     BOOT_WORD "UNUSED", "UNUSED ( -- u ) bytes remaining in dictionary (HERE to dictionary limit)", 0, XUNUSED
 XUNUSED:
@@ -7716,7 +7717,7 @@ XUSER_DICT:
 // GROWMEMORYMB ( n -- )  TZForth extension: set logical dictionary size to n MiB.
 // Once per session; cannot shrink; 1 ≤ n ≤ 64. Base address never moves (CFA-stable).
 
-    BOOT_WORD "GROWMEMORYMB", "GROWMEMORYMB ( n -- ) grow user dictionary to n MiB (once/session; no shrink; max 64)", 0, XGROWMEMORYMB
+    BOOT_WORD "GROWMEMORYMB", "GROWMEMORYMB ( n -- ) grow user dictionary to n MiB (once/session; no shrink; max 256)", 0, XGROWMEMORYMB
 XGROWMEMORYMB:
     DPOP                           // n (MB)
     // already used?
@@ -7727,8 +7728,8 @@ XGROWMEMORYMB:
     // n >= 1?
     cmp  x0, #1
     b.lt _gmm_small
-    // n <= 64?
-    cmp  x0, #64
+    // n <= USER_DICT_MAX_MB?
+    cmp  x0, #USER_DICT_MAX_MB
     b.hi _gmm_big
     // newsize = n * 1 MiB = n << 20
     lsl  x3, x0, #20
@@ -13875,7 +13876,7 @@ str_allot_under:.asciz "ALLOT: below dictionary start\n"
 str_dict_full:  .asciz "dictionary full (code/data space exhausted)\n"
 str_gmm_already:.asciz "? GROWMEMORYMB already used (once per session)\n"
 str_gmm_small:  .asciz "? GROWMEMORYMB needs at least 1 MB\n"
-str_gmm_big:    .asciz "? GROWMEMORYMB exceeds maximum (64 MB)\n"
+str_gmm_big:    .asciz "? GROWMEMORYMB exceeds maximum (256 MB)\n"
 str_gmm_shrink: .asciz "? GROWMEMORYMB cannot shrink memory\n"
 str_redef:  .asciz " is redefined\n"
 .align 8
