@@ -1,7 +1,7 @@
 # 64Forth development status
 
-**Current:** **1.3.1** (build **30**; awaiting DMG + GitHub `v1.3.1`)  
-**Last updated:** 2026-09-02 (1.3.1 prep — interactive CODE/END-CODE)
+**Current:** **1.3.1** (build **30**; DMG + GitHub `v1.3.1`)  
+**Last updated:** 2026-09-02 (1.3.1 release)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
@@ -24,6 +24,7 @@ Append new design sections as we go; mark items done when implemented.
 - Puts `CODE` in FORTH; switches search order to ASMARM64 while assembling; `END-CODE` emits ITC `NEXT,`, `ASM-MAKE-EXEC`, patches CFA, restores FORTH
 - Does **not** load under 64TCOM and does **not** redefine the `ASSEMBLER` synonym for `ASMARM64`
 - `HYPER.NDX` updated for the new file
+- Release: `64Forth/releases/64Forth-1.3.1-macOS.dmg` + GitHub `v1.3.1` (replaces 1.3.0 DMG in tree)
 
 ---
 
