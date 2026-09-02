@@ -1,7 +1,7 @@
 # 64Forth development status
 
-**Current:** **1.3.0** (build **29**; not yet DMG/GitHub-tagged unless noted below)  
-**Last updated:** 2026-09-02 (version bump to 1.3.0)
+**Current:** **1.3.0** (build **29**; DMG + GitHub `v1.3.0`)  
+**Last updated:** 2026-09-02 (1.3.0 release)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
@@ -22,6 +22,7 @@ Append new design sections as we go; mark items done when implemented.
 - GRAPHICS: point primitives (`app-points.fth`); `app-output.fth` moved into Kernel; both cold-loaded via `forth.s` blobs; mirrored under `Library/Sources/`
 - Dictionary: default logical size **8 MiB** (was 1 MiB); `USER_DICT_MAX` / `GROWMEMORYMB` hard cap **256 MiB** (was 64 MiB; 1 GiB BSS fails to link)
 - DEBUG UX (from 1.2.1 work): help column; resize while paused; LIT/branch ±CELLS inline; `S(n):`/`R(n):`; DO/LOOP highlight; no blank pause lines; `ok(n)>` focus after DEBUG / ⌘W
+- Release: `64Forth/releases/64Forth-1.3.0-macOS.dmg` + GitHub `v1.3.0` (replaces 1.2.0 DMG in tree)
 
 ---
 
