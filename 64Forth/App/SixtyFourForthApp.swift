@@ -137,6 +137,37 @@ struct SixtyFourForthApp: App {
 
                 Divider()
 
+                Button("Update User Data in 64Forth Folder") {
+
+                        let fm = FileManager.default
+                        let defaults = UserDefaults.standard
+
+
+                        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first
+                            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents")
+                        let dest = docs.appendingPathComponent("64Forth", isDirectory: true)
+
+                        do {
+                            try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+
+                            let names = ["Library", "AutoLoad", "Docs"]
+                            if let res = Bundle.main.resourceURL {
+                                for name in names {
+                                    let from = res.appendingPathComponent(name, isDirectory: true)
+                                    let to = dest.appendingPathComponent(name, isDirectory: true)
+                                    guard fm.fileExists(atPath: from.path) else { continue }
+                                    if fm.fileExists(atPath: to.path) {
+                                        try fm.removeItem(at: to)   // first-run only; safe while dest is new
+                                    }
+                                    try fm.copyItem(at: from, to: to)
+                                }
+                            }
+                        } catch {
+                            // no message on error
+                        }
+                    
+
+                }
                 Button("Show Library Folder") {
                     FileHost.shared.revealInFinder(FileHost.shared.libraryURL)
                 }

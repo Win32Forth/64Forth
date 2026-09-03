@@ -53,10 +53,12 @@ final class FileHost {
     private var scopedBookmarkData: [Data] = []
     private let bookmarksDefaultsKey = "SixtyFourForth.SecurityScopedBookmarks"
     private let lastCwdDefaultsKey = "SixtyFourForth.LastLogicalCwd"
+    private let firstRunDefaultDirKey = "SixtyFourForth.UserTreePath"
 
     private init() {
         logicalCurrentDirectory = FileManager.default.currentDirectoryPath
         restorePersistedAccess()
+        firstRunDefaultDir()
     }
 
     private func msg(_ s: String) {
@@ -103,41 +105,80 @@ final class FileHost {
         Bundle.main.resourceURL
     }
 
-    var libraryURL: URL? {
+    var userTreeURL: URL? {
+        guard let path = UserDefaults.standard.string(forKey: firstRunDefaultDirKey),
+              !path.isEmpty else { return nil }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir),
+              isDir.boolValue else { return nil }
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    var userLibraryURL: URL? {
+        userTreeURL?.appendingPathComponent("Library", isDirectory: true)
+    }
+
+    var bundleLibraryURL: URL? {
         if let root = resourcesURL {
             let dir = root.appendingPathComponent("Library", isDirectory: true)
             if FileManager.default.fileExists(atPath: dir.path) { return dir }
         }
-        if let u = Bundle.main.url(forResource: "Library", withExtension: nil) {
-            var isDir: ObjCBool = false
-            if FileManager.default.fileExists(atPath: u.path, isDirectory: &isDir), isDir.boolValue {
-                return u
-            }
-        }
-        return nil
+        return Bundle.main.url(forResource: "Library", withExtension: nil)
     }
 
+    /// FROMLIB / EDIT / DIR root — Documents/64Forth/Library after first run.
+    var libraryURL: URL? {
+        let fm = FileManager.default
+        if let user = userLibraryURL,
+           fm.fileExists(atPath: user.path) {
+            return user
+        }
+        return bundleLibraryURL
+    }
+    
     var autoLoadURL: URL? {
+        let fm = FileManager.default
+        if let user = userTreeURL?.appendingPathComponent("AutoLoad", isDirectory: true),
+           fm.fileExists(atPath: user.path) {
+            return user
+        }
         if let root = resourcesURL {
             let dir = root.appendingPathComponent("AutoLoad", isDirectory: true)
-            if FileManager.default.fileExists(atPath: dir.path) { return dir }
+            if fm.fileExists(atPath: dir.path) { return dir }
         }
-        if let u = Bundle.main.url(forResource: "AutoLoad", withExtension: nil) {
-            var isDir: ObjCBool = false
-            if FileManager.default.fileExists(atPath: u.path, isDirectory: &isDir), isDir.boolValue {
-                return u
-            }
-        }
-        return nil
+        return Bundle.main.url(forResource: "AutoLoad", withExtension: nil)
     }
-
+    
     /// `Resources/AutoLoad/autoload.fth` if present (TZForth boot file name rules).
     var autoLoadFileURL: URL? {
+        let fm = FileManager.default
         var candidates: [URL] = []
-        if let u = Bundle.main.url(forResource: "autoload", withExtension: "fth", subdirectory: "AutoLoad") {
+
+        // User tree (Documents/64Forth/AutoLoad) — same names as the bundle
+        if let dir = userTreeURL?.appendingPathComponent("AutoLoad", isDirectory: true) {
+            candidates.append(dir.appendingPathComponent("autoload.fth"))
+            candidates.append(dir.appendingPathComponent("AutoLoad.fth"))
+            if let files = try? fm.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: nil
+            ) {
+                for f in files where f.pathExtension.lowercased() == "fth" {
+                    if f.deletingPathExtension().lastPathComponent.lowercased() == "autoload" {
+                        candidates.append(f)
+                    }
+                }
+            }
+        }
+
+        // Shipped bundle (unchanged)
+        if let u = Bundle.main.url(
+            forResource: "autoload", withExtension: "fth", subdirectory: "AutoLoad"
+        ) {
             candidates.append(u)
         }
-        if let u = Bundle.main.url(forResource: "AutoLoad", withExtension: "fth", subdirectory: "AutoLoad") {
+        if let u = Bundle.main.url(
+            forResource: "AutoLoad", withExtension: "fth", subdirectory: "AutoLoad"
+        ) {
             candidates.append(u)
         }
         if let root = resourcesURL {
@@ -146,33 +187,41 @@ final class FileHost {
             candidates.append(root.appendingPathComponent("autoload.fth"))
         }
         if let dir = autoLoadURL,
-           let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+           let files = try? fm.contentsOfDirectory(
+               at: dir, includingPropertiesForKeys: nil
+           ) {
             for f in files where f.pathExtension.lowercased() == "fth" {
                 if f.deletingPathExtension().lastPathComponent.lowercased() == "autoload" {
                     candidates.append(f)
                 }
             }
         }
+
         for url in candidates {
-            if FileManager.default.fileExists(atPath: url.path) { return url }
+            if fm.fileExists(atPath: url.path) { return url }
         }
         return nil
     }
-
+    
     var docsURL: URL? {
+        let fm = FileManager.default
+        if let user = userTreeURL?.appendingPathComponent("Docs", isDirectory: true),
+           fm.fileExists(atPath: user.path) {
+            return user
+        }
         if let root = resourcesURL {
             let dir = root.appendingPathComponent("Docs", isDirectory: true)
-            if FileManager.default.fileExists(atPath: dir.path) { return dir }
+            if fm.fileExists(atPath: dir.path) { return dir }
         }
         if let u = Bundle.main.url(forResource: "Docs", withExtension: nil) {
             var isDir: ObjCBool = false
-            if FileManager.default.fileExists(atPath: u.path, isDirectory: &isDir), isDir.boolValue {
+            if fm.fileExists(atPath: u.path, isDirectory: &isDir), isDir.boolValue {
                 return u
             }
         }
         return nil
     }
-
+    
     /// Hypertext / prefs: `Resources/Config` (HYPER.NDX, HYPER.CFG, …).
     var configURL: URL? {
         if let root = resourcesURL {
@@ -1065,6 +1114,51 @@ final class FileHost {
         UserDefaults.standard.set(scopedBookmarkData, forKey: bookmarksDefaultsKey)
     }
 
+    /// Documents/64Forth — created once; Resources/Library, AutoLoad, Docs copied in.
+    private func firstRunDefaultDir() {
+        let fm = FileManager.default
+        let defaults = UserDefaults.standard
+
+        if let path = defaults.string(forKey: firstRunDefaultDirKey),
+           !path.isEmpty {
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
+                logicalCurrentDirectory = path
+                _ = fm.changeCurrentDirectoryPath(path)
+                return
+            }
+            // Key set but folder gone — fall through and recreate.
+        }
+
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents")
+        let dest = docs.appendingPathComponent("64Forth", isDirectory: true)
+
+        do {
+            try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+
+            let names = ["Library", "AutoLoad", "Docs"]
+            if let res = Bundle.main.resourceURL {
+                for name in names {
+                    let from = res.appendingPathComponent(name, isDirectory: true)
+                    let to = dest.appendingPathComponent(name, isDirectory: true)
+                    guard fm.fileExists(atPath: from.path) else { continue }
+                    if fm.fileExists(atPath: to.path) {
+                        try fm.removeItem(at: to)   // first-run only; safe while dest is new
+                    }
+                    try fm.copyItem(at: from, to: to)
+                }
+            }
+
+            defaults.set(dest.path, forKey: firstRunDefaultDirKey)
+            logicalCurrentDirectory = dest.path
+            _ = fm.changeCurrentDirectoryPath(dest.path)
+            msg("Created user folder: \(dest.path)\n")
+        } catch {
+            msg("firstRunDefaultDir: \(error.localizedDescription)\n")
+        }
+    }
+    
     private func restorePersistedAccess() {
         if let path = UserDefaults.standard.string(forKey: lastCwdDefaultsKey),
            !path.isEmpty {
