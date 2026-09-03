@@ -1114,49 +1114,60 @@ final class FileHost {
         UserDefaults.standard.set(scopedBookmarkData, forKey: bookmarksDefaultsKey)
     }
 
-    /// Documents/64Forth — created once; Resources/Library, AutoLoad, Docs copied in.
-    private func firstRunDefaultDir() {
+    /// Copy shipped Library / AutoLoad / Docs into Documents/64Forth.
+    /// replaceExisting: true = wipe those three folders first (first-run or explicit restore).
+    private func userTreeDisplayPath() -> String {
+        "Documents/64Forth"
+    }
+
+    @discardableResult
+    func installUserTree(replaceExisting: Bool) -> Bool {
         let fm = FileManager.default
-        let defaults = UserDefaults.standard
-
-        if let path = defaults.string(forKey: firstRunDefaultDirKey),
-           !path.isEmpty {
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
-                logicalCurrentDirectory = path
-                _ = fm.changeCurrentDirectoryPath(path)
-                return
-            }
-            // Key set but folder gone — fall through and recreate.
-        }
-
         let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents")
         let dest = docs.appendingPathComponent("64Forth", isDirectory: true)
-
         do {
             try fm.createDirectory(at: dest, withIntermediateDirectories: true)
-
-            let names = ["Library", "AutoLoad", "Docs"]
             if let res = Bundle.main.resourceURL {
-                for name in names {
+                for name in ["Library", "AutoLoad", "Docs"] {
                     let from = res.appendingPathComponent(name, isDirectory: true)
                     let to = dest.appendingPathComponent(name, isDirectory: true)
                     guard fm.fileExists(atPath: from.path) else { continue }
-                    if fm.fileExists(atPath: to.path) {
-                        try fm.removeItem(at: to)   // first-run only; safe while dest is new
+                    if replaceExisting, fm.fileExists(atPath: to.path) {
+                        try fm.removeItem(at: to)
                     }
-                    try fm.copyItem(at: from, to: to)
+                    if !fm.fileExists(atPath: to.path) {
+                        try fm.copyItem(at: from, to: to)
+                    }
                 }
             }
-
-            defaults.set(dest.path, forKey: firstRunDefaultDirKey)
+            UserDefaults.standard.set(dest.path, forKey: firstRunDefaultDirKey)
             logicalCurrentDirectory = dest.path
             _ = fm.changeCurrentDirectoryPath(dest.path)
-            msg("Created user folder: \(dest.path)\n")
+            if replaceExisting {
+                msg("\n64Forth files restored\n")
+            } else {
+                msg("\nUpdated User folder: \(userTreeDisplayPath())\n")
+            }
+            return true
         } catch {
-            msg("firstRunDefaultDir: \(error.localizedDescription)\n")
+            msg("installUserTree: \(error.localizedDescription)\n")
+            return false
         }
+    }
+
+    private func firstRunDefaultDir() {
+        if let path = UserDefaults.standard.string(forKey: firstRunDefaultDirKey),
+           !path.isEmpty {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: path, isDirectory: &isDir),
+               isDir.boolValue {
+                logicalCurrentDirectory = path
+                _ = FileManager.default.changeCurrentDirectoryPath(path)
+                return
+            }
+        }
+        _ = installUserTree(replaceExisting: true)
     }
     
     private func restorePersistedAccess() {
