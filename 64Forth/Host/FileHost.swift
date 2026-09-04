@@ -1546,3 +1546,90 @@ final class FileHost {
         return true
     }
 }
+
+#if os(macOS)
+import AppKit
+
+extension FileHost {
+    func confirmRestoreShippedFiles() {
+        DispatchQueue.main.async {
+            self.confirmRestoreShippedFilesOnMain()
+        }
+    }
+
+    private func confirmRestoreShippedFilesOnMain() {
+        let alert = NSAlert()
+        alert.alertStyle = .critical          // caution icon
+        alert.messageText = "Restore shipped 64Forth files?"
+        alert.informativeText =
+            "This replaces Library, AutoLoad, and Docs in Documents/64Forth. " +
+            "Any changes you made in that folder will be lost unless you rename it first."
+        alert.addButton(withTitle: "Rename 64Forth")      // .alertFirstButtonReturn
+        alert.addButton(withTitle: "Replace 64Forth")     // .alertSecondButtonReturn
+        alert.addButton(withTitle: "Cancel")              // .alertThirdButtonReturn
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            if renameUserTreeForBackup() {
+                _ = installUserTree(replaceExisting: true)
+                msg("\n64Forth files restored\n")
+            }
+        case .alertSecondButtonReturn:
+            if confirmReplaceUserTree() {
+                _ = installUserTree(replaceExisting: true)
+                msg("\n64Forth files restored\n")
+            }
+        default:
+            break
+        }
+    }
+
+    private func confirmReplaceUserTree() -> Bool {
+        guard userTreeURL != nil else { return true }
+        let sure = NSAlert()
+        sure.alertStyle = .critical
+        sure.messageText = "Are you sure?"
+        sure.informativeText =
+            "Documents/64Forth will be overwritten. Your edits in that folder will be deleted."
+        sure.addButton(withTitle: "Yes")
+        sure.addButton(withTitle: "Cancel")
+        return sure.runModal() == .alertFirstButtonReturn
+    }
+
+    /// 64Forth → 64Forth.User, then .User1 … .User9. False if all names taken.
+    @discardableResult
+    func renameUserTreeForBackup() -> Bool {
+        let fm = FileManager.default
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents")
+        let src = docs.appendingPathComponent("64Forth", isDirectory: true)
+        guard fm.fileExists(atPath: src.path) else { return true }
+
+        var suffixes = ["User"]
+        suffixes.append(contentsOf: (1...9).map { "User\($0)" })
+
+        for suffix in suffixes {
+            let dest = docs.appendingPathComponent("64Forth.\(suffix)", isDirectory: true)
+            guard !fm.fileExists(atPath: dest.path) else { continue }
+            do {
+                try fm.moveItem(at: src, to: dest)
+                msg("\nRenamed Documents/64Forth to Documents/64Forth.\(suffix)\n")
+                return true
+            } catch {
+                msg("renameUserTree: \(error.localizedDescription)\n")
+                return false
+            }
+        }
+
+        let full = NSAlert()
+        full.alertStyle = .warning
+        full.messageText = "Cannot rename Documents/64Forth"
+        full.informativeText =
+            "Documents already has 64Forth.User through 64Forth.User9. " +
+            "Remove or rename one of those folders, then try again."
+        full.addButton(withTitle: "OK")
+        full.runModal()
+        return false
+    }
+}
+#endif

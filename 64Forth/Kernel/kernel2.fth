@@ -642,5 +642,45 @@ DOC" CHAR ( '<spaces>name' -- xchar ) first xchar of next word"
 DOC" [CHAR] ( compile: '<spaces>name' -- ) compile xchar literal (immediate)"
 : [CHAR] ?COMP CHAR LIT-ADDR , , ; IMMEDIATE
 
-DOC" MAIN ( -- ) default app entry; AutoLoad may redefine"
+\ BOOT_WORD display list for assembly words
+8 5 * CONSTANT /BOOT-WORD   \ name help imm code end
+: BOOT-WORD-NAME  ( row -- c-addr )  @ ;
+: BOOT-WORD-HELP  ( row -- c-addr )  8 + @ ;
+: BOOT-WORD-IMM   ( row -- n )       16 + @ ;
+: BOOT-WORD-CODE  ( row -- addr )    24 + @ ;
+: BOOT-WORD-END   ( row -- addr )    32 + @ ;   \ 0 if unlabeled
+
+: ZCOUNT  ( zaddr -- zaddr u )
+  DUP BEGIN DUP C@ WHILE 1+ REPEAT OVER - ;
+: ZTYPE  ( zaddr -- )  ZCOUNT TYPE ;
+: .BOOT-WORDS  ( -- )
+  BASE @ HEX
+  BOOT-WORD-TABLE
+  BEGIN
+    DUP @ ?DUP
+  WHILE
+    ZTYPE  2 SPACES
+    DUP 8 + @ ZTYPE  2 SPACES
+    DUP 24 + @ U. SPACE    \ code
+    DUP 32 + @ U. CR  \ end (use 24 + @ only if 4-quad rows)
+    /BOOT-WORD +
+  REPEAT DROP
+  BASE ! ;
+: CODE-BOUNDS  ( xt -- code end )
+  @                                 \ code*
+  BOOT-WORD-TABLE
+  BEGIN  DUP @ WHILE
+    2DUP 24 + @ = IF                \ this row's code
+      NIP  DUP 24 + @  SWAP 32 + @  EXIT
+    THEN
+    /BOOT-WORD +
+  REPEAT
+  DROP  0 ;                         \ not a boot primitive; end unknown
+: .BOUNDS  ( xt -- )
+  CODE-BOUNDS
+  BASE @ >R HEX
+  2DUP SWAP U. SPACE U. SPACE
+  SWAP - U.
+  R> BASE ! ;
+  DOC" MAIN ( -- ) default app entry; AutoLoad may redefine"
 : MAIN ;

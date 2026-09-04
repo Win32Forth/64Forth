@@ -4,7 +4,7 @@
 
 // Null name* ends _boot_kernel walk of __DATA,__bootword
 .section __DATA,__bootword,regular
-.quad 0, 0, 0, 0
+.quad 0, 0, 0, 0, 0
 
 .equ BOOT_WORD_COUNT, 266
 

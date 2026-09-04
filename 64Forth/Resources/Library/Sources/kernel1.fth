@@ -74,8 +74,6 @@ DOC" >HELP ( xt -- hfa ) help string"
 : >HELP HFA ;
 DOC" DOCOL? ( xt -- flag ) true if colon definition"
 : DOCOL? @ DOCOL-ADDR = ;
-DOC" BL ( -- c ) ASCII blank (space)"
-: BL 32 ;
 DOC" SPACE ( -- ) emit one space"
 : SPACE BL EMIT ;
 

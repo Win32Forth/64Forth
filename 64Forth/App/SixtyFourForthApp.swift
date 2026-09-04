@@ -141,7 +141,7 @@ struct SixtyFourForthApp: App {
                     FileHost.shared.installUserTree(replaceExisting: false)
                 }
                 Button("Restore Shipped Files to 64Forth Folder") {
-                    FileHost.shared.installUserTree(replaceExisting: true)
+                    FileHost.shared.confirmRestoreShippedFiles()
                 }
                 Button("Show Library Folder") {
                     FileHost.shared.revealInFinder(FileHost.shared.libraryURL)

@@ -55,6 +55,8 @@
 		B1000119 /* AppOutputHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOutputHost.swift; sourceTree = "<group>"; };
 		FA1CDF343048632900D22FCE /* app-output.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = "app-output.fth"; sourceTree = "<group>"; };
 		FA1CDF353048634500D22FCE /* app-points.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = "app-points.fth"; sourceTree = "<group>"; };
+		FA38151E304B00A900EB8DE3 /* boot_words_end.inc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.pascal; path = boot_words_end.inc; sourceTree = "<group>"; };
+		FA38151F304B00A900EB8DE3 /* kernel_api.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = kernel_api.h; sourceTree = "<group>"; };
 		FA6AA0DE301916D30007C369 /* 64Forth.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = 64Forth.jpg; sourceTree = "<group>"; };
 		FAEB4C7E30425AF900F5334E /* kernel1.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = kernel1.fth; sourceTree = "<group>"; };
 		FAEB4C7F30425B4800F5334E /* kernel2.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = kernel2.fth; sourceTree = "<group>"; };
@@ -126,6 +128,8 @@
 		B1000304 /* Kernel */ = {
 			isa = PBXGroup;
 			children = (
+				FA38151E304B00A900EB8DE3 /* boot_words_end.inc */,
+				FA38151F304B00A900EB8DE3 /* kernel_api.h */,
 				FA1CDF343048632900D22FCE /* app-output.fth */,
 				FA1CDF353048634500D22FCE /* app-points.fth */,
 				FAEB4C7F30425B4800F5334E /* kernel2.fth */,

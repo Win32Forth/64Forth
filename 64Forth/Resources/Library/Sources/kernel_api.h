@@ -149,6 +149,14 @@ int kernel_take_fault_flag(void);
 
 void kernel_cold_start(void);
 
+const kernel_boot_word *row = kernel_boot_word_table();
+for (; row->name != NULL; row++) {
+    size_t n = (row->end && row->code)
+        ? (const char *)row->end - (const char *)row->code
+        : 0;
+    /* row->name, row->code, n */
+}
+
 #ifdef __cplusplus
 }
 #endif
