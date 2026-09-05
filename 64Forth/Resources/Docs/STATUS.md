@@ -1,7 +1,7 @@
 # 64Forth development status
 
-**Current:** **1.3.3** (build **32**; awaiting DMG + GitHub `v1.3.3`)  
-**Last updated:** 2026-09-05 (1.3.3 prep — SYSVOC / EMITTER vocab, `-ROT`, ANS+Hayes green)
+**Current:** **1.3.3** (build **32**; DMG + GitHub `v1.3.3`)  
+**Last updated:** 2026-09-05 (1.3.3 — SYSVOC / EMITTER vocab, `-ROT`, ANS+Hayes green)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
@@ -26,7 +26,7 @@ Append new design sections as we go; mark items done when implemented.
 - Kernel assembly **`-ROT`** (common extension; not Forth-2012) next to `ROT`; removed colon def from `Emitter/reloc.fth`
 - `BOOT_WORD_COUNT` corrected to **321** (was stale at 267)
 - ANSValidate + Hayes suites pass
-- Release: awaiting `64Forth/releases/64Forth-1.3.3-macOS.dmg` + GitHub `v1.3.3`
+- Release: `64Forth/releases/64Forth-1.3.3-macOS.dmg` + GitHub `v1.3.3`
 
 ---
 
