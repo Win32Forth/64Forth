@@ -1,7 +1,7 @@
 # 64Forth development status
 
-**Current:** **1.3.2** (build **31**; awaiting DMG + GitHub `v1.3.2`)  
-**Last updated:** 2026-09-05 (1.3.2 prep — user data tree, `_END` labels, Emitter)
+**Current:** **1.3.2** (build **31**; DMG + GitHub `v1.3.2`)  
+**Last updated:** 2026-09-05 (1.3.2 release)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
@@ -24,6 +24,7 @@ Append new design sections as we go; mark items done when implemented.
 - **Emitter (in progress):** `Library/Emitter/` — `reach.fth` (reachable xts), `target.fth` (target image / colon layout), `reloc.fth` (PC-rel retarget / veneers), `run.fth` (trampoline + `CALL-NATIVE`), load via `FROMLIB FLOAD Emitter/emitter.fth`. Not a finished compiler; experimental Step 1–3 work
 - Kernel: boot `(.)` / `(U.)`; `U.` emits a trailing blank; high-level `ARSHIFT`
 - `HYPER.NDX` refreshed for Emitter / kernel source sync
+- Release: `64Forth/releases/64Forth-1.3.2-macOS.dmg` + GitHub `v1.3.2` (replaces 1.3.1 DMG in tree)
 
 ---
 
