@@ -84,7 +84,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 - [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Agent-channel.md`
 - [ ] **Later (optional):** DMG `/Volumes/…` open noise — see STATUS
 
-**Console header** (GUI): `=== 64Forth 1.3.3 === Sep 5, 2026 6:26 PM ===`  
+**Console header** (GUI): `=== 64Forth 1.3.3 === Sep 5, 2026 6:28 PM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
 
 ## Status (v1.1.1)

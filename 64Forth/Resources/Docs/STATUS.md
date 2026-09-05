@@ -15,7 +15,7 @@ Append new design sections as we go; mark items done when implemented.
 **Console header stamp** (`ConsoleView.swift` `banner`):
 
 ```text
-=== 64Forth 1.3.3 === Sep 5, 2026 6:26 PM ===
+=== 64Forth 1.3.3 === Sep 5, 2026 6:28 PM ===
 ```
 
 **Highlights (vs 1.3.2):**
