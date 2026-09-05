@@ -112,6 +112,10 @@ DOC" ELAPSED ( 'name' -- ) run name once and print elapsed time"
 : ELAPSED ' MS@ >R EXECUTE MS@ R> - .ELAPSED CR ;
 DOC" ? ( a-addr -- ) display the cell at a-addr (@ .)"
 : ? @ . ;
+DOC" ARSHIFT ( n u -- n' ) signed shift right"
+: ARSHIFT  ( n u -- n' )  \ signed shift right
+  DUP 0= IF  DROP EXIT  THEN
+  0 ?DO  2 /  LOOP ;
 
 DOC" .H2 ( b -- ) print byte as 2 hex digits"
 : .H2 255 AND 0 <# # # #> TYPE ;

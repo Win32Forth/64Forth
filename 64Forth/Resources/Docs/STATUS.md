@@ -1,10 +1,29 @@
 # 64Forth development status
 
-**Current:** **1.3.1** (build **30**; DMG + GitHub `v1.3.1`)  
-**Last updated:** 2026-09-02 (1.3.1 release)
+**Current:** **1.3.2** (build **31**; awaiting DMG + GitHub `v1.3.2`)  
+**Last updated:** 2026-09-05 (1.3.2 prep — user data tree, `_END` labels, Emitter)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.3.2 — User Library tree, CODE `_END` labels, Emitter (in progress)
+
+**Version strings:** marketing **1.3.2**, build **31** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.3.2 === Sep 5, 2026 12:49 PM ===
+```
+
+**Highlights (vs 1.3.1):**
+- **User data tree:** on first run, copy shipped `Library` / `AutoLoad` / `Docs` into `Documents/64Forth/…`; FROMLIB prefers that tree. Tools → **Update User Data in 64Forth Folder** and **Restore Shipped Files to 64Forth Folder**
+- **CODE `_END` labels:** assembly end markers on slicable primitives so a space-optimizing emitter can measure and copy CODE bodies into a target image (path toward stand-alone apps)
+- **Emitter (in progress):** `Library/Emitter/` — `reach.fth` (reachable xts), `target.fth` (target image / colon layout), `reloc.fth` (PC-rel retarget / veneers), `run.fth` (trampoline + `CALL-NATIVE`), load via `FROMLIB FLOAD Emitter/emitter.fth`. Not a finished compiler; experimental Step 1–3 work
+- Kernel: boot `(.)` / `(U.)`; `U.` emits a trailing blank; high-level `ARSHIFT`
+- `HYPER.NDX` refreshed for Emitter / kernel source sync
 
 ---
 

@@ -4,11 +4,17 @@
 
 ONLY FORTH DEFINITIONS DECIMAL
 
+DEFER TGT-RELOC
+
+: TGT-RELOC-NONE  ( -- )  ;
+' TGT-RELOC-NONE  IS TGT-RELOC
+
 VARIABLE TGT
 VARIABLE TGT-ORG
-VARIABLE TGT-DP 
+VARIABLE TGT-DP
 VARIABLE TGT-LIMIT
 VARIABLE TGT-END
+VARIABLE TGT-ALLOC    \ length given to ALLOCATE-EXEC / FREE-EXEC
 
 : TGT-HERE  TGT-DP @ ;
 
@@ -22,12 +28,16 @@ VARIABLE TGT-END
 : TGT-ALIGN  TGT-HERE 7 + -8 AND TGT-DP ! ;
 
 : TGT-CLOSE  ( -- )
-  TGT @ IF  TGT @ FREE DROP  THEN
-  0 TGT !  0 TGT-ORG !  0 TGT-DP !  0 TGT-LIMIT !  0 TGT-END ! ;
-
+  TGT @ IF
+    TGT @ TGT-ALLOC @ FREE-EXEC DROP
+  THEN
+  0 TGT !  0 TGT-ORG !  0 TGT-DP !  0 TGT-LIMIT !  0 TGT-END !
+  0 TGT-ALLOC ! ;
+  
 : TGT-OPEN  ( u -- )
   TGT-CLOSE
-  DUP ALLOCATE IF  DROP ." ALLOCATE failed" CR ABORT  THEN
+  DUP TGT-ALLOC !
+  DUP ALLOCATE-EXEC IF  DROP ." ALLOCATE-EXEC failed" CR ABORT  THEN
   DUP TGT !
   DUP TGT-ORG !
   DUP TGT-DP !
@@ -80,6 +90,7 @@ VARIABLE TGT-MAPN
 : RESERVE-PRIM  {: xt | new u -- :}
   TGT-HERE TO new
   xt PRIM-SPAN NIP 7 + -8 AND 8 + TO u
+  xt ['] (NEXT) <> IF  u 4 + TO u  THEN
   u TGT-ALLOT
   xt new MAP! ;
 
@@ -167,6 +178,34 @@ VARIABLE TGT-MAPN
 
 : TGT-SIZE  ( -- u )  TGT-END @ TGT-ORG @ - ;
 
+\ --- step 3a: stitch ITC dispatch -----------------------------------------
+
+: ARM-B,  ( target -- )
+  \ ( target -- )  emit B from TGT-HERE to target
+  TGT-HERE - 4 /                    \ /4, signed
+  $03FFFFFF AND $14000000 OR
+  TGT-HERE !  4 TGT-ALLOT ;
+
+: STITCH-NEXT  ( xt -- )
+  DUP ['] (NEXT) = IF  DROP EXIT  THEN
+  DUP COLON-WORD? IF  DROP EXIT  THEN
+  DUP MAP-FIND 8 +                  \ payload
+  SWAP PRIM-SPAN NIP +              \ addr just after copied bytes
+  TGT-DP !
+  ['] (NEXT) MAP-FIND 8 +           \ NEXT payload
+  ARM-B, ;
+
+: TGT-STITCH  {: | i -- :}
+  0 TO i
+  BEGIN  i TGT-MAPN @ <  WHILE
+    i CELLS TGT-OLD + @  STITCH-NEXT
+    i 1+ TO i
+  REPEAT ;
+
+: TGT-PROTECT  ( -- )
+  TGT-ORG @ TGT-SIZE 5 MPROTECT THROW
+  TGT-ORG @ TGT-SIZE ICACHE-INVAL ;
+
 : TGT-BUILD  ( xt -- )
   TGT-CLOSE
   REACH-FROM
@@ -178,7 +217,11 @@ VARIABLE TGT-MAPN
   TGT-RESERVE
   ." reserved " TGT-SIZE . CR
   TGT-WRITE
-  ." written " TGT-SIZE . CR ;
+  TGT-STITCH
+  TGT-RELOC
+  TGT-PROTECT
+  ." written " TGT-SIZE . CR
+  ;
 
 : TGT-DUMP  ( -- )
   HEX

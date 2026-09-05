@@ -67,8 +67,9 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ---
 
-## Status (v1.3.1)
+## Status (v1.3.2)
 
+- [x] **v1.3.2:** `Documents/64Forth` user Library/AutoLoad/Docs (first-run copy + Tools Update/Restore); CODE `_END` labels for slicer size; **Emitter** Library (in progress); `(.)`/`(U.)`/`ARSHIFT`; prep for DMG
 - [x] **v1.3.1:** Interactive `CODE` / `END-CODE` via `Library/Assembler/ASSEMBLER.fth` (does not affect 64TCOM); HYPER.NDX updated; DMG + GitHub release
 - [x] **v1.3.0:** GRAPHICS point primitives; cold-load `app-output`/`app-points`; dict default **8 MiB**, max **256 MiB**; DEBUG UX polish (from unreleased 1.2.1); DMG + GitHub release
 - [x] **v1.2.0:** ITC DEBUG source-alias highlight (`LIT`/`0BRANCH`/`BRANCH`/`EXIT`); F8 step-out; Esc/`q` abort; ⌘Q while paused; DMG + GitHub release
@@ -82,7 +83,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 - [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Agent-channel.md`
 - [ ] **Later (optional):** DMG `/Volumes/…` open noise — see STATUS
 
-**Console header** (GUI): `=== 64Forth 1.3.1 === Sep 2, 2026 3:16 PM ===`  
+**Console header** (GUI): `=== 64Forth 1.3.2 === Sep 5, 2026 12:49 PM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
 
 ## Status (v1.1.1)

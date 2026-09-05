@@ -9,7 +9,7 @@
 : DOC" 34 PARSE SETDOC ;
 DOC" HERE ( -- addr ) current dictionary pointer (DP @)"
 : HERE DP @ ;
-
+  
 \ --- 1. Simple ANS helpers ---
 DOC" CHAR+ ( addr -- addr' ) add size of one char"
 : CHAR+ 1+ ;

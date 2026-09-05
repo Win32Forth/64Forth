@@ -19,6 +19,7 @@ Examples
   FROMLIB FLOAD Assembler/asmarm64.fth     \ AArch64 host toolkit (not used by TCOM)
   FROMLIB FLOAD Assembler/ASSEMBLER.fth    \ interactive CODE / END-CODE (64Forth only)
   FROMLIB FLOAD Assembler/ASMARMTESTS.fth \ then: ASM-TESTS
+  FROMLIB FLOAD Emitter/emitter.fth        \ turnkey slicer (IN PROGRESS)
 
 Assembler (ASMARM64)
 --------------------
@@ -33,6 +34,22 @@ Assembler (ASMARM64)
   After load: .ASMARM64  ASM-TESTS  ASMARM64-DISCARD
   CODE words:  FROMLIB FLOAD Assembler/ASSEMBLER.fth  then  CODE name … END-CODE
 
-After editing Library .fth files, rebuild/run so the bundle copy updates.
+Emitter (IN PROGRESS)
+---------------------
+  Experimental space-optimizing / turnkey slicer toward stand-alone apps.
+  Load:   FROMLIB FLOAD Emitter/emitter.fth
+  Pieces: reach.fth (reachable xts), target.fth (target image),
+          reloc.fth (PC-rel retarget / veneers), run.fth (trampoline + CALL-NATIVE)
+  Kernel CODE words carry _END labels so primitive sizes can be measured for copy.
+  Not finished — do not treat as a shipping compiler yet.
+  Status: Docs/STATUS.md § v1.3.2
+
+User data (Documents/64Forth)
+-----------------------------
+  First launch copies Library / AutoLoad / Docs into Documents/64Forth.
+  FROMLIB prefers that tree. Tools menu: Update User Data / Restore Shipped Files.
+
+After editing Library .fth files, rebuild/run so the bundle copy updates
+(or use Tools → Update / Restore for the Documents/64Forth tree).
 
 See ANSValidate/README.txt, Editor/SZ-EDITOR-README.txt, and Docs/README.txt.

@@ -285,7 +285,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #15                    // "64Forth v1.3.1\n"
+    mov x2, #15                    // "64Forth v1.3.2\n"
     mov x16, #4
     svc #0x80
 
@@ -2540,6 +2540,8 @@ XUDOT:
     DPOP
     SAVE_VM
     bl _print_unsigned
+    mov x0, #32
+    bl _putchar
     RESTORE_VM
 XUDOT_END:
     NEXT
@@ -12516,6 +12518,8 @@ _compile_cell:
     b    _error_abandon
 
 // _print_signed: x0=value  (uses BASE; leading '-' if negative)
+    BOOT_WORD "(.)", "(.) ( u -- ) print signed helper", 0, XPDOT, XPDOT_END
+XPDOT:
 _print_signed:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -12527,8 +12531,11 @@ _print_signed:
     add sp, sp, #80
     ldp x29, x30, [sp], #16
     ret
-
+XPDOT_END:
+    
 // _print_unsigned: x0=value  (uses BASE; always unsigned)
+    BOOT_WORD "(U.)", "(U.) ( u -- ) print unsigned helper", 0, XPUDOT, XPUDOT_END
+XPUDOT:
 _print_unsigned:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -12540,6 +12547,7 @@ _print_unsigned:
     add sp, sp, #80
     ldp x29, x30, [sp], #16
     ret
+XPUDOT_END:
 
 // _load_base: -> x6 = BASE clamped to 2..36
 _load_base:
@@ -14063,7 +14071,7 @@ env_n_file:     .asciz "FILE"
 env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
-str_hello:  .asciz "64Forth v1.3.1\n"
+str_hello:  .asciz "64Forth v1.3.2\n"
 str_dbg_keys: .asciz " [F6=over F7=into F8=out Esc/q=abort Cmd-Shift-Y=go]\n"
 str_dbg_abort: .asciz "DEBUG aborted\n"
 str_prompt: .asciz "\nok> "
