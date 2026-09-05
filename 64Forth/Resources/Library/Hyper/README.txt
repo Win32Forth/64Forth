@@ -10,29 +10,35 @@ Load
 
 Vocabulary
 ----------
-  Internals / indexer live in HYPER-VOC. Public commands are defined once
+  Internals / indexer live in HYPER-VOC. User commands are defined once
   in FORTH while the search order includes HYPER-VOC:
 
     ONLY FORTH DEFINITIONS ALSO HYPER-VOC
     : VIEW … (HYPER-FIND) … ;   \ name → FORTH, callees → HYPER-VOC
 
-  so ONLY FORTH still finds VIEW / LOCATE / SEE / HYPER-NEXT / …
+  so ONLY FORTH still finds VIEW / LOCATE / SEE / DBG / …
+
+  Editor/debug hooks move to SYSVOC after definition:
+  HYPER-NEXT HYPER-PREV HYPER-FLASH-HERE HYPER-VIEW-NAME HYPER-VIEW-CU
+  (VIEW) DBG-UNTITLED DBG-SYNC-VIEW DBG-HIGHLIGHT-NAME
 
   HYPER-VOC WORDS              list Hyper implementation words
+  ALSO SYSVOC WORDS            list moved hooks
   ORDER                        show search order
 
-Commands (from HYPER-VOC unless noted)
--------------------------------------
-  LOCATE <name>     Print defining path:line  (shows [n/m] if multiple hits)
-  VIEW <name>       Open file in SZ-EDITOR at that line
-  SEE <name>        VIEW if SZ-EDITOR loaded, else decompile (kernel SEE)
-  SEE-SOURCE        Alias of VIEW
-  HYPER-NEXT        Visit history forward, else next multi-hit   (Cmd-PgDn)
-  HYPER-PREV        Visit history back, else previous multi-hit  (Cmd-PgUp)
-  HYPER-REINDEX     Rebuild Config/HYPER.NDX, reload (FORTH)
-  HYPER-RELOAD      Re-read index (Config/HYPER.NDX, else cwd HYPER.NDX)
-  .HYPER            Status (includes visit n/m when history non-empty)
-  HYPER-HELP        Short help
+Commands
+--------
+  LOCATE <name>     Print defining path:line  (shows [n/m] if multiple hits)  (FORTH)
+  VIEW <name>       Open file in SZ-EDITOR at that line                       (FORTH)
+  SEE <name>        VIEW if SZ-EDITOR loaded, else decompile (kernel SEE)     (FORTH)
+  SEE-SOURCE        Alias of VIEW                                             (FORTH)
+  DBG <name>        VIEW or untitled, then DEBUG                              (FORTH)
+  HYPER-NEXT        Visit history forward, else next multi-hit   (Cmd-PgDn)   (SYSVOC)
+  HYPER-PREV        Visit history back, else previous multi-hit  (Cmd-PgUp)   (SYSVOC)
+  HYPER-REINDEX     Rebuild Config/HYPER.NDX, reload                          (FORTH)
+  HYPER-RELOAD      Re-read index (Config/HYPER.NDX, else cwd HYPER.NDX)       (FORTH)
+  .HYPER            Status (includes visit n/m when history non-empty)        (FORTH)
+  HYPER-HELP        Short help                                                (FORTH)
   MIN-HYPER-NOISE   ON quiet reindex  e.g.  HYPER-VOC MIN-HYPER-NOISE ON FORTH
 
   Visit history     Cmd-click / Cmd-E / VIEW build a list of path+line

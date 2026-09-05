@@ -3,7 +3,7 @@
 \ IF only inside colon helpers. Do not use IF while interpreting.
 
 DECIMAL
-ONLY FORTH DEFINITIONS
+ONLY FORTH ALSO SYSVOC DEFINITIONS
 
 \ XC!+? fail path (kernel had DROP NIP; needs NIP only) — match all-in-one
 VARIABLE (XQ-SZ)

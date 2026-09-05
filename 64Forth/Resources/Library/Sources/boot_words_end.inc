@@ -6,7 +6,8 @@
 .section __DATA,__bootword,regular
 .quad 0, 0, 0, 0, 0
 
-.equ BOOT_WORD_COUNT, 266
+// Must equal the number of BOOT_WORD rows in forth.s (null sentinel not counted).
+.equ BOOT_WORD_COUNT, 321
 
 // Empty help used by : / CREATE / :NONAME
 .section __TEXT,__cstring,cstring_literals
@@ -26,7 +27,7 @@ boot_cmp_loop: .asciz "(LOOP)"
 boot_cmp_plusloop: .asciz "(+LOOP)"
 boot_cmp_does_rt: .asciz "(DOES>)"
 boot_cmp_catch_ok: .asciz "(CATCH-OK)"
-boot_cmp_local_init: .asciz "(LOCAL-INIT)"
+boot_cmp_local_init: .asciz "LOCAL-INIT"
 boot_cmp_local_at: .asciz "(LOCAL@)"
 boot_cmp_local_store: .asciz "(LOCAL!)"
 boot_cmp_flit: .asciz "FLIT"

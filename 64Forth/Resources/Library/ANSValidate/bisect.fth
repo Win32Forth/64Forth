@@ -12,7 +12,7 @@
 \ Each step emits "Bn " via EMIT only (no .R). Last Bn before fault = culprit.
 
 DECIMAL
-ONLY FORTH DEFINITIONS
+ONLY FORTH ALSO SYSVOC DEFINITIONS
 
 \ Print "B" then decimal n then space using only EMIT (always hits host emit)
 : B  ( n -- )

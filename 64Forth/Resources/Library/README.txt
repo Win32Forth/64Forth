@@ -42,7 +42,7 @@ Emitter (IN PROGRESS)
           reloc.fth (PC-rel retarget / veneers), run.fth (trampoline + CALL-NATIVE)
   Kernel CODE words carry _END labels so primitive sizes can be measured for copy.
   Not finished — do not treat as a shipping compiler yet.
-  Status: Docs/STATUS.md § v1.3.2
+  Status: Docs/STATUS.md § v1.3.3
 
 User data (Documents/64Forth)
 -----------------------------

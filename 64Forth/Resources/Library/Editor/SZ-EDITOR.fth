@@ -24,7 +24,8 @@ ANEW SZ-EDITOR
 \ Body words go in the standard EDITOR vocabulary (boot-time VOCABULARY EDITOR).
 \ ANEW rewinds FORTH/DP but does not clear EDITOR's head, so empty it first on
 \ every load — otherwise reload leaves dangling links into forgotten headers.
-ONLY FORTH ALSO EDITOR DEFINITIONS
+\ SYSVOC: DBG-INLINE and other system hooks used while compiling editor.
+ONLY FORTH ALSO SYSVOC ALSO EDITOR DEFINITIONS
 0 GET-CURRENT !
 
 FLOAD sz-host.fth

@@ -1,10 +1,32 @@
 # 64Forth development status
 
-**Current:** **1.3.2** (build **31**; DMG + GitHub `v1.3.2`)  
-**Last updated:** 2026-09-05 (1.3.2 release)
+**Current:** **1.3.3** (build **32**; awaiting DMG + GitHub `v1.3.3`)  
+**Last updated:** 2026-09-05 (1.3.3 prep — SYSVOC / EMITTER vocab, `-ROT`, ANS+Hayes green)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.3.3 — SYSVOC / EMITTER vocabularies, `-ROT`, clean FORTH
+
+**Version strings:** marketing **1.3.3**, build **32** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.3.3 === Sep 5, 2026 6:26 PM ===
+```
+
+**Highlights (vs 1.3.2):**
+- **SYSVOC** cold vocabulary (`Kernel/vocsys.fth`): moves system / support words out of FORTH (SEE helpers, SUBSTITUTE temps, loops/`(DOES>)`, block/locals/debug guts, `-TRAILING-GARBAGE`, …); EDITOR / GRAPHICS host hooks rechain as before
+- **EMITTER** cold vocabulary (`Kernel/vocemit.fth`): emitter-only ITC/boot helpers; loaders use `ONLY FORTH ALSO SYSVOC ALSO EMITTER`
+- **LOCAL-INIT** public name (was `(LOCAL-INIT)`); stays in FORTH for ANSValidate; CFA-cache string kept in sync
+- Hyper editor/debug hooks (`HYPER-NEXT`/`PREV`, `(VIEW)`, `DBG-SYNC-VIEW`, …) move to **SYSVOC**; `VIEW` / `LOCATE` / `SEE` / `DBG` / `APP-RUN` stay in FORTH
+- Kernel assembly **`-ROT`** (common extension; not Forth-2012) next to `ROT`; removed colon def from `Emitter/reloc.fth`
+- `BOOT_WORD_COUNT` corrected to **321** (was stale at 267)
+- ANSValidate + Hayes suites pass
+- Release: awaiting `64Forth/releases/64Forth-1.3.3-macOS.dmg` + GitHub `v1.3.3`
 
 ---
 
@@ -114,7 +136,7 @@ Append new design sections as we go; mark items done when implemented.
 - Kernel: `_debug_pause` saves/restores full VM; nested SYNC/HIGHLIGHT/WHEEL **isolate** the data stack
 - Editor: `SZ-HIGHLIGHT-NAME` no longer `ROT DROP`s under highlight args (was corrupting ITC `DEBUG` stack → bad `C@`/`TYPE`)
 - Host: `kernelEmitBufTrampoline` rejects near-NULL TYPE buffers
-- Kernel: `(LOCAL-INIT)` overflow drain + ANSValidate locals coverage; more `BOOT_WORD` / `DOC"` help
+- Kernel: `LOCAL-INIT` overflow drain + ANSValidate locals coverage; more `BOOT_WORD` / `DOC"` help
 - Hyper: `HYPER.NDX` regenerated as needed for kernel source sync
 - Release: `64Forth/releases/64Forth-1.1.9-macOS.dmg` + GitHub `v1.1.9`
 

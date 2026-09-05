@@ -4,8 +4,8 @@
 \ Use:  ALSO HYPER-VOC  LOCATE DUP  PREVIOUS
 \       (or: HYPER-VOC LOCATE DUP FORTH)
 \
-\ Internals in HYPER-VOC. Public VIEW/LOCATE/SEE/… defined once in FORTH
-\ with ALSO HYPER-VOC so bodies find Hyper words (survive ONLY FORTH).
+\ Internals in HYPER-VOC. User commands VIEW/LOCATE/SEE/DBG stay in FORTH.
+\ Editor/debug hooks (HYPER-NEXT/PREV, (VIEW), DBG-*-…) move to SYSVOC.
 
 ANEW HYPER-MODULE
 ONLY FORTH DEFINITIONS
@@ -965,7 +965,7 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC
 \ From the idle console this must enter SZ-EDIT-LOOP (SZ-EDIT-NEW / VIEW)
 \ so the stepper runs on the first frame. Already in the editor: switch
 \ buffer and DEBUG in this EVALUATE (command pane).
-ALSO EDITOR
+ALSO SYSVOC ALSO EDITOR
 : DBG-UNTITLED  ( -- )
    HYPER-EDITOR-ACTIVE? IF
       SZ-DO-MENU-NEW
@@ -1014,6 +1014,19 @@ PREVIOUS
 : SEE-SOURCE  ( "name" -- )  VIEW ;
 
 : HYPER-VIEW-CU  ( c-addr u -- )  HYPER-VIEW-NAME ;
+
+\ Editor/debug hooks → SYSVOC (VIEW / LOCATE / SEE / DBG stay in FORTH).
+ALSO SYSVOC
+S" HYPER-NEXT"         FORTH>SYSVOC
+S" HYPER-PREV"         FORTH>SYSVOC
+S" HYPER-FLASH-HERE"   FORTH>SYSVOC
+S" HYPER-VIEW-NAME"    FORTH>SYSVOC
+S" HYPER-VIEW-CU"      FORTH>SYSVOC
+S" (VIEW)"             FORTH>SYSVOC
+S" DBG-UNTITLED"       FORTH>SYSVOC
+S" DBG-SYNC-VIEW"      FORTH>SYSVOC
+S" DBG-HIGHLIGHT-NAME" FORTH>SYSVOC
+PREVIOUS
 
 : SEE  ( "name" -- )
    >IN @ >R

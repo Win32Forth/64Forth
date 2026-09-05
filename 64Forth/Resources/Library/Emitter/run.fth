@@ -1,7 +1,7 @@
 \ run.fth — step 3c: trampoline + CALL-NATIVE into a sliced colon
 \ Requires target.fth + reloc.fth.  Public domain.
 
-ONLY FORTH DEFINITIONS
+\ Loaded under EMITTER DEFINITIONS (see emitter.fth).
 DECIMAL
 
 VARIABLE RUN-ORG
@@ -21,13 +21,20 @@ VARIABLE RUN-RSP-MEM
   RUN-HERE W!  4 RUN-DP +! ;
 
 \ MOVZ Xd, #imm16, LSL #(hw*16)     hw = 0,1,2,3
+\ Encoding: imm16 at bits 20:5, Rd at 4:0, hw at 22:21.
 : ARM-MOVZ,  ( imm16 rd hw -- )
-  21 LSHIFT SWAP 5 LSHIFT OR OR
+  {: imm rd hw -- :}
+  hw 21 LSHIFT
+  imm 5 LSHIFT OR
+  rd OR
   $D2800000 OR  RUN-W, ;
 
 \ MOVK Xd, #imm16, LSL #(hw*16)
 : ARM-MOVK,  ( imm16 rd hw -- )
-  21 LSHIFT SWAP 5 LSHIFT OR OR
+  {: imm rd hw -- :}
+  hw 21 LSHIFT
+  imm 5 LSHIFT OR
+  rd OR
   $F2800000 OR  RUN-W, ;
 
 : ARM-MOV64,  ( u64 rd -- )
@@ -70,33 +77,46 @@ VARIABLE RUN-RSP-MEM
 
 \ Emit trampoline at RUN-ORG.
 \ On entry from CALL-NATIVE: x19 = dsp we passed, x0 unused.
-\ We set x22=x19, x23=RSP, x21=colon-CFA, x20=0, x28=0, BR DOCOL.
+\ Set x22=dsp, x23=RSP, x21=colon-CFA, x20=0, x28=0, push a
+\ synthetic return IP, then NEXT into the colon body.
+\
+\ BL veneers in sliced code use BLR and clobber X30. Save CALL-NATIVE's
+\ LR on the run RSP at entry; the return gadget restores it before RET.
+\
+\ Layout: prologue → NEXT into colon → (dead) gadgets after BR.
+
 VARIABLE RET-BODY
 
 : RUN-EMIT  ( colon-xt -- )
-  {: xt | cfa retc cfar body -- :}
+  {: xt | cfa retc cfar body patch -- :}
   xt MAP-FIND DUP 0= IF  ." RUN unmapped" CR ABORT  THEN  TO cfa
   RUN-ORG @ RUN-DP !
-  $D503245F RUN-W,
-  $AA1303F6 RUN-W,
-  0 28 0 ARM-MOVZ,
-  0 20 0 ARM-MOVZ,
-  RUN-RSP @ 23 ARM-MOV64,
-  cfa       21 ARM-MOV64,
-  \ gadget at end of page-ish: RET, CFA, BODY
+  $AA1303F6 RUN-W,             \ MOV X22, X19   (DSP)
+  0 28 0 ARM-MOVZ,             \ X28 = 0 (no debug NEXT)
+  0 20 0 ARM-MOVZ,             \ X20 = 0 (TOS)
+  RUN-RSP @ 23 ARM-MOV64,      \ X23 = RSP
+  cfa       21 ARM-MOV64,      \ X21 = colon CFA
+  $F81F8EFE RUN-W,             \ STR X30, [X23, #-8]!  save LR
+  \ Placeholder MOV X0,#body — patched after gadgets are placed
+  RUN-HERE TO patch
+  0 0 ARM-MOV64,               \ 4 insns; overwritten below
+  $F81F8EE0 RUN-W,             \ STR X0, [X23, #-8]!   RPUSH return IP
+  $910022B3 RUN-W,             \ ADD X19, X21, #8      IP = body
+  $F8408675 RUN-W,             \ LDR X21, [X19], #8    NEXT
+  $F94002A1 RUN-W,             \ LDR X1, [X21]
+  $D61F0020 RUN-W,             \ BR X1
+  \ Gadgets after the BR — never executed by fall-through
   RUN-HERE 7 + -8 AND RUN-DP !
-  RUN-HERE TO retc   $D65F03C0 RUN-W,
+  RUN-HERE TO retc
+  $F84086FE RUN-W,             \ LDR X30, [X23], #8    restore LR
+  $D65F03C0 RUN-W,             \ RET
   RUN-HERE 7 + -8 AND RUN-DP !
-  RUN-HERE TO cfar   retc  RUN-HERE !  8 RUN-DP +!
-  RUN-HERE TO body   cfar  RUN-HERE !  8 RUN-DP +!
-  body 0 ARM-MOV64,            \ X0 = BODY-RET
-  $F81F8EE0 RUN-W,             \ STR X0, [X23, #-8]!
-  $910022B3 RUN-W,             \ ADD X19, X21, #8
-  $F8408675 RUN-W,
-  $F94002A1 RUN-W,
-  $D61F0020 RUN-W, ;
-
-\ note: ARM-MOV64, into X0 must be BEFORE STR/NEXT. It is.
+  RUN-HERE TO cfar   retc RUN-HERE !  8 RUN-DP +!   \ CFA -> restore+RET
+  RUN-HERE TO body   cfar RUN-HERE !  8 RUN-DP +!   \ IP cell -> CFA
+  \ Patch MOV X0, #body at placeholder
+  patch RUN-DP !
+  body 0 ARM-MOV64,
+  ;
 
 : RUN-PROTECT  ( -- )
   RUN-ORG @ RUN-LEN @ 5 MPROTECT THROW

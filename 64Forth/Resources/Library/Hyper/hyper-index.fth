@@ -332,7 +332,7 @@ CREATE HX-LTAB  HX-LMAX HX-ESIZE * ALLOT
 : HX-ADD-LABEL
    HX-LN HX-LMAX >= IF  DROP 2DROP EXIT  THEN
    HX-LN HX-LENT >R                \ R: ent  ( a u line )
-   ROT ROT 31 MIN                  \ line a u   (no -ROT in kernel)
+   -ROT 31 MIN                     \ line a u
    DUP R@ C!
    R@ CHAR+ SWAP CMOVE             \ line
    R@ 32 + !

@@ -63,7 +63,7 @@
 // semantic validation.
 //
 // Core coverage (by area; stack comments intended to match ANS):
-//   Stack:    DUP DROP SWAP OVER ROT PICK ?DUP 2DUP 2DROP 2SWAP 2OVER DEPTH
+//   Stack:    DUP DROP SWAP OVER ROT -ROT PICK ?DUP 2DUP 2DROP 2SWAP 2OVER DEPTH
 //   Return:   >R R> R@ (Generally it is BAD to mix return stack ops with locals)
 //   Arith:    + - * / MOD /MOD 1+ 1- NEGATE ABS MIN MAX LSHIFT RSHIFT
 //             */ */MOD  (symmetric intermediate divide via SM/REM)
@@ -285,7 +285,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #15                    // "64Forth v1.3.2\n"
+    mov x2, #15                    // "64Forth v1.3.3\n"
     mov x16, #4
     svc #0x80
 
@@ -1979,6 +1979,17 @@ XROT:
     str x20, [x22]
     mov x20, x1
 XROT_END:
+    NEXT
+
+    // Common extension (not Forth-2012); inverse of ROT — same as ROT ROT.
+    BOOT_WORD "-ROT", "-ROT ( a b c -- c a b ) reverse-rotate top three", 0, XNROT, XNROT_END
+XNROT:
+    ldr x0, [x22]                  // b
+    ldr x1, [x22, #8]              // a
+    str x20, [x22, #8]             // c
+    str x1, [x22]                  // a
+    mov x20, x0                    // b
+XNROT_END:
     NEXT
 
     BOOT_WORD "NIP", "NIP ( x1 x2 -- x2 ) drop the cell under TOS (SWAP DROP)", 0, XNIP, XNIP_END
@@ -5726,7 +5737,7 @@ XBIISQRT_END:
     NEXT
 
 // ============================================================================
-// Locals (ANS-style minimal: {: … :}  TO  (LOCAL-INIT) (LOCAL@) (LOCAL!))
+// Locals (ANS-style minimal: {: … :}  TO  LOCAL-INIT (LOCAL@) (LOCAL!))
 // Runtime frames in BSS; compile-time names for current definition.
 // Generally it is BAD to mix return stack ops with Locals. If you do, you MUST
 // remove the return stack values before accessing any local variables.
@@ -5735,9 +5746,9 @@ XBIISQRT_END:
 .equ LOCAL_NAME_STR, 32
 .equ LOCAL_FRAME_MAX, 16
 
-// (LOCAL-INIT) ( nLocals nInit reverse -- )
+// LOCAL-INIT ( nLocals nInit reverse -- )
 
-    BOOT_WORD "(LOCAL-INIT)", "(LOCAL-INIT) ( n nInit rev -- ) create locals frame", 0, XLOCAL_INIT, XLOCAL_INIT_END
+    BOOT_WORD "LOCAL-INIT", "LOCAL-INIT ( n nInit rev -- ) create locals frame", 0, XLOCAL_INIT, XLOCAL_INIT_END
 XLOCAL_INIT:
     // TOS = reverse, then nInit, nLocals
     mov  x2, x20                   // reverse
@@ -5879,7 +5890,7 @@ XLOCAL_STORE_END:
 
 // (LOCAL) ( c-addr u -- )  ANS 13.6.1.0086 — compile-time only
 // u <> 0: declare a local named by c-addr u (first named gets TOS at run-time).
-// u = 0:  "last local" — compile (LOCAL-INIT) for the sequence.
+// u = 0:  "last local" — compile LOCAL-INIT for the sequence.
 // Init order is reverse=0 (first declared ← TOS), unlike {: which uses reverse=1.
 
     BOOT_WORD "(LOCAL)", "(LOCAL) ( c-addr u -- ) declare local or end locals (compile only)", 0, XLOCAL_PAREN, XLOCAL_PAREN_END
@@ -5938,7 +5949,7 @@ _lparen_last:
 XLOCAL_PAREN_END:
     NEXT
 
-// {:  immediate — parse args | vals -- outs :} then compile (LOCAL-INIT)
+// {:  immediate — parse args | vals -- outs :} then compile LOCAL-INIT
 // MUST NOT clobber x19 (IP) / x20-x24 (VM). Phase lives in local_brace_phase.
 
     BOOT_WORD "{:", "{: ( -- ) declare locals {: args | vals -- outs :} (immediate)", 1, XLOCAL_BRACE
@@ -6231,7 +6242,7 @@ _local_lookup:
     ldp x19, x20, [sp], #16
     ret
 
-// _local_finalize_compile: compile LIT n LIT nInit LIT rev (LOCAL-INIT)
+// _local_finalize_compile: compile LIT n LIT nInit LIT rev LOCAL-INIT
 _local_finalize_compile:
     stp x29, x30, [sp, #-16]!
     // LIT nLocals
@@ -6261,7 +6272,7 @@ _local_finalize_compile:
     add  x0, x0, local_init_reverse@pageoff
     ldr  x0, [x0]
     bl   _compile_cell
-    // (LOCAL-INIT)
+    // LOCAL-INIT
     adrp x0, cfa_local_init@page
     add  x0, x0, cfa_local_init@pageoff
     ldr  x0, [x0]
@@ -14071,7 +14082,7 @@ env_n_file:     .asciz "FILE"
 env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
-str_hello:  .asciz "64Forth v1.3.2\n"
+str_hello:  .asciz "64Forth v1.3.3\n"
 str_dbg_keys: .asciz " [F6=over F7=into F8=out Esc/q=abort Cmd-Shift-Y=go]\n"
 str_dbg_abort: .asciz "DEBUG aborted\n"
 str_prompt: .asciz "\nok> "
@@ -14200,8 +14211,10 @@ eval_arg_len:   .quad 0
 forth_init_str:
     .incbin "kernel1.fth"
     .incbin "kernel2.fth"
+    .incbin "vocemit.fth"
     .incbin "app-output.fth"
     .incbin "app-points.fth"
+    .incbin "vocsys.fth"
     .byte 0
 forth_init_end:
 

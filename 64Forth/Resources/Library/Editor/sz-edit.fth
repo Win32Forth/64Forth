@@ -895,13 +895,13 @@ VARIABLE SZ-SEL-DONE                   \ nonzero: selection finished on down (sk
 ;
 
 \ Phase 5: Cmd-PgUp/PgDn → HYPER-PREV / HYPER-NEXT (if Hyper module loaded).
-\ Hyper words live in HYPER-VOC. Runtime FIND so Editor can load before Hyper.
+\ Those live in SYSVOC after Hyper load. Runtime FIND so Editor can load first.
 CREATE SZ-RUN-NAME  64 ALLOT
 : SZ-RUN-FORTH  ( c-addr u -- )
    63 MIN SZ-RUN-NAME SZ-PLACE
-   S" HYPER-VOC" PAD SZ-PLACE
+   S" SYSVOC" PAD SZ-PLACE
    PAD FIND 0= IF  DROP EXIT  THEN
-   EXECUTE                              \ push HYPER-VOC
+   EXECUTE                              \ push SYSVOC
    SZ-RUN-NAME FIND IF  EXECUTE  ELSE  DROP  THEN
    PREVIOUS ;
 
@@ -1413,6 +1413,9 @@ VARIABLE SZ-VIEW-NOTED                     \ nonzero: skip next HIST-NOTE
    S" HYPER-VOC" PAD SZ-PLACE
    PAD FIND 0= IF  DROP 0 SZ-VIEW-NOTED ! EXIT  THEN
    EXECUTE
+   S" SYSVOC" PAD SZ-PLACE
+   PAD FIND 0= IF  DROP PREVIOUS 0 SZ-VIEW-NOTED ! EXIT  THEN
+   EXECUTE                                  \ HYPER-VIEW-NAME lives in SYSVOC
    SZ-VIEW-NOTED @ IF
       0 SZ-VIEW-NOTED !
       S" HYPER-SKIP-NOTE" PAD SZ-PLACE
@@ -1421,7 +1424,7 @@ VARIABLE SZ-VIEW-NOTED                     \ nonzero: skip next HIST-NOTE
    SZ-PATH-TMP COUNT
    S" HYPER-VIEW-NAME" PAD SZ-PLACE
    PAD FIND IF  EXECUTE  ELSE  DROP 2DROP  THEN
-   PREVIOUS ;
+   PREVIOUS PREVIOUS ;
 
 \ Note Hyper origin at caret *before* moving the caret (for Cmd-click).
 \ Only updates Hyper VTAB + side list via NOTE-HERE; must not throw or leave

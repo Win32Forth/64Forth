@@ -54,17 +54,17 @@ S" #LOCALS" ENVIRONMENT? DROP 32 = S" ENV-#LOCALS" EXPECT
 : LO-K  {: n -- m :} n LO-J ;
 5 LO-K 6 = S" nest-locals" EXPECT
 
-\ --- (LOCAL-INIT) frame-table overflow must drain nInit cells ---
+\ --- LOCAL-INIT frame-table overflow must drain nInit cells ---
 \ LOCAL_FRAME_MAX is 16. Nest 16 empty {: -- :} frames, then from the
 \ innermost body push sentinel 42 and three init values and call
-\ (LOCAL-INIT) again. On overflow, control args + three inits are dropped.
+\ LOCAL-INIT again. On overflow, control args + three inits are dropped.
 \ First push onto an empty stack spills the empty TOS sentinel 0 under 42,
 \ so a correct drain leaves (0 42): DEPTH under-count 1, TOS 42. NIP drops
 \ the sentinel before returning the flag.
 \ Note: do not use .( inside colon — it runs at compile time.
 : LO-OV15  {: -- flag :}
   42
-  111 222 333  3 3 0 (LOCAL-INIT)
+  111 222 333  3 3 0 LOCAL-INIT
   DEPTH 1 = SWAP 42 = AND NIP ;
 : LO-OV14  {: -- flag :} LO-OV15 ;
 : LO-OV13  {: -- flag :} LO-OV14 ;

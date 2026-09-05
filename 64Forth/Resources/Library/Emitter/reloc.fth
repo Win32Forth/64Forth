@@ -1,7 +1,7 @@
 \ reloc.fth — step 3b: retarget out-of-span ARM PC-rel to host VAs
 \ Load after target.fth.  Public domain.
 
-ONLY FORTH DEFINITIONS
+\ Loaded under EMITTER DEFINITIONS (see emitter.fth).
 DECIMAL
 
 : W@  ( addr -- u32 )
@@ -26,21 +26,6 @@ $D503201F CONSTANT ARM-NOP
   TGT-END @ W!
   4 TGT-END +! ;
 
-: VEN-MOV64-X16  ( u64 -- )
-  {: val | w bits -- :}
-  0 TO w
-  BEGIN  w 4 <  WHILE
-    val w 16 * RSHIFT $FFFF AND TO bits
-    bits 5 LSHIFT
-    w 21 LSHIFT OR
-    w 0= IF  $D2800000  ELSE  $F2800000  THEN  OR   \ MOVZ/MOVK X16 (Rd=16)
-    $10 OR                 \ Rd = 16 already in bits 4:0: 16 = $10
-    \ fix: Rd is bits 4:0
-    DROP
-    w 1+ TO w
-  REPEAT ;
-
-\ Correct MOVZ/MOVK X16:
 : VEN-MOV64-X16  ( u64 -- )
   {: val | w imm -- :}
   0 TO w
@@ -74,10 +59,10 @@ $D61F0200 CONSTANT ARM-BR-X16
     ARM-BLR-X16 VEN-W,
     npc 4 + TO ret
     TGT-END @ ret ENC-B-TO VEN-W,     \ B back to npc+4
-    ven npc ENC-BL-TO npc W!          \ original site: BL veneer
+    npc ven ENC-BL-TO npc W!          \ site: BL veneer (from npc -> ven)
   ELSE
     ARM-BR-X16 VEN-W,                 \ tail B
-    ven npc ENC-B-TO npc W!
+    npc ven ENC-B-TO npc W!           \ site: B veneer (from npc -> ven)
   THEN
 ;
 
@@ -95,9 +80,6 @@ $D61F0200 CONSTANT ARM-BR-X16
 
 : IN-SPAN?  ( tgt code u -- flag )
   OVER +  WITHIN ;
-
-: -ROT      ( a b c -- c a b)
-    ROT ROT ;
 
 \ --- decode: ( insn pc -- tgt | 0 )  0 = not pc-rel we handle ----------
 
@@ -140,16 +122,17 @@ $D61F0200 CONSTANT ARM-BR-X16
   $03FFFFFF AND OR ;
 
 : ENC-ADRP  ( tgt pc old-insn -- insn )
+  \ page delta = (tgt_page - pc_page) / 4096 as signed imm21
   $0000001F AND                 \ Rd
   -ROT                          \ Rd tgt pc
   $FFFFFFFFFFFFF000 AND         \ Rd tgt pcpage
   SWAP $FFFFFFFFFFFFF000 AND SWAP -
   12 ARSHIFT                    \ Rd pages
-  DUP $001FFFFF AND             \ Rd pages imm21
-  DUP 2 RSHIFT $00FFFFE0 AND    \ immhi at bits 23:5
-  SWAP $00000003 AND 29 LSHIFT OR
-  $90000000 OR                  \ ADRP
-  ROT OR ;                      \ Rd
+  $001FFFFF AND                 \ Rd imm21
+  DUP 3 LSHIFT $00FFFFE0 AND    \ Rd imm21 immhi@23:5
+  OVER $00000003 AND 29 LSHIFT OR  \ Rd imm21 (immhi|immlo)
+  NIP                           \ Rd imm
+  $90000000 OR OR ;             \ ADRP | imm | Rd
 
 : PATCH  {: npc insn tgt -- :}
   npc TGT-ORG @ TGT-END @ WITHIN 0= IF

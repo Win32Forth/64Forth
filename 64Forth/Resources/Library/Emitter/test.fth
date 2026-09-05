@@ -1,98 +1,39 @@
-\ FROMLIB FLOAD Emitter/emitter.fth
+\ Emitter/test.fth — build+run ladder (empty, S" hi" TYPE, IF/ELSE).
+\ Canonical copy lives under Resources/Library/Emitter; sync into
+\ Documents/64Forth/Library/Emitter after edits (RESTORE-SHIPPED stomps Library).
+\ Public domain.
+\
+\   FROMLIB FLOAD Emitter/test.fth
+\ Or via agent (outside Library):
+\   /Applications/64Forth.app/Contents/MacOS/64Forth --agent \
+\     -f $HOME/Documents/64Forth/EmitterSmoke/agent-smoke.fth
 
+ONLY FORTH DEFINITIONS DECIMAL
+FROMLIB FLOAD Emitter/emitter.fth
+\ emitter.fth leaves ALSO EMITTER on the search order.
 
+: T-EMPTY ;
+: T-HI    S" hi" TYPE ;
+: MAIN2   1 0= IF  2 THEN 3 . ;
+: MAIN4   1 IF 2 ELSE 3 THEN . ;
 
-.( Loading test.fth ) CR
+: TRY-RUN  ( xt -- )
+  DUP TGT-BUILD  TGT-RUN ;
 
-: TMAIN  S" hi" TYPE ;
+CR .( === empty colon === ) CR
+['] T-EMPTY TRY-RUN
+.( empty ok ) CR
 
-: BUILD-TMAIN
-    ['] TMAIN TGT-BUILD
-\    HEX  RUN-ORG @ U.  RUN-ORG @ W@ U.  DECIMAL
-\    RUN-ORG @ 4096 5 MPROTECT .
-\    ['] TMAIN TGT-RUN
-    ;
-.( running TGT-BUILD ) CR
-BUILD-TMAIN
-.( Ran TGT-BUILD ) CR
+CR .( === S" hi" TYPE === ) CR
+['] T-HI TRY-RUN
+CR .( hi returned ) CR
 
-\s
-HEX
-: TST ( a1 -- n1 )
-    MAP-FIND dup U.
-    dup 0= IF ." DIDN'T FIND IT" EXIT THEN
-    8 +
-    DUP U. CR
-    DUP W@ U. CR          \ first insn of TYPE
-    ;
-    
-' TYPE TST
-' EXIT TST
-DECIMAL
+CR .( === MAIN2: 1 0= IF 2 THEN 3 .  expect 3 === ) CR
+['] MAIN2 TRY-RUN
+CR .( MAIN2 returned ) CR
 
-\S
+CR .( === MAIN4: 1 IF 2 ELSE 3 THEN .  expect 2 === ) CR
+['] MAIN4 TRY-RUN
+CR .( MAIN4 returned ) CR
 
-: TMAIN  S" hi" TYPE ;
-' TMAIN REACH-FROM
-.REACHABLE
-' TMAIN TGT-BUILD
-' TYPE MAP-FIND U.
-
-HEX
-' TYPE MAP-FIND 8 +            \ payload
-' TYPE PRIM-SPAN NIP +        \ address of B
-DUP U. SPACE
-@ U. CR
-' (NEXT) MAP-FIND 8 + U. CR
-DECIMAL
-
-\ NATIVE-SMOKE .                 \ must be 0
-\ FROMLIB FLOAD Emitter/test.fth
-\ ' MAIN TGT-BUILD
-\ HEX
-\ ' TYPE MAP-FIND 8 +            \ TYPE payload
-\  ' TYPE PRIM-SPAN NIP +       \ should be the B
-\ 4 - @ U.                     \ expect 14xxxxxx
-\ ' (NEXT) dbg MAP-FIND 8 + U.
-\ DECIMAL
-
-\S      \ Stop interpreting HERE **********
-
-: MAIN  S" hi" TYPE ;
-: MAIN2  1 0= IF  2 THEN 3 . ;
-: MAIN4  1 IF 2 ELSE 3 THEN . ;
-
-: .SPANS
-  CR ." n=" REACH-N @ . CR
-  0 BEGIN
-    DUP REACH-N @ <
-  WHILE
-    DUP . SPACE
-    DUP CELLS REACH-XTS + @
-    DUP NAME>STRING TYPE SPACE
-    DUP COLON-WORD? IF
-      ." colon " COLON-SPAN NIP
-    ELSE
-      ." prim " CODE-BOUNDS SWAP -
-    THEN
-    . CR
-    1+
-  REPEAT ;
-  
-' MAIN REACH-FROM
-['] (DOCOL) (MARK)
-['] (NEXT)  (MARK)
-['] EXIT    (MARK)
-.SPANS
-
-: TRY  ( xt -- )
-  DUP REACH-FROM
-  ['] (DOCOL) (MARK)  ['] (NEXT) (MARK)  ['] EXIT (MARK)
-  .REACHABLE CR
-  TGT-BUILD
-  TGT-SIZE . CR
-  .MAP ;
-
-' MAIN TRY
-' MAIN2 TRY
-' MAIN4 TRY
+CR .( DONE ) CR

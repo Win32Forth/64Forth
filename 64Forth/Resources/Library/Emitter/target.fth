@@ -2,7 +2,8 @@
 \ Requires reach.fth
 \ Public domain.
 
-ONLY FORTH DEFINITIONS DECIMAL
+\ Loaded under EMITTER DEFINITIONS (see emitter.fth).
+DECIMAL
 
 DEFER TGT-RELOC
 
@@ -26,6 +27,16 @@ VARIABLE TGT-ALLOC    \ length given to ALLOCATE-EXEC / FREE-EXEC
 : TGT,   TGT-HERE !  8 TGT-ALLOT ;
 : TGT-C, TGT-HERE C!  1 TGT-ALLOT ;
 : TGT-ALIGN  TGT-HERE 7 + -8 AND TGT-DP ! ;
+
+\ 32-bit store (ARM insn). Must not use cell ! — that writes 8 bytes and
+\ clobbers the next prim's CFA when stitching a trailing B.
+: TGT-W!  ( u32 addr -- )
+  2DUP C!  SWAP 8 RSHIFT SWAP
+  2DUP 1+ C!  SWAP 8 RSHIFT SWAP
+  2DUP 2 + C!  SWAP 8 RSHIFT SWAP
+  3 + C! ;
+: TGT-W,  ( u32 -- )
+  TGT-HERE TGT-W!  4 TGT-ALLOT ;
 
 : TGT-CLOSE  ( -- )
   TGT @ IF
@@ -76,10 +87,12 @@ VARIABLE TGT-MAPN
   CODE-BOUNDS 2DUP SWAP -  NIP ;
 
 : COLON-SPAN  ( xt -- addr u )
+  \ Leave body addr and byte length through EXIT (inclusive).
+  \ Must be (addr u): SWAP- would drop addr and make NIP steal under us.
   BODY DUP
   BEGIN
-    DUP HERE U< 0= IF SWAP - EXIT THEN
-    DUP @ DUP ['] EXIT = IF DROP 8 + SWAP - EXIT THEN
+    DUP HERE U< 0= IF OVER - EXIT THEN
+    DUP @ DUP ['] EXIT = IF DROP 8 + OVER - EXIT THEN
     DUP LIT-ADDR = OVER 0BRANCH-ADDR = OR OVER BRANCH-ADDR = OR
     OVER ['] (LOOP) = OR OVER ['] (+LOOP) = OR
     OVER ['] (?DO) = OR OVER ['] LEAVE = OR IF DROP 8 +
@@ -88,15 +101,20 @@ VARIABLE TGT-MAPN
   AGAIN ;
 
 : RESERVE-PRIM  {: xt | new u -- :}
+  TGT-ALIGN
   TGT-HERE TO new
   xt PRIM-SPAN NIP 7 + -8 AND 8 + TO u
   xt ['] (NEXT) <> IF  u 4 + TO u  THEN
+  \ keep following CFA 8-aligned (stitch B is 4 bytes)
+  u 7 + -8 AND TO u
   u TGT-ALLOT
   xt new MAP! ;
 
 : RESERVE-COLON  {: xt | new u -- :}
+  TGT-ALIGN
   TGT-HERE TO new
   xt COLON-SPAN NIP 8 + TO u
+  u 7 + -8 AND TO u
   u TGT-ALLOT
   xt new MAP! ;
   
@@ -129,10 +147,10 @@ VARIABLE TGT-MAPN
       MAP-CELL 8 + DUP @ TGT, 8 +
     ELSE DUP SLIT-ADDR = IF
       MAP-CELL               \ emit new (S")
-      8 + DUP                \ addr of len
+      8 +                    \ addr of len cell
       DUP @ TGT,             \ copy len
       DUP 8 + OVER @ COPY-BYTES
-      SLIT-SKIP
+      SLIT-SKIP               \ -> addr past string
     ELSE
       MAP-CELL 8 +
     THEN THEN THEN
@@ -181,10 +199,10 @@ VARIABLE TGT-MAPN
 \ --- step 3a: stitch ITC dispatch -----------------------------------------
 
 : ARM-B,  ( target -- )
-  \ ( target -- )  emit B from TGT-HERE to target
-  TGT-HERE - 4 /                    \ /4, signed
+  \ emit 32-bit B from TGT-HERE to target (see TGT-W!, not cell !)
+  TGT-HERE - 2 ARSHIFT
   $03FFFFFF AND $14000000 OR
-  TGT-HERE !  4 TGT-ALLOT ;
+  TGT-W, ;
 
 : STITCH-NEXT  ( xt -- )
   DUP ['] (NEXT) = IF  DROP EXIT  THEN

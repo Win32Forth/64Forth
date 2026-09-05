@@ -60,6 +60,8 @@
 		FA6AA0DE301916D30007C369 /* 64Forth.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = 64Forth.jpg; sourceTree = "<group>"; };
 		FAEB4C7E30425AF900F5334E /* kernel1.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = kernel1.fth; sourceTree = "<group>"; };
 		FAEB4C7F30425B4800F5334E /* kernel2.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = kernel2.fth; sourceTree = "<group>"; };
+		FAEB4C8030425C0000F5334E /* vocemit.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = vocemit.fth; sourceTree = "<group>"; };
+		FAEB4C8130425D0000F5334E /* vocsys.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = vocsys.fth; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -133,6 +135,8 @@
 				FA1CDF343048632900D22FCE /* app-output.fth */,
 				FA1CDF353048634500D22FCE /* app-points.fth */,
 				FAEB4C7F30425B4800F5334E /* kernel2.fth */,
+				FAEB4C8030425C0000F5334E /* vocemit.fth */,
+				FAEB4C8130425D0000F5334E /* vocsys.fth */,
 				FAEB4C7E30425AF900F5334E /* kernel1.fth */,
 				B1000106 /* forth.s */,
 				B100010B /* boot_words.inc */,
@@ -264,7 +268,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nSRC=\"${SRCROOT}/64Forth/Resources/Library\"\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Library\"\nKERN=\"${SRCROOT}/64Forth/Kernel\"\nLIBSRC=\"${SRC}/Sources\"\n\n# 1) Sync Kernel → Resources/Library/Sources (source tree) so repo VIEW/index\n#    and the bundle all match the assembly that is being linked.\nmkdir -p \"${LIBSRC}\"\nif [ -d \"${KERN}\" ]; then\n  for f in forth.s boot_words.inc boot_words_end.inc colon_words.inc kernel_api.h kernel1.fth kernel2.fth app-output.fth app-points.fth; do\n    if [ -f \"${KERN}/$f\" ]; then\n      cp -f \"${KERN}/$f\" \"${LIBSRC}/\"\n    fi\n  done\nfi\n\n# 2) Fresh copy Library → app bundle (includes updated Sources/).\n#    Avoids stale FROMLIB sources from folder-ref caching.\nrm -rf \"${DEST}\"\nmkdir -p \"${DEST}\"\nif [ -d \"${SRC}\" ]; then\n  for f in \"${SRC}\"/* \"${SRC}\"/.[!.]* \"${SRC}\"/..?*; do\n    [ -e \"$f\" ] || continue\n    base=$(basename \"$f\")\n    case \"$base\" in\n      .DS_Store|*.swp|*~) continue ;;\n    esac\n    if [ -f \"$f\" ]; then\n      cp -f \"$f\" \"${DEST}/\"\n    elif [ -d \"$f\" ]; then\n      cp -R \"$f\" \"${DEST}/\"\n    fi\n  done\nfi\n";
+			shellScript = "set -e\nSRC=\"${SRCROOT}/64Forth/Resources/Library\"\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Library\"\nKERN=\"${SRCROOT}/64Forth/Kernel\"\nLIBSRC=\"${SRC}/Sources\"\n\n# 1) Sync Kernel → Resources/Library/Sources (source tree) so repo VIEW/index\n#    and the bundle all match the assembly that is being linked.\nmkdir -p \"${LIBSRC}\"\nif [ -d \"${KERN}\" ]; then\n  for f in forth.s boot_words.inc boot_words_end.inc colon_words.inc kernel_api.h kernel1.fth kernel2.fth vocemit.fth app-output.fth app-points.fth vocsys.fth; do\n    if [ -f \"${KERN}/$f\" ]; then\n      cp -f \"${KERN}/$f\" \"${LIBSRC}/\"\n    fi\n  done\nfi\n\n# 2) Fresh copy Library → app bundle (includes updated Sources/).\n#    Avoids stale FROMLIB sources from folder-ref caching.\nrm -rf \"${DEST}\"\nmkdir -p \"${DEST}\"\nif [ -d \"${SRC}\" ]; then\n  for f in \"${SRC}\"/* \"${SRC}\"/.[!.]* \"${SRC}\"/..?*; do\n    [ -e \"$f\" ] || continue\n    base=$(basename \"$f\")\n    case \"$base\" in\n      .DS_Store|*.swp|*~) continue ;;\n    esac\n    if [ -f \"$f\" ]; then\n      cp -f \"$f\" \"${DEST}/\"\n    elif [ -d \"$f\" ]; then\n      cp -R \"$f\" \"${DEST}/\"\n    fi\n  done\nfi\n";
 		};
 		B1000703 /* Copy Docs */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -439,7 +443,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 32;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = X5YCJL3LJ8;
 				ENABLE_APP_SANDBOX = NO;
@@ -454,7 +458,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
-				MARKETING_VERSION = 1.3.2;
+				MARKETING_VERSION = 1.3.3;
 				OTHER_CFLAGS = "-I$(SRCROOT)/64Forth/Kernel";
 				PRODUCT_BUNDLE_IDENTIFIER = com.win32forth.SixtyFourForth;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -473,7 +477,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 32;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = X5YCJL3LJ8;
 				ENABLE_APP_SANDBOX = NO;
@@ -488,7 +492,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
-				MARKETING_VERSION = 1.3.2;
+				MARKETING_VERSION = 1.3.3;
 				OTHER_CFLAGS = "-I$(SRCROOT)/64Forth/Kernel";
 				PRODUCT_BUNDLE_IDENTIFIER = com.win32forth.SixtyFourForth;
 				PRODUCT_NAME = "$(TARGET_NAME)";

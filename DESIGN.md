@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-09-05 — **v1.3.2** (`Documents/64Forth` user tree + Tools Update/Restore; CODE `_END` labels; Library **Emitter** in progress; v1.3.1 interactive `CODE`/`END-CODE`; v1.3.0 GRAPHICS + cold-load + dict 8/256 MiB + DEBUG UX).
+**Updated:** 2026-09-05 — **v1.3.3** (SYSVOC / EMITTER cold vocabularies; cleaner FORTH; Hyper hooks → SYSVOC; kernel `-ROT`; `LOCAL-INIT`; ANS+Hayes green; v1.3.2 user tree + CODE `_END` + Emitter WIP).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 

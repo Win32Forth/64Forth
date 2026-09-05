@@ -9,16 +9,31 @@
     EDITOR 80 20 SET-EDIT-WINDOW FORTH
     FROMLIB REQUIRE HYPER/HYPER.fth
     HYPER-VOC MIN-HYPER-NOISE ON FORTH
-    HYPER-REINDEX
-0 [IF]
-[THEN]
 
-0 [IF]
+ONLY FORTH DEFINITIONS
+
+\ Automatically rstore all the default Library files when we run 64Forth
+\ so that we will be orking wit all the latest code.
+: RESTORE-SHIPPED  ( -- )
+    S\" ditto --norsrc '/Users/thomaszimmer/Documents/XCodeProjects/64Forth/64Forth/Resources/Library' '/Users/thomaszimmer/Documents/64Forth/Library'"
+    SYSTEM DROP
+    CR ." Library restored from Xcode Resources" CR ;
+\\
+    RESTORE-SHIPPED
+    HYPER-REINDEX
+    FROMLIB FLOAD Emitter/emitter.fth
+    .( About to load test.fth ) CR
+    FROMLIB FLOAD Emitter/test.fth
+{
+    HYPER-REINDEX
+
+
+\\
     FILE-ECHO ON
     FROMLIB REQUIRE TCOM/FPCTOOLS.fth
     FROMLIB REQUIRE TCOM/LEDIT.fth
     FROMLIB REQUIRE TCOM/SZ.fth
-[THEN]
+{
 
 : APP-RUN  ( -- )
 \  S" 64Forth AutoLoad complete." TYPE CR

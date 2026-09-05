@@ -1,10 +1,13 @@
 \ reach.fth — mark xts reachable from a root (emitter step 1)
 \ Public domain.
 
-ONLY FORTH DEFINITIONS
+\ Loaded under EMITTER DEFINITIONS (see emitter.fth).
 DECIMAL
 
+\ CELL may already exist in FORTH; keep a local alias only if absent.
+[UNDEFINED] CELL [IF]
 8 CONSTANT CELL
+[THEN]
 
 : COLON-WORD?  ( xt -- flag )
   DUP ['] (DOCOL) = IF  DROP FALSE EXIT  THEN
