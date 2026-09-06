@@ -5,8 +5,9 @@
 \ (Kernel/vocemit.fth). This file only compiles the slicer sources into
 \ EMITTER and leaves FORTH as CURRENT with EMITTER on the search order.
 \
-\ High-level “compile a real program” entry points are not written yet;
-\ when they appear they should be defined in FORTH and call into EMITTER.
+\ High-level stand-alone packaging lives in FORTH: EMIT-APP / EMIT-APP-TO
+\ (see app.fth). Load, compile your entry word normally, then:
+\   ' MAIN EMIT-APP
 \
 \   FROMLIB FLOAD Emitter/emitter.fth
 \   ALSO EMITTER          \ if a prior ONLY cleared it
@@ -21,9 +22,7 @@ FROMLIB FLOAD Emitter/target.fth
 FROMLIB FLOAD Emitter/reloc.fth
 FROMLIB FLOAD Emitter/run.fth
 FROMLIB FLOAD Emitter/save.fth
+FROMLIB FLOAD Emitter/app.fth
 
-\ Leave FORTH as CURRENT; keep EMITTER (and SYSVOC under it) for clients.
-ONLY FORTH DEFINITIONS
-ALSO SYSVOC ALSO EMITTER
-
-CR .( emitter loaded — words are in the EMITTER vocabulary.) CR
+\ app.fth leaves FORTH as CURRENT with EMITTER on the search order.
+CR .( emitter loaded — EMITTER slicer + FORTH EMIT-APP.) CR

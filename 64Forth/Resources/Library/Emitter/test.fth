@@ -15,6 +15,9 @@
 \   …/Library/Emitter/EmitterSmoke/tetra-gui-smoke.fth  then  EMIT-TETRA  (ESC quits)
 \ Stand-alone data segment (Phase 1):
 \   …/64Forth --agent -f …/Library/Emitter/EmitterSmoke/data-standalone-smoke.fth
+\ One-shot .app from a compiled word (FORTH):
+\   FROMLIB FLOAD Emitter/emitter.fth   then   ' MAIN EMIT-APP
+\   …/64Forth --agent -f …/Library/Emitter/EmitterSmoke/emit-app-smoke.fth
 
 
 ONLY FORTH DEFINITIONS DECIMAL

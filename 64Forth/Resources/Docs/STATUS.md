@@ -66,6 +66,7 @@ Append new design sections as we go; mark items done when implemented.
 - [x] Phase 2b.2: thin GRAPHICS runner `Library/Emitter/runner/emit-run` loads `64EMIT02`, binds host slots, runs ITC (headless `EMIT_HEADLESS=1`; ADR return gadget so C epilogue runs)
 - [x] Phase 2b.1: persist `64EMIT02` (`/EMIT-UNBOUND`, `SAVE-IMAGE`/`LOAD-IMAGE`, ITC rebase; `Library/Emitter/EmitterSmoke/persist-smoke.fth`)
 - [x] Phase 2b.3: `app-build.sh` + `Library/Emitter/EmitterSmoke/gfx-app-smoke.sh` → `Gfx.app` (headless MacOS binary OK)
+- [x] `EMIT-APP` / `EMIT-APP-TO` — one-shot `.app` from a compiled xt (`Library/Emitter/app.fth`; smoke `EmitterSmoke/emit-app-smoke.fth`)
 
 ---
 
