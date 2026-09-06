@@ -84,7 +84,18 @@ VARIABLE TGT-MAPN
   1 TGT-MAPN +! ;
 
 : PRIM-SPAN  ( xt -- code u )
-  CODE-BOUNDS 2DUP SWAP -  NIP ;
+  \ Unknown / non-boot CODE must not be sliced (end=0 ⇒ garbage length).
+  DUP >R CODE-BOUNDS
+  DUP 0= IF
+    DROP DROP
+    ." prim: no CODE-BOUNDS for " R> NAME>STRING TYPE CR ABORT
+  THEN
+  R> DROP
+  2DUP SWAP - NIP ;
+
+\ CREATE/VALUE/etc.: keep host xt (TO LIT PFAs and buffers stay valid).
+: RESERVE-IMPORT  ( xt -- )
+  DUP MAP! ;
 
 : COLON-SPAN  ( xt -- addr u )
   \ Leave body addr and byte length through EXIT (inclusive).
@@ -172,9 +183,10 @@ VARIABLE TGT-MAPN
     RI . SPACE
     RI CELLS REACH-XTS + @
     DUP NAME>STRING TYPE SPACE
-    DUP COLON-WORD? IF  ." colon" CR RESERVE-COLON
-    ELSE                ." prim"  CR RESERVE-PRIM
-    THEN
+    DUP COLON-WORD? IF  ." colon"  CR RESERVE-COLON
+    ELSE DUP DATA-WORD? IF  ." import" CR RESERVE-IMPORT
+    ELSE                ." prim"   CR RESERVE-PRIM
+    THEN THEN
     RI 1+ TO RI
   REPEAT
   ." maps=" TGT-MAPN @ . CR
@@ -184,7 +196,9 @@ VARIABLE TGT-MAPN
   0 TO RI
   BEGIN  RI REACH-N @ <  WHILE
     RI CELLS REACH-XTS + @
-    DUP COLON-WORD? 0= IF  WRITE-PRIM ELSE DROP THEN
+    DUP COLON-WORD? IF  DROP
+    ELSE DUP DATA-WORD? IF  DROP
+    ELSE  WRITE-PRIM  THEN THEN
     RI 1+ TO RI
   REPEAT
   0 TO RI
@@ -207,6 +221,7 @@ VARIABLE TGT-MAPN
 : STITCH-NEXT  ( xt -- )
   DUP ['] (NEXT) = IF  DROP EXIT  THEN
   DUP COLON-WORD? IF  DROP EXIT  THEN
+  DUP DATA-WORD? IF  DROP EXIT  THEN   \ host import — no copied body
   DUP MAP-FIND 8 +                  \ payload
   SWAP PRIM-SPAN NIP +              \ addr just after copied bytes
   TGT-DP !

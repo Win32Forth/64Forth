@@ -1,4 +1,4 @@
-\ Emitter/test.fth — build+run ladder (empty, S" hi" TYPE, IF/ELSE).
+\ Emitter/test.fth — build+run ladder (empty, TYPE, IF/ELSE, VALUE, CREATE).
 \ Canonical copy lives under Resources/Library/Emitter; sync into
 \ Documents/64Forth/Library/Emitter after edits (RESTORE-SHIPPED stomps Library).
 \ Public domain.
@@ -16,6 +16,12 @@ FROMLIB FLOAD Emitter/emitter.fth
 : T-HI    S" hi" TYPE ;
 : MAIN2   1 0= IF  2 THEN 3 . ;
 : MAIN4   1 IF 2 ELSE 3 THEN . ;
+
+0 VALUE V1
+CREATE C1  3 CELLS ALLOT
+: T-VAL  7 TO V1  V1 . ;
+: T-CR   1 C1 !  C1 @ . ;
+: T-DO   0 3 0 DO I + LOOP . ;   \ expect 3
 
 : TRY-RUN  ( xt -- )
   DUP TGT-BUILD  TGT-RUN ;
@@ -35,5 +41,17 @@ CR .( MAIN2 returned ) CR
 CR .( === MAIN4: 1 IF 2 ELSE 3 THEN .  expect 2 === ) CR
 ['] MAIN4 TRY-RUN
 CR .( MAIN4 returned ) CR
+
+CR .( === T-VAL: TO VALUE  expect 7 === ) CR
+['] T-VAL TRY-RUN
+CR .( T-VAL returned ) CR
+
+CR .( === T-CR: CREATE cell  expect 1 === ) CR
+['] T-CR TRY-RUN
+CR .( T-CR returned ) CR
+
+CR .( === T-DO: DO LOOP  expect 3 === ) CR
+['] T-DO TRY-RUN
+CR .( T-DO returned ) CR
 
 CR .( DONE ) CR

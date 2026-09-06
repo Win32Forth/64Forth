@@ -118,5 +118,7 @@ Emitter milestone: emit **tetra** as a stand-alone macOS app that still uses the
 
 1. Keep developing apps against GRAPHICS on 64Forth (tetra is the reference).
 2. Grow Emitter reach/target so tetra’s colon graph + CODE imports build/run in-process.
+   - **Done (in-process):** `DATA-WORD?` — CREATE / VALUE / DOVAR / DOCON / DODOES stay **host imports** (identity map); `CODE-BOUNDS` unknown aborts; smoke covers VALUE/`TO`, CREATE cell, `DO`/`LOOP` (`Emitter/test.fth`, `EmitterSmoke/agent-smoke.fth`).
+   - **Next:** GRAPHICS mini root (`AT`/`EMIT`/`KEY?` + `(APP-*)` veneers), then tetra subset / `MAIN`.
 3. Add `\EMITTER` arms in the Emitter load path when slice-time differences appear.
 4. Later: **MENUS** vocab; document File-Access as part of the kit fence when stand-alone apps need declared file imports.

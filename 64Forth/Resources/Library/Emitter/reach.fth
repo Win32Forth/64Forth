@@ -17,6 +17,13 @@ DECIMAL
 : DOCON?   ( xt -- flag )  @  DOCON-ADDR      = ;
 : DODOES?  ( xt -- flag )  @  ['] (DODOES) @  = ;
 
+\ CREATE / VARIABLE / CONSTANT / VALUE / DEFER / VOCABULARY, etc.
+\ In-process emit keeps these on the host (identity map); do not slice as CODE.
+: DATA-WORD?  ( xt -- flag )
+  DUP DOVAR? IF  DROP TRUE EXIT  THEN
+  DUP DOCON? IF  DROP TRUE EXIT  THEN
+  DODOES? ;
+
 : BODY  ( xt -- addr )  8 + ;
 
 512 CONSTANT REACH-MAX
@@ -57,6 +64,8 @@ VARIABLE REACH-WORK
     8 +
   AGAIN ;
 
+\ Colon bodies are walked for callees. CODE and DATA words are leaves:
+\ they are marked when referenced, but not deep-scanned here.
 : SCAN-ONE  ( xt -- )
   DUP COLON-WORD? IF  SCAN-COLON EXIT  THEN
   DROP ;
@@ -79,6 +88,8 @@ VARIABLE REACH-WORK
   WHILE
     DUP CELLS REACH-XTS + @
     DUP NAME>STRING TYPE SPACE
-    DUP COLON-WORD? IF ." colon" ELSE ." code" THEN CR
+    DUP COLON-WORD? IF ." colon"
+    ELSE DUP DATA-WORD? IF ." data"
+    ELSE ." code" THEN THEN CR
     DROP 1+
   REPEAT DROP ;

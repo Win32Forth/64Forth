@@ -23,6 +23,12 @@ Append new design sections as we go; mark items done when implemented.
 
 **Not in kit:** console, Facility/`PAGE`, SZ-EDITOR, Hyper, IDE Tools menus.
 
+**Emitter growth (toward tetra in-process):**
+- [x] Host-import **DATA** words (`DATA-WORD?`): CREATE / VALUE / DOVAR / DOCON / DODOES identity-mapped; do not slice as CODE; abort if `CODE-BOUNDS` unknown
+- [x] Smoke: VALUE/`TO`, CREATE cell, `DO`/`LOOP` (`Library/Emitter/test.fth`, `EmitterSmoke/agent-smoke.fth`)
+- [ ] GRAPHICS mini `TGT-BUILD`+`TGT-RUN` (window + `(APP-*)` veneers)
+- [ ] Tetra subset / `MAIN` in-process emit
+
 ---
 
 ## v1.3.3 — SYSVOC / EMITTER vocabularies, `-ROT`, clean FORTH
