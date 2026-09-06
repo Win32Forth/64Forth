@@ -134,7 +134,8 @@ VARIABLE TGT-DATA-BYTES
 
 \ Phase 2b: absolute pointer cells in the image (ITC xts, CFAs).
 \ Blind u64 walks corrupt ARM prims; SAVE-IMAGE persists this table instead.
-1024 CONSTANT #PTR-RELOC
+\ 1024 was enough for GRAPHICS mini; tetra MAIN needs ~2k+ (ITC cells).
+8192 CONSTANT #PTR-RELOC
 CREATE PTR-RELOC-OFF  #PTR-RELOC CELLS ALLOT
 CREATE PTR-RELOC-SPC  #PTR-RELOC ALLOT   \ 0=code 1=data
 VARIABLE PTR-RELOC-N
@@ -143,7 +144,7 @@ VARIABLE PTR-RELOC-N
 : PTR-RELOC-ADD  ( addr space -- )
   {: a sp -- :}
   PTR-RELOC-N @ #PTR-RELOC U< 0= IF
-    ." too many ptr relocs" CR ABORT
+    ." too many ptr relocs n=" PTR-RELOC-N @ U. ." max=" #PTR-RELOC U. CR ABORT
   THEN
   a  PTR-RELOC-N @ CELLS PTR-RELOC-OFF + !
   sp PTR-RELOC-N @ PTR-RELOC-SPC + C!
@@ -153,25 +154,32 @@ VARIABLE PTR-RELOC-N
   TGT-HERE 0 PTR-RELOC-ADD
   TGT, ;
 
-\ End of a data word = smallest HFA of another reachable xt above this CFA,
-\ else CFA+24 (does_ip + one cell) for a lone VALUE/CONSTANT.
-: DATA-END  ( xt -- addr )
-  {: xt | best i w h -- :}
-  0 TO best
-  0 TO i
-  BEGIN  i REACH-N @ <  WHILE
-    i CELLS REACH-XTS + @ TO w
-    w xt <> IF
-      w HFA TO h
-      h xt U> IF
-        best 0= IF  h TO best
-        ELSE  h best U< IF  h TO best  THEN
-        THEN
+\ End of a data word = smallest HFA of any dictionary word above this CFA.
+\ Covers CREATE…, and CREATE n ALLOT (FIGURE / NOTES): body runs until the
+\ next header. CFA+24 fallback = does_ip + one cell (lone VALUE/CONSTANT).
+\ Prefer a full wordlist scan so size does not depend on the next word being
+\ reachable. TRAVERSE-WORDLIST uses the return stack — no locals in visitor.
+VARIABLE DE-XT
+VARIABLE DE-BEST
+
+: DE-VISIT  ( nt -- flag )
+  DUP DE-XT @ <> IF
+    HFA DUP DE-XT @ U> IF
+      DE-BEST @ 0= IF  DE-BEST !
+      ELSE  DUP DE-BEST @ U< IF  DE-BEST !  ELSE  DROP  THEN
       THEN
+    ELSE  DROP
     THEN
-    i 1+ TO i
-  REPEAT
-  best 0= IF  xt 24 +  ELSE  best  THEN ;
+  ELSE  DROP
+  THEN
+  TRUE ;
+
+: DATA-END  ( xt -- addr )
+  DE-XT !  0 DE-BEST !
+  WORDLISTS 0 ?DO
+    DUP I CELLS + @ ['] DE-VISIT SWAP TRAVERSE-WORDLIST
+  LOOP DROP
+  DE-BEST @ DUP 0= IF  DROP DE-XT @ 24 +  THEN ;
 
 : DATA-SPAN  ( xt -- addr u )
   DUP DATA-END  OVER - ;
@@ -196,7 +204,29 @@ VARIABLE PTR-RELOC-N
   \ Body addr and byte length (branch-aware; see COLON-END in reach.fth).
   DUP COLON-END  SWAP BODY  SWAP ;
 
+\ Prim bodies that ADRP to 64Forth BSS/globals cannot be copied as raw ARM.
+\ Under /EMIT-STANDALONE, carve them as DOVAR data in the RW segment instead.
+: SA-GLOBAL-PRIM?  ( xt -- flag )
+  DUP ['] PAD = IF  DROP TRUE EXIT  THEN
+  ['] BASE = ;
+
+: RESERVE-SA-GLOBAL  ( xt -- )
+  {: xt | new u -- :}
+  TGT-DATA-DP @ 7 + -8 AND DUP TGT-DATA-DP ! TO new
+  \ DOVAR: CFA + does_ip + user PFA. PAD needs >=256 bytes at PFA for <#…#>.
+  xt ['] PAD = IF  16 1024 +  ELSE  24  THEN TO u
+  u 7 + -8 AND TO u
+  new u + DUP TGT-DATA-LIMIT @ U> IF
+    ." data: overflow (sa-global)" CR ABORT
+  THEN
+  TGT-DATA-DP !
+  u TGT-DATA-BYTES +!
+  xt new MAP! ;
+
 : RESERVE-PRIM  {: xt | new u -- :}
+  ?EMIT-STANDALONE IF
+    xt SA-GLOBAL-PRIM? IF  xt RESERVE-SA-GLOBAL EXIT  THEN
+  THEN
   TGT-ALIGN
   TGT-HERE TO new
   xt PRIM-SPAN NIP 7 + -8 AND 8 + TO u
@@ -217,8 +247,10 @@ VARIABLE PTR-RELOC-N
 : COPY-BYTES  ( src u -- )
   0 ?DO DUP I + C@ TGT-C, LOOP DROP TGT-ALIGN ;
 
-\ Stand-alone 0BRANCH: host prim ADRPs to data_stack SP0 (in-process only).
-\ Emit a guard-free body; STITCH still places a trailing B after host span.
+\ 0BRANCH: host prim ADRPs to data_stack SP0 and clamps DSP to that SP0.
+\ TGT-RUN uses a separate RUN-DSP, so the host guard breaks UNTIL/#S loops
+\ (forward IF can still appear to work). Emit a guard-free body for every
+\ emit mode; STITCH still places a trailing B after the reserved host span.
 : B-ABS,  ( target -- )
   TGT-HERE - 2 ARSHIFT
   $03FFFFFF AND $14000000 OR  TGT-W, ;
@@ -234,7 +266,23 @@ VARIABLE PTR-RELOC-N
   ['] (NEXT) MAP-FIND 8 + B-ABS,
   ;
 
+: WRITE-SA-GLOBAL  ( xt -- )
+  {: xt | new -- :}
+  xt NAME>STRING TYPE SPACE ." sa-global" CR
+  xt MAP-FIND DUP 0= IF  ." no map" CR ABORT  THEN  TO new
+  \ DOVAR layout: CFA+0 engine, +8 does_ip, +16 user PFA (see forth.s).
+  \ Use engine payload addr (map+8), not CFA @ — (DOVAR) may not be written yet.
+  ['] (DOVAR) MAP-FIND DUP 0= IF  ." no (DOVAR)" CR ABORT  THEN
+  8 + new !
+  new 1 PTR-RELOC-ADD
+  0 new 8 + !                         \ does_ip
+  xt ['] BASE = IF  10 new 16 + !  THEN \ DECIMAL at user PFA
+  ;
+
 : WRITE-PRIM  ( xt -- )
+  ?EMIT-STANDALONE IF
+    DUP SA-GLOBAL-PRIM? IF  WRITE-SA-GLOBAL EXIT  THEN
+  THEN
   DUP NAME>STRING TYPE SPACE ." prim" CR
   DUP MAP-FIND DUP 0= IF ." no map" CR ABORT THEN
   DUP TGT-DP !                 \ ( xt new )
@@ -242,10 +290,8 @@ VARIABLE PTR-RELOC-N
   DUP 0 PTR-RELOC-ADD          \ record CFA pointer cell
   DROP                         \ ( xt )
   8 TGT-ALLOT
-  ?EMIT-STANDALONE IF
-    DUP 0BRANCH-ADDR = IF
-      DROP WRITE-0BRANCH-SA EXIT
-    THEN
+  DUP 0BRANCH-ADDR = IF
+    DROP WRITE-0BRANCH-SA EXIT
   THEN
   PRIM-SPAN COPY-BYTES ;
 
@@ -338,7 +384,9 @@ VARIABLE DOES-N
   xt DOVAR? IF  ['] (DOVAR)
   ELSE xt DOCON? IF  ['] (DOCON)
   ELSE  ['] (DODOES)  THEN THEN
-  DUP MAP-FIND ?DUP IF  NIP @  ELSE  @  THEN  TO code
+  \ Payload at map+8 — engine CFA @ may still be 0 if not yet WRITE-PRIM'd.
+  MAP-FIND DUP 0= IF  ." no engine map" CR ABORT  THEN
+  8 + TO code
   code new !
   new 1 PTR-RELOC-ADD
   xt DODOES? IF
@@ -436,6 +484,9 @@ VARIABLE DOES-N
   DUP ['] (NEXT) = IF  DROP EXIT  THEN
   DUP COLON-WORD? IF  DROP EXIT  THEN
   DUP DATA-WORD? IF  DROP EXIT  THEN   \ host import — no copied body
+  \ Stand-alone PAD/BASE are DOVAR in the data seg (no code to stitch).
+  \ Hostdata still copies those prims — must stitch B (NEXT) or SIGILL.
+  DUP SA-GLOBAL-PRIM? ?EMIT-STANDALONE AND IF  DROP EXIT  THEN
   DUP MAP-FIND 8 +                  \ payload
   SWAP PRIM-SPAN NIP +              \ addr just after copied bytes
   TGT-DP !
@@ -469,9 +520,10 @@ VARIABLE DOES-N
   THEN
   65536 TGT-OPEN
   ?EMIT-STANDALONE IF  65536 TGT-DATA-OPEN  THEN
-  ." opened " TGT-ORG @ U.  TGT-LIMIT @ U.  ."  cap " TGT-SIZE . CR
+  \ Use U. — GRAPHICS on the search order shadows FORTH .
+  ." opened " TGT-ORG @ U.  TGT-LIMIT @ U.  ."  cap " TGT-SIZE U. CR
   TGT-RESERVE
-  ." reserved " TGT-SIZE . CR
+  ." reserved " TGT-SIZE U. CR
   TGT-WRITE
   TGT-STITCH
   TGT-RELOC
@@ -480,11 +532,12 @@ VARIABLE DOES-N
   \ TGT-RUN binds later via HOST-BIND-IF-NEEDED.
   ?EMIT-UNBOUND 0= IF  HOST-BIND  THEN
   TGT-PROTECT
-  ." written " TGT-SIZE . CR
+  ." written " TGT-SIZE U. CR
   ?EMIT-UNBOUND IF  ." unbound (MAGIC|slot)" CR  THEN
   ?EMIT-STANDALONE IF
-    ." standalone data-bytes " TGT-DATA-BYTES @ . CR
+    ." standalone data-bytes " TGT-DATA-BYTES @ U. CR
     ." data-seg " TGT-DATA-ORG @ U. TGT-DATA-DP @ U. CR
+    ." ptr-relocs " PTR-RELOC-N @ U. CR
   THEN
   ;
 

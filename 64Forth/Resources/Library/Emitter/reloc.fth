@@ -276,9 +276,11 @@ VARIABLE HOST-RELOC-N
 : RELOC-PRIM  {: xt | new code u off insn tgt npc -- :}
   xt COLON-WORD? IF  EXIT  THEN
   xt DATA-WORD? IF  EXIT  THEN   \ host import — never patch host CFA/PFA
-  \ Stand-alone 0BRANCH is a custom body (no host data_stack ADRP).
+  \ 0BRANCH is always a custom guard-free body (no host data_stack ADRP).
+  \ PAD/BASE etc. are DOVAR data under /EMIT-STANDALONE (see SA-GLOBAL-PRIM?).
+  xt 0BRANCH-ADDR = IF  EXIT  THEN
   ?EMIT-STANDALONE IF
-    xt 0BRANCH-ADDR = IF  EXIT  THEN
+    xt SA-GLOBAL-PRIM? IF  EXIT  THEN
   THEN
   xt NAME>STRING TYPE SPACE ." RELOC" CR
   xt MAP-FIND DUP 0= IF  ." no map" CR DROP EXIT  THEN
