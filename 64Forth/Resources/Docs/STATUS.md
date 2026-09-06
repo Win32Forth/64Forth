@@ -23,8 +23,8 @@ Append new design sections as we go; mark items done when implemented.
 *Emitter*
 - GRAPHICS mini + tetra subset smokes; interactive `EMIT-TETRA` (`MAIN`/`GAME`) user-verified
 - `/EMIT-STANDALONE` copies reachable DATA into RW `TGT-DATA-*` segment; `/EMIT-HOSTDATA` keeps identity map
-- TCOM-style `Library/Emitter/app-build.sh.template` scaffold for later `.app` packaging (Phase 2+)
-- `\EMITTER` policy clarified for shared sources (`tetra.fth`); packaging stays under Emitter / EmitterSmoke
+- TCOM-style `Library/Emitter/app-build.sh` packages `emit-run` + `Resources/app.img` as a `.app`
+- `\EMITTER` policy clarified for shared sources (`tetra.fth`); packaging stays under Library/Emitter (incl. EmitterSmoke)
 
 *System cleanup*
 - **`WARNING`** shares the redefinition gate with **`REDEF-WARNING`**; redefine messages go through host `TYPE`/`EMIT` (no trailing NUL)
@@ -32,7 +32,7 @@ Append new design sections as we go; mark items done when implemented.
 - Product AutoLoad no longer defines **`MAIN`**; boot runs `MAIN` only if present (`[DEFINED] MAIN`)
 - Xcode: touch `forth.s` when embedded `.fth`/`.inc` sources are newer (so `kernel2.fth` edits reassemble)
 
-**Not in 1.3.4:** Emitter Phase 2+ (relocatable `host_app_*` slots + stand-alone `.app` bundle).
+**Not in 1.3.4 release notes yet:** Phase 2b.1–2b.3 are in-tree (persist + `emit-run` + `.app` via `app-build.sh`); bump/docs sync when cutting the next build.
 
 **Release:** pending `64Forth/releases/64Forth-1.3.4-macOS.dmg` + GitHub `v1.3.4`
 
@@ -55,14 +55,17 @@ Append new design sections as we go; mark items done when implemented.
 
 **Emitter growth (toward tetra in-process):**
 - [x] Host-import **DATA** words (`DATA-WORD?`): CREATE / VALUE / DOVAR / DOCON / DODOES identity-mapped; do not slice as CODE; abort if `CODE-BOUNDS` unknown
-- [x] Smoke: VALUE/`TO`, CREATE cell, `DO`/`LOOP` (`Library/Emitter/test.fth`, `EmitterSmoke/agent-smoke.fth`)
+- [x] Smoke: VALUE/`TO`, CREATE cell, `DO`/`LOOP` (`Library/Emitter/test.fth`, `Library/Emitter/EmitterSmoke/agent-smoke.fth`)
 - [x] Branch-aware colon scan/span/write (`IF EXIT THEN`); reloc skips data imports
-- [x] GRAPHICS mini `TGT-BUILD`+`TGT-RUN` (`EmitterSmoke/gfx-smoke.fth` — `(APP-OPEN)` reached + veneered)
-- [x] Tetra subset `TGT-BUILD`+`TGT-RUN` + `MAIN` build-only (`EmitterSmoke/tetra-smoke.fth` — FIELD/SETUP/BORDER/one piece; MAIN reach ~169 < `REACH-MAX` 512)
-- [x] Interactive `MAIN`/`GAME` emit howto (`EmitterSmoke/tetra-gui-smoke.fth` — agent: `TGT-BUILD` only; GUI console: `EMIT-TETRA` → real window + KEY; ESC → `\ANS` `WINDOW-OFF`; user-verified play)
-- [x] `\EMITTER` policy — required on **shared** source lines that are Emitter-only; normal ITC slice stays under `\ANS`. Packaging lives in `Library/Emitter/` / `EmitterSmoke/`
-- [x] Phase 1 stand-alone data segment: `/EMIT-STANDALONE` copies DATA into RW `ALLOCATE` (`TGT-DATA-*`); default `/EMIT-HOSTDATA` identity map unchanged. Smoke: `EmitterSmoke/data-standalone-smoke.fth`; in-process `TGT-RUN` OK with copied data
-- [ ] Phase 2+: relocatable `host_app_*` slots + TCOM-style `.app` bundle (`Emitter/app-build.sh.template`)
+- [x] GRAPHICS mini `TGT-BUILD`+`TGT-RUN` (`Library/Emitter/EmitterSmoke/gfx-smoke.fth` — `(APP-OPEN)` reached + veneered)
+- [x] Tetra subset `TGT-BUILD`+`TGT-RUN` + `MAIN` build-only (`Library/Emitter/EmitterSmoke/tetra-smoke.fth` — FIELD/SETUP/BORDER/one piece; MAIN reach ~169 < `REACH-MAX` 512)
+- [x] Interactive `MAIN`/`GAME` emit howto (`Library/Emitter/EmitterSmoke/tetra-gui-smoke.fth` — agent: `TGT-BUILD` only; GUI console: `EMIT-TETRA` → real window + KEY; ESC → `\ANS` `WINDOW-OFF`; user-verified play)
+- [x] `\EMITTER` policy — required on **shared** source lines that are Emitter-only; normal ITC slice stays under `\ANS`. Packaging lives in `Library/Emitter/` (incl. `EmitterSmoke/`)
+- [x] Phase 1 stand-alone data segment: `/EMIT-STANDALONE` copies DATA into RW `ALLOCATE` (`TGT-DATA-*`); default `/EMIT-HOSTDATA` identity map unchanged. Smoke: `Library/Emitter/EmitterSmoke/data-standalone-smoke.fth`; in-process `TGT-RUN` OK with copied data
+- [x] Phase 2a: relocatable `host_app_*` slots (`MAGIC|slot` veneers + `HOST-BIND` in-process; `Library/Emitter/EmitterSmoke/gfx-smoke.fth`)
+- [x] Phase 2b.2: thin GRAPHICS runner `Library/Emitter/runner/emit-run` loads `64EMIT02`, binds host slots, runs ITC (headless `EMIT_HEADLESS=1`; ADR return gadget so C epilogue runs)
+- [x] Phase 2b.1: persist `64EMIT02` (`/EMIT-UNBOUND`, `SAVE-IMAGE`/`LOAD-IMAGE`, ITC rebase; `Library/Emitter/EmitterSmoke/persist-smoke.fth`)
+- [x] Phase 2b.3: `app-build.sh` + `Library/Emitter/EmitterSmoke/gfx-app-smoke.sh` → `Gfx.app` (headless MacOS binary OK)
 
 ---
 

@@ -112,10 +112,20 @@ VARIABLE SCAN-ADDR
   BODY DUP (COLON-WALK)
   SCAN-LIM @  SWAP - ;
 
-\ Colon bodies are walked for callees. CODE and DATA words are leaves:
-\ they are marked when referenced, but not deep-scanned here.
+\ DOES> fragment at CFA+8: ITC xt list ending in EXIT (VALUE/CONSTANT/DEFER).
+: SCAN-DOES  ( xt -- )
+  8 + @                         \ does_ip
+  BEGIN
+    DUP @ DUP (MARK)
+    ['] EXIT = IF  DROP EXIT  THEN
+    8 +
+  AGAIN ;
+
+\ Colon bodies are walked for callees. DODOES data words contribute their
+\ DOES> fragment xts. Plain CODE / DOVAR / DOCON are leaves.
 : SCAN-ONE  ( xt -- )
   DUP COLON-WORD? IF  SCAN-COLON EXIT  THEN
+  DUP DODOES? IF  SCAN-DOES EXIT  THEN
   DROP ;
 
 : REACH-FROM  ( xt -- )

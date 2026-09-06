@@ -122,11 +122,76 @@ VARIABLE RET-BODY
   RUN-ORG @ RUN-LEN @ 5 MPROTECT THROW
   RUN-ORG @ RUN-LEN @ ICACHE-INVAL ;
 
-: TGT-RUN  ( xt -- )
-  DUP COLON-WORD? 0= IF  ." TGT-RUN needs a colon xt" CR ABORT  THEN
+\ Patch MAGIC|slot .quads to live _host_app_* VAs (in-process).
+\ Called from TGT-BUILD after TGT-RELOC while the image is still RW.
+: (HOST-BIND)  ( -- )
+  {: | i slot va -- :}
+  0 TO i
+  BEGIN  i HOST-RELOC-N @ <  WHILE
+    i CELLS HOST-RELOC-SLOT + @ TO slot
+    slot CELLS HOST-APP-VA + @ TO va
+    va 0= IF
+      ." HOST-BIND: empty slot " slot . CR ABORT
+    THEN
+    va  i CELLS HOST-RELOC-OFF + @  !
+    i 1+ TO i
+  REPEAT ;
+
+' (HOST-BIND) IS HOST-BIND
+
+\ True if first host reloc .quad still holds MAGIC (unbound image).
+: HOST-UNBOUND?  ( -- flag )
+  HOST-RELOC-N @ 0= IF  FALSE EXIT  THEN
+  0 CELLS HOST-RELOC-OFF + @ @
+  48 RSHIFT $C0DE = ;
+
+\ For /EMIT-UNBOUND builds (and LOAD-IMAGE): RW → bind → R+X before run.
+: HOST-BIND-IF-NEEDED  ( -- )
+  HOST-UNBOUND? IF
+    HOST-APP-DISCOVER
+    TGT-ORG @ TGT-SIZE 3 MPROTECT THROW
+    HOST-BIND
+    TGT-PROTECT
+  THEN ;
+
+\ Like RUN-EMIT but CFA already known (LOAD-IMAGE / no host xt map).
+: RUN-EMIT-CFA  ( cfa -- )
+  {: cfa | retc cfar body patch -- :}
+  RUN-ORG @ RUN-DP !
+  $AA1303F6 RUN-W,             \ MOV X22, X19   (DSP)
+  0 28 0 ARM-MOVZ,             \ X28 = 0 (no debug NEXT)
+  0 20 0 ARM-MOVZ,             \ X20 = 0 (TOS)
+  RUN-RSP @ 23 ARM-MOV64,      \ X23 = RSP
+  cfa       21 ARM-MOV64,      \ X21 = colon CFA
+  $F81F8EFE RUN-W,             \ STR X30, [X23, #-8]!  save LR
+  RUN-HERE TO patch
+  0 0 ARM-MOV64,
+  $F81F8EE0 RUN-W,             \ STR X0, [X23, #-8]!   RPUSH return IP
+  $910022B3 RUN-W,             \ ADD X19, X21, #8      IP = body
+  $F8408675 RUN-W,             \ LDR X21, [X19], #8    NEXT
+  $F94002A1 RUN-W,             \ LDR X1, [X21]
+  $D61F0020 RUN-W,             \ BR X1
+  RUN-HERE 7 + -8 AND RUN-DP !
+  RUN-HERE TO retc
+  $F84086FE RUN-W,             \ LDR X30, [X23], #8    restore LR
+  $D65F03C0 RUN-W,             \ RET
+  RUN-HERE 7 + -8 AND RUN-DP !
+  RUN-HERE TO cfar   retc RUN-HERE !  8 RUN-DP +!
+  RUN-HERE TO body   cfar RUN-HERE !  8 RUN-DP +!
+  patch RUN-DP !
+  body 0 ARM-MOV64,
+  ;
+
+: TGT-RUN-AT  ( cfa -- )
+  HOST-BIND-IF-NEEDED
   RUN-OPEN
-  RUN-EMIT
+  RUN-EMIT-CFA
   RUN-PROTECT
   0  RUN-DSP @  RUN-ORG @  CALL-NATIVE
   DROP
   RUN-CLOSE ;
+
+: TGT-RUN  ( xt -- )
+  DUP COLON-WORD? 0= IF  ." TGT-RUN needs a colon xt" CR ABORT  THEN
+  DUP MAP-FIND DUP 0= IF  ." TGT-RUN unmapped" CR ABORT  THEN
+  NIP TGT-RUN-AT ;

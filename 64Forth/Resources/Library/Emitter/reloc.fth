@@ -50,21 +50,107 @@ $D61F0200 CONSTANT ARM-BR-X16
   SWAP - 2 ARSHIFT
   $03FFFFFF AND $94000000 OR ;
 
-: PATCH-BL  ( npc insn tgt -- )
+\ --- host_app_* slots (Phase 2a) ----------------------------------------
+\ Slot map (append only): 0 open 1 close 2 blit 3 pblit 4 keyq 5 key
+\ 6 name 7 tone 8 pump.  .quad = HOST-CALL-MAGIC|slot until HOST-BIND.
+
+$C0DE000000000000 CONSTANT HOST-CALL-MAGIC
+9 CONSTANT #HOST-APP
+128 CONSTANT #HOST-RELOC
+
+CREATE HOST-APP-VA     #HOST-APP CELLS ALLOT
+CREATE HOST-RELOC-OFF  #HOST-RELOC CELLS ALLOT
+CREATE HOST-RELOC-SLOT #HOST-RELOC CELLS ALLOT
+VARIABLE HOST-RELOC-N
+0 HOST-RELOC-N !
+
+: HOST-RELOC-CLEAR  ( -- )  0 HOST-RELOC-N ! ;
+
+: HOST-RELOC-ADD  ( slot -- )
+  HOST-RELOC-N @ #HOST-RELOC U< 0= IF
+    ." too many host-call relocs" CR ABORT
+  THEN
+  TGT-END @  HOST-RELOC-N @ CELLS HOST-RELOC-OFF + !
+  DUP HOST-RELOC-N @ CELLS HOST-RELOC-SLOT + !
+  DROP
+  1 HOST-RELOC-N +! ;
+
+: HOST-SLOT-OF  ( va -- slot | -1 )
+  #HOST-APP 0 DO
+    DUP I CELLS HOST-APP-VA + @ = IF  DROP I UNLOOP EXIT  THEN
+  LOOP  DROP -1 ;
+
+: TGT-END-ALIGN8  ( -- )
+  TGT-END @ 7 + -8 AND  TGT-END ! ;
+
+: VEN-,  ( u64 -- )
+  TGT-END @  TGT-LIMIT @ 8 - U> IF  ." veneer overflow" CR ABORT  THEN
+  TGT-END @ !  8 TGT-END +! ;
+
+\ LDR Xt, label — A64 literal offset is SignExtend(imm19)*4 (not *8).
+\ For 64-bit LDR the address must still be 8-aligned (imm19 even).
+: ENC-LDR64-LIT-X16  ( from to -- insn )
+  SWAP - 2 ARSHIFT
+  $7FFFF AND 5 LSHIFT
+  16 OR  $58000000 OR ;
+
+: PATCH-BL-HOST  ( npc insn slot -- )
+  \ Veneer (8-aligned): LDR X16,lit / BLR|BR / B ret|NOP / NOP / .quad
+  \ lit at ven+16 → imm19=4 (PC+16).
+  {: npc insn slot | ven ret lit -- :}
+  TGT-END-ALIGN8
+  TGT-END @ TO ven
+  ven 16 + TO lit
+  ven lit ENC-LDR64-LIT-X16 VEN-W,
+  insn $FC000000 AND $94000000 = IF   \ BL
+    ARM-BLR-X16 VEN-W,
+    npc 4 + TO ret
+    TGT-END @ ret ENC-B-TO VEN-W,
+    ARM-NOP VEN-W,
+    slot HOST-RELOC-ADD
+    HOST-CALL-MAGIC slot OR VEN-,
+    npc ven ENC-BL-TO npc W!
+  ELSE
+    ARM-BR-X16 VEN-W,
+    ARM-NOP VEN-W,
+    ARM-NOP VEN-W,
+    slot HOST-RELOC-ADD
+    HOST-CALL-MAGIC slot OR VEN-,
+    npc ven ENC-B-TO npc W!
+  THEN
+;
+
+: PATCH-BL-ABS  ( npc insn tgt -- )
   {: npc insn tgt | ven ret -- :}
+  \ Stand-alone image has no Forth process: out-of-span BL helpers (today:
+  \ EXIT → _local_frame_try_exit) must not freeze host VAs. Locals frames are
+  \ unused in emitted apps; NOP the call. Non-BL abs still aborts.
+  ?EMIT-STANDALONE IF
+    insn $FC000000 AND $94000000 = IF
+      ARM-NOP npc W!  EXIT
+    THEN
+    ." PATCH-BL-ABS: stand-alone cannot veneer abs B to " tgt U. CR ABORT
+  THEN
   TGT-END-ALIGN4
   TGT-END @ TO ven
   tgt VEN-MOV64-X16
   insn $FC000000 AND $94000000 = IF   \ BL
     ARM-BLR-X16 VEN-W,
     npc 4 + TO ret
-    TGT-END @ ret ENC-B-TO VEN-W,     \ B back to npc+4
-    npc ven ENC-BL-TO npc W!          \ site: BL veneer (from npc -> ven)
+    TGT-END @ ret ENC-B-TO VEN-W,
+    npc ven ENC-BL-TO npc W!
   ELSE
-    ARM-BR-X16 VEN-W,                 \ tail B
-    npc ven ENC-B-TO npc W!           \ site: B veneer (from npc -> ven)
+    ARM-BR-X16 VEN-W,
+    npc ven ENC-B-TO npc W!
   THEN
 ;
+
+: PATCH-BL  ( npc insn tgt -- )
+  {: npc insn tgt | slot -- :}
+  tgt HOST-SLOT-OF TO slot
+  slot 0< 0= IF  npc insn slot PATCH-BL-HOST EXIT  THEN
+  npc insn tgt PATCH-BL-ABS ;
+
 
 : SEXT26  ( u -- n )
   $03FFFFFF AND
@@ -112,6 +198,45 @@ $D61F0200 CONSTANT ARM-BR-X16
   OVER CBNZ-X28? IF  CBNZ-TGT    EXIT  THEN
   2DROP 0 ;
 
+\ First out-of-span BL/B target in a CODE prim (= _host_app_* VA).
+: HOST-PRIM-VA  ( xt -- va | 0 )
+  {: xt | code u off insn tgt -- :}
+  xt PRIM-SPAN TO u TO code
+  0 TO off
+  BEGIN  off u <  WHILE
+    code off + W@ TO insn
+    insn B/BL? IF
+      insn code off + B/BL-TGT TO tgt
+      tgt code u IN-SPAN? 0= IF  tgt EXIT  THEN
+    THEN
+    off 4 + TO off
+  REPEAT
+  0 ;
+
+: HOST-APP-SET  ( xt slot -- )
+  SWAP HOST-PRIM-VA  SWAP CELLS HOST-APP-VA + ! ;
+
+\ (APP-*) live in GRAPHICS (FORTH>GRAPHICS). wid = VOCABULARY PFA+CELL
+\ (does_ip at >BODY, heads at >BODY CELL+). Do not ALSO GRAPHICS while
+\ compiling Emitter — it shadows TYPE/EMIT/CR.
+: GRAPHICS-WID  ( -- wid )  ['] GRAPHICS >BODY CELL+ ;
+
+: HOST-APP-XT  ( c-addr u -- xt )
+  2DUP GRAPHICS-WID SEARCH-WORDLIST
+  ?DUP 0= IF  ." host-app missing " TYPE CR ABORT  THEN
+  DROP >R 2DROP R> ;
+
+: HOST-APP-DISCOVER  ( -- )
+  S" (APP-OPEN)"  HOST-APP-XT 0 HOST-APP-SET
+  S" (APP-CLOSE)" HOST-APP-XT 1 HOST-APP-SET
+  S" (APP-BLIT)"  HOST-APP-XT 2 HOST-APP-SET
+  S" (APP-PBLIT)" HOST-APP-XT 3 HOST-APP-SET
+  S" (APP-KEY?)"  HOST-APP-XT 4 HOST-APP-SET
+  S" (APP-KEY)"   HOST-APP-XT 5 HOST-APP-SET
+  S" (APP-NAME)"  HOST-APP-XT 6 HOST-APP-SET
+  S" (APP-TONE)"  HOST-APP-XT 7 HOST-APP-SET
+  S" (APP-PUMP)"  HOST-APP-XT 8 HOST-APP-SET ;
+
 \ --- re-encode from new pc to same tgt --------------------------------
 
 : ENC-B/BL  ( tgt pc old-insn -- insn )
@@ -151,6 +276,10 @@ $D61F0200 CONSTANT ARM-BR-X16
 : RELOC-PRIM  {: xt | new code u off insn tgt npc -- :}
   xt COLON-WORD? IF  EXIT  THEN
   xt DATA-WORD? IF  EXIT  THEN   \ host import — never patch host CFA/PFA
+  \ Stand-alone 0BRANCH is a custom body (no host data_stack ADRP).
+  ?EMIT-STANDALONE IF
+    xt 0BRANCH-ADDR = IF  EXIT  THEN
+  THEN
   xt NAME>STRING TYPE SPACE ." RELOC" CR
   xt MAP-FIND DUP 0= IF  ." no map" CR DROP EXIT  THEN
   8 + TO new
@@ -170,10 +299,13 @@ $D61F0200 CONSTANT ARM-BR-X16
   REPEAT ;
 
 : (TGT-RELOC)  {: | i -- :}
+  HOST-RELOC-CLEAR
+  HOST-APP-DISCOVER
   0 TO i
   BEGIN  i TGT-MAPN @ <  WHILE
     i CELLS TGT-OLD + @ RELOC-PRIM
     i 1+ TO i
-  REPEAT ;
+  REPEAT
+  ." host-relocs " HOST-RELOC-N @ . CR ;
 
 ' (TGT-RELOC) IS TGT-RELOC  \ fill forward reference.

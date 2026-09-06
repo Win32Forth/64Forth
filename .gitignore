@@ -7,3 +7,11 @@ DerivedData/
 xcuserdata/
 *.o
 *.dSYM/
+
+# Emitter runner / smoke build products
+64Forth/Resources/Library/Emitter/runner/emit-run
+64Forth/Resources/Library/Emitter/runner/emit-run-O*
+64Forth/Resources/Library/Emitter/runner/*.bak
+64Forth/Resources/Library/Emitter/EmitterSmoke/*.img
+64Forth/Resources/Library/Emitter/EmitterSmoke/*.app/
+64Forth/Resources/Library/Emitter/EmitterSmoke/Gfx.app/

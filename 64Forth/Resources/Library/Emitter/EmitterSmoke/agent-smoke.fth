@@ -1,21 +1,9 @@
-\ Emitter/test.fth — build+run ladder (empty, TYPE, IF/ELSE, VALUE, CREATE, DO).
-\ Canonical copy lives under Resources/Library/Emitter; sync into
-\ Documents/64Forth/Library/Emitter after edits (RESTORE-SHIPPED stomps Library).
+\ agent-smoke.fth — lives under Library/Emitter/EmitterSmoke (shipped with Emitter)
+\ Mirrors Emitter/test.fth ladder: empty, hi, MAIN2, MAIN4, VALUE, CREATE, DO.
 \ Public domain.
 \
-\   FROMLIB FLOAD Emitter/test.fth
-\ Or via agent (outside Library):
 \   /Applications/64Forth.app/Contents/MacOS/64Forth --agent \
 \     -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/agent-smoke.fth
-\ GRAPHICS mini (WINDOW / AT / EMIT path):
-\   …/64Forth --agent -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/gfx-smoke.fth
-\ Tetra subset + MAIN build:
-\   …/64Forth --agent -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/tetra-smoke.fth
-\ Interactive MAIN/GAME (GUI console, not --agent):
-\   …/Library/Emitter/EmitterSmoke/tetra-gui-smoke.fth  then  EMIT-TETRA  (ESC quits)
-\ Stand-alone data segment (Phase 1):
-\   …/64Forth --agent -f …/Library/Emitter/EmitterSmoke/data-standalone-smoke.fth
-
 
 ONLY FORTH DEFINITIONS DECIMAL
 FROMLIB FLOAD Emitter/emitter.fth
@@ -30,7 +18,7 @@ FROMLIB FLOAD Emitter/emitter.fth
 CREATE C1  3 CELLS ALLOT
 : T-VAL  7 TO V1  V1 . ;
 : T-CR   1 C1 !  C1 @ . ;
-: T-DO   0 3 0 DO I + LOOP . ;   \ expect 3
+: T-DO   0 3 0 DO I + LOOP . ;
 
 : TRY-RUN  ( xt -- )
   DUP TGT-BUILD  TGT-RUN ;
@@ -62,5 +50,19 @@ CR .( T-CR returned ) CR
 CR .( === T-DO: DO LOOP  expect 3 === ) CR
 ['] T-DO TRY-RUN
 CR .( T-DO returned ) CR
+
+CR .( vocabulary check ) CR
+: (GONE?)  ( c-addr u -- flag )  \ true if absent from FORTH
+  FORTH-WORDLIST SEARCH-WORDLIST IF DROP FALSE ELSE TRUE THEN ;
+: (HERE?)  ( c-addr u -- flag )  \ true if present in EMITTER
+  ['] EMITTER 2 CELLS + SEARCH-WORDLIST IF DROP TRUE ELSE FALSE THEN ;
+: .VOC-CHECK  ( -- )
+  S" TGT-BUILD" (GONE?) 0= IF ." FAIL: TGT-BUILD still in FORTH" CR THEN
+  S" ALLOCATE-EXEC" (GONE?) 0= IF ." FAIL: ALLOCATE-EXEC still in FORTH" CR THEN
+  S" TGT-BUILD" (HERE?) 0= IF ." FAIL: TGT-BUILD missing from EMITTER" CR THEN
+  S" ALLOCATE-EXEC" (HERE?) 0= IF ." FAIL: ALLOCATE-EXEC missing from EMITTER" CR THEN
+  S" DATA-WORD?" (HERE?) 0= IF ." FAIL: DATA-WORD? missing from EMITTER" CR THEN
+  ." vocab ok" CR ;
+.VOC-CHECK
 
 CR .( DONE ) CR

@@ -1,0 +1,13 @@
+ONLY FORTH ALSO GRAPHICS DECIMAL
+
+: DUMP-WIN  ( -- )
+  CR ." WINDOW xt= " ['] WINDOW HEX U. DECIMAL CR
+  CR ." CFA@= " ['] WINDOW @ HEX U. DECIMAL CR
+  CR ." body cells:" CR
+  ['] WINDOW 8 +
+  24 0 DO
+    I . SPACE
+    DUP I CELLS + @ HEX U. DECIMAL CR
+  LOOP DROP ;
+
+DUMP-WIN

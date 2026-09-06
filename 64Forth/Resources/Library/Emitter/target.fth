@@ -6,9 +6,13 @@
 DECIMAL
 
 DEFER TGT-RELOC
+DEFER HOST-BIND
 
 : TGT-RELOC-NONE  ( -- )  ;
 ' TGT-RELOC-NONE  IS TGT-RELOC
+
+: HOST-BIND-NONE  ( -- )  ;
+' HOST-BIND-NONE  IS HOST-BIND
 
 VARIABLE TGT
 VARIABLE TGT-ORG
@@ -120,7 +124,34 @@ FALSE VALUE ?EMIT-STANDALONE
 : /EMIT-STANDALONE  ( -- )  TRUE  TO ?EMIT-STANDALONE ;
 : /EMIT-HOSTDATA    ( -- )  FALSE TO ?EMIT-STANDALONE ;
 
+\ Phase 2b: leave MAGIC|slot .quads unbound so SAVE-IMAGE can persist them.
+\ Default false — TGT-BUILD still HOST-BINDs for interactive TGT-RUN.
+FALSE VALUE ?EMIT-UNBOUND
+: /EMIT-UNBOUND  ( -- )  TRUE  TO ?EMIT-UNBOUND ;
+: /EMIT-BOUND    ( -- )  FALSE TO ?EMIT-UNBOUND ;
+
 VARIABLE TGT-DATA-BYTES
+
+\ Phase 2b: absolute pointer cells in the image (ITC xts, CFAs).
+\ Blind u64 walks corrupt ARM prims; SAVE-IMAGE persists this table instead.
+1024 CONSTANT #PTR-RELOC
+CREATE PTR-RELOC-OFF  #PTR-RELOC CELLS ALLOT
+CREATE PTR-RELOC-SPC  #PTR-RELOC ALLOT   \ 0=code 1=data
+VARIABLE PTR-RELOC-N
+: PTR-RELOC-CLEAR  ( -- )  0 PTR-RELOC-N ! ;
+
+: PTR-RELOC-ADD  ( addr space -- )
+  {: a sp -- :}
+  PTR-RELOC-N @ #PTR-RELOC U< 0= IF
+    ." too many ptr relocs" CR ABORT
+  THEN
+  a  PTR-RELOC-N @ CELLS PTR-RELOC-OFF + !
+  sp PTR-RELOC-N @ PTR-RELOC-SPC + C!
+  1 PTR-RELOC-N +! ;
+
+: PTR,  ( x -- )  \ TGT, of an absolute pointer into the image
+  TGT-HERE 0 PTR-RELOC-ADD
+  TGT, ;
 
 \ End of a data word = smallest HFA of another reachable xt above this CFA,
 \ else CFA+24 (does_ip + one cell) for a lone VALUE/CONSTANT.
@@ -186,17 +217,115 @@ VARIABLE TGT-DATA-BYTES
 : COPY-BYTES  ( src u -- )
   0 ?DO DUP I + C@ TGT-C, LOOP DROP TGT-ALIGN ;
 
+\ Stand-alone 0BRANCH: host prim ADRPs to data_stack SP0 (in-process only).
+\ Emit a guard-free body; STITCH still places a trailing B after host span.
+: B-ABS,  ( target -- )
+  TGT-HERE - 2 ARSHIFT
+  $03FFFFFF AND $14000000 OR  TGT-W, ;
+
+: WRITE-0BRANCH-SA  ( -- )
+  $AA1403E0 TGT-W,                    \ MOV X0, X20
+  $F84086D4 TGT-W,                    \ LDR X20, [X22], #8
+  $B4000060 TGT-W,                    \ CBZ X0, +3
+  $91002273 TGT-W,                    \ ADD X19, X19, #8
+  ['] (NEXT) MAP-FIND 8 + B-ABS,
+  $F9400260 TGT-W,                    \ LDR X0, [X19]
+  $8B000273 TGT-W,                    \ ADD X19, X19, X0
+  ['] (NEXT) MAP-FIND 8 + B-ABS,
+  ;
+
 : WRITE-PRIM  ( xt -- )
   DUP NAME>STRING TYPE SPACE ." prim" CR
   DUP MAP-FIND DUP 0= IF ." no map" CR ABORT THEN
-  DUP TGT-DP !
-  DUP 8 + SWAP !
+  DUP TGT-DP !                 \ ( xt new )
+  DUP 8 + OVER !               \ CFA cell → payload; ( xt new )
+  DUP 0 PTR-RELOC-ADD          \ record CFA pointer cell
+  DROP                         \ ( xt )
   8 TGT-ALLOT
+  ?EMIT-STANDALONE IF
+    DUP 0BRANCH-ADDR = IF
+      DROP WRITE-0BRANCH-SA EXIT
+    THEN
+  THEN
   PRIM-SPAN COPY-BYTES ;
 
+\ --- DOES> fragments (stand-alone) ---------------------------------------
+\ Host does_ip points at an ITC xt list ending in EXIT. Slice once per
+\ unique host IP into the code image (appended at TGT-END) and retarget.
+
+16 CONSTANT #DOES-FRAG
+CREATE DOES-HOST  #DOES-FRAG CELLS ALLOT
+CREATE DOES-NEW   #DOES-FRAG CELLS ALLOT
+VARIABLE DOES-N
+: DOES-CLEAR  ( -- )  0 DOES-N ! ;
+
+: DOES-FIND  ( host-ip -- new|0 )
+  {: hip | i -- :}
+  0 TO i
+  BEGIN  i DOES-N @ <  WHILE
+    i CELLS DOES-HOST + @ hip = IF
+      i CELLS DOES-NEW + @ EXIT
+    THEN
+    i 1+ TO i
+  REPEAT
+  0 ;
+
+: MAP-CELL  ( old -- )
+  DUP MAP-FIND ?DUP IF  NIP PTR,  ELSE
+    ." unmapped " NAME>STRING TYPE CR ABORT
+  THEN ;
+
+: DOES-EMIT  ( host-ip -- new )
+  {: hip | new -- :}
+  DOES-N @ #DOES-FRAG U< 0= IF
+    ." does: too many fragments" CR ABORT
+  THEN
+  TGT-END @ 7 + -8 AND TGT-DP !
+  TGT-HERE TO new
+  hip
+  BEGIN
+    DUP @ MAP-CELL
+    DUP @ ['] EXIT = IF
+      DROP
+      TGT-HERE TGT-END !
+      hip DOES-N @ CELLS DOES-HOST + !
+      new DOES-N @ CELLS DOES-NEW + !
+      1 DOES-N +!
+      new EXIT
+    THEN
+    8 +
+  AGAIN ;
+
+: DOES-SLICE  ( host-ip -- new )
+  DUP DOES-FIND ?DUP IF  NIP EXIT  THEN
+  DOES-EMIT ;
+
+\ If addr falls inside a mapped DATA-WORD's host span, slide it to the
+\ sliced copy (for LIT PFAs from TO, etc.).
+: DATA-REBASE  ( addr -- addr' flag )
+  {: a | i w new -- :}
+  0 TO i
+  BEGIN  i TGT-MAPN @ <  WHILE
+    i CELLS TGT-OLD + @ TO w
+    w DATA-WORD? IF
+      a w U< 0= IF
+        a w DATA-END U< IF
+          w MAP-FIND DUP 0= IF  DROP a FALSE EXIT  THEN  TO new
+          a w - new +  TRUE EXIT
+        THEN
+      THEN
+    THEN
+    i 1+ TO i
+  REPEAT
+  a FALSE ;
+
+: LIT-PAYLOAD,  ( host-lit -- )
+  \ LIT cells live in the code image (colon bodies).
+  DATA-REBASE IF  TGT-HERE 0 PTR-RELOC-ADD  THEN
+  TGT, ;
+
 \ Copy CFA..DATA-END into the RW data segment; retarget CFA to sliced
-\ (DOVAR)/(DOCON)/(DODOES). does_ip (+8) stays a host IP for now
-\ (works with in-process TGT-RUN; stand-alone runner must ship DOES> later).
+\ (DOVAR)/(DOCON)/(DODOES). DOES> does_ip is sliced into code (DOES-SLICE).
 : WRITE-IMPORT  ( xt -- )
   ?EMIT-STANDALONE 0= IF  DROP EXIT  THEN
   {: xt | new u code -- :}
@@ -210,11 +339,12 @@ VARIABLE TGT-DATA-BYTES
   ELSE xt DOCON? IF  ['] (DOCON)
   ELSE  ['] (DODOES)  THEN THEN
   DUP MAP-FIND ?DUP IF  NIP @  ELSE  @  THEN  TO code
-  code new ! ;
-
-: MAP-CELL  ( old -- )
-  DUP MAP-FIND ?DUP IF  NIP TGT,  ELSE
-    ." unmapped " NAME>STRING TYPE CR ABORT
+  code new !
+  new 1 PTR-RELOC-ADD
+  xt DODOES? IF
+    new 8 + @ DOES-SLICE
+    new 8 + !
+    new 8 + 1 PTR-RELOC-ADD
   THEN ;
 
 : WRITE-BODY  ( xt -- )
@@ -227,7 +357,7 @@ VARIABLE TGT-DATA-BYTES
     DUP ['] EXIT = IF
       MAP-CELL 8 +                  \ mid or final EXIT
     ELSE DUP LIT-ADDR = IF
-      MAP-CELL 8 + DUP @ TGT, 8 +
+      MAP-CELL 8 + DUP @ LIT-PAYLOAD, 8 +
     ELSE DUP BR-OP? IF
       MAP-CELL 8 + DUP @ TGT, 8 +
     ELSE DUP SLIT-ADDR = IF
@@ -245,7 +375,7 @@ VARIABLE TGT-DATA-BYTES
   DUP MAP-FIND DUP 0= IF ." no map" CR ABORT THEN
   TGT-DP !
   ['] (DOCOL) MAP-FIND DUP 0= IF ." no DOCOL map" CR ABORT THEN
-  @ TGT,
+  @ PTR,
   WRITE-BODY ;
 
 : TGT-RESERVE  {: | RI -- :}
@@ -326,6 +456,8 @@ VARIABLE TGT-DATA-BYTES
 : TGT-BUILD  ( xt -- )
   TGT-CLOSE
   0 TGT-DATA-BYTES !
+  PTR-RELOC-CLEAR
+  DOES-CLEAR
   REACH-FROM
   ['] (DOCOL) (MARK)
   ['] (NEXT)  (MARK)
@@ -343,8 +475,13 @@ VARIABLE TGT-DATA-BYTES
   TGT-WRITE
   TGT-STITCH
   TGT-RELOC
+  \ Phase 2a: bind MAGIC|slot .quads while image is still RW (before R+X).
+  \ /EMIT-UNBOUND (Phase 2b): skip bind so SAVE-IMAGE keeps MAGIC|slot;
+  \ TGT-RUN binds later via HOST-BIND-IF-NEEDED.
+  ?EMIT-UNBOUND 0= IF  HOST-BIND  THEN
   TGT-PROTECT
   ." written " TGT-SIZE . CR
+  ?EMIT-UNBOUND IF  ." unbound (MAGIC|slot)" CR  THEN
   ?EMIT-STANDALONE IF
     ." standalone data-bytes " TGT-DATA-BYTES @ . CR
     ." data-seg " TGT-DATA-ORG @ U. TGT-DATA-DP @ U. CR
