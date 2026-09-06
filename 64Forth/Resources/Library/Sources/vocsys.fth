@@ -118,7 +118,7 @@ S" (BLOCK-WRITE)"   FORTH>SYSVOC
 S" (BLOCK-READ)"    FORTH>SYSVOC
 
 S" (XFACILITY-OP-GO)" FORTH>SYSVOC
-S" (FILE-OP-CALL)"    FORTH>SYSVOC
+\ (FILE-OP-CALL) (LOCAL-FRAME-EXIT) (.) (U.) → EMITTER (FLAG_EMM; see vocemit.fth)
 
 \ Compiler / block / locals / float / debug internals (not user words).
 S" (DOES>)"            FORTH>SYSVOC
@@ -132,15 +132,12 @@ S" (BLOCK-BUF)"        FORTH>SYSVOC
 S" (BLOCK-NR)"         FORTH>SYSVOC
 S" (BLOCK-UPD)"        FORTH>SYSVOC
 S" (CATCH-OK)"         FORTH>SYSVOC
-S" (LOCAL-FRAME-EXIT)" FORTH>SYSVOC
 S" DBG-SHOW-XT"        FORTH>SYSVOC
 S" DBG-HL-XT"          FORTH>SYSVOC
 S" DBG-INLINE"         FORTH>SYSVOC
 S" TDBG-ARM-KEYS"      FORTH>SYSVOC
 S" TDBG-DISARM-KEYS"   FORTH>SYSVOC
 
-S\" (.)"               FORTH>SYSVOC
-S\" (U.)"              FORTH>SYSVOC
 S\" (C\")"             FORTH>SYSVOC
 S" (LOAD-ENTER)"       FORTH>SYSVOC
 S" (LOAD-RUN)"         FORTH>SYSVOC

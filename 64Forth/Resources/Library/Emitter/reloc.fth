@@ -120,14 +120,19 @@ VARIABLE HOST-RELOC-N
   THEN
 ;
 
+\ SA out-of-span BL: deferred so HOST-PRIM-VA can be defined first.
+\ Default NOPs (EXIT→_local_frame_try_exit). Real handler installed below.
+DEFER SA-PATCH-BL-HELPER  ( npc tgt -- )
+: (SA-PATCH-BL-NOP)  ( npc tgt -- )  DROP ARM-NOP SWAP W! ;
+' (SA-PATCH-BL-NOP) IS SA-PATCH-BL-HELPER
+
 : PATCH-BL-ABS  ( npc insn tgt -- )
   {: npc insn tgt | ven ret -- :}
-  \ Stand-alone image has no Forth process: out-of-span BL helpers (today:
-  \ EXIT → _local_frame_try_exit) must not freeze host VAs. Locals frames are
-  \ unused in emitted apps; NOP the call. Non-BL abs still aborts.
+  \ Stand-alone: no host process. SA-PATCH-BL-HELPER embeds pure helpers
+  \ (e.g. _udivmod128); host-only BLs (EXIT locals) stay NOP.
   ?EMIT-STANDALONE IF
     insn $FC000000 AND $94000000 = IF
-      ARM-NOP npc W!  EXIT
+      npc tgt SA-PATCH-BL-HELPER  EXIT
     THEN
     ." PATCH-BL-ABS: stand-alone cannot veneer abs B to " tgt U. CR ABORT
   THEN
@@ -212,6 +217,101 @@ VARIABLE HOST-RELOC-N
     off 4 + TO off
   REPEAT
   0 ;
+
+\ --- stand-alone FLAG_EMM helpers (BOOT_WORD + CODE-BOUNDS) ----------------
+\ Out-of-span BL targets that land in a FLAG_EMM boot span are copied into
+\ the image when the span has no ADRP (pure ALU/control, e.g. (UDIVMOD128)).
+\ Host-tied spans (ADRP to BSS/hooks) stay NOP — same as EXIT→locals.
+32 CONSTANT #SA-HELP
+CREATE SA-HELP-HOST  #SA-HELP CELLS ALLOT
+CREATE SA-HELP-NEW   #SA-HELP CELLS ALLOT
+VARIABLE SA-HELP-N
+: SA-HELP-CLEAR  ( -- )  0 SA-HELP-N ! ;
+
+: SA-HELP-FIND  ( host -- new|0 )
+  {: h | i -- :}
+  0 TO i
+  BEGIN  i SA-HELP-N @ <  WHILE
+    i CELLS SA-HELP-HOST + @ h = IF
+      i CELLS SA-HELP-NEW + @ EXIT
+    THEN
+    i 1+ TO i
+  REPEAT
+  0 ;
+
+: SA-HELP-COPY  ( host u -- new )
+  {: host u | new -- :}
+  TGT-END-ALIGN4
+  TGT-END @ TO new
+  new u + TGT-LIMIT @ U> IF  ." sa-help overflow" CR ABORT  THEN
+  host new u MOVE
+  u TGT-END +!
+  SA-HELP-N @ #SA-HELP U< 0= IF  ." too many sa helpers" CR ABORT  THEN
+  host SA-HELP-N @ CELLS SA-HELP-HOST + !
+  new  SA-HELP-N @ CELLS SA-HELP-NEW  + !
+  1 SA-HELP-N +!
+  ." sa-help " u U. ." bytes @ " new U. CR
+  new ;
+
+: SA-HELP-ENSURE  ( host u -- new )
+  OVER SA-HELP-FIND ?DUP IF  NIP NIP EXIT  THEN
+  SA-HELP-COPY ;
+
+\ va inside a FLAG_EMM boot span → ( code u ); else 0 0.
+: EMM-SPAN-OF  ( va -- code u | 0 0 )
+  {: va | row code end -- :}
+  BOOT-WORD-TABLE
+  BEGIN  DUP @ WHILE
+    DUP TO row
+    row BOOT-WORD-EMM? IF
+      row BOOT-WORD-CODE TO code
+      row BOOT-WORD-END TO end
+      end IF
+        va code end WITHIN IF
+          DROP  code  end code -  EXIT
+        THEN
+      THEN
+    THEN
+    /BOOT-WORD +
+  REPEAT DROP 0 0 ;
+
+: SPAN-HAS-ADRP?  ( code u -- flag )
+  {: code u | off -- :}
+  0 TO off
+  BEGIN  off u <  WHILE
+    code off + W@ ADRP? IF  TRUE EXIT  THEN
+    off 4 + TO off
+  REPEAT
+  FALSE ;
+
+\ True if any B/BL lands outside [code, code+u). Copied helpers must be
+\ closed: e.g. (.) bls to _i64_to_str — MOVE would leave stale PC-rel.
+: SPAN-HAS-EXT-BL?  ( code u -- flag )
+  {: code u | off insn tgt -- :}
+  0 TO off
+  BEGIN  off u <  WHILE
+    code off + W@ TO insn
+    insn B/BL? IF
+      insn code off + B/BL-TGT TO tgt
+      tgt code u IN-SPAN? 0= IF  TRUE EXIT  THEN
+    THEN
+    off 4 + TO off
+  REPEAT
+  FALSE ;
+
+: SPAN-SA-PURE?  ( code u -- flag )
+  2DUP SPAN-HAS-ADRP? IF  2DROP FALSE EXIT  THEN
+  SPAN-HAS-EXT-BL? 0= ;
+
+: (SA-PATCH-BL-HELPER)  ( npc tgt -- )
+  {: npc tgt | code u new -- :}
+  tgt EMM-SPAN-OF TO u TO code
+  code 0= IF  ARM-NOP npc W!  EXIT  THEN
+  code u SPAN-SA-PURE? 0= IF  ARM-NOP npc W!  EXIT  THEN
+  code u SA-HELP-ENSURE TO new
+  npc  new tgt code - +  ENC-BL-TO npc W!
+  ;
+' (SA-PATCH-BL-HELPER) IS SA-PATCH-BL-HELPER
 
 : HOST-APP-SET  ( xt slot -- )
   SWAP HOST-PRIM-VA  SWAP CELLS HOST-APP-VA + ! ;
@@ -302,6 +402,7 @@ VARIABLE HOST-RELOC-N
 
 : (TGT-RELOC)  {: | i -- :}
   HOST-RELOC-CLEAR
+  SA-HELP-CLEAR
   HOST-APP-DISCOVER
   0 TO i
   BEGIN  i TGT-MAPN @ <  WHILE

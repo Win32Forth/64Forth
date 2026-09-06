@@ -70,6 +70,33 @@ S" (DOVAR)"          FORTH>EMITTER
 S" (DOCON)"          FORTH>EMITTER
 S" (DODOES)"         FORTH>EMITTER
 
+\ FLAG_EMM CODE helpers: shared asm spans BL'd from other boot prims.
+\ Reloc embeds pure (no ADRP) ones under /EMIT-STANDALONE; host-tied → NOP.
+S" (UDIVMOD128)"          FORTH>EMITTER
+S" (LOCAL-FRAME-EXIT)"    FORTH>EMITTER
+S" (FILE-OP-CALL)"        FORTH>EMITTER
+S" (LOCAL-COMPILE-RESET)" FORTH>EMITTER
+S" (LOCAL-ADD-NAME)"      FORTH>EMITTER
+S" (LOCAL-LOOKUP)"        FORTH>EMITTER
+S" (LOCAL-FINALIZE)"      FORTH>EMITTER
+S" (CURSOR-LOAD)"         FORTH>EMITTER
+S" (CURSOR-STORE)"        FORTH>EMITTER
+S" (SOURCE-END)"          FORTH>EMITTER
+S" (PUTCHAR)"             FORTH>EMITTER
+S" (GETCHAR)"             FORTH>EMITTER
+S" (WRITE-STDOUT)"        FORTH>EMITTER
+S" (PRINT-STRING)"        FORTH>EMITTER
+S" (READ-LINE)"           FORTH>EMITTER
+S" (NEXT-WORD)"           FORTH>EMITTER
+S" (FIND-WORD)"           FORTH>EMITTER
+S" (COMPILE-CELL)"        FORTH>EMITTER
+S" (.)"                   FORTH>EMITTER
+S" (U.)"                  FORTH>EMITTER
+S" (LOAD-BASE)"           FORTH>EMITTER
+S" (DIGIT-CHAR)"          FORTH>EMITTER
+S" (I64>STR)"             FORTH>EMITTER
+S" (U64>STR)"             FORTH>EMITTER
+
 \ Rechain helpers: put EMITTER on the order first so we can keep calling them
 \ while they are moved one by one.
 ALSO EMITTER

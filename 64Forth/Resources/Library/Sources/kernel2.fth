@@ -654,12 +654,18 @@ DOC" [CHAR] ( compile: '<spaces>name' -- ) compile xchar literal (immediate)"
 : [CHAR] ?COMP CHAR LIT-ADDR , , ; IMMEDIATE
 
 \ BOOT_WORD display list for assembly words
-8 5 * CONSTANT /BOOT-WORD   \ name help imm code end
+8 5 * CONSTANT /BOOT-WORD   \ name help flags code end
+\ Match forth.s .equ FLAG_* (bits 61–63 of the FLAGS / boot-row flags cell).
+$8000000000000000 CONSTANT FLAG_IMM     \ bit 63 — IMMEDIATE
+$4000000000000000 CONSTANT FLAG_EMM     \ bit 62 — emitter: embed/slice CODE helper
+$2000000000000000 CONSTANT FLAG_INLINE  \ bit 61 — compile-time inline
 : BOOT-WORD-NAME  ( row -- c-addr )  @ ;
 : BOOT-WORD-HELP  ( row -- c-addr )  8 + @ ;
-: BOOT-WORD-IMM   ( row -- n )       16 + @ ;
+: BOOT-WORD-FLAGS ( row -- n )       16 + @ ;   \ 0 or FLAG_IMM|FLAG_EMM|FLAG_INLINE
+: BOOT-WORD-IMM   ( row -- n )       BOOT-WORD-FLAGS ;  \ legacy alias
 : BOOT-WORD-CODE  ( row -- addr )    24 + @ ;
 : BOOT-WORD-END   ( row -- addr )    32 + @ ;   \ 0 if unlabeled
+: BOOT-WORD-EMM?  ( row -- flag )  BOOT-WORD-FLAGS FLAG_EMM AND 0<> ;
 
 : ZCOUNT  ( zaddr -- zaddr u )
   DUP BEGIN DUP C@ WHILE 1+ REPEAT OVER - ;

@@ -7,21 +7,22 @@
 // Runtime still walks a contiguous table: each BOOT_WORD appends one
 // 4-quad row to __DATA,__bootword; boot_word_table is the section start.
 //
-//   BOOT_WORD "NAME", "help stack comment", imm, CodeLabel
+//   BOOT_WORD "NAME", "help stack comment", flags, CodeLabel
 // CodeLabel:
 //   ... implementation ...
 //
-// imm: 0 = normal, 1 = IMMEDIATE
+// flags: 0 or FLAG_IMM / FLAG_EMM / FLAG_INLINE (OR-able). Stored in the
+// boot row and OR'd into the dict FLAGS cell by _header_build.
 // ============================================================================
 
-//   BOOT_WORD "NAME", "help", imm, CodeLabel, CodeEndLabel
+//   BOOT_WORD "NAME", "help", flags, CodeLabel, CodeEndLabel
 // CodeLabel:
 //   ...
 // CodeEndLabel:
 
-.macro BOOT_WORD name, help, imm, code, end=0
+.macro BOOT_WORD name, help, flags, code, end=0
     .pushsection __DATA,__bootword,regular
-    .quad .Lbw_n\@, .Lbw_h\@, \imm, \code, \end
+    .quad .Lbw_n\@, .Lbw_h\@, \flags, \code, \end
     .popsection
     .pushsection __TEXT,__cstring,cstring_literals
 .Lbw_n\@:

@@ -1414,13 +1414,18 @@ _install_fault_handlers:
 //   bits  0-15  NFA_OFF   (CFA - NFA), max 65535
 //   bits 16-31  HFA_OFF   (CFA - HFA), max 65535
 //   bits 32-47  VIEW_LINE (1-based; 0 = none)
-//   bits 48-62  VIEW_FILE (file-id 1..32767; 0 = none)
-//   bit  63     IMMEDIATE
+//   bits 48-60  VIEW_FILE (file-id 1..8191; 0 = none)
+//   bit  61     FLAG_INLINE
+//   bit  62     FLAG_EMM
+//   bit  63     FLAG_IMM (IMMEDIATE)
 .equ NFA_OFF_MASK, 0xFFFF
 .equ HFA_OFF_MASK, 0xFFFF
 .equ VIEW_LINE_MASK, 0xFFFF
-.equ VIEW_FILE_MASK, 0x7FFF
-.equ FLAG_IMM, 0x8000000000000000   // bit 63
+.equ VIEW_FILE_MASK, 0x1FFF
+.equ FLAG_IMM,    0x8000000000000000   // bit 63 — IMMEDIATE (existing)
+.equ FLAG_EMM,    0x4000000000000000   // bit 62 — emitter: embed/slice this CODE helper span
+.equ FLAG_INLINE, 0x2000000000000000   // bit 61 — compile-time inline (when you bring it back)
+
 .equ VIEW_FILE_MAX, 256
 .equ VIEW_PATH_MAX, 256
 
@@ -1509,7 +1514,8 @@ _dict_hash:
     ret
 
 // _header_build:
-//   x0=name addr, x1=name len, x2=help addr, x3=help len, x4=code addr, x5=imm(0/1)
+//   x0=name addr, x1=name len, x2=help addr, x3=help len, x4=code addr,
+//   x5=flags (0 or FLAG_IMM|FLAG_EMM|FLAG_INLINE from BOOT_WORD)
 //   Builds: HFA help | NFA name | LFA link | FFA flags | CFA code
 //   HERE → CFA+8. Links into CURRENT wordlist heads[hash]. Returns x0 = CFA.
 //   Names UPPERCASE. Help always written (empty = count 0 + pad 8).
@@ -1526,7 +1532,7 @@ _header_build:
     mov x21, x2                    // help
     mov x22, x3                    // hlen
     mov x23, x4                    // code
-    str x5, [sp, #-16]!            // imm
+    str x5, [sp, #-16]!            // flags (FLAG_*)
 
     // CURRENT wordlist base (wid); fallback to latest_var
     adrp x24, current_var@page
@@ -1612,7 +1618,7 @@ _header_build:
     // --- CFA ---
     mov x0, x6                     // CFA
     str x23, [x6], #8
-    // FLAGS = NFA_OFF | (HFA_OFF<<16) | (LINE<<32) | (FILE<<48) | IMM<<63
+    // FLAGS = NFA_OFF | (HFA_OFF<<16) | (LINE<<32) | (FILE<<48) | FLAG_*
     sub x1, x0, x7                 // NFA_OFF
     and x1, x1, #0xFFFF
     sub x2, x0, x8                 // HFA_OFF
@@ -1630,15 +1636,12 @@ _header_build:
     and x3, x3, #0xFFFF
     lsl x3, x3, #32
     orr x1, x1, x3
-    and x2, x2, #0x7FFF
+    mov x3, #VIEW_FILE_MASK
+    and x2, x2, x3
     lsl x2, x2, #48
     orr x1, x1, x2
-    ldr x5, [sp], #16              // imm
-    cbz x5, 11f
-    mov x2, #1
-    lsl x2, x2, #63                // FLAG_IMM
-    orr x1, x1, x2
-11:
+    ldr x5, [sp], #16              // flags from BOOT_WORD
+    orr x1, x1, x5                 // FLAG_IMM / FLAG_EMM / FLAG_INLINE
     str x1, [x0, #-8]
     adrp x2, here_ptr@page
     add x2, x2, here_ptr@pageoff
@@ -1690,14 +1693,14 @@ _boot_kernel:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
 
-    // boot_word_table rows: name*, help*, imm, code*  (code from BOOT_WORD ... XDUP)
+    // boot_word_table rows: name*, help*, flags, code*, end*
     adrp x19, boot_word_table@page
     add x19, x19, boot_word_table@pageoff
 _bk_loop:
     ldr x20, [x19], #8             // name ptr
     cbz x20, _bk_done
     ldr x21, [x19], #8             // help ptr
-    ldr x22, [x19], #8             // imm
+    ldr x22, [x19], #8             // flags (FLAG_*)
     ldr x4, [x19], #8              // code (e.g. XDUP)
     ldr x6,  [x19], #8             // end (may be 0)
     // name len
@@ -1713,7 +1716,7 @@ _bk_loop:
     ldp x0, x1, [sp], #16
     mov x2, x21                    // help
     // x4 = code already
-    mov x5, x22                    // imm
+    mov x5, x22                    // flags
     bl _header_build               // x0 = CFA
     mov x21, x0                    // cfa for cache
     mov x0, x20                    // name z
@@ -2671,7 +2674,7 @@ XDBGOFF:
 // .( ( -- ) IMMEDIATE — parse until ')' and TYPE (Core Ext). Boot CODE so AutoLoad
 // works even if high-level forth_init aborts before the colon definition of .(.
 
-    BOOT_WORD ".(", ".( ( -- ) print text until ) immediately (immediate)", 1, XDOTPAREN
+    BOOT_WORD ".(", ".( ( -- ) print text until ) immediately (immediate)", FLAG_IMM, XDOTPAREN
 XDOTPAREN:
     mov  w7, #41                   // ')'
     stp  x29, x30, [sp, #-16]!
@@ -3020,11 +3023,8 @@ XFIND:
     add x0, x2, #1              // address of name chars
     bl _find_word
     cbz x0, _xfind_not
-    // x0 = CFA, x1 = FLAGS; IMM = bit 63
-    tst x1, x1                  // set N from MSB? use explicit
-    mov x2, #1
-    lsl x2, x2, #63
-    tst x1, x2
+    // x0 = CFA, x1 = FLAGS
+    tst x1, #(FLAG_IMM)
     mov x4, #1
     mov x5, #-1
     csel x4, x4, x5, ne         // immediate -> 1, else -1
@@ -3087,10 +3087,8 @@ _swl_cmp:
     add  x5, x5, #1
     b    _swl_cmp
 _swl_match:
-    mov  x2, #1
-    lsl  x2, x2, #63
-    ldr  x1, [x21, #-8]
-    tst  x1, x2
+    ldr  x1, [x21, #-8]            // FLAGS
+    tst  x1, #(FLAG_IMM)
     mov  x4, #1
     mov  x5, #-1
     csel x4, x4, x5, ne            // 1=imm, -1=normal
@@ -3154,7 +3152,7 @@ XEXECUTE_END:
 // Use C stack for temp — never the Forth return stack (x23), which may hold
 // DOCOL frames when LITERAL runs inside an immediate colon word (e.g. ELSE).
 
-    BOOT_WORD "LITERAL", "LITERAL ( x -- ) compile literal x (immediate)", 1, XLITERAL
+    BOOT_WORD "LITERAL", "LITERAL ( x -- ) compile literal x (immediate)", FLAG_IMM, XLITERAL
 XLITERAL:
     stp x29, x30, [sp, #-16]!
     str x20, [sp, #-16]!           // save literal value
@@ -3179,9 +3177,7 @@ XIMMEDIATE:
     ldr  x0, [x0]
     cbz  x0, 3f
     ldr  x1, [x0, #-8]             // FLAGS
-    mov  x2, #1
-    lsl  x2, x2, #63               // FLAG_IMM bit 63
-    orr  x1, x1, x2
+    orr  x1, x1, #(FLAG_IMM)
     str  x1, [x0, #-8]
 3:
     NEXT
@@ -3288,7 +3284,7 @@ XNONAME:
 
 // ; ( -- ) immediate: end colon definition; after :NONAME leaves xt
 
-    BOOT_WORD ";", "; ( -- ) end colon definition (immediate)", 1, XSEMI
+    BOOT_WORD ";", "; ( -- ) end colon definition (immediate)", FLAG_IMM, XSEMI
 XSEMI:
     // Compile EXIT entry address
     adrp x0, cfa_exit@page
@@ -3436,7 +3432,7 @@ XRBRA:
     str x1, [x0]
     NEXT
 
-    BOOT_WORD "[", "[ ( -- ) enter interpret mode (immediate)", 1, XLBRA
+    BOOT_WORD "[", "[ ( -- ) enter interpret mode (immediate)", FLAG_IMM, XLBRA
 XLBRA:
     adrp x0, state_var@page
     add x0, x0, state_var@pageoff
@@ -4517,7 +4513,7 @@ XVIEW_REG:
     mov  x20, #0
     NEXT
 
-// VIEW-STAMP ( xt file-id line -- ) set VIEW fields in xt FLAGS (keep NFA/HFA/IMM)
+// VIEW-STAMP ( xt file-id line -- ) set VIEW fields (keep NFA/HFA/FLAG_*)
     BOOT_WORD "VIEW-STAMP", "VIEW-STAMP ( xt file-id line -- ) set source VIEW in header", 0, XVIEW_STAMP
 XVIEW_STAMP:
     mov  x3, x20                   // line
@@ -4526,14 +4522,18 @@ XVIEW_STAMP:
     ldr  x20, [x22], #8
     cbz  x1, 1f
     ldr  x0, [x1, #-8]             // FLAGS
-    // clear bits 32-62
-    mov  x4, #0x7FFFFFFF
+    // clear VIEW_LINE (32-47) and VIEW_FILE (48-60); keep FLAG_INLINE/EMM/IMM
+    mov  x4, #0xFFFF
     lsl  x4, x4, #32
+    bic  x0, x0, x4
+    mov  x4, #VIEW_FILE_MASK
+    lsl  x4, x4, #48
     bic  x0, x0, x4
     and  x3, x3, #0xFFFF
     lsl  x3, x3, #32
     orr  x0, x0, x3
-    and  x2, x2, #0x7FFF
+    mov  x4, #VIEW_FILE_MASK
+    and  x2, x2, x4
     lsl  x2, x2, #48
     orr  x0, x0, x2
     str  x0, [x1, #-8]
@@ -5621,7 +5621,7 @@ XNAME_INTERPRET:
 XNAME_COMPILE:
     mov  x5, x20                   // nt
     ldr  x0, [x5, #-8]             // FLAGS
-    tst  x0, #(1 << 63)            // IMM bit 63
+    tst  x0, #(FLAG_IMM)
     b.eq 1f
     // immediate: under = nt, TOS = EXECUTE
     adrp x1, cfa_execute@page
@@ -5952,7 +5952,7 @@ XLOCAL_PAREN_END:
 // {:  immediate — parse args | vals -- outs :} then compile LOCAL-INIT
 // MUST NOT clobber x19 (IP) / x20-x24 (VM). Phase lives in local_brace_phase.
 
-    BOOT_WORD "{:", "{: ( -- ) declare locals {: args | vals -- outs :} (immediate)", 1, XLOCAL_BRACE
+    BOOT_WORD "{:", "{: ( -- ) declare locals {: args | vals -- outs :} (immediate)", FLAG_IMM, XLOCAL_BRACE
 XLOCAL_BRACE:
     // compile-only
     adrp x0, state_var@page
@@ -6037,7 +6037,7 @@ _lb_done:
 
 // TO immediate — local store if name is local; else VALUE store
 
-    BOOT_WORD "TO", "TO ( x 'name' -- ) store to VALUE or local (immediate)", 1, XTO_IMM, XTO_IMM_END
+    BOOT_WORD "TO", "TO ( x 'name' -- ) store to VALUE or local (immediate)", FLAG_IMM, XTO_IMM, XTO_IMM_END
 XTO_IMM:
     bl   _next_word
     cbz  x1, 9f
@@ -6130,6 +6130,8 @@ XTO_IMM_END:
 // --- locals helpers ---
 
 // _local_compile_reset
+    BOOT_WORD "(LOCAL-COMPILE-RESET)", "(LOCAL-COMPILE-RESET) ( -- ) clear locals compile state", FLAG_EMM, XLOCAL_COMPILE_RESET, XLOCAL_COMPILE_RESET_END
+XLOCAL_COMPILE_RESET:
 _local_compile_reset:
     adrp x0, local_name_count@page
     add  x0, x0, local_name_count@pageoff
@@ -6144,8 +6146,11 @@ _local_compile_reset:
     add  x0, x0, local_declaring@pageoff
     str  xzr, [x0]
     ret
+XLOCAL_COMPILE_RESET_END:
 
 // _local_add_name: x0=addr, x1=len  (uppercase into table)
+    BOOT_WORD "(LOCAL-ADD-NAME)", "(LOCAL-ADD-NAME) ( -- ) add local name to compile table", FLAG_EMM, XLOCAL_ADD_NAME, XLOCAL_ADD_NAME_END
+XLOCAL_ADD_NAME:
 _local_add_name:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -6191,8 +6196,11 @@ _local_add_name:
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
+XLOCAL_ADD_NAME_END:
 
 // _local_lookup: x0=addr x1=len -> x0=index or -1
+    BOOT_WORD "(LOCAL-LOOKUP)", "(LOCAL-LOOKUP) ( -- ) lookup local name index or -1", FLAG_EMM, XLOCAL_LOOKUP, XLOCAL_LOOKUP_END
+XLOCAL_LOOKUP:
 _local_lookup:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
@@ -6241,8 +6249,11 @@ _local_lookup:
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
     ret
+XLOCAL_LOOKUP_END:
 
 // _local_finalize_compile: compile LIT n LIT nInit LIT rev LOCAL-INIT
+    BOOT_WORD "(LOCAL-FINALIZE)", "(LOCAL-FINALIZE) ( -- ) compile LOCAL-INIT prologue for locals", FLAG_EMM, XLOCAL_FINALIZE, XLOCAL_FINALIZE_END
+XLOCAL_FINALIZE:
 _local_finalize_compile:
     stp x29, x30, [sp, #-16]!
     // LIT nLocals
@@ -6279,9 +6290,10 @@ _local_finalize_compile:
     bl   _compile_cell
     ldp x29, x30, [sp], #16
     ret
+XLOCAL_FINALIZE_END:
 
 // _local_frame_try_exit: pop frame if RSP matches marker
-    BOOT_WORD "(LOCAL-FRAME-EXIT)", "…", 0, XLOCAL_FRAME_TRY_EXIT, XLOCAL_FRAME_TRY_EXIT_END
+    BOOT_WORD "(LOCAL-FRAME-EXIT)", "(LOCAL-FRAME-EXIT) ( -- ) pop locals frame if RSP matches", FLAG_EMM, XLOCAL_FRAME_TRY_EXIT, XLOCAL_FRAME_TRY_EXIT_END
 XLOCAL_FRAME_TRY_EXIT:
 _local_frame_try_exit:
     adrp x0, local_frame_depth@page
@@ -6297,7 +6309,7 @@ _local_frame_try_exit:
     str  x1, [x0]                  // pop depth
 1:
     ret
-    XLOCAL_FRAME_TRY_EXIT_END:
+XLOCAL_FRAME_TRY_EXIT_END:
     
 // ============================================================================
 // WORDS — TZForth-compatible listing (see TZForth.swift register("WORDS"))
@@ -6732,7 +6744,7 @@ _words_filter_match:
 
 // ['] ( "name" -- entry ) compile-only: find word and push entry address
 
-    BOOT_WORD "[']", "['] ( -- xt ) compile xt of next name", 1, XBRACKET_TICK
+    BOOT_WORD "[']", "['] ( -- xt ) compile xt of next name", FLAG_IMM, XBRACKET_TICK
 XBRACKET_TICK:
     // Check if in compile mode
     adrp x0, state_var@page
@@ -7014,7 +7026,7 @@ XDOES_RT_END:
 
 // DOES> ( -- ) IMMEDIATE  compile (DOES>)
 
-    BOOT_WORD "DOES>", "DOES> ( -- ) modify last CREATE'd word to execute the following code with data addr on stack (immediate)", 1, XDOES
+    BOOT_WORD "DOES>", "DOES> ( -- ) modify last CREATE'd word to execute the following code with data addr on stack (immediate)", FLAG_IMM, XDOES
 XDOES:
     adrp x0, cfa_does_rt@page
     add x0, x0, cfa_does_rt@pageoff
@@ -7170,7 +7182,7 @@ XBIN_END:
 // In:  x0=op x1=a x2=b x3=c x4=d x5=ptr
 // Out: x0=ior x6=o1 x7=o2 x8=o3
 // Call with SAVE_VM around; does not touch callee-saved x19-x24 if hook is careful.
-    BOOT_WORD "(FILE-OP-CALL)", "(FILE-OP-CALL) host file_op hook; x0=op x1-x5 args; ret x0=ior x6-x8 outs", 0, XFILE_OP_CALL, XFILE_OP_CALL_END
+    BOOT_WORD "(FILE-OP-CALL)", "(FILE-OP-CALL) host file_op hook; x0=op x1-x5 args; ret x0=ior x6-x8 outs", FLAG_EMM, XFILE_OP_CALL, XFILE_OP_CALL_END
 XFILE_OP_CALL:
 _file_op_call:
     stp x29, x30, [sp, #-16]!
@@ -8527,6 +8539,8 @@ XSEARCH_END:
 // Pre: x2 != 0. If x1 >= x2 (quotient won't fit 64 bits), returns quot=-1, rem=x0.
 // Invariant long division: remainder always restored to < divisor (at most one sub
 // after 2*r+bit, with overflow handling when r's top bit was set).
+BOOT_WORD "(UDIVMOD128)", "(UDIVMOD128) ( -- ) internal udivmod128 helper", FLAG_EMM, UDIVMOD128, UDIVMOD128_END
+UDIVMOD128:
 _udivmod128:
     cbz x2, _udm_div0
     cmp x1, x2
@@ -8566,6 +8580,7 @@ _udm_ovf:
     mov x3, #-1
     mov x4, x0
     ret
+UDIVMOD128_END:
 
 // UM/MOD ( ud u1 -- u2 u3 )  urem uquot ; ud = ulo under, uhi TOS before u1
 
@@ -9172,7 +9187,7 @@ XWORD_END:
 // Line end: LF, CR, or CR of CRLF (then skip the LF too).
 // Note: _source_end clobbers x0/x1 — keep cursor in x10.
 
-    BOOT_WORD "\\", "\\ ( -- ) comment to end of line (immediate)", 1, XBACKSLASH
+    BOOT_WORD "\\", "\\ ( -- ) comment to end of line (immediate)", FLAG_IMM, XBACKSLASH
 XBACKSLASH:
     adrp x0, blk_var@page
     add  x0, x0, blk_var@pageoff
@@ -9236,7 +9251,7 @@ _bs_block:
 //   drop remaining lines of a multi-line paste (see ConsoleView).
 //   Case-insensitive FIND: `\s` (Hayes) matches this name.
 
-    BOOT_WORD "\\S", "\\S ( -- ) stop rest of FLOAD/INCLUDE file or multi-line console paste (immediate; also \\s)", 1, XBACKSLASH_S
+    BOOT_WORD "\\S", "\\S ( -- ) stop rest of FLOAD/INCLUDE file or multi-line console paste (immediate; also \\s)", FLAG_IMM, XBACKSLASH_S
 XBACKSLASH_S:
     // Pin >IN and word_cursor at end of current SOURCE (ignore rest of line/file)
     adrp x0, source_len@page
@@ -9266,7 +9281,7 @@ XBACKSLASH_S:
 
 // ( ( -- ) IMMEDIATE  paren comment; discard until ')'
 
-    BOOT_WORD "(", "( -- ) comment until ) (immediate)", 1, XPAREN
+    BOOT_WORD "(", "( -- ) comment until ) (immediate)", FLAG_IMM, XPAREN
 XPAREN:
     bl _cursor_load
     mov x10, x0                     // cursor
@@ -9603,7 +9618,7 @@ XSLIT_END:
 // the single blank after the word name S"; any further spaces are content
 // (e.g. S"  hi" → one leading space in the string).  Do not skip blanks here.
 
-    BOOT_WORD "S\"", "S\" ( -- c-addr u ) compile/interpret \"-delimited string (leaves addr u)", 1, XSQUOTE
+    BOOT_WORD "S\"", "S\" ( -- c-addr u ) compile/interpret \"-delimited string (leaves addr u)", FLAG_IMM, XSQUOTE
 XSQUOTE:
     // --- parse to " (no leading-blank skip) ---
     adrp x0, source_addr@page
@@ -9705,7 +9720,7 @@ XCSTR_END:
 // Interpret: counted copy in PAD. Compile: (C") + counted bytes + align.
 // Same as S": do not skip leading blanks (WORD already took the name blank).
 
-    BOOT_WORD "C\"", "C\" ( -- c-addr ) compile \"-delimited counted string (run-time: addr of length byte)", 1, XCQUOTE
+    BOOT_WORD "C\"", "C\" ( -- c-addr ) compile \"-delimited counted string (run-time: addr of length byte)", FLAG_IMM, XCQUOTE
 XCQUOTE:
     // Parse to " (same style as S")
     adrp x0, source_addr@page
@@ -9804,7 +9819,7 @@ _cq_comp:
 // Interpret: expand into slit_esc_buf. Compile: (S") + expanded bytes.
 // No leading-blank skip (same rule as S" / .").
 
-    BOOT_WORD "S\\\"", "S\\\" ( -- ) compile escaped \"-delimited string (leaves c-addr u at run-time)", 1, XSESCAPE
+    BOOT_WORD "S\\\"", "S\\\" ( -- ) compile escaped \"-delimited string (leaves c-addr u at run-time)", FLAG_IMM, XSESCAPE
 XSESCAPE:
     adrp x0, source_addr@page
     add x0, x0, source_addr@pageoff
@@ -10120,7 +10135,7 @@ _ri_fail:
 // ." ( -- ) IMMEDIATE
 // Same parse rule as S": WORD ate the blank after ."; further spaces are text.
 
-    BOOT_WORD ".\"", ".\" ( -- ) print text until \" (immediate)", 1, XDOTQ
+    BOOT_WORD ".\"", ".\" ( -- ) print text until \" (immediate)", FLAG_IMM, XDOTQ
 XDOTQ:
     // Reuse S" logic by calling the same parse, then TYPE or compile TYPE
     // Implement by branching into shared structure via stack trick:
@@ -10622,10 +10637,8 @@ _try_find:
     mov  x3, x1                     // FLAGS
     ldr  x5, [x2]                   // code ptr at CFA
 
-    // Immediate? FLAG_IMM bit 63
-    mov  x4, #1
-    lsl  x4, x4, #63
-    tst  x3, x4
+    // Immediate?
+    tst  x3, #(FLAG_IMM)
     b.ne _exec_found
 
     // Compile mode?
@@ -11170,6 +11183,8 @@ _pop_source:
     ret
 
 // _cursor_load: -> x0 = absolute parse pointer (SOURCE + >IN)
+    BOOT_WORD "(CURSOR-LOAD)", "(CURSOR-LOAD) ( -- ) absolute parse cursor from SOURCE/>IN", FLAG_EMM, XCURSOR_LOAD, XCURSOR_LOAD_END
+XCURSOR_LOAD:
 _cursor_load:
     adrp x0, source_addr@page
     add x0, x0, source_addr@pageoff
@@ -11179,8 +11194,11 @@ _cursor_load:
     ldr x1, [x1]
     add x0, x0, x1
     ret
+XCURSOR_LOAD_END:
 
 // _cursor_store: x0 = absolute parse pointer; updates >IN and word_cursor
+    BOOT_WORD "(CURSOR-STORE)", "(CURSOR-STORE) ( -- ) store absolute parse cursor into >IN", FLAG_EMM, XCURSOR_STORE, XCURSOR_STORE_END
+XCURSOR_STORE:
 _cursor_store:
     adrp x1, source_addr@page
     add x1, x1, source_addr@pageoff
@@ -11208,8 +11226,11 @@ _cursor_store:
     add x3, x3, word_cursor@pageoff
     str x1, [x3]
     ret
+XCURSOR_STORE_END:
 
 // _source_end: -> x0 = SOURCE+u (one past last char)
+    BOOT_WORD "(SOURCE-END)", "(SOURCE-END) ( -- ) address one past last SOURCE char", FLAG_EMM, XSOURCE_END, XSOURCE_END_END
+XSOURCE_END:
 _source_end:
     adrp x0, source_addr@page
     add x0, x0, source_addr@pageoff
@@ -11219,6 +11240,7 @@ _source_end:
     ldr x1, [x1]
     add x0, x0, x1
     ret
+XSOURCE_END_END:
 
 // _emit_depth_prompt: print "\nok(n)> " with current data-stack depth (x22).
 // Clobbers x0-x2; preserves x19-x28 via SAVE/RESTORE around print helpers.
@@ -11254,6 +11276,8 @@ _emit_depth_prompt:
 // _putchar: x0 = char
 // Host emit_hook when set; else write(1). Does not touch x19-x28 (VM-safe).
 .globl _putchar
+    BOOT_WORD "(PUTCHAR)", "(PUTCHAR) ( -- ) emit one char via host hook or write(1)", FLAG_EMM, XPUTCHAR, XPUTCHAR_END
+XPUTCHAR:
 _putchar:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -11299,6 +11323,7 @@ _putchar_svc:
     add sp, sp, #16
     ldp x29, x30, [sp], #16
     ret
+XPUTCHAR_END:
 
 // _emit_memfault_msg: print "memory access error\n" via emit_hook (safe after longjmp)
 _emit_memfault_msg:
@@ -11316,6 +11341,8 @@ _emit_memfault_msg:
 
 // _write_stdout: x0 = buf, x1 = len  (routes through emit hooks when set)
 // Prefer emit_buf_hook for a single UTF-8 chunk (XEMIT/TYPE); else per-byte emit_hook.
+    BOOT_WORD "(WRITE-STDOUT)", "(WRITE-STDOUT) ( -- ) write buffer via emit_hook or write(1)", FLAG_EMM, XWRITE_STDOUT, XWRITE_STDOUT_END
+XWRITE_STDOUT:
 _write_stdout:
     stp x29, x30, [sp, #-32]!
     stp x19, x20, [sp, #16]
@@ -11377,6 +11404,7 @@ _ws_done:
     ldp x19, x20, [sp, #16]
     ldp x29, x30, [sp], #32
     ret
+XWRITE_STDOUT_END:
 
 // _rl_echo: like _putchar but only when line-editor owns the TTY (raw mode).
 // Avoids double-echo when still in cooked mode or when stdin is a pipe.
@@ -11394,6 +11422,8 @@ _rl_echo:
 // _getchar: returns char or -1 on EOF
 // Host key_hook when set; else read(0). Does not touch x19-x28 (VM-safe).
 .globl _getchar
+    BOOT_WORD "(GETCHAR)", "(GETCHAR) ( -- ) read one char via key_hook or read(0)", FLAG_EMM, XGETCHAR, XGETCHAR_END
+XGETCHAR:
 _getchar:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -11422,8 +11452,11 @@ _gc_eof:
     add sp, sp, #16
     ldp x29, x30, [sp], #16
     ret
+XGETCHAR_END:
 
 // _print_string_svc: x0 = null-terminated string (via _write_stdout / emit)
+    BOOT_WORD "(PRINT-STRING)", "(PRINT-STRING) ( -- ) print NUL-terminated string via write_stdout", FLAG_EMM, XPRINT_STRING, XPRINT_STRING_END
+XPRINT_STRING:
 _print_string_svc:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -11440,6 +11473,7 @@ _pss_print:
     bl  _write_stdout
     ldp x29, x30, [sp], #16
     ret
+XPRINT_STRING_END:
 
 // ============================================================================
 // Line editor (_read_line)
@@ -11818,6 +11852,8 @@ _hd_done:
     ret
 
 // _read_line: x0=buf, x1=maxlen -> x0=buf ptr on success, 0 on EOF
+    BOOT_WORD "(READ-LINE)", "(READ-LINE) ( -- ) line editor; buf maxlen -> buf|0", FLAG_EMM, XRLINE, XRLINE_END
+XRLINE:
 _read_line:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -12118,12 +12154,15 @@ _rl_null:
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
+XRLINE_END:
 
 // _next_word: parse next word -> x0=addr of word_scratch, x1=length (0=done)
 // Stops at SOURCE end (not only NUL) so EVALUATE substrings work.
 // Whitespace: space, tab, LF (10), CR (13) — so Unix LF, classic Mac CR,
 // and Windows CRLF all work. (CR was missing from skip/scan; CRLF files then
 // treated bare CR / empty lines as one-character names → "undefined".)
+    BOOT_WORD "(NEXT-WORD)", "(NEXT-WORD) ( -- ) parse next whitespace-delimited word", FLAG_EMM, XNEXT_WORD, XNEXT_WORD_END
+XNEXT_WORD:
 _next_word:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -12239,6 +12278,7 @@ _nw_eof:
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
+XNEXT_WORD_END:
 
 // _parse_number: x0=addr, x1=len
 //   -> x0=1 single (value in x1)
@@ -12391,6 +12431,8 @@ _pn_fail:
 
 // _find_word: x0=addr, x1=len -> x0=CFA or 0, x1=FLAGS (bit32=IMM)
 // Walks search_order wordlists (ANS Search-Order); one hash thread per wid.
+    BOOT_WORD "(FIND-WORD)", "(FIND-WORD) ( -- ) dictionary lookup; CFA + FLAGS or 0", FLAG_EMM, XFIND_WORD, XFIND_WORD_END
+XFIND_WORD:
 _find_word:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -12468,6 +12510,7 @@ _fw_fail:
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
+XFIND_WORD_END:
 
 // _warn_redef: x0=name addr, x1=len
 // If name is already in the dictionary, print:  <name> is redefined\n
@@ -12503,6 +12546,8 @@ _wr_done:
 
 // _compile_cell: x0 = value, compile at HERE (bounds-checked)
 // On overflow: message + abandon (same as ALLOT over dict end).
+    BOOT_WORD "(COMPILE-CELL)", "(COMPILE-CELL) ( -- ) compile cell at HERE (bounds-checked)", FLAG_EMM, XCOMPILE_CELL, XCOMPILE_CELL_END
+XCOMPILE_CELL:
 _compile_cell:
     adrp x1, here_ptr@page
     add  x1, x1, here_ptr@pageoff
@@ -12525,9 +12570,10 @@ _compile_cell:
     add  x0, x0, str_dict_full@pageoff
     bl   _print_string_svc
     b    _error_abandon
+XCOMPILE_CELL_END:
 
 // _print_signed: x0=value  (uses BASE; leading '-' if negative)
-    BOOT_WORD "(.)", "(.) ( u -- ) print signed helper", 0, XPDOT, XPDOT_END
+    BOOT_WORD "(.)", "(.) ( u -- ) print signed helper", FLAG_EMM, XPDOT, XPDOT_END
 XPDOT:
 _print_signed:
     stp x29, x30, [sp, #-16]!
@@ -12543,7 +12589,7 @@ _print_signed:
 XPDOT_END:
     
 // _print_unsigned: x0=value  (uses BASE; always unsigned)
-    BOOT_WORD "(U.)", "(U.) ( u -- ) print unsigned helper", 0, XPUDOT, XPUDOT_END
+    BOOT_WORD "(U.)", "(U.) ( u -- ) print unsigned helper", FLAG_EMM, XPUDOT, XPUDOT_END
 XPUDOT:
 _print_unsigned:
     stp x29, x30, [sp, #-16]!
@@ -12559,6 +12605,8 @@ _print_unsigned:
 XPUDOT_END:
 
 // _load_base: -> x6 = BASE clamped to 2..36
+    BOOT_WORD "(LOAD-BASE)", "(LOAD-BASE) ( -- ) x6 = BASE clamped 2..36", FLAG_EMM, XLOAD_BASE, XLOAD_BASE_END
+XLOAD_BASE:
 _load_base:
     adrp x6, base_var@page
     add x6, x6, base_var@pageoff
@@ -12571,8 +12619,11 @@ _lb_def:
     mov x6, #10
 _lb_ok:
     ret
+XLOAD_BASE_END:
 
 // _digit_char: w8 = digit value 0..35 -> ASCII in w8
+    BOOT_WORD "(DIGIT-CHAR)", "(DIGIT-CHAR) ( -- ) digit 0..35 -> ASCII in w8", FLAG_EMM, XDIGIT_CHAR, XDIGIT_CHAR_END
+XDIGIT_CHAR:
 _digit_char:
     cmp w8, #9
     b.hi _dc_alpha
@@ -12581,8 +12632,11 @@ _digit_char:
 _dc_alpha:
     add w8, w8, #55             // 'A' - 10
     ret
+XDIGIT_CHAR_END:
 
 // _i64_to_str: x0=val, x1=buf — signed, current BASE
+    BOOT_WORD "(I64>STR)", "(I64>STR) ( -- ) signed i64 to ASCII in buffer (BASE)", FLAG_EMM, XI64_TO_STR, XI64_TO_STR_END
+XI64_TO_STR:
 _i64_to_str:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -12625,8 +12679,11 @@ _i2s_done:
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
+XI64_TO_STR_END:
 
 // _u64_to_str: x0=val, x1=buf — unsigned, current BASE
+    BOOT_WORD "(U64>STR)", "(U64>STR) ( -- ) unsigned u64 to ASCII in buffer (BASE)", FLAG_EMM, XU64_TO_STR, XU64_TO_STR_END
+XU64_TO_STR:
 _u64_to_str:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -12663,6 +12720,7 @@ _u2s_done:
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
+XU64_TO_STR_END:
 
 // _print_dots: print stack without destroying DSP/TOS.
 // Empty: DSP==base, TOS=0. Each DPUSH stores previous TOS; after n pushes

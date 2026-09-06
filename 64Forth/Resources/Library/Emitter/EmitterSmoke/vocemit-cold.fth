@@ -30,6 +30,13 @@ S" (DOCOL)" (CHECK)
 S" (DOVAR)" (CHECK)
 S" (DOCON)" (CHECK)
 S" (DODOES)" (CHECK)
+S" (UDIVMOD128)" (CHECK)
+S" (PUTCHAR)" (CHECK)
+S" (COMPILE-CELL)" (CHECK)
+S" (LOCAL-FRAME-EXIT)" (CHECK)
+S\" (.)" (CHECK)
+S\" (U.)" (CHECK)
+S" (FILE-OP-CALL)" (CHECK)
 
 \ Must remain visible in FORTH for SEE / kernel.
 : (STAY-FORTH)  ( c-addr u -- )
