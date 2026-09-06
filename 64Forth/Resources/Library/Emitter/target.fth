@@ -98,18 +98,8 @@ VARIABLE TGT-MAPN
   DUP MAP! ;
 
 : COLON-SPAN  ( xt -- addr u )
-  \ Leave body addr and byte length through EXIT (inclusive).
-  \ Must be (addr u): SWAP- would drop addr and make NIP steal under us.
-  BODY DUP
-  BEGIN
-    DUP HERE U< 0= IF OVER - EXIT THEN
-    DUP @ DUP ['] EXIT = IF DROP 8 + OVER - EXIT THEN
-    DUP LIT-ADDR = OVER 0BRANCH-ADDR = OR OVER BRANCH-ADDR = OR
-    OVER ['] (LOOP) = OR OVER ['] (+LOOP) = OR
-    OVER ['] (?DO) = OR OVER ['] LEAVE = OR IF DROP 8 +
-    ELSE DUP SLIT-ADDR = IF DROP 8 + SLIT-SKIP
-    ELSE DROP 8 + THEN THEN
-  AGAIN ;
+  \ Body addr and byte length (branch-aware; see COLON-END in reach.fth).
+  DUP COLON-END  SWAP BODY  SWAP ;
 
 : RESERVE-PRIM  {: xt | new u -- :}
   TGT-ALIGN
@@ -146,25 +136,26 @@ VARIABLE TGT-MAPN
   THEN ;
 
 : WRITE-BODY  ( xt -- )
-  BODY
+  \ Copy full colon body (past mid-colon EXIT from IF EXIT THEN).
+  \ Stack walk: ( addr ) with end on return stack.
+  COLON-SPAN OVER + >R              \ R: end  ( addr )
   BEGIN
-    DUP @
-    DUP ['] EXIT = IF MAP-CELL DROP EXIT THEN
-    DUP LIT-ADDR = IF
+    DUP R@ >= IF  DROP R> DROP EXIT  THEN
+    DUP @                           \ addr xt
+    DUP ['] EXIT = IF
+      MAP-CELL 8 +                  \ mid or final EXIT
+    ELSE DUP LIT-ADDR = IF
       MAP-CELL 8 + DUP @ TGT, 8 +
-    ELSE DUP 0BRANCH-ADDR = OVER BRANCH-ADDR = OR
-         OVER ['] (LOOP) = OR OVER ['] (+LOOP) = OR
-         OVER ['] (?DO) = OR OVER ['] LEAVE = OR IF
+    ELSE DUP BR-OP? IF
       MAP-CELL 8 + DUP @ TGT, 8 +
     ELSE DUP SLIT-ADDR = IF
-      MAP-CELL               \ emit new (S")
-      8 +                    \ addr of len cell
-      DUP @ TGT,             \ copy len
+      MAP-CELL
+      8 + DUP @ TGT,
       DUP 8 + OVER @ COPY-BYTES
-      SLIT-SKIP               \ -> addr past string
+      SLIT-SKIP
     ELSE
       MAP-CELL 8 +
-    THEN THEN THEN
+    THEN THEN THEN THEN
   AGAIN ;
 
 : WRITE-COLON  ( xt -- )

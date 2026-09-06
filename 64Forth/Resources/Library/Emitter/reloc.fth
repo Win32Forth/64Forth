@@ -150,6 +150,7 @@ $D61F0200 CONSTANT ARM-BR-X16
 
 : RELOC-PRIM  {: xt | new code u off insn tgt npc -- :}
   xt COLON-WORD? IF  EXIT  THEN
+  xt DATA-WORD? IF  EXIT  THEN   \ host import — never patch host CFA/PFA
   xt NAME>STRING TYPE SPACE ." RELOC" CR
   xt MAP-FIND DUP 0= IF  ." no map" CR DROP EXIT  THEN
   8 + TO new

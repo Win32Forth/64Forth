@@ -47,22 +47,66 @@ VARIABLE REACH-WORK
 : SLIT-SKIP  ( addr -- addr' )   \ addr of length cell
   DUP @  SWAP 8 + +  7 + -8 AND ;
 
-: SCAN-COLON  ( xt -- )
-  BODY
+\ Branch / loop inline: IP at opcode, next cell is byte offset; target =
+\ addr_of_offset + offset (see forth.s XBranch / X0Branch).
+: BR-OP?  ( xt -- flag )
+  DUP 0BRANCH-ADDR =
+  OVER BRANCH-ADDR = OR
+  OVER ['] (LOOP) = OR
+  OVER ['] (+LOOP) = OR
+  OVER ['] (?DO) = OR
+  SWAP ['] LEAVE = OR ;
+
+\ Exclusive end of colon region still to visit (branch-aware).
+\ Needed so IF EXIT THEN does not stop the scan at the mid-colon EXIT.
+VARIABLE SCAN-LIM
+
+: SCAN-COVER  ( cell-addr -- )
+  \ Ensure the cell at cell-addr is included: exclusive end >= cell+8.
+  8 +  SCAN-LIM @ MAX  SCAN-LIM ! ;
+
+VARIABLE SCAN-MARK?   \ nonzero => (MARK) while walking
+VARIABLE SCAN-ADDR
+
+: (COLON-WALK)  ( body -- )
+  \ Updates SCAN-LIM. SCAN-MARK? selects whether to (MARK) xts.
+  DUP SCAN-ADDR !
+  0 SCAN-LIM !                      \ clear stale lim from a prior walk
+  SCAN-COVER
   BEGIN
-    DUP HERE U< 0= IF  ." scan: no EXIT" CR DROP EXIT  THEN
-    DUP @
-    DUP ['] EXIT = IF  (MARK) DROP EXIT  THEN
-    DUP (MARK)
-    DUP LIT-ADDR = IF  DROP 8 +
-    ELSE DUP 0BRANCH-ADDR = OVER BRANCH-ADDR = OR
-         OVER ['] (LOOP) = OR OVER ['] (+LOOP) = OR
-         OVER ['] (?DO) = OR OVER ['] LEAVE = OR IF  DROP 8 +
-    ELSE DUP SLIT-ADDR = IF  DROP 8 + SLIT-SKIP 8 -
-    ELSE DROP
-    THEN THEN THEN
-    8 +
+    SCAN-ADDR @ SCAN-LIM @ >= IF  EXIT  THEN
+    SCAN-ADDR @ HERE U< 0= IF  ." scan: overrun" CR EXIT  THEN
+    SCAN-ADDR @ @
+    DUP ['] EXIT = IF
+      SCAN-MARK? @ IF  DUP (MARK)  THEN  DROP
+      8 SCAN-ADDR +!                    \ mid-colon EXIT: no fall-through
+    ELSE
+      SCAN-MARK? @ IF  DUP (MARK)  THEN
+      DUP LIT-ADDR = IF
+        DROP  16 SCAN-ADDR +!  SCAN-ADDR @ SCAN-COVER
+      ELSE DUP BR-OP? IF
+        DROP
+        SCAN-ADDR @ 8 +                 \ offset cell
+        DUP @ OVER + SCAN-COVER         \ branch target
+        8 + SCAN-ADDR !  SCAN-ADDR @ SCAN-COVER
+      ELSE DUP SLIT-ADDR = IF
+        DROP
+        SCAN-ADDR @ 8 + SLIT-SKIP SCAN-ADDR !
+        SCAN-ADDR @ SCAN-COVER
+      ELSE
+        DROP  8 SCAN-ADDR +!  SCAN-ADDR @ SCAN-COVER
+      THEN THEN THEN
+    THEN
   AGAIN ;
+
+: SCAN-COLON  ( xt -- )
+  TRUE SCAN-MARK? !  BODY (COLON-WALK) ;
+
+: COLON-END  ( xt -- body bytes )
+  \ Byte length of colon body including cells past mid-colon EXIT.
+  FALSE SCAN-MARK? !
+  BODY DUP (COLON-WALK)
+  SCAN-LIM @  SWAP - ;
 
 \ Colon bodies are walked for callees. CODE and DATA words are leaves:
 \ they are marked when referenced, but not deep-scanned here.

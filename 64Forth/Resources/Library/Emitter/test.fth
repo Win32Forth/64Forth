@@ -1,4 +1,4 @@
-\ Emitter/test.fth — build+run ladder (empty, TYPE, IF/ELSE, VALUE, CREATE).
+\ Emitter/test.fth — build+run ladder (empty, TYPE, IF/ELSE, VALUE, CREATE, DO).
 \ Canonical copy lives under Resources/Library/Emitter; sync into
 \ Documents/64Forth/Library/Emitter after edits (RESTORE-SHIPPED stomps Library).
 \ Public domain.
@@ -7,6 +7,9 @@
 \ Or via agent (outside Library):
 \   /Applications/64Forth.app/Contents/MacOS/64Forth --agent \
 \     -f $HOME/Documents/64Forth/EmitterSmoke/agent-smoke.fth
+\ GRAPHICS mini (WINDOW / AT / EMIT path):
+\   …/64Forth --agent -f $HOME/Documents/64Forth/EmitterSmoke/gfx-smoke.fth
+
 
 ONLY FORTH DEFINITIONS DECIMAL
 FROMLIB FLOAD Emitter/emitter.fth

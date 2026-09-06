@@ -26,7 +26,8 @@ Append new design sections as we go; mark items done when implemented.
 **Emitter growth (toward tetra in-process):**
 - [x] Host-import **DATA** words (`DATA-WORD?`): CREATE / VALUE / DOVAR / DOCON / DODOES identity-mapped; do not slice as CODE; abort if `CODE-BOUNDS` unknown
 - [x] Smoke: VALUE/`TO`, CREATE cell, `DO`/`LOOP` (`Library/Emitter/test.fth`, `EmitterSmoke/agent-smoke.fth`)
-- [ ] GRAPHICS mini `TGT-BUILD`+`TGT-RUN` (window + `(APP-*)` veneers)
+- [x] Branch-aware colon scan/span/write (`IF EXIT THEN`); reloc skips data imports
+- [x] GRAPHICS mini `TGT-BUILD`+`TGT-RUN` (`EmitterSmoke/gfx-smoke.fth` — `(APP-OPEN)` reached + veneered)
 - [ ] Tetra subset / `MAIN` in-process emit
 
 ---
