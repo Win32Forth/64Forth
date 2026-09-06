@@ -69,7 +69,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ## Status (v1.3.4)
 
-- [ ] **v1.3.4:** Emitter growth — GRAPHICS/tetra in-process smokes, interactive `EMIT-TETRA`, `/EMIT-STANDALONE` data segment, `.app` build template; DMG + GitHub release pending
+- [ ] **v1.3.4:** Emitter Phase 1 (`EMIT-TETRA`, `/EMIT-STANDALONE`) + quiet AutoLoad (`WARNING`/DEFER late-binding); `.app` packaging deferred; DMG + GitHub release pending
 - [x] **v1.3.3:** **SYSVOC** / **EMITTER** cold vocabularies; cleaner FORTH; Hyper hooks → SYSVOC; kernel `-ROT`; `LOCAL-INIT`; `BOOT_WORD_COUNT` 321; ANSValidate + Hayes green; DMG + GitHub release
 - [ ] **Emitter app kit (post-1.3.3):** stand-alone base = **GRAPHICS** (80×25 / 640×400); triple-load `\ANS` / `\TCOM` / `\EMITTER`; first emit target **tetra**; MENUS + file-kit fence later — see `Docs/APPKIT.md`
 - [x] **v1.3.2:** `Documents/64Forth` user Library/AutoLoad/Docs (first-run copy + Tools Update/Restore); CODE `_END` labels for slicer size; **Emitter** Library (in progress); `(.)`/`(U.)`/`ARSHIFT`; DMG + GitHub release
