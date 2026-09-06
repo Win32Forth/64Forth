@@ -9,6 +9,8 @@
 \     -f $HOME/Documents/64Forth/EmitterSmoke/agent-smoke.fth
 \ GRAPHICS mini (WINDOW / AT / EMIT path):
 \   …/64Forth --agent -f $HOME/Documents/64Forth/EmitterSmoke/gfx-smoke.fth
+\ Tetra subset + MAIN build:
+\   …/64Forth --agent -f $HOME/Documents/64Forth/EmitterSmoke/tetra-smoke.fth
 
 
 ONLY FORTH DEFINITIONS DECIMAL

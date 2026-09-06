@@ -28,7 +28,7 @@ Append new design sections as we go; mark items done when implemented.
 - [x] Smoke: VALUE/`TO`, CREATE cell, `DO`/`LOOP` (`Library/Emitter/test.fth`, `EmitterSmoke/agent-smoke.fth`)
 - [x] Branch-aware colon scan/span/write (`IF EXIT THEN`); reloc skips data imports
 - [x] GRAPHICS mini `TGT-BUILD`+`TGT-RUN` (`EmitterSmoke/gfx-smoke.fth` — `(APP-OPEN)` reached + veneered)
-- [ ] Tetra subset / `MAIN` in-process emit
+- [x] Tetra subset `TGT-BUILD`+`TGT-RUN` + `MAIN` build-only (`EmitterSmoke/tetra-smoke.fth` — FIELD/SETUP/BORDER/one piece; MAIN reach ~169 < `REACH-MAX` 512)
 
 ---
 
