@@ -29,6 +29,7 @@ Append new design sections as we go; mark items done when implemented.
 - [x] Branch-aware colon scan/span/write (`IF EXIT THEN`); reloc skips data imports
 - [x] GRAPHICS mini `TGT-BUILD`+`TGT-RUN` (`EmitterSmoke/gfx-smoke.fth` — `(APP-OPEN)` reached + veneered)
 - [x] Tetra subset `TGT-BUILD`+`TGT-RUN` + `MAIN` build-only (`EmitterSmoke/tetra-smoke.fth` — FIELD/SETUP/BORDER/one piece; MAIN reach ~169 < `REACH-MAX` 512)
+- [x] Interactive `MAIN`/`GAME` emit howto (`EmitterSmoke/tetra-gui-smoke.fth` — agent: `TGT-BUILD` only; GUI console: `EMIT-TETRA` → real window + KEY; ESC → `\ANS` `WINDOW-OFF`)
 
 ---
 

@@ -121,6 +121,7 @@ Emitter milestone: emit **tetra** as a stand-alone macOS app that still uses the
    - **Done (in-process):** `DATA-WORD?` — CREATE / VALUE / DOVAR / DOCON / DODOES stay **host imports** (identity map); `CODE-BOUNDS` unknown aborts; smoke covers VALUE/`TO`, CREATE cell, `DO`/`LOOP` (`Emitter/test.fth`, `EmitterSmoke/agent-smoke.fth`).
    - **Done (in-process):** branch-aware colon walk (so `IF EXIT THEN` in `WINDOW` still reaches `(APP-OPEN)`); reloc skips imports; GRAPHICS mini smoke `EmitterSmoke/gfx-smoke.fth` (`APP-NAME`/`WINDOW`/`CLS`/`AT`/`."`/`WINDOW-OFF` via `TGT-BUILD`+`TGT-RUN`; under `--agent` the window does not open but `(APP-*)` still veneer).
    - **Done (in-process):** tetra subset + MAIN build — `EmitterSmoke/tetra-smoke.fth` loads `64TCOMARM64/tetra/tetra.fth`, runs `T-TETRA-SUB` (FIELD/SETUP/BORDER/`FILL.CURR`/`DRAW.CURR`, no KEY loop), and `TGT-BUILD` of `MAIN` (~169 reachable). Does not run `GAME`’s KEY loop under agent.
-   - **Next:** optional interactive emit of `MAIN`/`GAME` (real window + keys); `\EMITTER` exit arms; stand-alone packaging later.
+   - **Done (howto):** interactive emit of `MAIN`/`GAME` — `EmitterSmoke/tetra-gui-smoke.fth` builds `MAIN` under agent; from the GUI console run `EMIT-TETRA` (`TGT-BUILD`+`TGT-RUN`) for a real GRAPHICS window + KEY loop. ESC uses the existing `\ANS` `WINDOW-OFF EXIT` arms (play + game-over). Do not `TGT-RUN` under `--agent` (KEY blocks). Agent cannot fully exercise keys.
+   - **Next:** `\EMITTER` exit arms when slice-time exit differs; stand-alone packaging later.
 3. Add `\EMITTER` arms in the Emitter load path when slice-time differences appear.
 4. Later: **MENUS** vocab; document File-Access as part of the kit fence when stand-alone apps need declared file imports.

@@ -11,6 +11,8 @@
 \   …/64Forth --agent -f $HOME/Documents/64Forth/EmitterSmoke/gfx-smoke.fth
 \ Tetra subset + MAIN build:
 \   …/64Forth --agent -f $HOME/Documents/64Forth/EmitterSmoke/tetra-smoke.fth
+\ Interactive MAIN/GAME (GUI console, not --agent):
+\   …/EmitterSmoke/tetra-gui-smoke.fth  then  EMIT-TETRA  (ESC quits)
 
 
 ONLY FORTH DEFINITIONS DECIMAL
