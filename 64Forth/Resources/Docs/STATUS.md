@@ -1,10 +1,27 @@
 # 64Forth development status
 
 **Current:** **1.3.3** (build **32**; DMG + GitHub `v1.3.3`)  
-**Last updated:** 2026-09-05 (1.3.3 — SYSVOC / EMITTER vocab, `-ROT`, ANS+Hayes green)
+**Last updated:** 2026-09-05 (Emitter app kit freeze — GRAPHICS + `\EMITTER` triple-load; see `APPKIT.md`)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## Emitter app kit (post-1.3.3 design) — GRAPHICS stand-alone base
+
+**Doc:** [`APPKIT.md`](APPKIT.md)
+
+**Frozen now:**
+- Stand-alone UI surface = existing **GRAPHICS** (**80×25** chars → **640×400** pixels); vocab stays **GRAPHICS**
+- Develop/run on interactive 64Forth, then emit; **first emit target:** `tetra/tetra.fth` (64TCOM tree)
+- **Triple-load** line directives: `\ANS` (64Forth), `\TCOM` (64TCOM), `\EMITTER` (Emitter path) — defined in `Kernel/app-output.fth` (mirrored under `Library/Sources/`); interactive host keeps `\EMITTER` false until the Emitter path arms it
+
+**Deferred:**
+- **MENUS** vocabulary (limited menu construction/handling)
+- Declaring File-Access as part of the Emitter kit fence (words already exist in kernel/host)
+
+**Not in kit:** console, Facility/`PAGE`, SZ-EDITOR, Hyper, IDE Tools menus.
 
 ---
 

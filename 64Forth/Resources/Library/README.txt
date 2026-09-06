@@ -20,6 +20,7 @@ Examples
   FROMLIB FLOAD Assembler/ASSEMBLER.fth    \ interactive CODE / END-CODE (64Forth only)
   FROMLIB FLOAD Assembler/ASMARMTESTS.fth \ then: ASM-TESTS
   FROMLIB FLOAD Emitter/emitter.fth        \ turnkey slicer (IN PROGRESS)
+  \ Stand-alone app kit base = GRAPHICS (see Docs/APPKIT.md); first emit target: tetra
 
 Assembler (ASMARM64)
 --------------------

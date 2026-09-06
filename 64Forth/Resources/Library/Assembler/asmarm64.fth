@@ -23,7 +23,7 @@
 FORTH DEFINITIONS
 DECIMAL
 
-\ ----- Dual-load line directives (if not already present) -----
+\ ----- Triple-load line directives (if not already present) -----
 [UNDEFINED] DIRECTIVE [IF]
 : SKIP-REST  ( -- )
   BEGIN
@@ -41,6 +41,9 @@ DECIMAL
 [UNDEFINED] \ANS [IF]
 TRUE  DIRECTIVE \ANS
 FALSE DIRECTIVE \TCOM
+[THEN]
+[UNDEFINED] \EMITTER [IF]
+FALSE DIRECTIVE \EMITTER      \ true only on Emitter compile/slice path
 [THEN]
 
 [UNDEFINED] TCOM-ANEW [IF]

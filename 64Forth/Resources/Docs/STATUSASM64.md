@@ -124,7 +124,7 @@ ASMARM64-DISCARD                       \ forget words + free buffers
 | Load path (TCOM) | `FLOAD TARGETARM64.fth` → `64HOST` → pack `ASMARM64` → OPT/LIB/SIM/… |
 | Emit backend | `W,` → `C,-T` / `HERE-T` / `PATCH-W` / `W@-T` (target CODE image) |
 | Vocab lifecycle | `SETASSEM` / `END-CODE` / `C;` → `ASMARM64` vocab + `LL-INIT` |
-| Dual-load precedent | `\ANS` / `\TCOM` via `DIRECTIVE` in `64HOST.fth` and `app-output.fth` |
+| Triple-load precedent | `\ANS` / `\TCOM` / `\EMITTER` via `DIRECTIVE` in `64HOST.fth` and `app-output.fth` |
 | 64Forth native helpers | `ALLOCATE-EXEC`, `FREE-EXEC`, `MPROTECT`, `ICACHE-INVAL`, `JIT-WPROTECT`, `CALL-NATIVE` |
 | Documented ISA gaps | W-regs; most shifts/extends; ADRP/ADR; rich addressing; full LDP/STP; CSEL; real BTI; system/atomics; NEON/FP (non-goal) |
 

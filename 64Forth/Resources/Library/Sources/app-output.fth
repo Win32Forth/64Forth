@@ -54,8 +54,9 @@ DECIMAL
 ; IMMEDIATE
 [THEN]
 
-\ Dual-load line directives (classic F-PC DIRECTIVE / \FPC / \TCOM).
-\ Interactive 64Forth: \ANS true, \TCOM false. TARGETARM64 flips these.
+\ Triple-load line directives (classic F-PC DIRECTIVE / \FPC / \TCOM).
+\ Interactive 64Forth: \ANS true, \TCOM false, \EMITTER false.
+\ TARGETARM64 arms \TCOM; the Emitter path will arm \EMITTER.
 [UNDEFINED] DIRECTIVE [IF]
 \ False directive skips to end of the *current line* only. SOURCE for a
 \ file may be the whole file — do NOT set >IN to SOURCE length (that
@@ -76,7 +77,10 @@ DECIMAL
 
 [UNDEFINED] \ANS [IF]
 TRUE  DIRECTIVE \ANS          \ ANS Forth / 64Forth host load
-FALSE DIRECTIVE \TCOM         \ TCOM compile path
+FALSE DIRECTIVE \TCOM         \ TCOM / 64TCOM compile path
+[THEN]
+[UNDEFINED] \EMITTER [IF]
+FALSE DIRECTIVE \EMITTER      \ Emitter slice / stand-alone path
 [THEN]
 
 VOCABULARY GRAPHICS
