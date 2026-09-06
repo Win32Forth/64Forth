@@ -116,7 +116,14 @@ VARIABLE SZ-DONE
    0 SZ-SEL-OK !
 ;
 
-: SZ-INSERT-CH  ( c -- )
+\ Public insert/delete are DEFERs. BASIC first; -SEL installed after selection.
+DEFER SZ-INSERT-CH
+DEFER SZ-INSERT-TAB
+DEFER SZ-INSERT-CRLF
+DEFER SZ-BACKSPACE
+DEFER SZ-DELETE-FWD
+
+: SZ-INSERT-CH-BASIC  ( c -- )
    DUP BL < OVER 126 > OR IF  DROP EXIT  THEN
    1 SZ-OPEN-HOLE 0= IF  DROP EXIT  THEN
    SZ-CUR @ C!
@@ -124,19 +131,21 @@ VARIABLE SZ-DONE
    SZ-CUR-COL SZ-PREF-COL !             \ SZ-PREF-COL lives in sz-screen
    SZ-TOUCH
 ;
+' SZ-INSERT-CH-BASIC IS SZ-INSERT-CH
 
 \ Tab stop every 4 columns (0, 4, 8, …). Insert spaces up to the next stop.
-: SZ-INSERT-TAB  ( -- )
+: SZ-INSERT-TAB-BASIC  ( -- )
    4  SZ-CUR-COL 4 MOD -                   \ n = 4 - (col mod 4)
    BEGIN  DUP WHILE
-      BL SZ-INSERT-CH
+      BL SZ-INSERT-CH-BASIC
       1-
    REPEAT  DROP
 ;
+' SZ-INSERT-TAB-BASIC IS SZ-INSERT-TAB
 
 \ Insert a line break (LF). Cursor must be clamped so we never write past TEND.
 \ After insert, CUR sits at the start of the new empty line.
-: SZ-INSERT-CRLF  ( -- )
+: SZ-INSERT-CRLF-BASIC  ( -- )
    SZ-CLAMP-CUR
    1 SZ-OPEN-HOLE 0= IF  EXIT  THEN
    SZ-CH-LF SZ-CUR @ C!
@@ -145,8 +154,9 @@ VARIABLE SZ-DONE
    0 SZ-HCOL !
    SZ-TOUCH
 ;
+' SZ-INSERT-CRLF-BASIC IS SZ-INSERT-CRLF
 
-: SZ-BACKSPACE  ( -- )
+: SZ-BACKSPACE-BASIC  ( -- )
    SZ-CUR @ SZ-TBUF = IF  EXIT  THEN
    -1 SZ-CUR +!
    SZ-TEND SZ-CUR @ - 1-
@@ -159,9 +169,10 @@ VARIABLE SZ-DONE
    SZ-TLEN @ 0< IF  0 SZ-TLEN !  THEN
    SZ-TOUCH
 ;
+' SZ-BACKSPACE-BASIC IS SZ-BACKSPACE
 
 \ Delete character(s) under cursor (forward). CRLF pair removed as one unit.
-: SZ-DELETE-FWD  ( -- )
+: SZ-DELETE-FWD-BASIC  ( -- )
    SZ-CUR @ SZ-TEND = IF  EXIT  THEN
    \ CRLF under cursor?
    SZ-CUR @ C@ SZ-CH-CR =
@@ -184,6 +195,7 @@ VARIABLE SZ-DONE
    SZ-TLEN @ 0< IF  0 SZ-TLEN !  THEN
    SZ-TOUCH
 ;
+' SZ-DELETE-FWD-BASIC IS SZ-DELETE-FWD
 
 \ -----------------------------------------------------------------------------
 \ Motion only (never mutate buffer)
@@ -301,19 +313,21 @@ VARIABLE SZ-DONE
 \ caret/highlight move with the text (and may leave the window). SZ-VIEW-HOLD
 \ stops SZ-ENSURE-VISIBLE from snapping TOP back on the next redraw.
 \ No scroll if the file fits; stop at BOF; stop scroll-down at last line.
-: SZ-SCROLL-UP  ( -- )
+: SZ-SCROLL-UP-VIEW  ( -- )
    SZ-WHEEL-SCROLLABLE? 0= IF  EXIT  THEN
    SZ-TOP @ SZ-TBUF = IF  EXIT  THEN
    SZ-TOP @ SZ-PREV-LINE SZ-TOP !
    SZ-VIEW-HOLD-ON
 ;
+' SZ-SCROLL-UP-VIEW IS SZ-SCROLL-UP
 
-: SZ-SCROLL-DOWN  ( -- )
+: SZ-SCROLL-DOWN-VIEW  ( -- )
    SZ-WHEEL-SCROLLABLE? 0= IF  EXIT  THEN
    SZ-TOP-CAN-DOWN? 0= IF  EXIT  THEN
    SZ-TOP @ SZ-NEXT-LINE SZ-TOP !
    SZ-VIEW-HOLD-ON
 ;
+' SZ-SCROLL-DOWN-VIEW IS SZ-SCROLL-DOWN
 
 \ View-only pan (do NOT move CUR / clear selection). Drag-edge scroll uses these
 \ so the selection free end can re-map to the edge cell after the view moves.
@@ -787,7 +801,7 @@ VARIABLE SZ-ANCHOR-LINE                \ nonzero if anchor is whole-line based
 VARIABLE SZ-PASTE-WHERE                \ 0=normal 1=before-line 2=after-line
 VARIABLE SZ-PASTE-LS                  \ line-start for before/after paste
 VARIABLE SZ-PLACEHOLD                  \ nonzero: last click was paste placeholder only
-VARIABLE SZ-CLIP-HOLD-U                \ previous solid clip (two-level stack)
+\ SZ-CLIP-HOLD-U is created with SZ-CLIP-HOLD (below)
 VARIABLE SZ-DRAG-START                 \ buffer addr at mouse-down (free end moves from here)
 VARIABLE SZ-EXT-ANCHOR                 \ fixed end for shift-extend / after double-click
 VARIABLE SZ-DRAG-ACTIVE                \ nonzero while button held
@@ -1203,10 +1217,12 @@ VARIABLE SZ-CLIP-HOLD-U
    THEN
 ;
 
-\ Stub; redefined after SZ-DO-VIEW-UNDER (⌘-click → VIEW).
-: SZ-AFTER-MOUSE  ( -- )
+\ DEFER: early stub until SZ-PLAIN-CLICK / VIEW wiring; then SZ-AFTER-MOUSE-PLAIN.
+DEFER SZ-AFTER-MOUSE
+: SZ-AFTER-MOUSE-STUB  ( -- )
    SZ-CLICK-EXTEND @ 0= IF  SZ-PLAIN-CLICK  THEN
 ;
+' SZ-AFTER-MOUSE-STUB IS SZ-AFTER-MOUSE
 ' SZ-AFTER-MOUSE SZ-MOUSE-XT !
 
 VARIABLE SZ-DR-BEG
@@ -1253,8 +1269,8 @@ VARIABLE SZ-DR-N
    -1
 ;
 
-\ Redefine insert/delete so typing replaces the active drag/range selection.
-: SZ-INSERT-CH  ( c -- )
+\ Selection-aware insert/delete — install into DEFERs (no redefine).
+: SZ-INSERT-CH-SEL  ( c -- )
    DUP BL < OVER 126 > OR IF  DROP EXIT  THEN
    SZ-VIEW-RELEASE
    SZ-DELETE-SEL-IF DROP
@@ -1264,18 +1280,20 @@ VARIABLE SZ-DR-N
    SZ-CUR-COL SZ-PREF-COL !
    SZ-TOUCH
 ;
+' SZ-INSERT-CH-SEL IS SZ-INSERT-CH
 
-: SZ-INSERT-TAB  ( -- )
+: SZ-INSERT-TAB-SEL  ( -- )
    SZ-VIEW-RELEASE
    SZ-DELETE-SEL-IF DROP
    4  SZ-CUR-COL 4 MOD -
    BEGIN  DUP WHILE
-      BL SZ-INSERT-CH
+      BL SZ-INSERT-CH-BASIC
       1-
    REPEAT  DROP
 ;
+' SZ-INSERT-TAB-SEL IS SZ-INSERT-TAB
 
-: SZ-INSERT-CRLF  ( -- )
+: SZ-INSERT-CRLF-SEL  ( -- )
    SZ-VIEW-RELEASE
    SZ-DELETE-SEL-IF DROP
    SZ-CLAMP-CUR
@@ -1286,8 +1304,9 @@ VARIABLE SZ-DR-N
    0 SZ-HCOL !
    SZ-TOUCH
 ;
+' SZ-INSERT-CRLF-SEL IS SZ-INSERT-CRLF
 
-: SZ-BACKSPACE  ( -- )
+: SZ-BACKSPACE-SEL  ( -- )
    SZ-VIEW-RELEASE
    SZ-SEL-OK @ IF  SZ-DELETE-SEL-IF DROP EXIT  THEN
    SZ-CUR @ SZ-TBUF = IF  EXIT  THEN
@@ -1302,8 +1321,9 @@ VARIABLE SZ-DR-N
    SZ-TLEN @ 0< IF  0 SZ-TLEN !  THEN
    SZ-TOUCH
 ;
+' SZ-BACKSPACE-SEL IS SZ-BACKSPACE
 
-: SZ-DELETE-FWD  ( -- )
+: SZ-DELETE-FWD-SEL  ( -- )
    SZ-VIEW-RELEASE
    SZ-SEL-OK @ IF  SZ-DELETE-SEL-IF DROP EXIT  THEN
    SZ-CUR @ SZ-TEND = IF  EXIT  THEN
@@ -1326,6 +1346,7 @@ VARIABLE SZ-DR-N
    SZ-TLEN @ 0< IF  0 SZ-TLEN !  THEN
    SZ-TOUCH
 ;
+' SZ-DELETE-FWD-SEL IS SZ-DELETE-FWD
 
 \ If CUR is inside a word, move to end of that word (paste target).
 : SZ-PASTE-POINT  ( -- )
@@ -1440,10 +1461,10 @@ VARIABLE SZ-VIEW-NOTED                     \ nonzero: skip next HIST-NOTE
 ;
 
 \ Plain click (no drag): word / line / placeholder. ⌘ is handled on mouse-down.
-: SZ-AFTER-MOUSE  ( -- )
+: SZ-AFTER-MOUSE-PLAIN  ( -- )
    SZ-PLAIN-CLICK
 ;
-' SZ-AFTER-MOUSE SZ-MOUSE-XT !
+' SZ-AFTER-MOUSE-PLAIN IS SZ-AFTER-MOUSE
 
 \ --- Click-drag / shift-extend / double-click word selection ----------------
 
@@ -1544,12 +1565,12 @@ VARIABLE SZ-VIEW-NOTED                     \ nonzero: skip next HIST-NOTE
 ;
 
 \ Wire line apply now that SZ-GOTO-LINE exists.
-: SZ-FL-APPLY-LINE  ( n -- )  SZ-GOTO-LINE ;
+' SZ-GOTO-LINE IS SZ-FL-APPLY-LINE
 
-\ Redefine side-panel goto with dirty-buffer dialog (S / Don't Save / Esc or click).
+\ Side-panel goto with dirty-buffer dialog (S / Don't Save / Esc or click).
 \ Do NOT no-op when i = CUR: a mis-painted current row must still open its path
 \ (user report: top forth.s dead-click while listed as current).
-: SZ-FL-GOTO  ( i -- )
+: SZ-FL-GOTO-CONFIRM  ( i -- )
    DUP 0< IF  DROP EXIT  THEN
    DUP SZ-FL-N @ >= IF  DROP EXIT  THEN
    DUP SZ-FL-ENT C@ 0= IF  DROP EXIT  THEN   \ empty slot
@@ -1572,6 +1593,7 @@ VARIABLE SZ-VIEW-NOTED                     \ nonzero: skip next HIST-NOTE
    ELSE  DROP  THEN
    SZ-REDRAW
 ;
+' SZ-FL-GOTO-CONFIRM IS SZ-FL-GOTO
 
 \ Close visit i ([X]): if it is the current buffer, confirm dirty then switch
 \ to the previous visit (or empty untitled if none left). Non-current rows
@@ -1663,7 +1685,7 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
    THEN
 ;
 
-: SZ-SIDE-CLICK  ( col row -- )
+: SZ-SIDE-CLICK-FULL  ( col row -- )
    OVER SZ-EDIT-RIGHT > 0= IF  2DROP EXIT  THEN
    OVER SZ-COLS @ 1- < 0= IF  2DROP EXIT  THEN
    DUP SZ-TEXT-TOP < IF  2DROP EXIT  THEN
@@ -1677,6 +1699,7 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
       SZ-FL-GOTO
    THEN
 ;
+' SZ-SIDE-CLICK-FULL IS SZ-SIDE-CLICK
 
 \ Leave find-edit mode (defined early: mouse-down uses it before find section).
 : SZ-FIND-EDIT-OFF  ( -- )  0 SZ-FIND-EDIT ! ;

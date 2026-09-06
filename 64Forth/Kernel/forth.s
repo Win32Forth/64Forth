@@ -7863,8 +7863,9 @@ XUNUSED_END:
 
 // REDEF-WARNING ( -- addr )  VARIABLE-like; non-zero = warn on redefine
 // Defaults to 0 at cold start; set TRUE (-1) when entering the user REPL.
+// WARNING (kernel2 ALIAS) shares this same cell — classic Forth / Hayes gate.
 
-    BOOT_WORD "REDEF-WARNING", "REDEF-WARNING ( -- addr ) variable; nonzero warns on redefine", 0, XREDEF_WARNING
+    BOOT_WORD "REDEF-WARNING", "REDEF-WARNING ( -- addr ) variable; nonzero warns on redefine (same cell as WARNING)", 0, XREDEF_WARNING
 XREDEF_WARNING:
     str x20, [x22, #-8]!
     adrp x0, redef_warn@page
@@ -12470,8 +12471,9 @@ _fw_fail:
 
 // _warn_redef: x0=name addr, x1=len
 // If name is already in the dictionary, print:  <name> is redefined\n
-// Gated by REDEF-WARNING (redef_warn cell): 0 = quiet, nonzero = warn.
+// Gated by REDEF-WARNING / WARNING (same redef_warn cell): 0 = quiet, nonzero = warn.
 // Cell is 0 during bootstrap; set to TRUE (-1) when entering QUIT.
+// Output via _write_stdout so GUI / agent emit hooks see the message.
 _warn_redef:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -12484,20 +12486,16 @@ _warn_redef:
     mov x20, x1                     // len
     bl _find_word
     cbz x0, _wr_done
-    // write name
+    // TYPE name (host emit hook when set)
     cbz x20, 1f
-    mov x0, #1                      // stdout
-    mov x1, x19
-    mov x2, x20
-    mov x16, #4                     // write
-    svc #0x80
+    mov x0, x19
+    mov x1, x20
+    bl _write_stdout
 1:
-    mov x0, #1
-    adrp x1, str_redef@page
-    add x1, x1, str_redef@pageoff
-    mov x2, #15                     // " is redefined\n"
-    mov x16, #4
-    svc #0x80
+    adrp x0, str_redef@page
+    add x0, x0, str_redef@pageoff
+    mov x1, #14                     // " is redefined\n" (not the .asciz NUL)
+    bl _write_stdout
 _wr_done:
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
@@ -13910,7 +13908,7 @@ undef_name_len: .quad 0
 tty_termios_save: .skip 80
 tty_termios_raw:  .skip 80
 tty_raw_active:   .quad 0
-redef_warn:       .quad 0           // REDEF-WARNING body; 0=off, nonzero=on (TRUE after boot)
+redef_warn:       .quad 0           // REDEF-WARNING / WARNING body; 0=off, nonzero=on (TRUE after boot)
 redef_boot_done:  .quad 0           // set after first QUIT so default TRUE applied once
 file_echo:        .quad 0           // FILE-ECHO body; 0=off, nonzero=on
 file_echo_pos:    .quad 0           // absolute addr: next source byte not yet echoed

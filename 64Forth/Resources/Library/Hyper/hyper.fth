@@ -858,9 +858,9 @@ VARIABLE HYPER-FL-IX
       TRUE
    ELSE  FALSE  THEN ;
 
-\ Kernel SEE xt for FORTH SEE fallback (must find system SEE, not ours).
+\ Kernel SEE action for FORTH SEE fallback (SEE is a DEFER; save ACTION-OF).
 ONLY FORTH
-' SEE CONSTANT (SEE-OLD)
+ACTION-OF SEE CONSTANT (SEE-OLD)
 ONLY FORTH ALSO HYPER-VOC DEFINITIONS
 
 \ Phase 3a/4 indexer (stays in HYPER-VOC; HYPER-REINDEX wrapper → FORTH).
@@ -1028,7 +1028,7 @@ S" DBG-SYNC-VIEW"      FORTH>SYSVOC
 S" DBG-HIGHLIGHT-NAME" FORTH>SYSVOC
 PREVIOUS
 
-: SEE  ( "name" -- )
+: SEE-HYPER  ( "name" -- )
    >IN @ >R
    PARSE-NAME
    DUP 0= IF  R> DROP 2DROP ." SEE needs a name" CR EXIT  THEN
@@ -1044,6 +1044,7 @@ PREVIOUS
    2DROP
    R> >IN !
    (SEE-OLD) EXECUTE ;
+' SEE-HYPER IS SEE
 
 : HYPER-RELOAD  ( -- )
    HYPER-LOAD IF  ." HYPER: " HYPER-NDX-NAME COUNT TYPE

@@ -117,10 +117,12 @@ VARIABLE SZ-PREF-COL               \ sticky column for Up/Down (like most editor
 : SZ-CUR-LINE-NO  ( -- n )
    SZ-CUR @ SZ-HOST-LINE-NO ;
 
-\ Wheel scroll stubs — redefined in sz-edit.fth as view-only pan (TOP moves;
-\ CUR and selection stay at the same file position).
-: SZ-SCROLL-UP    ( -- )  ;
-: SZ-SCROLL-DOWN  ( -- )  ;
+\ Wheel scroll — DEFER; sz-edit installs SZ-SCROLL-*-VIEW (TOP pan only).
+: SZ-SCROLL-NOOP  ( -- )  ;
+DEFER SZ-SCROLL-UP
+DEFER SZ-SCROLL-DOWN
+' SZ-SCROLL-NOOP IS SZ-SCROLL-UP
+' SZ-SCROLL-NOOP IS SZ-SCROLL-DOWN
 
 \ Keep HCOL coherent with the *current* line and caret.
 \ Critical: after leaving a very long scrolled line, HCOL can exceed the new
@@ -1060,7 +1062,7 @@ VARIABLE SZ-DID-EMPTY-TEND             \ painted empty append line at TEND once
 
 VARIABLE SZ-PAINT-ROW                  \ current facility row while painting
 
-\ Paint path without size-sync (SZ-REDRAW redefined after SET-EDIT-WINDOW).
+\ Paint path without size-sync. SZ-REDRAW is a DEFER: first CORE, then SYNC.
 : SZ-REDRAW-CORE  ( -- )
    SZ-ENSURE-VISIBLE
    0 SZ-HAVE-AT !
@@ -1103,7 +1105,8 @@ VARIABLE SZ-PAINT-ROW                  \ current facility row while painting
    TERMINAL-REFRESH
 ;
 
-: SZ-REDRAW  ( -- )  SZ-REDRAW-CORE ;
+DEFER SZ-REDRAW
+' SZ-REDRAW-CORE IS SZ-REDRAW
 
 : SZ-SCREEN-SMOKE  ( -- )
    S" sz-smoke-out.txt" SZ-LOAD DROP
@@ -1118,17 +1121,17 @@ VARIABLE SZ-PAINT-ROW                  \ current facility row while painting
 \ Apply default geometry from EDIT-WINDOW (sz-host variables)
 EDIT-WINDOW SZ-APPLY-EDIT-WINDOW
 
-\ Re-bind SET-EDIT-WINDOW so size changes update layout + facility grid
-: SET-EDIT-WINDOW  ( width height -- )
+\ Full SET-EDIT-WINDOW: store + layout + facility grid (replaces host store-only).
+: SET-EDIT-WINDOW-FULL  ( width height -- )
    SZ-WIN-H !  SZ-WIN-W !
    SZ-WIN-W @  SZ-WIN-H @  SZ-APPLY-EDIT-WINDOW
    \ Facility: editor (W+8) + side content + outer │ + height (H+7 chrome)
    SZ-WIN-W @ 8 + SZ-SIDE-WIDTH + 1+  SZ-WIN-H @ SZ-CHROME-ROWS +  (FACILITY-SIZE)
 ;
+' SET-EDIT-WINDOW-FULL IS SET-EDIT-WINDOW
 
 \ Match facility size to the graphic window (host monospaced metrics).
-\ Defined after SET-EDIT-WINDOW so it calls the full version (layout + grid resize),
-\ not the sz-host stub that only stores W/H.
+\ Calls SET-EDIT-WINDOW (now FULL via DEFER).
 \ (SZ-VIEW-CELLS) → full facility cols/rows (editor + side + outer │); 5 cmd lines below.
 \ Text body: width = cols - 8 - SIDE - 1, height = rows - SZ-CHROME-ROWS.
 : SZ-SYNC-SIZE  ( -- )
@@ -1140,19 +1143,20 @@ EDIT-WINDOW SZ-APPLY-EDIT-WINDOW
    SET-EDIT-WINDOW
 ;
 
-\ Final REDRAW: sync window size then paint (redefines earlier stub).
-: SZ-REDRAW  ( -- )
+\ Final REDRAW action: sync window size then paint.
+: SZ-REDRAW-SYNC  ( -- )
    SZ-SYNC-SIZE
    SZ-REDRAW-CORE
 ;
+' SZ-REDRAW-SYNC IS SZ-REDRAW
 
-\ Line apply — stub until sz-edit defines SZ-GOTO-LINE (load order).
-: SZ-FL-APPLY-LINE  ( n -- )  DROP ;
+\ Line apply — DEFER until sz-edit installs SZ-GOTO-LINE.
+DEFER SZ-FL-APPLY-LINE
+' DROP IS SZ-FL-APPLY-LINE
 
-\ Switch editor to visit i (path + stored line). No-op if already current.
-\ Defined here so SZ-REDRAW is the final (sync+paint) version.
-\ Full dirty-check version is redefined in sz-edit.fth.
-: SZ-FL-GOTO  ( i -- )
+\ Early visit switch (no dirty dialog). sz-edit installs SZ-FL-GOTO-CONFIRM.
+DEFER SZ-FL-GOTO
+: SZ-FL-GOTO-BASIC  ( i -- )
    DUP 0< IF  DROP EXIT  THEN
    DUP SZ-FL-N @ >= IF  DROP EXIT  THEN
    DUP SZ-FL-CUR !
@@ -1165,9 +1169,11 @@ EDIT-WINDOW SZ-APPLY-EDIT-WINDOW
    DROP
    SZ-REDRAW
 ;
+' SZ-FL-GOTO-BASIC IS SZ-FL-GOTO
 
-\ Click side panel: X column removes visit; else goto that visit.
-: SZ-SIDE-CLICK  ( col row -- )
+\ Early side click: X removes visit; else goto. sz-edit installs FULL (confirm close).
+DEFER SZ-SIDE-CLICK
+: SZ-SIDE-CLICK-BASIC  ( col row -- )
    OVER SZ-EDIT-RIGHT > 0= IF  2DROP EXIT  THEN
    OVER SZ-COLS @ 1- < 0= IF  2DROP EXIT  THEN
    DUP SZ-TEXT-TOP < IF  2DROP EXIT  THEN
@@ -1182,6 +1188,7 @@ EDIT-WINDOW SZ-APPLY-EDIT-WINDOW
       SZ-FL-GOTO
    THEN
 ;
+' SZ-SIDE-CLICK-BASIC IS SZ-SIDE-CLICK
 
 \ Apply current window size to facility grid at load
 SZ-WIN-W @ 8 + SZ-SIDE-WIDTH + 1+  SZ-WIN-H @ SZ-CHROME-ROWS +  (FACILITY-SIZE)

@@ -2669,7 +2669,8 @@ final class KernelBridge {
         // Embed kernel_eval never prints "ok"; ConsoleView prints ok(n)> once after boot.
         // SEE/HELP are defined in the kernel bootstrap (forth_init_str).
         _ = evaluate("INCLUDE \(autoURL.path)")
-        _ = evaluate("MAIN")
+        // Optional: sample apps may define MAIN; product autoload does not.
+        _ = evaluate("[DEFINED] MAIN [IF] MAIN [THEN]")
 
         host.logicalCurrentDirectory = savedLogical
         _ = FileManager.default.changeCurrentDirectoryPath(savedProcess)

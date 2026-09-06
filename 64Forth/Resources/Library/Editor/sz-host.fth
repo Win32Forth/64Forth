@@ -126,9 +126,12 @@ VARIABLE SZ-WIN-H
 80 SZ-WIN-W !
 20 SZ-WIN-H !
 
-: SET-EDIT-WINDOW  ( width height -- )
+\ Late-bound: sz-screen installs SET-EDIT-WINDOW-FULL (layout + facility size).
+DEFER SET-EDIT-WINDOW
+: SET-EDIT-WINDOW-STORE  ( width height -- )
    SZ-WIN-H !  SZ-WIN-W !
 ;
+' SET-EDIT-WINDOW-STORE IS SET-EDIT-WINDOW
 
 : EDIT-WINDOW  ( -- width height )
    SZ-WIN-W @  SZ-WIN-H @ ;

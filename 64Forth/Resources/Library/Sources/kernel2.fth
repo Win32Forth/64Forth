@@ -86,14 +86,7 @@ DOC" (SEE-STEP) ( addr -- addr' ) decompile one body cell; advances addr"
   R@ SLIT-ADDR = IF R> DROP 8 + DUP @ >R 8 + 83 EMIT 34 EMIT SPACE DUP R@ TYPE 34 EMIT SPACE R> + ALIGNED EXIT THEN
   R@ (SEE-BR?) IF R@ NAME>STRING TYPE SPACE R> DROP 8 + DUP @ . SPACE 8 + EXIT THEN
   R@ NAME>STRING TYPE SPACE R> DROP 8 + ;
-DOC" SEE ( 'name' -- ) show help and decompile word"
-: SEE ' DUP (SEE-HDR) DUP DOCOL? 0= IF (SEE-PRIM) EXIT THEN
-  >BODY BEGIN (SEE-STEP) DUP 0= UNTIL DROP ;
-DOC" DEBUG ( 'name' -- ) F6 over, F7 into, F8 out, Esc/q abort, Cmd-Shift-Y go"
-\ Esc/q aborts with THROW -1; swallow that so we return to the prompt quietly.
-: DEBUG ' DBG-ON CATCH DBG-OFF DUP -1 = IF DROP ELSE THROW THEN ;
-DOC" HELP ( 'name' -- ) show help and decompile word (same as SEE)"
-: HELP SEE ;
+\ SEE / DEBUG / HELP are DEFERs installed after ABORT (DEFER defaults to ABORT).
 DOC" FLOAD ( 'name' -- ) synonym of INCLUDE; load and interpret a file"
 ' INCLUDE ALIAS FLOAD
 DOC" REQUIRE ( 'name' -- ) load file once (PARSE-NAME REQUIRED)"
@@ -219,6 +212,20 @@ DOC" IS ( xt 'name' -- ) set DEFER named (immediate)"
 : IS STATE @ IF POSTPONE ['] POSTPONE DEFER! ELSE ' DEFER! THEN ; IMMEDIATE
 DOC" ACTION-OF ( 'name' -- xt ) xt currently in deferred name (immediate)"
 : ACTION-OF STATE @ IF POSTPONE ['] POSTPONE DEFER@ ELSE ' DEFER@ THEN ; IMMEDIATE
+
+DOC" SEE ( 'name' -- ) show help and decompile word (DEFER; Hyper may IS)"
+DEFER SEE
+: (SEE) ' DUP (SEE-HDR) DUP DOCOL? 0= IF (SEE-PRIM) EXIT THEN
+  >BODY BEGIN (SEE-STEP) DUP 0= UNTIL DROP ;
+' (SEE) IS SEE
+DOC" DEBUG ( 'name' -- ) F6 over, F7 into, F8 out, Esc/q abort, Cmd-Shift-Y go"
+\ Esc/q aborts with THROW -1; swallow that so we return to the prompt quietly.
+\ DEFER so SZ-EDITOR can IS a wrapper without redefining.
+DEFER DEBUG
+: (DEBUG) ' DBG-ON CATCH DBG-OFF DUP -1 = IF DROP ELSE THROW THEN ;
+' (DEBUG) IS DEBUG
+DOC" HELP ( 'name' -- ) show help and decompile word (same as SEE)"
+: HELP SEE ;
 
 DOC" MARKER ( 'name' -- ) restore point: HERE + all FORTH hash heads"
 : MARKER
@@ -375,8 +382,8 @@ DOC" K-ALT-MASK ( -- u ) bit mask: Alt/Option held with K-* key"
 $8000 CONSTANT K-ALT-MASK
 DOC" LOCALS| ( name...name | -- ) declare locals (obsolescent; immediate)"
 : LOCALS| BEGIN BL WORD COUNT OVER C@ 124 - OVER 1 - OR WHILE (LOCAL) REPEAT 2DROP 0 0 (LOCAL) ; IMMEDIATE
-DOC" WARNING ( -- addr ) variable; used by some test suites"
-VARIABLE WARNING ;
+DOC" WARNING ( -- addr ) same cell as REDEF-WARNING; nonzero warns on redefine"
+' REDEF-WARNING ALIAS WARNING
 
 \ --- 10. Block word set ---
 DOC" (BLOCK-SEEK) ( u -- ior ) seek BLOCK-FILE to start of block u"
@@ -686,5 +693,3 @@ DOC" [CHAR] ( compile: '<spaces>name' -- ) compile xchar literal (immediate)"
   2DUP SWAP U. SPACE U. SPACE
   SWAP - U.
   R> BASE ! ;
-  DOC" MAIN ( -- ) default app entry; AutoLoad may redefine"
-: MAIN ;

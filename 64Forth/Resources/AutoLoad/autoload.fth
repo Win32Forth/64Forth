@@ -35,10 +35,3 @@ ONLY FORTH DEFINITIONS
     FROMLIB REQUIRE TCOM/SZ.fth
 {
 
-: APP-RUN  ( -- )
-\  S" 64Forth AutoLoad complete." TYPE CR
-  ;
-
-: MAIN  ( -- )
-  APP-RUN
-  ;

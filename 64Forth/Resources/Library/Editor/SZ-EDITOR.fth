@@ -61,18 +61,18 @@ ONLY FORTH ALSO EDITOR
    SZ-EDIT-FILE
 ;
 
-: EDIT  ( 'name' -- )   \ allow EDIT to invoke SZEDIT
-    SZEDIT ;
+\ EDIT stays the host/system editor (edit_hook / TextEdit). Use SZEDIT for in-app.
 
 \ While SZ-EDITOR is loaded: DEBUG also toggles the editor's debug help strip
 \ (5th column right of find) when the facility editor is active.
-: DEBUG  ( 'name' -- )
+: DEBUG-SZ  ( 'name' -- )
    ALSO EDITOR  SZ-DBG-KEYS-ON  PREVIOUS
    ' DBG-ON CATCH
    DBG-OFF
    ALSO EDITOR  SZ-DBG-KEYS-OFF  PREVIOUS
    DUP -1 = IF  DROP ELSE  THROW  THEN
 ;
+' DEBUG-SZ IS DEBUG
 
 ONLY FORTH DEFINITIONS
 

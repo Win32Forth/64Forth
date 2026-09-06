@@ -171,6 +171,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = B1000502 /* Build configuration list for PBXNativeTarget "64Forth" */;
 			buildPhases = (
+				B1000700 /* Touch forth.s if .incbin sources newer */,
 				B1000401 /* Sources */,
 				B1000200 /* Frameworks */,
 				B1000402 /* Resources */,
@@ -228,6 +229,34 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		B1000700 /* Touch forth.s if .incbin sources newer */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/64Forth/Kernel/kernel1.fth",
+				"$(SRCROOT)/64Forth/Kernel/kernel2.fth",
+				"$(SRCROOT)/64Forth/Kernel/vocemit.fth",
+				"$(SRCROOT)/64Forth/Kernel/vocsys.fth",
+				"$(SRCROOT)/64Forth/Kernel/app-output.fth",
+				"$(SRCROOT)/64Forth/Kernel/app-points.fth",
+				"$(SRCROOT)/64Forth/Kernel/boot_words.inc",
+				"$(SRCROOT)/64Forth/Kernel/boot_words_end.inc",
+				"$(SRCROOT)/64Forth/Kernel/colon_words.inc",
+			);
+			name = "Touch forth.s if .incbin sources newer";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nKERN=\"${SRCROOT}/64Forth/Kernel\"\nASM=\"${KERN}/forth.s\"\nneed=0\nfor f in kernel1.fth kernel2.fth vocemit.fth vocsys.fth app-output.fth app-points.fth boot_words.inc boot_words_end.inc colon_words.inc; do\n  if [ -f \"${KERN}/$f\" ] && [ \"${KERN}/$f\" -nt \"$ASM\" ]; then need=1; break; fi\ndone\nif [ \"$need\" = 1 ]; then\n  touch \"$ASM\"\n  echo \"note: touched forth.s (embedded .fth/.inc newer)\"\nfi\n";
+		};
 		B1000701 /* Copy AutoLoad */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
