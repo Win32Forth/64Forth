@@ -67,8 +67,9 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ---
 
-## Status (v1.3.3)
+## Status (v1.3.4)
 
+- [ ] **v1.3.4:** Emitter growth — GRAPHICS/tetra in-process smokes, interactive `EMIT-TETRA`, `/EMIT-STANDALONE` data segment, `.app` build template; DMG + GitHub release pending
 - [x] **v1.3.3:** **SYSVOC** / **EMITTER** cold vocabularies; cleaner FORTH; Hyper hooks → SYSVOC; kernel `-ROT`; `LOCAL-INIT`; `BOOT_WORD_COUNT` 321; ANSValidate + Hayes green; DMG + GitHub release
 - [ ] **Emitter app kit (post-1.3.3):** stand-alone base = **GRAPHICS** (80×25 / 640×400); triple-load `\ANS` / `\TCOM` / `\EMITTER`; first emit target **tetra**; MENUS + file-kit fence later — see `Docs/APPKIT.md`
 - [x] **v1.3.2:** `Documents/64Forth` user Library/AutoLoad/Docs (first-run copy + Tools Update/Restore); CODE `_END` labels for slicer size; **Emitter** Library (in progress); `(.)`/`(U.)`/`ARSHIFT`; DMG + GitHub release
@@ -85,7 +86,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 - [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Agent-channel.md`
 - [ ] **Later (optional):** DMG `/Volumes/…` open noise — see STATUS
 
-**Console header** (GUI): `=== 64Forth 1.3.3 === Sep 5, 2026 6:28 PM ===`  
+**Console header** (GUI): `=== 64Forth 1.3.4 === Sep 5, 2026 9:09 PM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
 
 ## Status (v1.1.1)

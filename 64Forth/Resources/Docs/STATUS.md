@@ -1,10 +1,29 @@
 # 64Forth development status
 
-**Current:** **1.3.3** (build **32**; DMG + GitHub `v1.3.3`)  
-**Last updated:** 2026-09-05 (Emitter app kit freeze — GRAPHICS + `\EMITTER` triple-load; see `APPKIT.md`)
+**Current:** **1.3.4** (build **33**; local — DMG / GitHub release pending)  
+**Last updated:** 2026-09-05 (v1.3.4 stamp; Emitter stand-alone Phase 1 data segment)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.3.4 — Emitter growth (in-process tetra + stand-alone Phase 1)
+
+**Version strings:** marketing **1.3.4**, build **33** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.3.4 === Sep 5, 2026 9:09 PM ===
+```
+
+**Highlights (vs 1.3.3):**
+- Emitter GRAPHICS mini + tetra subset smokes; interactive `EMIT-TETRA` (`MAIN`/`GAME`) user-verified
+- `/EMIT-STANDALONE` copies reachable DATA into RW `TGT-DATA-*` segment; `/EMIT-HOSTDATA` keeps identity map
+- TCOM-style `Library/Emitter/app-build.sh.template` scaffold for later `.app` packaging
+- `\EMITTER` policy clarified for shared sources (`tetra.fth`); packaging code stays under Emitter / EmitterSmoke
+- Release: pending `64Forth/releases/64Forth-1.3.4-macOS.dmg` + GitHub `v1.3.4`
 
 ---
 
