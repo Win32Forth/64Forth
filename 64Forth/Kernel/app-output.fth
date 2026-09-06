@@ -56,7 +56,8 @@ DECIMAL
 
 \ Triple-load line directives (classic F-PC DIRECTIVE / \FPC / \TCOM).
 \ Interactive 64Forth: \ANS true, \TCOM false, \EMITTER false.
-\ TARGETARM64 arms \TCOM; the Emitter path will arm \EMITTER.
+\ TARGETARM64 arms \TCOM. Emitter normally slices compiled ITC (no source
+\ re-INCLUDE), so \EMITTER stays false unless a rare Emitter source load arms it.
 [UNDEFINED] DIRECTIVE [IF]
 \ False directive skips to end of the *current line* only. SOURCE for a
 \ file may be the whole file — do NOT set >IN to SOURCE length (that
@@ -80,7 +81,7 @@ TRUE  DIRECTIVE \ANS          \ ANS Forth / 64Forth host load
 FALSE DIRECTIVE \TCOM         \ TCOM / 64TCOM compile path
 [THEN]
 [UNDEFINED] \EMITTER [IF]
-FALSE DIRECTIVE \EMITTER      \ Emitter slice / stand-alone path
+FALSE DIRECTIVE \EMITTER      \ optional; Emitter usually slices ITC, not source
 [THEN]
 
 VOCABULARY GRAPHICS

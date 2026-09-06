@@ -15,7 +15,7 @@ Append new design sections as we go; mark items done when implemented.
 **Frozen now:**
 - Stand-alone UI surface = existing **GRAPHICS** (**80×25** chars → **640×400** pixels); vocab stays **GRAPHICS**
 - Develop/run on interactive 64Forth, then emit; **first emit target:** `tetra/tetra.fth` (64TCOM tree)
-- **Triple-load** line directives: `\ANS` (64Forth), `\TCOM` (64TCOM), `\EMITTER` (Emitter path) — defined in `Kernel/app-output.fth` (mirrored under `Library/Sources/`); interactive host keeps `\EMITTER` false until the Emitter path arms it
+- **Triple-load** line directives: `\ANS` (64Forth), `\TCOM` (64TCOM), `\EMITTER` (optional; usually unused — Emitter slices compiled ITC under `\ANS`) — defined in `Kernel/app-output.fth` (mirrored under `Library/Sources/`)
 
 **Deferred:**
 - **MENUS** vocabulary (limited menu construction/handling)
@@ -29,7 +29,8 @@ Append new design sections as we go; mark items done when implemented.
 - [x] Branch-aware colon scan/span/write (`IF EXIT THEN`); reloc skips data imports
 - [x] GRAPHICS mini `TGT-BUILD`+`TGT-RUN` (`EmitterSmoke/gfx-smoke.fth` — `(APP-OPEN)` reached + veneered)
 - [x] Tetra subset `TGT-BUILD`+`TGT-RUN` + `MAIN` build-only (`EmitterSmoke/tetra-smoke.fth` — FIELD/SETUP/BORDER/one piece; MAIN reach ~169 < `REACH-MAX` 512)
-- [x] Interactive `MAIN`/`GAME` emit howto (`EmitterSmoke/tetra-gui-smoke.fth` — agent: `TGT-BUILD` only; GUI console: `EMIT-TETRA` → real window + KEY; ESC → `\ANS` `WINDOW-OFF`)
+- [x] Interactive `MAIN`/`GAME` emit howto (`EmitterSmoke/tetra-gui-smoke.fth` — agent: `TGT-BUILD` only; GUI console: `EMIT-TETRA` → real window + KEY; ESC → `\ANS` `WINDOW-OFF`; user-verified play)
+- [~] `\EMITTER` source arms — **likely unneeded** (Emitter slices compiled ITC under `\ANS`; keep directive false for optional forks). **Next:** stand-alone packaging
 
 ---
 

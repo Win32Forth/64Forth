@@ -43,7 +43,7 @@ TRUE  DIRECTIVE \ANS
 FALSE DIRECTIVE \TCOM
 [THEN]
 [UNDEFINED] \EMITTER [IF]
-FALSE DIRECTIVE \EMITTER      \ true only on Emitter compile/slice path
+FALSE DIRECTIVE \EMITTER      \ optional; Emitter usually slices ITC, not source
 [THEN]
 
 [UNDEFINED] TCOM-ANEW [IF]
