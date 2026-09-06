@@ -38,13 +38,34 @@ VARIABLE TGT-ALLOC    \ length given to ALLOCATE-EXEC / FREE-EXEC
 : TGT-W,  ( u32 -- )
   TGT-HERE TGT-W!  4 TGT-ALLOT ;
 
+VARIABLE TGT-DATA         \ RW ALLOCATE base (stand-alone data segment)
+VARIABLE TGT-DATA-ORG
+VARIABLE TGT-DATA-DP
+VARIABLE TGT-DATA-LIMIT
+VARIABLE TGT-DATA-ALLOC
+
+: TGT-DATA-CLOSE  ( -- )
+  TGT-DATA @ IF  TGT-DATA @ FREE DROP  THEN
+  0 TGT-DATA !  0 TGT-DATA-ORG !  0 TGT-DATA-DP !
+  0 TGT-DATA-LIMIT !  0 TGT-DATA-ALLOC ! ;
+
 : TGT-CLOSE  ( -- )
   TGT @ IF
     TGT @ TGT-ALLOC @ FREE-EXEC DROP
   THEN
   0 TGT !  0 TGT-ORG !  0 TGT-DP !  0 TGT-LIMIT !  0 TGT-END !
-  0 TGT-ALLOC ! ;
-  
+  0 TGT-ALLOC !
+  TGT-DATA-CLOSE ;
+
+: TGT-DATA-OPEN  ( u -- )
+  TGT-DATA-CLOSE
+  DUP TGT-DATA-ALLOC !
+  DUP ALLOCATE IF  DROP ." data ALLOCATE failed" CR ABORT  THEN
+  DUP TGT-DATA !
+  DUP TGT-DATA-ORG !
+  DUP TGT-DATA-DP !
+  + TGT-DATA-LIMIT ! ;
+
 : TGT-OPEN  ( u -- )
   TGT-CLOSE
   DUP TGT-ALLOC !
@@ -93,9 +114,52 @@ VARIABLE TGT-MAPN
   R> DROP
   2DUP SWAP - NIP ;
 
-\ CREATE/VALUE/etc.: keep host xt (TO LIT PFAs and buffers stay valid).
+\ CREATE/VALUE/CONSTANT/DOES>: default identity map (in-process TGT-RUN).
+\ /EMIT-STANDALONE copies each data region into the target image (Phase 1).
+FALSE VALUE ?EMIT-STANDALONE
+: /EMIT-STANDALONE  ( -- )  TRUE  TO ?EMIT-STANDALONE ;
+: /EMIT-HOSTDATA    ( -- )  FALSE TO ?EMIT-STANDALONE ;
+
+VARIABLE TGT-DATA-BYTES
+
+\ End of a data word = smallest HFA of another reachable xt above this CFA,
+\ else CFA+24 (does_ip + one cell) for a lone VALUE/CONSTANT.
+: DATA-END  ( xt -- addr )
+  {: xt | best i w h -- :}
+  0 TO best
+  0 TO i
+  BEGIN  i REACH-N @ <  WHILE
+    i CELLS REACH-XTS + @ TO w
+    w xt <> IF
+      w HFA TO h
+      h xt U> IF
+        best 0= IF  h TO best
+        ELSE  h best U< IF  h TO best  THEN
+        THEN
+      THEN
+    THEN
+    i 1+ TO i
+  REPEAT
+  best 0= IF  xt 24 +  ELSE  best  THEN ;
+
+: DATA-SPAN  ( xt -- addr u )
+  DUP DATA-END  OVER - ;
+
 : RESERVE-IMPORT  ( xt -- )
-  DUP MAP! ;
+  ?EMIT-STANDALONE 0= IF  DUP MAP! EXIT  THEN
+  {: xt | new u -- :}
+  TGT-DATA-DP @ 7 + -8 AND DUP TGT-DATA-DP !  TO new
+  xt DATA-SPAN NIP TO u
+  u 0= IF
+    ." data: empty span for " xt NAME>STRING TYPE CR ABORT
+  THEN
+  u 7 + -8 AND TO u
+  new u + DUP TGT-DATA-LIMIT @ U> IF
+    ." data: overflow" CR ABORT
+  THEN
+  TGT-DATA-DP !
+  u TGT-DATA-BYTES +!
+  xt new MAP! ;
 
 : COLON-SPAN  ( xt -- addr u )
   \ Body addr and byte length (branch-aware; see COLON-END in reach.fth).
@@ -129,6 +193,24 @@ VARIABLE TGT-MAPN
   DUP 8 + SWAP !
   8 TGT-ALLOT
   PRIM-SPAN COPY-BYTES ;
+
+\ Copy CFA..DATA-END into the RW data segment; retarget CFA to sliced
+\ (DOVAR)/(DOCON)/(DODOES). does_ip (+8) stays a host IP for now
+\ (works with in-process TGT-RUN; stand-alone runner must ship DOES> later).
+: WRITE-IMPORT  ( xt -- )
+  ?EMIT-STANDALONE 0= IF  DROP EXIT  THEN
+  {: xt | new u code -- :}
+  xt NAME>STRING TYPE SPACE ." data" SPACE
+  xt DATA-SPAN NIP DUP TO u . CR
+  xt MAP-FIND DUP 0= IF  ." no map" CR ABORT  THEN  TO new
+  xt new u MOVE
+  \ Prefer sliced runtime CFA if already written; else host code addr
+  \ (WRITE order writes prims before imports — see TGT-WRITE).
+  xt DOVAR? IF  ['] (DOVAR)
+  ELSE xt DOCON? IF  ['] (DOCON)
+  ELSE  ['] (DODOES)  THEN THEN
+  DUP MAP-FIND ?DUP IF  NIP @  ELSE  @  THEN  TO code
+  code new ! ;
 
 : MAP-CELL  ( old -- )
   DUP MAP-FIND ?DUP IF  NIP TGT,  ELSE
@@ -175,15 +257,18 @@ VARIABLE TGT-MAPN
     RI CELLS REACH-XTS + @
     DUP NAME>STRING TYPE SPACE
     DUP COLON-WORD? IF  ." colon"  CR RESERVE-COLON
-    ELSE DUP DATA-WORD? IF  ." import" CR RESERVE-IMPORT
+    ELSE DUP DATA-WORD? IF
+      ?EMIT-STANDALONE IF ." data" ELSE ." import" THEN CR RESERVE-IMPORT
     ELSE                ." prim"   CR RESERVE-PRIM
     THEN THEN
     RI 1+ TO RI
   REPEAT
   ." maps=" TGT-MAPN @ . CR
+  ?EMIT-STANDALONE IF  ." data-bytes " TGT-DATA-BYTES @ . CR  THEN
   TGT-HERE TGT-END ! ;
 
 : TGT-WRITE  {: | RI -- :}
+  \ 1) CODE prims first so DATA CFA patches can MAP-FIND (DOVAR)/…
   0 TO RI
   BEGIN  RI REACH-N @ <  WHILE
     RI CELLS REACH-XTS + @
@@ -192,6 +277,14 @@ VARIABLE TGT-MAPN
     ELSE  WRITE-PRIM  THEN THEN
     RI 1+ TO RI
   REPEAT
+  \ 2) DATA into RW segment
+  0 TO RI
+  BEGIN  RI REACH-N @ <  WHILE
+    RI CELLS REACH-XTS + @
+    DUP DATA-WORD? IF  WRITE-IMPORT  ELSE DROP THEN
+    RI 1+ TO RI
+  REPEAT
+  \ 3) Colon bodies
   0 TO RI
   BEGIN  RI REACH-N @ <  WHILE
     RI CELLS REACH-XTS + @
@@ -232,11 +325,18 @@ VARIABLE TGT-MAPN
 
 : TGT-BUILD  ( xt -- )
   TGT-CLOSE
+  0 TGT-DATA-BYTES !
   REACH-FROM
   ['] (DOCOL) (MARK)
   ['] (NEXT)  (MARK)
   ['] EXIT    (MARK)
+  ?EMIT-STANDALONE IF
+    ['] (DOVAR)  (MARK)
+    ['] (DOCON)  (MARK)
+    ['] (DODOES) (MARK)
+  THEN
   65536 TGT-OPEN
+  ?EMIT-STANDALONE IF  65536 TGT-DATA-OPEN  THEN
   ." opened " TGT-ORG @ U.  TGT-LIMIT @ U.  ."  cap " TGT-SIZE . CR
   TGT-RESERVE
   ." reserved " TGT-SIZE . CR
@@ -245,6 +345,10 @@ VARIABLE TGT-MAPN
   TGT-RELOC
   TGT-PROTECT
   ." written " TGT-SIZE . CR
+  ?EMIT-STANDALONE IF
+    ." standalone data-bytes " TGT-DATA-BYTES @ . CR
+    ." data-seg " TGT-DATA-ORG @ U. TGT-DATA-DP @ U. CR
+  THEN
   ;
 
 : TGT-DUMP  ( -- )

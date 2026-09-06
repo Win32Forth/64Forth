@@ -13,6 +13,8 @@
 \   …/64Forth --agent -f $HOME/Documents/64Forth/EmitterSmoke/tetra-smoke.fth
 \ Interactive MAIN/GAME (GUI console, not --agent):
 \   …/EmitterSmoke/tetra-gui-smoke.fth  then  EMIT-TETRA  (ESC quits)
+\ Stand-alone data segment (Phase 1):
+\   …/64Forth --agent -f …/EmitterSmoke/data-standalone-smoke.fth
 
 
 ONLY FORTH DEFINITIONS DECIMAL

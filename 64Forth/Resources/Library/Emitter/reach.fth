@@ -18,8 +18,12 @@ DECIMAL
 : DODOES?  ( xt -- flag )  @  ['] (DODOES) @  = ;
 
 \ CREATE / VARIABLE / CONSTANT / VALUE / DEFER / VOCABULARY, etc.
-\ In-process emit keeps these on the host (identity map); do not slice as CODE.
+\ Default: identity map for in-process TGT-RUN. /EMIT-STANDALONE copies them (target.fth).
+\ Exclude the runtime engines themselves — their CFA also matches DOVAR?/DOCON?/DODOES?.
 : DATA-WORD?  ( xt -- flag )
+  DUP ['] (DOVAR)  = IF  DROP FALSE EXIT  THEN
+  DUP ['] (DOCON)  = IF  DROP FALSE EXIT  THEN
+  DUP ['] (DODOES) = IF  DROP FALSE EXIT  THEN
   DUP DOVAR? IF  DROP TRUE EXIT  THEN
   DUP DOCON? IF  DROP TRUE EXIT  THEN
   DODOES? ;

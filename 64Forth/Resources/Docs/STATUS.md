@@ -30,7 +30,9 @@ Append new design sections as we go; mark items done when implemented.
 - [x] GRAPHICS mini `TGT-BUILD`+`TGT-RUN` (`EmitterSmoke/gfx-smoke.fth` — `(APP-OPEN)` reached + veneered)
 - [x] Tetra subset `TGT-BUILD`+`TGT-RUN` + `MAIN` build-only (`EmitterSmoke/tetra-smoke.fth` — FIELD/SETUP/BORDER/one piece; MAIN reach ~169 < `REACH-MAX` 512)
 - [x] Interactive `MAIN`/`GAME` emit howto (`EmitterSmoke/tetra-gui-smoke.fth` — agent: `TGT-BUILD` only; GUI console: `EMIT-TETRA` → real window + KEY; ESC → `\ANS` `WINDOW-OFF`; user-verified play)
-- [~] `\EMITTER` source arms — **likely unneeded** (Emitter slices compiled ITC under `\ANS`; keep directive false for optional forks). **Next:** stand-alone packaging
+- [x] `\EMITTER` policy — required on **shared** source lines that are Emitter-only; normal ITC slice stays under `\ANS`. Packaging lives in `Library/Emitter/` / `EmitterSmoke/`
+- [x] Phase 1 stand-alone data segment: `/EMIT-STANDALONE` copies DATA into RW `ALLOCATE` (`TGT-DATA-*`); default `/EMIT-HOSTDATA` identity map unchanged. Smoke: `EmitterSmoke/data-standalone-smoke.fth`; in-process `TGT-RUN` OK with copied data
+- [ ] Phase 2+: relocatable `host_app_*` slots + TCOM-style `.app` bundle (`Emitter/app-build.sh.template`)
 
 ---
 

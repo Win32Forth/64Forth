@@ -66,17 +66,20 @@ Apps that also build under 64TCOM (and later Emitter) use line prefixes:
 |-----------|-----------|-------------|
 | `\ANS` | Interactive **64Forth** | GRAPHICS `WINDOW-OFF`, stack HUD, etc. |
 | `\TCOM` | **64TCOM** / `TARGETARM64` | Mach-O exit status, TCOM BYE paths |
-| `\EMITTER` | Only if a source is ever compiled under an Emitter-armed load | Rare Emitter-only source forks |
+| `\EMITTER` | Emitter-armed source load | Emitter-only lines in **shared** sources |
 
 `DIRECTIVE` / `\ANS` / `\TCOM` / `\EMITTER` are defined in cold `Kernel/app-output.fth` (and mirrored under `Library/Sources/`). On interactive 64Forth: `\ANS` **true**, `\TCOM` and `\EMITTER` **false**.
 
-**Emitter usually does not need `\EMITTER`.** The slicer copies **already-compiled** ITC from the interactive dictionary (develop under `\ANS`, then `TGT-BUILD` / `TGT-RUN`). It does not re-INCLUDE app source, so line directives are not consulted at emit time. The `\ANS` arms already in the dictionary (e.g. ESC → `WINDOW-OFF EXIT`) are what get sliced. Keep `\EMITTER` defined (false) for optional single-source forks if a future load path ever compiles source under Emitter; do not invent Emitter-only exit arms unless that path appears.
+**Shared app sources** (e.g. `tetra/tetra.fth`) are used by 64Forth, 64TCOM, **and** Emitter. Any line that is specific to one host must be prefixed with that directive so the others skip it. If Emitter-specific code is added to those shared files, it **must** start with `\EMITTER` (and the Emitter load path must arm `\EMITTER` true, typically with `\ANS`/`\TCOM` false for that include).
+
+**Normal in-process slice** still develops under `\ANS` and copies already-compiled ITC (`TGT-BUILD` / `TGT-RUN`) without re-INCLUDING the app — so many emit sessions never need `\EMITTER` lines. Packaging / runner work belongs in `Library/Emitter/` and `EmitterSmoke/`, not in shared tetra sources, unless a true triple-load difference appears.
 
 Example (from tetra): Esc quits differently for TCOM vs interactive ANS:
 
 ```forth
 \TCOM               $1B OF 0 23 AT BYE              ENDOF
 \ANS                $1B OF WINDOW-OFF EXIT          ENDOF
+\EMITTER            $1B OF WINDOW-OFF EXIT          ENDOF   \ only if Emitter exit must differ / be explicit
 ```
 
 ---
@@ -122,6 +125,8 @@ Emitter milestone: emit **tetra** as a stand-alone macOS app that still uses the
    - **Done (in-process):** branch-aware colon walk (so `IF EXIT THEN` in `WINDOW` still reaches `(APP-OPEN)`); reloc skips imports; GRAPHICS mini smoke `EmitterSmoke/gfx-smoke.fth` (`APP-NAME`/`WINDOW`/`CLS`/`AT`/`."`/`WINDOW-OFF` via `TGT-BUILD`+`TGT-RUN`; under `--agent` the window does not open but `(APP-*)` still veneer).
    - **Done (in-process):** tetra subset + MAIN build — `EmitterSmoke/tetra-smoke.fth` loads `64TCOMARM64/tetra/tetra.fth`, runs `T-TETRA-SUB` (FIELD/SETUP/BORDER/`FILL.CURR`/`DRAW.CURR`, no KEY loop), and `TGT-BUILD` of `MAIN` (~169 reachable). Does not run `GAME`’s KEY loop under agent.
    - **Done (howto):** interactive emit of `MAIN`/`GAME` — `EmitterSmoke/tetra-gui-smoke.fth` builds `MAIN` under agent; from the GUI console run `EMIT-TETRA` (`TGT-BUILD`+`TGT-RUN`) for a real GRAPHICS window + KEY loop. ESC uses the existing `\ANS` `WINDOW-OFF EXIT` arms (play + game-over). Do not `TGT-RUN` under `--agent` (KEY blocks). User-verified: focus Graphics window, Space drops, ESC quits.
-   - **Deferred / likely unneeded:** `\EMITTER` source arms — Emitter slices compiled ITC, not app source; `\ANS` is enough for the normal path.
-3. **Next:** stand-alone packaging (emit tetra as a double-clickable macOS app that still uses the GRAPHICS host window / `(APP-*)` imports).
+   - **Note:** `\EMITTER` line prefixes are required **when** Emitter-only code is added to shared sources (`tetra.fth`, etc.); normal ITC slice of `\ANS`-compiled words does not re-INCLUDE those files. Packaging code lives under `Library/Emitter/` / `EmitterSmoke/`.
+3. **Stand-alone packaging (in progress):**
+   - **Done (Phase 1):** `/EMIT-STANDALONE` — copy reachable CREATE/VALUE/… into a RW data segment (`TGT-DATA-*`); `/EMIT-HOSTDATA` keeps identity map for interactive emit. Bundle recipe scaffold: `Library/Emitter/app-build.sh.template` (from TCOM `*-build.sh`). Smoke: `EmitterSmoke/data-standalone-smoke.fth`.
+   - **Next (Phase 2):** relocatable `host_app_*` slot table (TCOM `HOST-CALL` idea); then persist image + thin GRAPHICS runner + `.app`.
 4. Later: **MENUS** vocab; document File-Access as part of the kit fence when stand-alone apps need declared file imports.
