@@ -1,6 +1,6 @@
 # 64Forth development status
 
-**Current:** **1.3.5** (build **34**; local — DMG / GitHub release pending)  
+**Current:** **1.3.5** (build **34**; DMG + GitHub `v1.3.5`)  
 **Last updated:** 2026-09-06 (v1.3.5 notes: Emitter 0.6 stand-alone apps — tetra / FROMLIB / EMIT-WINDOW-APP)
 
 This file tracks design notes and progress for work after 1.0.7.  
@@ -28,7 +28,7 @@ Append new design sections as we go; mark items done when implemented.
 - **`EMIT-WINDOW-APP`** / **`EMIT-WINDOW-APP-TO`**: `:NONAME` wrapper with `APP-NAME`/`WINDOW`/`WINDOW-OFF`; `.app` basename = uppercase stem of `LAST-INCLUDED` (load app `.fth` after Emitter)
 - User-verified: `TETRA.app` playable (SPACE/ESC; gravity OK after MS@ fix)
 
-**Release:** pending `64Forth/releases/64Forth-1.3.5-macOS.dmg` + GitHub `v1.3.5`
+**Release:** `64Forth/releases/64Forth-1.3.5-macOS.dmg` + GitHub `v1.3.5`
 
 ---
 
