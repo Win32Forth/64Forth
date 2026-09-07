@@ -1,9 +1,9 @@
 # Emitter stand-alone app kit (GRAPHICS)
 
-**Emitter version:** **0.5** (stand-alone GRAPHICS emit; tetra verified).  
-**Status:** design freeze for the window/IO surface (2026-09-05).  
+**Emitter version:** **0.6** (stand-alone GRAPHICS emit; tetra verified as `.app`).  
+**Status:** design freeze for the window/IO surface (2026-09-05); packaging path live as of 2026-09-06.  
 **Menus** and **File-Access-in-kit** are deferred.  
-**First emit target:** `tetra/tetra.fth` (64TCOM tree) — already runs under interactive 64Forth **GRAPHICS**.
+**First emit target:** `tetra/tetra.fth` (64TCOM tree) — interactive GRAPHICS + stand-alone `EMIT-WINDOW-APP` → `TETRA.app`.
 
 This document names the runtime base that Emitter-built stand-alone apps will sit on. It is **not** a second GUI toolkit: it is the existing **GRAPHICS** vocabulary plus host `(APP-*)` hooks, with room for a later **MENUS** vocabulary.
 

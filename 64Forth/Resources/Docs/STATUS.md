@@ -1,10 +1,34 @@
 # 64Forth development status
 
-**Current:** **1.3.4** (build **33**; local — DMG / GitHub release pending)  
-**Last updated:** 2026-09-05 (v1.3.4 notes: Emitter Phase 1 + AutoLoad/WARNING cleanup)
+**Current:** **1.3.5** (build **34**; local — DMG / GitHub release pending)  
+**Last updated:** 2026-09-06 (v1.3.5 notes: Emitter 0.6 stand-alone apps — tetra / FROMLIB / EMIT-WINDOW-APP)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.3.5 — Emitter 0.6 stand-alone apps
+
+**Version strings:** marketing **1.3.5**, build **34** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
+
+**Console header stamp** (`ConsoleView.swift` `banner` — refresh date/time just before DMG):
+
+```text
+=== 64Forth 1.3.5 === Sep 6, 2026 10:29 PM ===
+```
+
+**Highlights (vs 1.3.4):**
+
+*Emitter **0.6***
+- Phase 2b persist + `emit-run` + `app-build.sh` → `.app` (shipped; was in-tree only at 1.3.4)
+- Host slot 9: `MS@` → `gettimeofday` (fixes tetra gravity / `10TH-ELAPSED` in stand-alone)
+- SA-PRINT / SA-BLOCK / SA-FILES / SA-FLOAT paths verified; smokes under `Library/Emitter/EmitterSmoke/`
+- `FROMLIB?` / `FROMLIB-OFF` / `LIBRARY-PATH` / `LAST-INCLUDED`; `EMIT-APP` / `EMIT-APP-TO` honor armed `FROMLIB` (Library outdir + `app-build.sh` via `LIBRARY-PATH`)
+- **`EMIT-WINDOW-APP`** / **`EMIT-WINDOW-APP-TO`**: `:NONAME` wrapper with `APP-NAME`/`WINDOW`/`WINDOW-OFF`; `.app` basename = uppercase stem of `LAST-INCLUDED` (load app `.fth` after Emitter)
+- User-verified: `TETRA.app` playable (SPACE/ESC; gravity OK after MS@ fix)
+
+**Release:** pending `64Forth/releases/64Forth-1.3.5-macOS.dmg` + GitHub `v1.3.5`
 
 ---
 
@@ -32,15 +56,13 @@ Append new design sections as we go; mark items done when implemented.
 - Product AutoLoad no longer defines **`MAIN`**; boot runs `MAIN` only if present (`[DEFINED] MAIN`)
 - Xcode: touch `forth.s` when embedded `.fth`/`.inc` sources are newer (so `kernel2.fth` edits reassemble)
 
-**Not in 1.3.4 release notes yet:** Phase 2b.1–2b.3 are in-tree (persist + `emit-run` + `.app` via `app-build.sh`); bump/docs sync when cutting the next build.
-
-**Release:** pending `64Forth/releases/64Forth-1.3.4-macOS.dmg` + GitHub `v1.3.4`
+**Release:** local only — superseded by **1.3.5** before DMG/GitHub tag.
 
 ---
 
 ## Emitter app kit (post-1.3.3 design) — GRAPHICS stand-alone base
 
-**Emitter version:** **0.5** (bundle `CFBundleShortVersionString` via `app-build.sh`; tetra stand-alone play verified)  
+**Emitter version:** **0.6** (bundle `CFBundleShortVersionString` via `app-build.sh`; tetra stand-alone play verified)  
 **Doc:** [`APPKIT.md`](APPKIT.md)
 
 **FROMLIB visibility:** `FROMLIB?` / `FROMLIB-OFF` / `LIBRARY-PATH` / `LAST-INCLUDED` — Forth can read/clear the host arm, get the Library root, and the last INCLUDE/FLOAD path. `EMIT-APP` / `EMIT-APP-TO` honor armed `FROMLIB` for relative outdirs; `app-build.sh` is resolved via `LIBRARY-PATH`. **`EMIT-WINDOW-APP`** wraps an xt with `APP-NAME`/`WINDOW`/`WINDOW-OFF` and names the `.app` from the `LAST-INCLUDED` stem (e.g. `tetra.fth` → `TETRA.app`).
@@ -71,6 +93,8 @@ Append new design sections as we go; mark items done when implemented.
 - [x] Phase 2b.1: persist `64EMIT02` (`/EMIT-UNBOUND`, `SAVE-IMAGE`/`LOAD-IMAGE`, ITC rebase; `Library/Emitter/EmitterSmoke/persist-smoke.fth`)
 - [x] Phase 2b.3: `app-build.sh` + `Library/Emitter/EmitterSmoke/gfx-app-smoke.sh` → `Gfx.app` (headless MacOS binary OK)
 - [x] `EMIT-APP` / `EMIT-APP-TO` — one-shot `.app` from a compiled xt (`Library/Emitter/app.fth`; smoke `EmitterSmoke/emit-app-smoke.fth`)
+- [x] `EMIT-WINDOW-APP` / `EMIT-WINDOW-APP-TO` — `APP-NAME`/`WINDOW` wrapper; basename from `LAST-INCLUDED` (`EmitterSmoke/emit-window-app-smoke.fth`)
+- [x] FROMLIB arm visible + honored by `EMIT-APP*` (`FROMLIB?` / `LIBRARY-PATH`)
 
 ---
 

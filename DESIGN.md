@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-09-05 — **v1.3.4** (build 33) — Emitter in-process tetra + `/EMIT-STANDALONE` data segment; app-kit freeze still `Docs/APPKIT.md` (GRAPHICS 80×25 / 640×400; `\ANS`/`\TCOM`/`\EMITTER`; first emit target tetra).
+**Updated:** 2026-09-06 — **v1.3.5** (build 34) — Emitter **0.6** stand-alone `.app` (`EMIT-APP` / `EMIT-WINDOW-APP`, FROMLIB outdir, `MS@` SA); app-kit freeze still `Docs/APPKIT.md` (GRAPHICS 80×25 / 640×400; `\ANS`/`\TCOM`/`\EMITTER`; tetra verified).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
