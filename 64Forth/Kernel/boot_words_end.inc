@@ -7,7 +7,7 @@
 .quad 0, 0, 0, 0, 0
 
 // Must equal the number of BOOT_WORD rows in forth.s (null sentinel not counted).
-.equ BOOT_WORD_COUNT, 347
+.equ BOOT_WORD_COUNT, 348
 
 // Empty help used by : / CREATE / :NONAME
 .section __TEXT,__cstring,cstring_literals

@@ -1,4 +1,4 @@
-\ app.fth — FORTH entry points: EMIT-APP / EMIT-APP-TO
+\ app.fth — FORTH entry points: EMIT-APP / EMIT-WINDOW-APP (+ -TO)
 \ Requires save.fth (and thus target/reloc/run). Public domain.
 \
 \ After compiling a colon entry the normal way:
@@ -6,7 +6,14 @@
 \   ' MAIN EMIT-APP                 \ → ./MAIN.app  (cwd)
 \   FROMLIB ' MAIN EMIT-APP         \ → <LIBRARY-PATH>/MAIN.app
 \   ' MAIN S" /tmp" EMIT-APP-TO     \ → /tmp/MAIN.app
-\   FROMLIB ' MAIN S" apps" EMIT-APP-TO  \ → <LIBRARY-PATH>/apps/MAIN.app
+\
+\ Window wrapper (APP-NAME + WINDOW … WINDOW-OFF), title = stem of
+\ LAST-INCLUDED (uppercased). Load Emitter first, then the app .fth:
+\   FROMLIB FLOAD Emitter/emitter.fth
+\   S" …/tetra/tetra.fth" INCLUDED
+\   ' GAME EMIT-WINDOW-APP          \ → ./TETRA.app  (not MAIN.app)
+\   ' GAME S" /tmp" EMIT-WINDOW-APP-TO
+\ Pass GAME (or any body that expects an open window), not MAIN.
 \
 \ Forces /EMIT-STANDALONE + /EMIT-UNBOUND, TGT-BUILDs, SAVE-IMAGEs, then
 \ runs Library/Emitter/app-build.sh via SYSTEM (found via LIBRARY-PATH).
@@ -16,11 +23,12 @@ DECIMAL
 
 512 CONSTANT /EMIT-PB
 CREATE EMIT-APP-BUILD  /EMIT-PB ALLOT   \ counted path to app-build.sh (override OK)
-CREATE EMIT-NAMEBUF    64 ALLOT         \ counted app basename
+CREATE EMIT-NAMEBUF    64 ALLOT         \ counted app basename / APP-NAME title
 CREATE EMIT-IMGBUF     /EMIT-PB ALLOT   \ counted path to .img
 CREATE EMIT-APPBUF     /EMIT-PB ALLOT   \ counted path to .app (message)
 CREATE EMIT-CMDBUF     1024 ALLOT       \ counted SYSTEM command
 CREATE EMIT-TMP        /EMIT-PB ALLOT
+CREATE EMIT-TITLE      64 ALLOT         \ counted title for SLITERAL into wrapper
 
 : (EMIT-S0)  ( dest -- )  0 SWAP C! ;
 
@@ -35,6 +43,9 @@ CREATE EMIT-TMP        /EMIT-PB ALLOT
 
 : (EMIT-CH+)  ( char dest -- )
   SWAP PAD C!  PAD 1 ROT (EMIT-S+) ;
+
+: (EMIT-UPC)  ( c -- c' )
+  DUP [CHAR] a >= OVER [CHAR] z <= AND IF  32 -  THEN ;
 
 \ Absolute or ~ path? (does not consume FROMLIB)
 : (EMIT-ABS?)  ( c-addr u -- flag )
@@ -89,6 +100,52 @@ CREATE EMIT-TMP        /EMIT-PB ALLOT
   THEN
   DUP 63 > IF  2DROP ." EMIT-APP: name too long" CR ABORT  THEN
   EMIT-NAMEBUF PLACE ;
+
+\ Path → uppercase stem in EMIT-NAMEBUF (…/tetra.fth → TETRA).
+: (EMIT-STEM-UPPER!)  ( c-addr u -- )
+  {: a u | i base blen -- :}
+  0 TO base
+  0 TO i
+  BEGIN  i u <  WHILE
+    a i + C@ [CHAR] / = IF  i 1+ TO base  THEN
+    i 1+ TO i
+  REPEAT
+  u base - TO blen
+  a base + TO a
+  \ strip final .ext if present
+  blen TO i
+  BEGIN  i  WHILE
+    i 1- TO i
+    a i + C@ [CHAR] . = IF
+      i TO blen
+      0 TO i
+    THEN
+  REPEAT
+  blen 0= IF  ." EMIT-WINDOW-APP: empty stem" CR ABORT  THEN
+  blen 63 > IF  ." EMIT-WINDOW-APP: stem too long" CR ABORT  THEN
+  EMIT-NAMEBUF (EMIT-S0)
+  0 TO i
+  BEGIN  i blen <  WHILE
+    a i + C@ (EMIT-UPC) EMIT-NAMEBUF (EMIT-CH+)
+    i 1+ TO i
+  REPEAT
+  ;
+
+\ Title for wrapper: LAST-INCLUDED stem, else xt name (uppercased).
+\ Consumes xt from the stack; caller keeps its own copy (e.g. local).
+: (EMIT-TITLE!)  ( xt -- )
+  LAST-INCLUDED DUP IF
+    (EMIT-STEM-UPPER!)                 \ path → EMIT-NAMEBUF; xt remains
+    DROP
+  ELSE
+    2DROP
+    NAME>STRING DUP 0= IF
+      2DROP ." EMIT-WINDOW-APP: no LAST-INCLUDED and empty xt name" CR ABORT
+    THEN
+    (EMIT-STEM-UPPER!)
+  THEN
+  EMIT-NAMEBUF COUNT EMIT-TITLE PLACE
+  ;
 
 \ Join outdir + "/" + name + suffix → dest counted string.
 : (EMIT-JOIN)  ( out-addr out-u name-addr name-u suffix-addr suffix-u dest -- )
@@ -147,6 +204,49 @@ CREATE EMIT-TMP        /EMIT-PB ALLOT
   ."   image: " EMIT-IMGBUF COUNT TYPE CR
   ."   open " EMIT-APPBUF COUNT TYPE CR ;
 
+\ Like (EMIT-SAVE+PACK) but EMIT-NAMEBUF already set (for :NONAME wrappers).
+: (EMIT-SAVE+PACK-NAMED)  ( xt c-addr u -- )
+  {: xt oa ou -- :}
+  oa ou (EMIT-RESOLVE-OUT)
+  EMIT-NAMEBUF C@ 0= IF
+    ." EMIT-WINDOW-APP: empty app name" CR ABORT
+  THEN
+  EMIT-TMP COUNT (EMIT-MKDIR)
+  EMIT-TMP COUNT  EMIT-NAMEBUF COUNT  S" .img"  EMIT-IMGBUF  (EMIT-JOIN)
+  EMIT-TMP COUNT  EMIT-NAMEBUF COUNT  S" .app"  EMIT-APPBUF  (EMIT-JOIN)
+  /EMIT-STANDALONE
+  /EMIT-UNBOUND
+  xt TGT-BUILD
+  xt EMIT-IMGBUF COUNT SAVE-IMAGE
+  (EMIT-PACK)
+  CR ." EMIT-APP: built " EMIT-APPBUF COUNT TYPE CR
+  ."   image: " EMIT-IMGBUF COUNT TYPE CR
+  ."   open " EMIT-APPBUF COUNT TYPE CR ;
+
+\ Build :NONAME  S" TITLE" APP-NAME WINDOW <xt> WINDOW-OFF ;
+\ GRAPHICS must be searchable when this word is *defined* (POSTPONE FIND).
+ALSO GRAPHICS
+
+: (EMIT-WIN-WRAP)  ( xt c-addr u -- wxt )
+  {: xt a u -- :}
+  :NONAME
+  a u POSTPONE SLITERAL
+  POSTPONE APP-NAME
+  POSTPONE WINDOW
+  xt COMPILE,
+  POSTPONE WINDOW-OFF
+  POSTPONE ;
+  ;
+
+PREVIOUS
+
+: (EMIT-WINDOW-PACK)  ( xt c-addr u -- )
+  {: xt oa ou -- :}
+  xt (EMIT-TITLE!)
+  xt  EMIT-TITLE COUNT  (EMIT-WIN-WRAP)  TO xt
+  xt oa ou (EMIT-SAVE+PACK-NAMED)
+  ;
+
 \ --- public FORTH API ---
 ONLY FORTH DEFINITIONS
 ALSO SYSVOC ALSO EMITTER
@@ -157,4 +257,10 @@ ALSO SYSVOC ALSO EMITTER
 : EMIT-APP  ( xt -- )
   S" ." EMIT-APP-TO ;
 
-CR .( EMIT-APP / EMIT-APP-TO ready in FORTH. ) CR
+: EMIT-WINDOW-APP-TO  ( xt c-addr u -- )
+  (EMIT-WINDOW-PACK) ;
+
+: EMIT-WINDOW-APP  ( xt -- )
+  S" ." EMIT-WINDOW-APP-TO ;
+
+CR .( EMIT-APP / EMIT-WINDOW-APP ready in FORTH. ) CR

@@ -3545,6 +3545,41 @@ XLIBRARY_PATH:
 XLIBRARY_PATH_END:
     NEXT
 
+// LAST-INCLUDED ( -- c-addr u )  absolute path of last successful INCLUDE/FLOAD
+
+    BOOT_WORD "LAST-INCLUDED", "LAST-INCLUDED ( -- c-addr u ) path of last INCLUDE/FLOAD (empty if none)", 0, XLAST_INCLUDED, XLAST_INCLUDED_END
+XLAST_INCLUDED:
+    SAVE_VM
+    adrp x0, last_included_buf@page
+    add  x0, x0, last_included_buf@pageoff
+    mov  x1, #512
+    adrp x2, last_included_len@page
+    add  x2, x2, last_included_len@pageoff
+    adrp x3, last_load_key_hook@page
+    add  x3, x3, last_load_key_hook@pageoff
+    ldr  x9, [x3]
+    cbz  x9, 1f
+    blr  x9
+    cbnz x0, 1f
+    b    2f
+1:
+    adrp x2, last_included_len@page
+    add  x2, x2, last_included_len@pageoff
+    str  xzr, [x2]
+2:
+    RESTORE_VM
+    adrp x0, last_included_buf@page
+    add  x0, x0, last_included_buf@pageoff
+    adrp x1, last_included_len@page
+    add  x1, x1, last_included_len@pageoff
+    ldr  x1, [x1]
+    str  x20, [x22, #-8]!
+    mov  x20, x0
+    str  x20, [x22, #-8]!
+    mov  x20, x1
+XLAST_INCLUDED_END:
+    NEXT
+
 // CHDIR ( -- )  optional name: change cwd; bare → host folder picker (TZForth-style)
 
     BOOT_WORD "CHDIR", "CHDIR ( -- ) path|dialog change working directory", 0, XCHDIR
@@ -15089,6 +15124,8 @@ file_buffer:    .skip FILE_BUFFER_MAX
 word_scratch:   .skip 512          // paths for INCLUDE / FLOAD (was 64)
 library_path_buf: .skip 512        // LIBRARY-PATH absolute root
 library_path_len: .quad 0
+last_included_buf: .skip 512       // LAST-INCLUDED absolute path
+last_included_len: .quad 0
 undef_name_buf: .skip 256          // failed token snapshot for "undefined: name"
 undef_name_len: .quad 0
 tty_termios_save: .skip 80

@@ -43,7 +43,7 @@ Append new design sections as we go; mark items done when implemented.
 **Emitter version:** **0.5** (bundle `CFBundleShortVersionString` via `app-build.sh`; tetra stand-alone play verified)  
 **Doc:** [`APPKIT.md`](APPKIT.md)
 
-**FROMLIB visibility:** `FROMLIB?` / `FROMLIB-OFF` / `LIBRARY-PATH` — Forth can read/clear the host arm and get the Library root. `EMIT-APP` / `EMIT-APP-TO` honor armed `FROMLIB` for relative outdirs; `app-build.sh` is resolved via `LIBRARY-PATH`.
+**FROMLIB visibility:** `FROMLIB?` / `FROMLIB-OFF` / `LIBRARY-PATH` / `LAST-INCLUDED` — Forth can read/clear the host arm, get the Library root, and the last INCLUDE/FLOAD path. `EMIT-APP` / `EMIT-APP-TO` honor armed `FROMLIB` for relative outdirs; `app-build.sh` is resolved via `LIBRARY-PATH`. **`EMIT-WINDOW-APP`** wraps an xt with `APP-NAME`/`WINDOW`/`WINDOW-OFF` and names the `.app` from the `LAST-INCLUDED` stem (e.g. `tetra.fth` → `TETRA.app`).
 
 **Frozen now:**
 - Stand-alone UI surface = existing **GRAPHICS** (**80×25** chars → **640×400** pixels); vocab stays **GRAPHICS**
