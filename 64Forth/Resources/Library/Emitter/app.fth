@@ -3,11 +3,13 @@
 \
 \ After compiling a colon entry the normal way:
 \   FROMLIB FLOAD Emitter/emitter.fth
-\   ' MAIN EMIT-APP                 \ → ./MAIN.app
+\   ' MAIN EMIT-APP                 \ → ./MAIN.app  (cwd)
+\   FROMLIB ' MAIN EMIT-APP         \ → <LIBRARY-PATH>/MAIN.app
 \   ' MAIN S" /tmp" EMIT-APP-TO     \ → /tmp/MAIN.app
+\   FROMLIB ' MAIN S" apps" EMIT-APP-TO  \ → <LIBRARY-PATH>/apps/MAIN.app
 \
 \ Forces /EMIT-STANDALONE + /EMIT-UNBOUND, TGT-BUILDs, SAVE-IMAGEs, then
-\ runs Library/Emitter/app-build.sh via SYSTEM.
+\ runs Library/Emitter/app-build.sh via SYSTEM (found via LIBRARY-PATH).
 
 ONLY FORTH ALSO SYSVOC ALSO EMITTER DEFINITIONS
 DECIMAL
@@ -34,21 +36,49 @@ CREATE EMIT-TMP        /EMIT-PB ALLOT
 : (EMIT-CH+)  ( char dest -- )
   SWAP PAD C!  PAD 1 ROT (EMIT-S+) ;
 
-\ Resolve app-build.sh once (Documents user tree, else bundle Resources).
-\ Uses EMIT-APP-BUILD only — do not touch EMIT-TMP (outdir lives there).
+\ Absolute or ~ path? (does not consume FROMLIB)
+: (EMIT-ABS?)  ( c-addr u -- flag )
+  DUP 0= IF  2DROP FALSE EXIT  THEN
+  OVER C@ [CHAR] / = IF  2DROP TRUE EXIT  THEN
+  OVER C@ [CHAR] ~ = IF  2DROP TRUE EXIT  THEN
+  2DROP FALSE ;
+
+\ Resolve outdir: relative + FROMLIB? → under LIBRARY-PATH (then FROMLIB-OFF).
+\ Absolute unchanged. Relative without FROMLIB stays cwd-relative.
+\ Result left counted in EMIT-TMP.
+: (EMIT-RESOLVE-OUT)  ( c-addr u -- )
+  {: a u | la lu -- :}
+  a u (EMIT-ABS?) IF
+    a u EMIT-TMP PLACE  EXIT
+  THEN
+  FROMLIB? 0= IF
+    a u EMIT-TMP PLACE  EXIT
+  THEN
+  LIBRARY-PATH TO lu TO la
+  lu 0= IF
+    ." EMIT-APP: LIBRARY-PATH empty (no Library)" CR ABORT
+  THEN
+  EMIT-TMP (EMIT-S0)
+  la lu EMIT-TMP (EMIT-S+)
+  \ "." under Library → Library root itself
+  u 1 =  a C@ [CHAR] . =  AND IF
+    FROMLIB-OFF  EXIT
+  THEN
+  u IF
+    [CHAR] / EMIT-TMP (EMIT-CH+)
+    a u EMIT-TMP (EMIT-S+)
+  THEN
+  FROMLIB-OFF
+  ;
+
+\ Resolve app-build.sh via LIBRARY-PATH (does not consume user FROMLIB).
 : (EMIT-RESOLVE-SH)  ( -- )
   EMIT-APP-BUILD C@ IF EXIT THEN
-  S\" sh -c 'for p in \"$HOME/Documents/64Forth/Library/Emitter/app-build.sh\" \"/Applications/64Forth.app/Contents/Resources/Library/Emitter/app-build.sh\"; do if [ -f \"$p\" ]; then printf %s \"$p\"; exit 0; fi; done; exit 1' > /tmp/64emit-app-build.path" SYSTEM
-  IF
-    ." EMIT-APP: cannot locate app-build.sh (set EMIT-APP-BUILD)" CR ABORT
+  LIBRARY-PATH DUP 0= IF
+    2DROP ." EMIT-APP: LIBRARY-PATH empty (set EMIT-APP-BUILD)" CR ABORT
   THEN
-  S" /tmp/64emit-app-build.path" R/O OPEN-FILE THROW
-  {: fid | n -- :}
-  EMIT-APP-BUILD (EMIT-S0)
-  EMIT-APP-BUILD CHAR+ /EMIT-PB 1- fid READ-FILE THROW TO n
-  fid CLOSE-FILE DROP
-  n 0= IF  ." EMIT-APP: empty app-build path" CR ABORT  THEN
-  n EMIT-APP-BUILD C!
+  EMIT-APP-BUILD PLACE
+  S" /Emitter/app-build.sh" EMIT-APP-BUILD (EMIT-S+)
   EMIT-APP-BUILD COUNT FILE-STATUS NIP IF
     ." EMIT-APP: app-build.sh missing: " EMIT-APP-BUILD COUNT TYPE CR ABORT
   THEN ;
@@ -103,7 +133,7 @@ CREATE EMIT-TMP        /EMIT-PB ALLOT
 
 : (EMIT-SAVE+PACK)  ( xt c-addr u -- )
   {: xt oa ou -- :}
-  oa ou EMIT-TMP PLACE
+  oa ou (EMIT-RESOLVE-OUT)          \ → EMIT-TMP; may consume FROMLIB
   xt (EMIT-APP-NAME!)
   EMIT-TMP COUNT (EMIT-MKDIR)
   EMIT-TMP COUNT  EMIT-NAMEBUF COUNT  S" .img"  EMIT-IMGBUF  (EMIT-JOIN)

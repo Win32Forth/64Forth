@@ -1,4 +1,5 @@
 \ emit-app-smoke.fth — EMIT-APP-TO packages a tiny GRAPHICS entry as .app
+\ Also checks FROMLIB? / LIBRARY-PATH and Library-based app-build.sh resolve.
 \ Lives under Library/Emitter/EmitterSmoke.
 \
 \   /Applications/64Forth.app/Contents/MacOS/64Forth --agent \
@@ -6,6 +7,24 @@
 
 ONLY FORTH DEFINITIONS DECIMAL
 FROMLIB FLOAD Emitter/emitter.fth
+
+\ --- FROMLIB visibility ---
+: (CK-FROMLIB)  ( -- )
+  FROMLIB?
+  IF  ." FAIL: FROMLIB? true before arm" CR ABORT  THEN
+  ." ok FROMLIB? clear" CR
+  FROMLIB
+  FROMLIB? 0= IF  ." FAIL: FROMLIB? false after FROMLIB" CR ABORT  THEN
+  ." ok FROMLIB? armed" CR
+  FROMLIB-OFF
+  FROMLIB? IF  ." FAIL: FROMLIB? still armed after FROMLIB-OFF" CR ABORT  THEN
+  ." ok FROMLIB-OFF" CR
+  LIBRARY-PATH DUP 0= IF
+    2DROP ." FAIL: LIBRARY-PATH empty" CR ABORT
+  THEN
+  ." ok LIBRARY-PATH " TYPE CR
+  ;
+(CK-FROMLIB)
 
 ALSO GRAPHICS
 : T-GFX  ( -- )

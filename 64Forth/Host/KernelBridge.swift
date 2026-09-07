@@ -104,6 +104,18 @@ private func kernel_set_fromlib(_ fn: (@convention(c) () -> Void)?)
 @_silgen_name("kernel_set_fromlib_clear")
 private func kernel_set_fromlib_clear(_ fn: (@convention(c) () -> Void)?)
 
+@_silgen_name("kernel_set_fromlib_query")
+private func kernel_set_fromlib_query(_ fn: (@convention(c) () -> Int64)?)
+
+@_silgen_name("kernel_set_library_path")
+private func kernel_set_library_path(
+    _ fn: (@convention(c) (
+        UnsafeMutablePointer<CChar>?,
+        Int,
+        UnsafeMutablePointer<Int>?
+    ) -> Int32)?
+)
+
 @_silgen_name("kernel_set_end_include")
 private func kernel_set_end_include(_ fn: (@convention(c) () -> Void)?)
 
@@ -360,6 +372,27 @@ private let kernelFromlibTrampoline: @convention(c) () -> Void = {
 
 private let kernelFromlibClearTrampoline: @convention(c) () -> Void = {
     FileHost.shared.clearFromLibrary()
+}
+
+private let kernelFromlibQueryTrampoline: @convention(c) () -> Int64 = {
+    FileHost.shared.fromLibraryArmed ? -1 : 0
+}
+
+private let kernelLibraryPathTrampoline: @convention(c) (
+    UnsafeMutablePointer<CChar>?,
+    Int,
+    UnsafeMutablePointer<Int>?
+) -> Int32 = { out, outMax, outLen in
+    guard let lib = FileHost.shared.libraryURL,
+          let out, outMax > 0 else {
+        outLen?.pointee = 0
+        return -1
+    }
+    let bytes = Array(lib.path.utf8)
+    let n = min(bytes.count, outMax)
+    for i in 0..<n { out[i] = CChar(bitPattern: bytes[i]) }
+    outLen?.pointee = n
+    return 0
 }
 
 private let kernelEndIncludeTrampoline: @convention(c) () -> Void = {
@@ -1669,6 +1702,8 @@ final class KernelBridge {
         kernel_set_file_op(kernelFileOpTrampoline)
         kernel_set_fromlib(kernelFromlibTrampoline)
         kernel_set_fromlib_clear(kernelFromlibClearTrampoline)
+        kernel_set_fromlib_query(kernelFromlibQueryTrampoline)
+        kernel_set_library_path(kernelLibraryPathTrampoline)
         kernel_set_end_include(kernelEndIncludeTrampoline)
         kernel_set_load_file(kernelLoadFileTrampoline)
         kernel_set_resolve_key(kernelResolveKeyTrampoline)

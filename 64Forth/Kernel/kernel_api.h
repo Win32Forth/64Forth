@@ -67,6 +67,14 @@ void kernel_set_fromlib(void (*fn)(void));
 /// Disarm FROMLIB (e.g. REQUIRE skipped because file already loaded).
 void kernel_set_fromlib_clear(void (*fn)(void));
 
+/// FROMLIB? — nonzero if Library resolve is currently armed.
+typedef long long (*kernel_fromlib_query_fn)(void);
+void kernel_set_fromlib_query(kernel_fromlib_query_fn fn);
+
+/// LIBRARY-PATH — absolute Library root into out; return 0 ok, -1 missing.
+typedef int (*kernel_library_path_fn)(char *out, size_t out_max, size_t *out_len);
+void kernel_set_library_path(kernel_library_path_fn fn);
+
 /// Called when a file INCLUDE/FLOAD SOURCE ends (SOURCE-ID was > 0) so the host
 /// can restore the previous load cwd (nested relative path resolution).
 void kernel_set_end_include(void (*fn)(void));

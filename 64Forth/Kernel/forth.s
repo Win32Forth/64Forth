@@ -430,6 +430,22 @@ _kernel_set_fromlib_clear:
     str  x0, [x1]
     ret
 
+// void kernel_set_fromlib_query(long long (*fn)(void)) — FROMLIB?
+.globl _kernel_set_fromlib_query
+_kernel_set_fromlib_query:
+    adrp x1, fromlib_query_hook@page
+    add  x1, x1, fromlib_query_hook@pageoff
+    str  x0, [x1]
+    ret
+
+// void kernel_set_library_path(int (*fn)(char*, size_t, size_t*)) — LIBRARY-PATH
+.globl _kernel_set_library_path
+_kernel_set_library_path:
+    adrp x1, library_path_hook@page
+    add  x1, x1, library_path_hook@pageoff
+    str  x0, [x1]
+    ret
+
 // void kernel_set_end_include(void (*fn)(void)) — file INCLUDE SOURCE finished
 .globl _kernel_set_end_include
 _kernel_set_end_include:
@@ -3457,6 +3473,76 @@ XFROMLIB:
     blr  x0
     RESTORE_VM
 1:
+    NEXT
+
+// FROMLIB? ( -- flag )  true if Library resolve is armed (host state)
+
+    BOOT_WORD "FROMLIB?", "FROMLIB? ( -- flag ) true if FROMLIB is armed", 0, XFROMLIB_Q, XFROMLIB_Q_END
+XFROMLIB_Q:
+    SAVE_VM
+    adrp x0, fromlib_query_hook@page
+    add  x0, x0, fromlib_query_hook@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 1f
+    blr  x0
+    b    2f
+1:
+    mov  x0, #0
+2:
+    RESTORE_VM
+    str  x20, [x22, #-8]!
+    mov  x20, x0
+XFROMLIB_Q_END:
+    NEXT
+
+// FROMLIB-OFF ( -- )  disarm without consuming a path resolve
+
+    BOOT_WORD "FROMLIB-OFF", "FROMLIB-OFF ( -- ) clear FROMLIB arm", 0, XFROMLIB_OFF, XFROMLIB_OFF_END
+XFROMLIB_OFF:
+    adrp x0, fromlib_clear_hook@page
+    add  x0, x0, fromlib_clear_hook@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 1f
+    SAVE_VM
+    blr  x0
+    RESTORE_VM
+1:
+XFROMLIB_OFF_END:
+    NEXT
+
+// LIBRARY-PATH ( -- c-addr u )  absolute Library root (user tree or bundle)
+
+    BOOT_WORD "LIBRARY-PATH", "LIBRARY-PATH ( -- c-addr u ) absolute Library directory", 0, XLIBRARY_PATH, XLIBRARY_PATH_END
+XLIBRARY_PATH:
+    SAVE_VM
+    adrp x0, library_path_buf@page
+    add  x0, x0, library_path_buf@pageoff
+    mov  x1, #512
+    adrp x2, library_path_len@page
+    add  x2, x2, library_path_len@pageoff
+    adrp x3, library_path_hook@page
+    add  x3, x3, library_path_hook@pageoff
+    ldr  x9, [x3]
+    cbz  x9, 1f
+    blr  x9                         // x0=ior; *library_path_len set
+    cbnz x0, 1f
+    b    2f
+1:
+    adrp x2, library_path_len@page
+    add  x2, x2, library_path_len@pageoff
+    str  xzr, [x2]
+2:
+    RESTORE_VM
+    adrp x0, library_path_buf@page
+    add  x0, x0, library_path_buf@pageoff
+    adrp x1, library_path_len@page
+    add  x1, x1, library_path_len@pageoff
+    ldr  x1, [x1]
+    str  x20, [x22, #-8]!
+    mov  x20, x0
+    str  x20, [x22, #-8]!
+    mov  x20, x1
+XLIBRARY_PATH_END:
     NEXT
 
 // CHDIR ( -- )  optional name: change cwd; bare → host folder picker (TZForth-style)
@@ -15001,6 +15087,8 @@ input_buffer:   .skip 1024
 .equ FILE_BUFFER_MAX, 262144       // 256 KiB
 file_buffer:    .skip FILE_BUFFER_MAX
 word_scratch:   .skip 512          // paths for INCLUDE / FLOAD (was 64)
+library_path_buf: .skip 512        // LIBRARY-PATH absolute root
+library_path_len: .quad 0
 undef_name_buf: .skip 256          // failed token snapshot for "undefined: name"
 undef_name_len: .quad 0
 tty_termios_save: .skip 80
@@ -15254,6 +15342,8 @@ time_date_hook: .quad 0            // void (*)(int64_t out[6]) — TIME&DATE
 file_op_hook:   .quad 0            // file_op multiplex
 fromlib_hook:   .quad 0            // void (*)(void) — FROMLIB arm
 fromlib_clear_hook: .quad 0        // void (*)(void) — FROMLIB disarm (REQUIRE skip)
+fromlib_query_hook: .quad 0        // long long (*)(void) — FROMLIB?
+library_path_hook: .quad 0         // int (*)(char*, size_t, size_t*) — LIBRARY-PATH
 end_include_hook: .quad 0          // void (*)(void) — file INCLUDE SOURCE ended (restore load cwd)
 load_file_hook: .quad 0            // int (*)(path, path_len, out_ptr*, out_len*); path_len 0 = bare
 resolve_key_hook: .quad 0          // resolve path → absolute key

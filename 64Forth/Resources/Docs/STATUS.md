@@ -43,6 +43,8 @@ Append new design sections as we go; mark items done when implemented.
 **Emitter version:** **0.5** (bundle `CFBundleShortVersionString` via `app-build.sh`; tetra stand-alone play verified)  
 **Doc:** [`APPKIT.md`](APPKIT.md)
 
+**FROMLIB visibility:** `FROMLIB?` / `FROMLIB-OFF` / `LIBRARY-PATH` — Forth can read/clear the host arm and get the Library root. `EMIT-APP` / `EMIT-APP-TO` honor armed `FROMLIB` for relative outdirs; `app-build.sh` is resolved via `LIBRARY-PATH`.
+
 **Frozen now:**
 - Stand-alone UI surface = existing **GRAPHICS** (**80×25** chars → **640×400** pixels); vocab stays **GRAPHICS**
 - Develop/run on interactive 64Forth, then emit; **first emit target:** `tetra/tetra.fth` (64TCOM tree)
