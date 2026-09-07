@@ -384,27 +384,17 @@ VARIABLE SA-BLOCK-N
   ." sa-files pool @ " pool U. CR ;
 
 \ After MOVE of SA-FLOAT: last 32 bytes are the literal pool.
-\ hook_ptr → zero (local path); state_ptr → RW TGT-DATA F-stack
-\ (depth + prec + 16 cells). Image code is RX at run — cannot keep stack in TEXT.
-: SA-FLOAT-STATE-CELL  ( -- addr )
-  TGT-DATA @ 0= IF  ." sa-float: no data seg" CR ABORT  THEN
-  TGT-DATA-DP @ 7 + -8 AND
-  DUP 144 ERASE                    \ depth + prec + 16*8
-  6 OVER 8 + !                     \ default PRECISION
-  DUP 144 + TGT-DATA-DP !
-  144 TGT-DATA-BYTES +! ;
-
+\ hook_ptr → in-block zero cell (forces local F-stack; 0 would ADRP host).
 : SA-FLOAT-PATCH-POOL  ( new u -- )
-  {: new u | pool z st -- :}
+  {: new u | pool z -- :}
   u 32 U< IF  ." sa-float: block too small" CR ABORT  THEN
   new u + 32 - TO pool
   pool 8 + TO z
   0 z !
-  z pool !                         \ hook_ptr → zero → local FP
-  SA-FLOAT-STATE-CELL TO st
-  st pool 16 + !                   \ state_ptr → RW data
+  z pool !
+  0 pool 16 + !
   0 pool 24 + !
-  ." sa-float pool @ " pool U. ." state @ " st U. CR ;
+  ." sa-float pool @ " pool U. CR ;
 
 : SA-BLOCK-SETUP  ( -- )
   SA-BLOCK-CLEAR
@@ -487,8 +477,6 @@ VARIABLE SA-BLOCK-N
   S" (APP-NAME)"  HOST-APP-XT 6 HOST-APP-SET
   S" (APP-TONE)"  HOST-APP-XT 7 HOST-APP-SET
   S" (APP-PUMP)"  HOST-APP-XT 8 HOST-APP-SET
-  \ MS@ bls _gettimeofday — without a slot, SA NOP'd the BL and timers froze
-  \ (tetra WAIT-DROP never exited except on SPACE/alldown).
   ['] MS@ 9 HOST-APP-SET ;
 
 \ --- re-encode from new pc to same tgt --------------------------------

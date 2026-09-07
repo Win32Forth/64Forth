@@ -1,11 +1,12 @@
 /* emit-host.inc — thin GRAPHICS host for Emitter stand-alone runner.
- * Implements host_app_* slots 0–8 (same ABI as AppOutputHost.swift).
- * Public domain.
+ * Implements host_app_* slots 0–8 (AppOutputHost ABI) and slot 9 (MS@ /
+ * gettimeofday). Public domain.
  */
 #import <Cocoa/Cocoa.h>
 #include <string.h>
 #include <unistd.h>
 #include <math.h>
+#include <sys/time.h>
 
 enum { EMIT_COLS_MAX = 256, EMIT_ROWS_MAX = 128, EMIT_KEYCAP = 64 };
 
@@ -293,8 +294,14 @@ static int64_t host_app_pump(int64_t a, int64_t b) {
   return 0;
 }
 
-/* Slot table — must match Emitter reloc.fth HOST-APP slots 0–8. */
-static emit_host_fn host_fn[9] = {
+/* Slot 9: C ABI match for MS@'s bl _gettimeofday (x0=timeval*, x1=tz*). */
+static int64_t host_ms_gettimeofday(int64_t tv, int64_t tz) {
+  return (int64_t)gettimeofday((struct timeval *)(uintptr_t)tv,
+                               (struct timezone *)(uintptr_t)tz);
+}
+
+/* Slot table — must match Emitter reloc.fth HOST-APP slots 0–9. */
+static emit_host_fn host_fn[10] = {
   host_app_open,
   host_app_close,
   host_app_blit,
@@ -303,5 +310,6 @@ static emit_host_fn host_fn[9] = {
   host_app_key,
   host_app_name,
   host_app_tone,
-  host_app_pump
+  host_app_pump,
+  host_ms_gettimeofday
 };

@@ -63,6 +63,7 @@ Append new design sections as we go; mark items done when implemented.
 - [x] `\EMITTER` policy — required on **shared** source lines that are Emitter-only; normal ITC slice stays under `\ANS`. Packaging lives in `Library/Emitter/` (incl. `EmitterSmoke/`)
 - [x] Phase 1 stand-alone data segment: `/EMIT-STANDALONE` copies DATA into RW `ALLOCATE` (`TGT-DATA-*`); default `/EMIT-HOSTDATA` identity map unchanged. Smoke: `Library/Emitter/EmitterSmoke/data-standalone-smoke.fth`; in-process `TGT-RUN` OK with copied data
 - [x] Phase 2a: relocatable `host_app_*` slots (`MAGIC|slot` veneers + `HOST-BIND` in-process; `Library/Emitter/EmitterSmoke/gfx-smoke.fth`)
+- [x] Phase 2a slot 9: `MS@` → `gettimeofday` (SA used to NOP that BL; tetra gravity / `10TH-ELAPSED` froze). Smoke: `EmitterSmoke/timer-sa-smoke.fth`
 - [x] Phase 2b.2: thin GRAPHICS runner `Library/Emitter/runner/emit-run` loads `64EMIT02`, binds host slots, runs ITC (headless `EMIT_HEADLESS=1`; ADR return gadget so C epilogue runs)
 - [x] Phase 2b.1: persist `64EMIT02` (`/EMIT-UNBOUND`, `SAVE-IMAGE`/`LOAD-IMAGE`, ITC rebase; `Library/Emitter/EmitterSmoke/persist-smoke.fth`)
 - [x] Phase 2b.3: `app-build.sh` + `Library/Emitter/EmitterSmoke/gfx-app-smoke.sh` → `Gfx.app` (headless MacOS binary OK)
