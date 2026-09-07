@@ -3645,12 +3645,12 @@ XDIR:
     RESTORE_VM
     NEXT
 
-// EDIT ( -- ) name|dialog  open in system text editor (TZForth-style)
+// TEXTEDIT ( -- ) name|dialog  open in system text editor TextEdit.app
 // Bare → open panel; named (or "quoted path") → resolve, open, chdir to folder.
 // FROMLIB EDIT resolves under Library without permanently changing session cwd.
 
-    BOOT_WORD "EDIT", "EDIT ( -- ) name|dialog open in system editor; updates cwd (FROMLIB ok)", 0, XEDIT
-XEDIT:
+    BOOT_WORD "TEXTEDIT", "TEXTEDIT ( -- ) name|dialog open in system editor; updates cwd (FROMLIB ok)", 0, XTEXTEDIT
+XTEXTEDIT:
     bl   _next_filespec            // x25=len (0 = bare); word_scratch if named
     SAVE_VM
     adrp x2, edit_hook@page

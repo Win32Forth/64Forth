@@ -213,6 +213,10 @@ DOC" IS ( xt 'name' -- ) set DEFER named (immediate)"
 DOC" ACTION-OF ( 'name' -- xt ) xt currently in deferred name (immediate)"
 : ACTION-OF STATE @ IF POSTPONE ['] POSTPONE DEFER@ ELSE ' DEFER@ THEN ; IMMEDIATE
 
+DOC" EDIT ( 'filename' -- ) edit 'filename'' (DEFER; SZ-EDITOR may IS)"
+DEFER EDIT
+' TEXTEDIT is EDIT
+
 DOC" SEE ( 'name' -- ) show help and decompile word (DEFER; Hyper may IS)"
 DEFER SEE
 : (SEE) ' DUP (SEE-HDR) DUP DOCOL? 0= IF (SEE-PRIM) EXIT THEN

@@ -48,9 +48,6 @@ FLOAD sz-edit.fth
 FORTH DEFINITIONS
 ONLY FORTH ALSO EDITOR
 
-: TextEdit  ( 'name' -- )   \ don't hide TextEdit
-    EDIT ;
-
 \ Parse a path and edit. No path → usage / open panel when host supports it.
 \   SZEDIT my.txt
 \   S" /path/to/file" SZ-EDIT-FILE
@@ -61,7 +58,7 @@ ONLY FORTH ALSO EDITOR
    SZ-EDIT-FILE
 ;
 
-\ EDIT stays the host/system editor (edit_hook / TextEdit). Use SZEDIT for in-app.
+' SZEDIT IS EDIT
 
 \ While SZ-EDITOR is loaded: DEBUG also toggles the editor's debug help strip
 \ (5th column right of find) when the facility editor is active.
