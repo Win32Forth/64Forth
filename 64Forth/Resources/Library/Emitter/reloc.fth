@@ -275,27 +275,76 @@ VARIABLE SA-HELP-N
     /BOOT-WORD +
   REPEAT DROP 0 0 ;
 
-\ (SA-PRINT) whole-block span from boot catalog (prefer over leaf EMM).
-: SA-PRINT-SPAN  ( -- code u | 0 0 )
-  {: | row code end -- :}
+\ --- SA-BLOCK registry ----------------------------------------------------
+\ Contiguous closed runtimes preferred over leaf FLAG_EMM embeds.
+\ Registered blocks skip SPAN-SA-PURE? (may contain gated ADRP + pool).
+\ Pool layout is owned by each block's patch xt (new u --); not assumed here.
+\
+\ Known / planned boot names:
+\   (SA-PRINT)  — numeric/string emit (registered below)
+\   (SA-FILES)  — File-Access / block I/O without file_op_hook (asm TBD)
+\   (SA-FLOAT)  — FP without float_op_hook (asm TBD)
+\   (SA-ARITH)  — optional later mega-block around udivmod (optional)
+
+8 CONSTANT #SA-BLOCK
+CREATE SA-BLOCK-HOST   #SA-BLOCK CELLS ALLOT
+CREATE SA-BLOCK-U      #SA-BLOCK CELLS ALLOT
+CREATE SA-BLOCK-PATCH  #SA-BLOCK CELLS ALLOT   \ xt ( new u -- ) or 0
+VARIABLE SA-BLOCK-N
+: SA-BLOCK-CLEAR  ( -- )  0 SA-BLOCK-N ! ;
+
+\ Boot catalog: name → ( code u | 0 0 ).
+: BOOT-SPAN-NAMED  ( c-addr u -- code u | 0 0 )
+  {: addr len | row code end -- :}
   BOOT-WORD-TABLE
   BEGIN  DUP @ WHILE
     DUP TO row
-    row @ ZCOUNT S" (SA-PRINT)" COMPARE 0= IF
+    row @ ZCOUNT addr len COMPARE 0= IF
       row BOOT-WORD-CODE TO code
       row BOOT-WORD-END TO end
+      end 0= IF  DROP 0 0 EXIT  THEN
       DROP  code  end code -  EXIT
     THEN
     /BOOT-WORD +
   REPEAT DROP 0 0 ;
 
-: SA-BLOCK-OF  ( va -- code u | 0 0 )
-  {: va | code u -- :}
-  SA-PRINT-SPAN TO u TO code
-  code IF
-    va code u IN-SPAN? IF  code u EXIT  THEN
+: SA-BLOCK-REGISTER  ( c-addr u patch-xt -- )
+  {: addr len patch | code u i -- :}
+  addr len BOOT-SPAN-NAMED TO u TO code
+  code 0= IF
+    ." sa-block missing " addr len TYPE CR ABORT
   THEN
+  SA-BLOCK-N @ #SA-BLOCK U< 0= IF
+    ." too many sa-blocks" CR ABORT
+  THEN
+  SA-BLOCK-N @ TO i
+  code  i CELLS SA-BLOCK-HOST  + !
+  u     i CELLS SA-BLOCK-U     + !
+  patch i CELLS SA-BLOCK-PATCH + !
+  1 SA-BLOCK-N +!
+  ." sa-block " addr len TYPE ."  " u U. ." bytes" CR ;
+
+: SA-BLOCK-OF  ( va -- code u | 0 0 )
+  {: va | i code u -- :}
+  0 TO i
+  BEGIN  i SA-BLOCK-N @ <  WHILE
+    i CELLS SA-BLOCK-HOST + @ TO code
+    i CELLS SA-BLOCK-U    + @ TO u
+    va code u IN-SPAN? IF  code u EXIT  THEN
+    i 1+ TO i
+  REPEAT
   0 0 ;
+
+: SA-BLOCK-PATCH-OF  ( host -- xt|0 )
+  {: host | i -- :}
+  0 TO i
+  BEGIN  i SA-BLOCK-N @ <  WHILE
+    i CELLS SA-BLOCK-HOST + @ host = IF
+      i CELLS SA-BLOCK-PATCH + @ EXIT
+    THEN
+    i 1+ TO i
+  REPEAT
+  0 ;
 
 \ After MOVE of SA-PRINT: last 32 bytes are the literal pool.
 \ base_ptr → image BASE PFA; hook ptrs → in-block zero cell (forces write(1)).
@@ -319,6 +368,14 @@ VARIABLE SA-HELP-N
   z pool 8 + !            \ emit_hook_ptr → zero cell
   z pool 16 + !           \ emit_buf_ptr  → zero cell
   ." sa-print pool @ " pool U. CR ;
+
+: SA-BLOCK-SETUP  ( -- )
+  SA-BLOCK-CLEAR
+  S" (SA-PRINT)" ['] SA-PRINT-PATCH-POOL SA-BLOCK-REGISTER
+  \ Future (when asm exists):
+  \ S" (SA-FILES)" ['] SA-FILES-PATCH-POOL SA-BLOCK-REGISTER
+  \ S" (SA-FLOAT)" ['] SA-FLOAT-PATCH-POOL SA-BLOCK-REGISTER
+  ;
 
 : SPAN-HAS-ADRP?  ( code u -- flag )
   {: code u | off -- :}
@@ -349,15 +406,16 @@ VARIABLE SA-HELP-N
   SPAN-HAS-EXT-BL? 0= ;
 
 : (SA-PATCH-BL-HELPER)  ( npc tgt -- )
-  {: npc tgt | code u new -- :}
-  \ Prefer contiguous SA-PRINT over leaf FLAG_EMM (leaves have ext BLs).
+  {: npc tgt | code u new patch -- :}
+  \ Prefer registered SA-* blocks over leaf FLAG_EMM (leaves often have ext BLs).
   tgt SA-BLOCK-OF TO u TO code
   code IF
     code SA-HELP-FIND ?DUP IF
       TO new
     ELSE
       code u SA-HELP-COPY TO new
-      new u SA-PRINT-PATCH-POOL
+      code SA-BLOCK-PATCH-OF TO patch
+      patch IF  new u patch EXECUTE  THEN
     THEN
     npc  new tgt code - +  ENC-BL-TO npc W!
     EXIT
@@ -460,6 +518,7 @@ VARIABLE SA-HELP-N
 : (TGT-RELOC)  {: | i -- :}
   HOST-RELOC-CLEAR
   SA-HELP-CLEAR
+  SA-BLOCK-SETUP
   HOST-APP-DISCOVER
   0 TO i
   BEGIN  i TGT-MAPN @ <  WHILE
