@@ -282,7 +282,7 @@ VARIABLE SA-HELP-N
 \
 \ Known / planned boot names:
 \   (SA-PRINT)  — numeric/string emit (registered below)
-\   (SA-FILES)  — File-Access / block I/O without file_op_hook (asm TBD)
+\   (SA-FILES)  — File-Access Darwin multiplex (registered below)
 \   (SA-FLOAT)  — FP without float_op_hook (asm TBD)
 \   (SA-ARITH)  — optional later mega-block around udivmod (optional)
 
@@ -369,11 +369,24 @@ VARIABLE SA-BLOCK-N
   z pool 16 + !           \ emit_buf_ptr  → zero cell
   ." sa-print pool @ " pool U. CR ;
 
+\ After MOVE of SA-FILES: last 32 bytes are the literal pool.
+\ hook_ptr → in-block zero cell (forces Darwin svc; 0 would ADRP host).
+: SA-FILES-PATCH-POOL  ( new u -- )
+  {: new u | pool z -- :}
+  u 32 U< IF  ." sa-files: block too small" CR ABORT  THEN
+  new u + 32 - TO pool
+  pool 8 + TO z           \ sa_files_zero_cell
+  0 z !
+  z pool !                \ hook_ptr → zero → Darwin multiplex
+  0 pool 16 + !
+  0 pool 24 + !
+  ." sa-files pool @ " pool U. CR ;
+
 : SA-BLOCK-SETUP  ( -- )
   SA-BLOCK-CLEAR
   S" (SA-PRINT)" ['] SA-PRINT-PATCH-POOL SA-BLOCK-REGISTER
+  S" (SA-FILES)" ['] SA-FILES-PATCH-POOL SA-BLOCK-REGISTER
   \ Future (when asm exists):
-  \ S" (SA-FILES)" ['] SA-FILES-PATCH-POOL SA-BLOCK-REGISTER
   \ S" (SA-FLOAT)" ['] SA-FLOAT-PATCH-POOL SA-BLOCK-REGISTER
   ;
 

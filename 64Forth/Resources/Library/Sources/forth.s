@@ -7178,49 +7178,9 @@ XBIN_END:
 2:
 .endm
 
-// Helper: call file_op_hook.
-// In:  x0=op x1=a x2=b x3=c x4=d x5=ptr
-// Out: x0=ior x6=o1 x7=o2 x8=o3
-// Call with SAVE_VM around; does not touch callee-saved x19-x24 if hook is careful.
-    BOOT_WORD "(FILE-OP-CALL)", "(FILE-OP-CALL) host file_op hook; x0=op x1-x5 args; ret x0=ior x6-x8 outs", FLAG_EMM, XFILE_OP_CALL, XFILE_OP_CALL_END
-XFILE_OP_CALL:
-_file_op_call:
-    stp x29, x30, [sp, #-16]!
-    mov x29, sp
-    adrp x9, file_op_hook@page
-    add  x9, x9, file_op_hook@pageoff
-    ldr  x9, [x9]
-    cbz  x9, 1f
-    // Frame (16-byte aligned):
-    //   [sp+0]  = 9th arg (o3*)
-    //   [sp+16] = o1 value
-    //   [sp+24] = o2 value
-    //   [sp+32] = o3 value
-    sub  sp, sp, #64
-    add  x6, sp, #16               // o1*
-    add  x7, sp, #24               // o2*
-    add  x8, sp, #32               // o3*
-    str  xzr, [x6]
-    str  xzr, [x7]
-    str  xzr, [x8]
-    str  x8, [sp]                  // 9th parameter
-    // x0..x7 already: op,a,b,c,d,ptr,o1*,o2*
-    blr  x9
-    ldr  x6, [sp, #16]
-    ldr  x7, [sp, #24]
-    ldr  x8, [sp, #32]
-    add  sp, sp, #64
-    ldp  x29, x30, [sp], #16
-    ret
-1:
-    mov  x0, #-1
-    mov  x6, #0
-    mov  x7, #0
-    mov  x8, #0
-    ldp  x29, x30, [sp], #16
-    ret
-XFILE_OP_CALL_END:
-    
+// (FILE-OP-CALL) / _file_op_call lives inside SA-FILES (pool-gated host or Darwin).
+// Wrappers below bl _file_op_call; reloc copies the whole SA-FILES span.
+
 // OPEN-FILE ( c-addr u fam -- fileid ior )
 
     BOOT_WORD "OPEN-FILE", "OPEN-FILE ( c-addr u fam -- fileid ior ) open existing file; fam is R/O W/O R/W etc.", 0, XOPEN_FILE, XOPEN_FILE_END
@@ -12552,6 +12512,566 @@ _compile_cell:
     bl   _print_string_svc
     b    _error_abandon
 XCOMPILE_CELL_END:
+
+// ============================================================================
+// SA-FILES — contiguous closed File-Access runtime for /EMIT-STANDALONE
+// Reloc copies [SA_FILES, SA_FILES_END) once; pool forces Darwin svc path.
+// Host: pool hook_ptr == 0 → ADRP file_op_hook (Swift FileAccess).
+// SA reloc: hook_ptr → sa_files_zero_cell → Darwin multiplex (raw fds).
+// ANS wrappers stay outside and bl _file_op_call (inside this span).
+// ============================================================================
+    BOOT_WORD "(SA-FILES)", "(SA-FILES) ( -- ) stand-alone File-Access runtime block", FLAG_EMM, SA_FILES, SA_FILES_END
+SA_FILES:
+
+// Darwin O_* / SEEK_* (sys/fcntl.h, sys/unistd.h) — not Linux values.
+.equ SA_O_RDONLY, 0x0000
+.equ SA_O_WRONLY, 0x0001
+.equ SA_O_RDWR,   0x0002
+.equ SA_O_CREAT,  0x0200
+.equ SA_O_TRUNC,  0x0400
+.equ SA_SEEK_SET, 0
+.equ SA_SEEK_CUR, 1
+.equ SA_SEEK_END, 2
+.equ SA_PATH_MAX, 1024
+
+// In:  x0=op x1=a x2=b x3=c x4=d x5=ptr
+// Out: x0=ior x6=o1 x7=o2 x8=o3
+// Callers SAVE_VM; do not clobber x19-x24.
+    BOOT_WORD "(FILE-OP-CALL)", "(FILE-OP-CALL) file_op multiplex; x0=op x1-x5 args; ret x0=ior x6-x8 outs", FLAG_EMM, XFILE_OP_CALL, XFILE_OP_CALL_END
+XFILE_OP_CALL:
+_file_op_call:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    // Pool gate: 0 → host ADRP; non-zero ptr → [ptr] (SA: zero cell → Darwin)
+    adr x9, sa_files_hook_ptr
+    ldr x9, [x9]
+    cbnz x9, 1f
+    adrp x9, file_op_hook@page
+    add  x9, x9, file_op_hook@pageoff
+1:
+    ldr x9, [x9]
+    cbz x9, _sa_file_darwin
+    // Host trampoline (same frame as pre-SA-FILES)
+    sub  sp, sp, #64
+    add  x6, sp, #16
+    add  x7, sp, #24
+    add  x8, sp, #32
+    str  xzr, [x6]
+    str  xzr, [x7]
+    str  xzr, [x8]
+    str  x8, [sp]
+    blr  x9
+    ldr  x6, [sp, #16]
+    ldr  x7, [sp, #24]
+    ldr  x8, [sp, #32]
+    add  sp, sp, #64
+    ldp  x29, x30, [sp], #16
+    ret
+
+_sa_file_darwin:
+    // Dispatch FOP 1..15. Args still in x0..x5.
+    cmp  x0, #1
+    b.eq _sa_fop_open
+    cmp  x0, #2
+    b.eq _sa_fop_create
+    cmp  x0, #3
+    b.eq _sa_fop_close
+    cmp  x0, #4
+    b.eq _sa_fop_read
+    cmp  x0, #5
+    b.eq _sa_fop_write
+    cmp  x0, #6
+    b.eq _sa_fop_rline
+    cmp  x0, #7
+    b.eq _sa_fop_wline
+    cmp  x0, #8
+    b.eq _sa_fop_pos
+    cmp  x0, #9
+    b.eq _sa_fop_size
+    cmp  x0, #10
+    b.eq _sa_fop_repos
+    cmp  x0, #11
+    b.eq _sa_fop_resize
+    cmp  x0, #12
+    b.eq _sa_fop_delete
+    cmp  x0, #13
+    b.eq _sa_fop_rename
+    cmp  x0, #14
+    b.eq _sa_fop_status
+    cmp  x0, #15
+    b.eq _sa_fop_flush
+_sa_fop_bad:
+    mov  x0, #-1
+    mov  x6, #0
+    mov  x7, #0
+    mov  x8, #0
+    ldp  x29, x30, [sp], #16
+    ret
+
+// fam (x3) → open flags in x10. BIN bit ignored.
+_sa_fam_flags:
+    and  x10, x3, #7
+    cmp  x10, #2
+    b.eq 1f
+    cmp  x10, #4
+    b.eq 2f
+    // R/O or default
+    mov  x10, #SA_O_RDONLY
+    ret
+1:  mov  x10, #SA_O_WRONLY
+    ret
+2:  mov  x10, #SA_O_RDWR
+    ret
+
+// Copy c-addr(x5) u(x2) to stack path buffer; return x0=zpath or 0 on overflow.
+// Allocates SA_PATH_MAX+16 on caller stack (must already have frame).
+// Clobbers x9,x11,x12.
+_sa_path_z:
+    cmp  x2, #SA_PATH_MAX
+    b.hs 1f
+    cbz  x5, 1f
+    // dest at sp (caller reserved)
+    mov  x9, sp
+    mov  x11, #0
+2:
+    cmp  x11, x2
+    b.hs 3f
+    ldrb w12, [x5, x11]
+    strb w12, [x9, x11]
+    add  x11, x11, #1
+    b    2b
+3:
+    strb wzr, [x9, x11]
+    mov  x0, x9
+    ret
+1:
+    mov  x0, #0
+    ret
+
+_sa_fop_open:
+    // x2=u x3=fam x5=caddr → fileid in x6
+    sub  sp, sp, #SA_PATH_MAX
+    sub  sp, sp, #16
+    bl   _sa_path_z
+    cbz  x0, _sa_path_fail_open
+    mov  x11, x0                   // path
+    bl   _sa_fam_flags             // x10 = flags
+    mov  x0, x11
+    mov  x1, x10
+    mov  x2, #0
+    mov  x16, #5                   // SYS_open
+    svc  #0x80
+    b.cs _sa_svc_fail_open
+    mov  x6, x0                    // fd
+    mov  x0, #0
+    mov  x7, #0
+    mov  x8, #0
+    add  sp, sp, #SA_PATH_MAX
+    add  sp, sp, #16
+    ldp  x29, x30, [sp], #16
+    ret
+_sa_path_fail_open:
+_sa_svc_fail_open:
+    mov  x0, #-1
+    mov  x6, #0
+    mov  x7, #0
+    mov  x8, #0
+    add  sp, sp, #SA_PATH_MAX
+    add  sp, sp, #16
+    ldp  x29, x30, [sp], #16
+    ret
+
+_sa_fop_create:
+    sub  sp, sp, #SA_PATH_MAX
+    sub  sp, sp, #16
+    bl   _sa_path_z
+    cbz  x0, _sa_path_fail_open
+    mov  x11, x0
+    bl   _sa_fam_flags
+    orr  x10, x10, #SA_O_CREAT
+    orr  x10, x10, #SA_O_TRUNC
+    mov  x0, x11
+    mov  x1, x10
+    mov  x2, #420                  // 0644 mode
+    mov  x16, #5
+    svc  #0x80
+    b.cs _sa_svc_fail_open
+    mov  x6, x0
+    mov  x0, #0
+    mov  x7, #0
+    mov  x8, #0
+    add  sp, sp, #SA_PATH_MAX
+    add  sp, sp, #16
+    ldp  x29, x30, [sp], #16
+    ret
+
+_sa_fop_close:
+    // x1=fd
+    mov  x0, x1
+    mov  x16, #6                   // SYS_close
+    svc  #0x80
+    b.cs 1f
+    mov  x0, #0
+    b    2f
+1:  mov  x0, #-1
+2:  mov  x6, #0
+    mov  x7, #0
+    mov  x8, #0
+    ldp  x29, x30, [sp], #16
+    ret
+
+_sa_fop_read:
+    // x1=fd x2=u1 x5=buf → x6=u2
+    mov  x0, x1
+    mov  x1, x5
+    // x2 already count
+    mov  x16, #3                   // SYS_read
+    svc  #0x80
+    b.cs 1f
+    mov  x6, x0
+    mov  x0, #0
+    b    2f
+1:  mov  x0, #-1
+    mov  x6, #0
+2:  mov  x7, #0
+    mov  x8, #0
+    ldp  x29, x30, [sp], #16
+    ret
+
+_sa_fop_write:
+    // x1=fd x2=u x5=buf
+    mov  x0, x1
+    mov  x1, x5
+    mov  x16, #4                   // SYS_write
+    svc  #0x80
+    b.cs 1f
+    // partial write still iorOK if any? ANS: success if wrote; treat short as ok
+    mov  x0, #0
+    b    2f
+1:  mov  x0, #-1
+2:  mov  x6, #0
+    mov  x7, #0
+    mov  x8, #0
+    ldp  x29, x30, [sp], #16
+    ret
+
+_sa_fop_rline:
+    // x1=fd x2=u1 x5=buf → x6=u2 x7=flag
+    // Stack: save fd, max, buf, count
+    stp  x1, x2, [sp, #-48]!
+    str  x5, [sp, #16]
+    str  xzr, [sp, #24]            // n
+    str  xzr, [sp, #32]            // sawNL
+1:  // while n < max
+    ldr  x9, [sp, #24]
+    ldr  x10, [sp, #8]             // max
+    cmp  x9, x10
+    b.hs 3f
+    // read 1 byte into scratch at sp+40
+    ldr  x0, [sp]                  // fd
+    add  x1, sp, #40
+    mov  x2, #1
+    mov  x16, #3
+    svc  #0x80
+    b.cs 4f
+    cmp  x0, #0
+    b.eq 3f                        // EOF
+    ldrb w11, [sp, #40]
+    cmp  w11, #10                  // LF
+    b.eq 2f
+    cmp  w11, #13                  // CR
+    b.eq 5f
+    // store char
+    ldr  x12, [sp, #16]
+    strb w11, [x12, x9]
+    add  x9, x9, #1
+    str  x9, [sp, #24]
+    b    1b
+2:  // saw NL
+    mov  x11, #1
+    str  x11, [sp, #32]
+    b    3f
+5:  // CR: optional LF
+    mov  x11, #1
+    str  x11, [sp, #32]
+    ldr  x0, [sp]
+    add  x1, sp, #40
+    mov  x2, #1
+    mov  x16, #3
+    svc  #0x80
+    // if got LF consume; if not LF and got a byte, would need ungetc — skip:
+    // only consume if LF; else lseek -1
+    b.cs 3f
+    cmp  x0, #0
+    b.eq 3f
+    ldrb w11, [sp, #40]
+    cmp  w11, #10
+    b.eq 3f
+    // not LF: rewind one
+    ldr  x0, [sp]
+    mov  x1, #-1
+    mov  x2, #SA_SEEK_CUR
+    mov  x16, #199                 // SYS_lseek
+    svc  #0x80
+3:
+    ldr  x6, [sp, #24]             // n
+    ldr  x9, [sp, #32]             // sawNL
+    // flag = (n>0 || sawNL) ? -1 : 0
+    orr  x10, x6, x9
+    cmp  x10, #0
+    csetm x7, ne
+    mov  x0, #0
+    mov  x8, #0
+    add  sp, sp, #48
+    ldp  x29, x30, [sp], #16
+    ret
+4:
+    mov  x0, #-1
+    mov  x6, #0
+    mov  x7, #0
+    mov  x8, #0
+    add  sp, sp, #48
+    ldp  x29, x30, [sp], #16
+    ret
+
+_sa_fop_wline:
+    // x1=fd x2=u x5=buf — write bytes then '\n'
+    stp  x1, x2, [sp, #-32]!
+    str  x5, [sp, #16]
+    mov  x0, x1
+    mov  x1, x5
+    // x2 = u
+    mov  x16, #4
+    svc  #0x80
+    b.cs 1f
+    ldr  x0, [sp]                  // fd
+    add  x1, sp, #24               // scratch for NL
+    mov  w9, #10
+    strb w9, [sp, #24]
+    mov  x2, #1
+    mov  x16, #4
+    svc  #0x80
+    b.cs 1f
+    mov  x0, #0
+    b    2f
+1:  mov  x0, #-1
+2:  mov  x6, #0
+    mov  x7, #0
+    mov  x8, #0
+    add  sp, sp, #32
+    ldp  x29, x30, [sp], #16
+    ret
+
+_sa_fop_pos:
+    // x1=fd → ud lo/hi (hi 0 for typical files)
+    mov  x0, x1
+    mov  x1, #0
+    mov  x2, #SA_SEEK_CUR
+    mov  x16, #199                 // SYS_lseek
+    svc  #0x80
+    b.cs 1f
+    mov  x6, x0
+    mov  x7, #0
+    mov  x0, #0
+    b    2f
+1:  mov  x0, #-1
+    mov  x6, #0
+    mov  x7, #0
+2:  mov  x8, #0
+    ldp  x29, x30, [sp], #16
+    ret
+
+_sa_fop_size:
+    // lseek END then restore CUR
+    stp  x1, xzr, [sp, #-16]!      // save fd
+    mov  x0, x1
+    mov  x1, #0
+    mov  x2, #SA_SEEK_CUR
+    mov  x16, #199
+    svc  #0x80
+    b.cs 1f
+    str  x0, [sp, #8]              // cur
+    ldr  x0, [sp]
+    mov  x1, #0
+    mov  x2, #SA_SEEK_END
+    mov  x16, #199
+    svc  #0x80
+    b.cs 1f
+    mov  x6, x0                    // size lo
+    mov  x7, #0
+    ldr  x0, [sp]
+    ldr  x1, [sp, #8]
+    mov  x2, #SA_SEEK_SET
+    mov  x16, #199
+    svc  #0x80
+    b.cs 1f
+    mov  x0, #0
+    b    2f
+1:  mov  x0, #-1
+    mov  x6, #0
+    mov  x7, #0
+2:  mov  x8, #0
+    add  sp, sp, #16
+    ldp  x29, x30, [sp], #16
+    ret
+
+_sa_fop_repos:
+    // x1=fd x2=lo x3=hi — ignore hi for v1 if 0
+    mov  x0, x1
+    mov  x1, x2
+    mov  x2, #SA_SEEK_SET
+    mov  x16, #199
+    svc  #0x80
+    b.cs 1f
+    mov  x0, #0
+    b    2f
+1:  mov  x0, #-1
+2:  mov  x6, #0
+    mov  x7, #0
+    mov  x8, #0
+    ldp  x29, x30, [sp], #16
+    ret
+
+_sa_fop_resize:
+    // x1=fd x2=lo x3=hi — ftruncate
+    mov  x0, x1
+    mov  x1, x2
+    mov  x16, #201                 // SYS_ftruncate
+    svc  #0x80
+    b.cs 1f
+    mov  x0, #0
+    b    2f
+1:  mov  x0, #-1
+2:  mov  x6, #0
+    mov  x7, #0
+    mov  x8, #0
+    ldp  x29, x30, [sp], #16
+    ret
+
+_sa_fop_delete:
+    // x2=u x5=caddr
+    sub  sp, sp, #SA_PATH_MAX
+    sub  sp, sp, #16
+    bl   _sa_path_z
+    cbz  x0, 1f
+    mov  x16, #10                  // SYS_unlink
+    svc  #0x80
+    b.cs 1f
+    mov  x0, #0
+    b    2f
+1:  mov  x0, #-1
+2:  mov  x6, #0
+    mov  x7, #0
+    mov  x8, #0
+    add  sp, sp, #SA_PATH_MAX
+    add  sp, sp, #16
+    ldp  x29, x30, [sp], #16
+    ret
+
+_sa_fop_rename:
+    // x2=u1 x3=caddr2 x4=u2 x5=caddr1
+    // Build path1 at sp, path2 at sp+SA_PATH_MAX
+    sub  sp, sp, #SA_PATH_MAX
+    sub  sp, sp, #SA_PATH_MAX
+    sub  sp, sp, #32               // save args
+    stp  x2, x3, [sp]
+    stp  x4, x5, [sp, #16]
+    // path1 from caddr1/u1
+    ldr  x5, [sp, #24]             // caddr1
+    ldr  x2, [sp]                  // u1
+    add  x9, sp, #32               // dest path1
+    // inline copy path1
+    cmp  x2, #SA_PATH_MAX
+    b.hs 9f
+    cbz  x5, 9f
+    mov  x11, #0
+3:  cmp  x11, x2
+    b.hs 4f
+    ldrb w12, [x5, x11]
+    strb w12, [x9, x11]
+    add  x11, x11, #1
+    b    3b
+4:  strb wzr, [x9, x11]
+    // path2 from caddr2/u2
+    ldr  x5, [sp, #8]              // caddr2
+    ldr  x2, [sp, #16]             // u2
+    add  x10, sp, #32
+    add  x10, x10, #SA_PATH_MAX    // dest path2
+    cmp  x2, #SA_PATH_MAX
+    b.hs 9f
+    cbz  x5, 9f
+    mov  x11, #0
+5:  cmp  x11, x2
+    b.hs 6f
+    ldrb w12, [x5, x11]
+    strb w12, [x10, x11]
+    add  x11, x11, #1
+    b    5b
+6:  strb wzr, [x10, x11]
+    add  x0, sp, #32               // path1
+    mov  x1, x10                   // path2
+    mov  x16, #128                 // SYS_rename
+    svc  #0x80
+    b.cs 9f
+    mov  x0, #0
+    b    10f
+9:  mov  x0, #-1
+10: mov  x6, #0
+    mov  x7, #0
+    mov  x8, #0
+    add  sp, sp, #32
+    add  sp, sp, #SA_PATH_MAX
+    add  sp, sp, #SA_PATH_MAX
+    ldp  x29, x30, [sp], #16
+    ret
+
+_sa_fop_status:
+    // x2=u x5=caddr → x6 = impl-defined (0), ior
+    sub  sp, sp, #SA_PATH_MAX
+    sub  sp, sp, #16
+    bl   _sa_path_z
+    cbz  x0, 1f
+    mov  x1, #0                    // F_OK
+    mov  x16, #33                  // SYS_access
+    svc  #0x80
+    b.cs 1f
+    mov  x6, #0
+    mov  x0, #0
+    b    2f
+1:  mov  x0, #-1
+    mov  x6, #0
+2:  mov  x7, #0
+    mov  x8, #0
+    add  sp, sp, #SA_PATH_MAX
+    add  sp, sp, #16
+    ldp  x29, x30, [sp], #16
+    ret
+
+_sa_fop_flush:
+    // x1=fd — fsync
+    mov  x0, x1
+    mov  x16, #95                  // SYS_fsync
+    svc  #0x80
+    b.cs 1f
+    mov  x0, #0
+    b    2f
+1:  mov  x0, #-1
+2:  mov  x6, #0
+    mov  x7, #0
+    mov  x8, #0
+    ldp  x29, x30, [sp], #16
+    ret
+
+XFILE_OP_CALL_END:
+
+    .align 3
+// Literal pool (32 bytes): must remain last data before SA_FILES_END.
+// Host: hook_ptr 0 → ADRP file_op_hook. SA reloc: hook_ptr → zero cell → Darwin.
+sa_files_hook_ptr:   .quad 0
+sa_files_zero_cell:  .quad 0
+sa_files_pool_pad0:  .quad 0
+sa_files_pool_pad1:  .quad 0
+SA_FILES_END:
 
 // ============================================================================
 // SA-PRINT — contiguous closed print runtime for /EMIT-STANDALONE
