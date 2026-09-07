@@ -40,6 +40,7 @@ Append new design sections as we go; mark items done when implemented.
 
 ## Emitter app kit (post-1.3.3 design) — GRAPHICS stand-alone base
 
+**Emitter version:** **0.5** (bundle `CFBundleShortVersionString` via `app-build.sh`; tetra stand-alone play verified)  
 **Doc:** [`APPKIT.md`](APPKIT.md)
 
 **Frozen now:**

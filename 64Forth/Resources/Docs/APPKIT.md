@@ -1,5 +1,6 @@
 # Emitter stand-alone app kit (GRAPHICS)
 
+**Emitter version:** **0.5** (stand-alone GRAPHICS emit; tetra verified).  
 **Status:** design freeze for the window/IO surface (2026-09-05).  
 **Menus** and **File-Access-in-kit** are deferred.  
 **First emit target:** `tetra/tetra.fth` (64TCOM tree) — already runs under interactive 64Forth **GRAPHICS**.
