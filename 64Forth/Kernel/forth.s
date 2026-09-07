@@ -2544,7 +2544,7 @@ XDOT:
     SAVE_VM
     bl _print_signed
     mov x0, #32
-    bl _putchar
+    bl _sa_putchar
     RESTORE_VM
 XDOT_END:
     NEXT
@@ -2555,7 +2555,7 @@ XUDOT:
     SAVE_VM
     bl _print_unsigned
     mov x0, #32
-    bl _putchar
+    bl _sa_putchar
     RESTORE_VM
 XUDOT_END:
     NEXT
@@ -11454,26 +11454,7 @@ _gc_eof:
     ret
 XGETCHAR_END:
 
-// _print_string_svc: x0 = null-terminated string (via _write_stdout / emit)
-    BOOT_WORD "(PRINT-STRING)", "(PRINT-STRING) ( -- ) print NUL-terminated string via write_stdout", FLAG_EMM, XPRINT_STRING, XPRINT_STRING_END
-XPRINT_STRING:
-_print_string_svc:
-    stp x29, x30, [sp, #-16]!
-    mov x29, sp
-    mov x1, x0
-    mov x2, #0
-_pss_len:
-    ldrb w3, [x1, x2]
-    cbz w3, _pss_print
-    add x2, x2, #1
-    b _pss_len
-_pss_print:
-    mov x0, x1
-    mov x1, x2
-    bl  _write_stdout
-    ldp x29, x30, [sp], #16
-    ret
-XPRINT_STRING_END:
+// _print_string_svc lives in SA-PRINT (below) — closed emit via _sa_write.
 
 // ============================================================================
 // Line editor (_read_line)
@@ -12572,44 +12553,87 @@ _compile_cell:
     b    _error_abandon
 XCOMPILE_CELL_END:
 
-// _print_signed: x0=value  (uses BASE; leading '-' if negative)
-    BOOT_WORD "(.)", "(.) ( u -- ) print signed helper", FLAG_EMM, XPDOT, XPDOT_END
-XPDOT:
-_print_signed:
-    stp x29, x30, [sp, #-16]!
-    mov x29, sp
-    sub sp, sp, #80             // 16-byte aligned; room for digits + sign + NUL
-    mov x1, sp
-    bl _i64_to_str
-    mov x0, sp
-    bl _print_string_svc
-    add sp, sp, #80
-    ldp x29, x30, [sp], #16
-    ret
-XPDOT_END:
-    
-// _print_unsigned: x0=value  (uses BASE; always unsigned)
-    BOOT_WORD "(U.)", "(U.) ( u -- ) print unsigned helper", FLAG_EMM, XPUDOT, XPUDOT_END
-XPUDOT:
-_print_unsigned:
-    stp x29, x30, [sp, #-16]!
-    mov x29, sp
-    sub sp, sp, #80
-    mov x1, sp
-    bl _u64_to_str
-    mov x0, sp
-    bl _print_string_svc
-    add sp, sp, #80
-    ldp x29, x30, [sp], #16
-    ret
-XPUDOT_END:
+// ============================================================================
+// SA-PRINT — contiguous closed print runtime for /EMIT-STANDALONE
+// Reloc copies [SA_PRINT, SA_PRINT_END) once; literal pool patched for BASE.
+// Host cold init fills pool; SA reloc sets base_ptr to image BASE PFA and
+// clears emit hook ptrs so leaves use write(1).
+// ============================================================================
+    BOOT_WORD "(SA-PRINT)", "(SA-PRINT) ( -- ) stand-alone print runtime block", FLAG_EMM, SA_PRINT, SA_PRINT_END
+SA_PRINT:
 
-// _load_base: -> x6 = BASE clamped to 2..36
+// _sa_putchar: x0 = char.
+// Pool emit_hook_ptr == 0 → host ADRP emit_hook (GUI-safe).
+// Pool → cell holding 0 (SA reloc) → write(1). No absolute TEXT relocs.
+_sa_putchar:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    adr x1, sa_print_emit_hook_ptr
+    ldr x1, [x1]
+    cbnz x1, 1f
+    adrp x1, emit_hook@page
+    add  x1, x1, emit_hook@pageoff
+1:
+    ldr x1, [x1]
+    cbz x1, 2f
+    blr x1
+    ldp x29, x30, [sp], #16
+    ret
+2:
+    sub sp, sp, #16
+    strb w0, [sp]
+    mov x0, #1
+    mov x1, sp
+    mov x2, #1
+    mov x16, #4
+    svc #0x80
+    add sp, sp, #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// _sa_write: x0=buf, x1=len. Same pool/ADRP rules as _sa_putchar.
+_sa_write:
+    stp x29, x30, [sp, #-32]!
+    stp x19, x20, [sp, #16]
+    mov x19, x0
+    mov x20, x1
+    adr x0, sa_print_emit_buf_ptr
+    ldr x0, [x0]
+    cbnz x0, 1f
+    adrp x0, emit_buf_hook@page
+    add  x0, x0, emit_buf_hook@pageoff
+1:
+    ldr x0, [x0]
+    cbz x0, 2f
+    cbz x20, 3f
+    mov x1, x20
+    mov x2, x0
+    mov x0, x19
+    blr x2
+    b 3f
+2:
+    cbz x20, 3f
+    mov x0, #1
+    mov x1, x19
+    mov x2, x20
+    mov x16, #4
+    svc #0x80
+3:
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #32
+    ret
+
+// _load_base: -> x6 = BASE clamped 2..36
+// Pool base_ptr == 0 → host ADRP base_var; else [base_ptr].
     BOOT_WORD "(LOAD-BASE)", "(LOAD-BASE) ( -- ) x6 = BASE clamped 2..36", FLAG_EMM, XLOAD_BASE, XLOAD_BASE_END
 XLOAD_BASE:
 _load_base:
+    adr x6, sa_print_base_ptr
+    ldr x6, [x6]
+    cbnz x6, 1f
     adrp x6, base_var@page
-    add x6, x6, base_var@pageoff
+    add  x6, x6, base_var@pageoff
+1:
     ldr x6, [x6]
     cmp x6, #2
     b.lo _lb_def
@@ -12621,16 +12645,16 @@ _lb_ok:
     ret
 XLOAD_BASE_END:
 
-// _digit_char: w8 = digit value 0..35 -> ASCII in w8
+// _digit_char: w8 = digit 0..35 -> ASCII in w8
     BOOT_WORD "(DIGIT-CHAR)", "(DIGIT-CHAR) ( -- ) digit 0..35 -> ASCII in w8", FLAG_EMM, XDIGIT_CHAR, XDIGIT_CHAR_END
 XDIGIT_CHAR:
 _digit_char:
     cmp w8, #9
     b.hi _dc_alpha
-    add w8, w8, #48             // '0'
+    add w8, w8, #48
     ret
 _dc_alpha:
-    add w8, w8, #55             // 'A' - 10
+    add w8, w8, #55
     ret
 XDIGIT_CHAR_END:
 
@@ -12641,16 +12665,16 @@ _i64_to_str:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
     stp x19, x20, [sp, #-16]!
-    mov x2, x1                  // write ptr
-    add x3, x1, #64             // temp digit area near end of 72-byte buf
-    mov x4, x0                  // value
-    mov x5, #0                  // digit count
-    bl _load_base               // x6 = base
+    mov x2, x1
+    add x3, x1, #64
+    mov x4, x0
+    mov x5, #0
+    bl _load_base
     mov x19, x6
     cmp x4, #0
     b.ge _i2s_pos
     mov w6, #45
-    strb w6, [x2], #1           // '-'
+    strb w6, [x2], #1
     neg x4, x4
 _i2s_pos:
     cbnz x4, _i2s_div
@@ -12662,7 +12686,7 @@ _i2s_pos:
     ret
 _i2s_div:
     udiv x7, x4, x19
-    msub x8, x7, x19, x4        // remainder
+    msub x8, x7, x19, x4
     bl _digit_char
     strb w8, [x3, #-1]!
     add x5, x5, #1
@@ -12721,6 +12745,70 @@ _u2s_done:
     ldp x29, x30, [sp], #16
     ret
 XU64_TO_STR_END:
+
+// _print_string_svc: x0 = NUL-terminated string via _sa_write
+    BOOT_WORD "(PRINT-STRING)", "(PRINT-STRING) ( -- ) print NUL-terminated string via sa-write", FLAG_EMM, XPRINT_STRING, XPRINT_STRING_END
+XPRINT_STRING:
+_print_string_svc:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    mov x1, x0
+    mov x2, #0
+_pss_len:
+    ldrb w3, [x1, x2]
+    cbz w3, _pss_print
+    add x2, x2, #1
+    b _pss_len
+_pss_print:
+    mov x0, x1
+    mov x1, x2
+    bl _sa_write
+    ldp x29, x30, [sp], #16
+    ret
+XPRINT_STRING_END:
+
+// _print_signed / (.)
+    BOOT_WORD "(.)", "(.) ( u -- ) print signed helper", FLAG_EMM, XPDOT, XPDOT_END
+XPDOT:
+_print_signed:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    sub sp, sp, #80
+    mov x1, sp
+    bl _i64_to_str
+    mov x0, sp
+    bl _print_string_svc
+    add sp, sp, #80
+    ldp x29, x30, [sp], #16
+    ret
+XPDOT_END:
+
+// _print_unsigned / (U.)
+    BOOT_WORD "(U.)", "(U.) ( u -- ) print unsigned helper", FLAG_EMM, XPUDOT, XPUDOT_END
+XPUDOT:
+_print_unsigned:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    sub sp, sp, #80
+    mov x1, sp
+    bl _u64_to_str
+    mov x0, sp
+    bl _print_string_svc
+    add sp, sp, #80
+    ldp x29, x30, [sp], #16
+    ret
+XPUDOT_END:
+
+    .align 3
+// Literal pool (32 bytes): must remain last data before SA_PRINT_END.
+// Host: all zeros → ADRP fallbacks in _sa_* / _load_base (no TEXT abs relocs).
+// SA reloc: base_ptr → image BASE PFA; hook ptrs → sa_print_zero_cell (write(1)).
+sa_print_base_ptr:       .quad 0
+sa_print_emit_hook_ptr:  .quad 0
+sa_print_emit_buf_ptr:   .quad 0
+sa_print_zero_cell:      .quad 0
+SA_PRINT_END:
+
 
 // _print_dots: print stack without destroying DSP/TOS.
 // Empty: DSP==base, TOS=0. Each DPUSH stores previous TOS; after n pushes

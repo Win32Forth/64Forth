@@ -72,7 +72,9 @@ S" (DODOES)"         FORTH>EMITTER
 
 \ FLAG_EMM CODE helpers: shared asm spans BL'd from other boot prims.
 \ Reloc embeds pure (no ADRP) ones under /EMIT-STANDALONE; host-tied → NOP.
+\ (SA-PRINT) is the contiguous print runtime block (prefer over leaf embeds).
 S" (UDIVMOD128)"          FORTH>EMITTER
+S" (SA-PRINT)"            FORTH>EMITTER
 S" (LOCAL-FRAME-EXIT)"    FORTH>EMITTER
 S" (FILE-OP-CALL)"        FORTH>EMITTER
 S" (LOCAL-COMPILE-RESET)" FORTH>EMITTER

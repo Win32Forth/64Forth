@@ -275,6 +275,51 @@ VARIABLE SA-HELP-N
     /BOOT-WORD +
   REPEAT DROP 0 0 ;
 
+\ (SA-PRINT) whole-block span from boot catalog (prefer over leaf EMM).
+: SA-PRINT-SPAN  ( -- code u | 0 0 )
+  {: | row code end -- :}
+  BOOT-WORD-TABLE
+  BEGIN  DUP @ WHILE
+    DUP TO row
+    row @ ZCOUNT S" (SA-PRINT)" COMPARE 0= IF
+      row BOOT-WORD-CODE TO code
+      row BOOT-WORD-END TO end
+      DROP  code  end code -  EXIT
+    THEN
+    /BOOT-WORD +
+  REPEAT DROP 0 0 ;
+
+: SA-BLOCK-OF  ( va -- code u | 0 0 )
+  {: va | code u -- :}
+  SA-PRINT-SPAN TO u TO code
+  code IF
+    va code u IN-SPAN? IF  code u EXIT  THEN
+  THEN
+  0 0 ;
+
+\ After MOVE of SA-PRINT: last 32 bytes are the literal pool.
+\ base_ptr → image BASE PFA; hook ptrs → in-block zero cell (forces write(1)).
+\ (Leaving hook ptrs 0 would select host ADRP fallback — wrong after MOVE.)
+: SA-PRINT-BASE-CELL  ( -- addr )
+  ['] BASE MAP-FIND ?DUP IF  16 + EXIT  THEN
+  \ BASE not reachable — private DECIMAL cell in the RW data segment.
+  TGT-DATA @ 0= IF  ." sa-print: no data seg for BASE" CR ABORT  THEN
+  TGT-DATA-DP @ 7 + -8 AND
+  DUP 10 SWAP !
+  DUP 8 + TGT-DATA-DP !
+  8 TGT-DATA-BYTES +! ;
+
+: SA-PRINT-PATCH-POOL  ( new u -- )
+  {: new u | pool z -- :}
+  u 32 U< IF  ." sa-print: block too small" CR ABORT  THEN
+  new u + 32 - TO pool
+  pool 24 + TO z          \ sa_print_zero_cell in the copy
+  0 z !
+  SA-PRINT-BASE-CELL pool !
+  z pool 8 + !            \ emit_hook_ptr → zero cell
+  z pool 16 + !           \ emit_buf_ptr  → zero cell
+  ." sa-print pool @ " pool U. CR ;
+
 : SPAN-HAS-ADRP?  ( code u -- flag )
   {: code u | off -- :}
   0 TO off
@@ -305,6 +350,18 @@ VARIABLE SA-HELP-N
 
 : (SA-PATCH-BL-HELPER)  ( npc tgt -- )
   {: npc tgt | code u new -- :}
+  \ Prefer contiguous SA-PRINT over leaf FLAG_EMM (leaves have ext BLs).
+  tgt SA-BLOCK-OF TO u TO code
+  code IF
+    code SA-HELP-FIND ?DUP IF
+      TO new
+    ELSE
+      code u SA-HELP-COPY TO new
+      new u SA-PRINT-PATCH-POOL
+    THEN
+    npc  new tgt code - +  ENC-BL-TO npc W!
+    EXIT
+  THEN
   tgt EMM-SPAN-OF TO u TO code
   code 0= IF  ARM-NOP npc W!  EXIT  THEN
   code u SPAN-SA-PURE? 0= IF  ARM-NOP npc W!  EXIT  THEN

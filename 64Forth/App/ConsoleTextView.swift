@@ -734,10 +734,8 @@ struct ConsoleTextView: NSViewRepresentable {
         // Initial cell metrics before first layout pass.
         DispatchQueue.main.async {
             scrollView.layoutSubtreeIfNeeded()
-            if let sv = scrollView as? ConsoleNSScrollView {
-                // layout() reports metrics; force one more pass after window attach
-                sv.layout()
-            }
+            // layout() reports metrics; force one more pass after window attach
+            scrollView.layout()
         }
         return scrollView
     }

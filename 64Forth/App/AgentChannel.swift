@@ -253,6 +253,7 @@ enum AgentChannel {
         return p
     }
 
+    @discardableResult
     private static func writeTranscriptIfNeeded(_ path: String?, _ text: String) -> Bool {
         guard let path, !path.isEmpty else { return true }
         do {
