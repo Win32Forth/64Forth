@@ -283,7 +283,7 @@ VARIABLE SA-HELP-N
 \ Known / planned boot names:
 \   (SA-PRINT)  — numeric/string emit (registered below)
 \   (SA-FILES)  — File-Access Darwin multiplex (registered below)
-\   (SA-FLOAT)  — FP without float_op_hook (asm TBD)
+\   (SA-FLOAT)  — FP in-block F-stack (registered below)
 \   (SA-ARITH)  — optional later mega-block around udivmod (optional)
 
 8 CONSTANT #SA-BLOCK
@@ -382,12 +382,34 @@ VARIABLE SA-BLOCK-N
   0 pool 24 + !
   ." sa-files pool @ " pool U. CR ;
 
+\ After MOVE of SA-FLOAT: last 32 bytes are the literal pool.
+\ hook_ptr → zero (local path); state_ptr → RW TGT-DATA F-stack
+\ (depth + prec + 16 cells). Image code is RX at run — cannot keep stack in TEXT.
+: SA-FLOAT-STATE-CELL  ( -- addr )
+  TGT-DATA @ 0= IF  ." sa-float: no data seg" CR ABORT  THEN
+  TGT-DATA-DP @ 7 + -8 AND
+  DUP 144 ERASE                    \ depth + prec + 16*8
+  6 OVER 8 + !                     \ default PRECISION
+  DUP 144 + TGT-DATA-DP !
+  144 TGT-DATA-BYTES +! ;
+
+: SA-FLOAT-PATCH-POOL  ( new u -- )
+  {: new u | pool z st -- :}
+  u 32 U< IF  ." sa-float: block too small" CR ABORT  THEN
+  new u + 32 - TO pool
+  pool 8 + TO z
+  0 z !
+  z pool !                         \ hook_ptr → zero → local FP
+  SA-FLOAT-STATE-CELL TO st
+  st pool 16 + !                   \ state_ptr → RW data
+  0 pool 24 + !
+  ." sa-float pool @ " pool U. ." state @ " st U. CR ;
+
 : SA-BLOCK-SETUP  ( -- )
   SA-BLOCK-CLEAR
   S" (SA-PRINT)" ['] SA-PRINT-PATCH-POOL SA-BLOCK-REGISTER
   S" (SA-FILES)" ['] SA-FILES-PATCH-POOL SA-BLOCK-REGISTER
-  \ Future (when asm exists):
-  \ S" (SA-FLOAT)" ['] SA-FLOAT-PATCH-POOL SA-BLOCK-REGISTER
+  S" (SA-FLOAT)" ['] SA-FLOAT-PATCH-POOL SA-BLOCK-REGISTER
   ;
 
 : SPAN-HAS-ADRP?  ( code u -- flag )
