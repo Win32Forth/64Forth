@@ -1,6 +1,6 @@
 # 64Forth development status
 
-**Current:** **1.3.6** (build **35**; prep for DMG + GitHub `v1.3.6`)  
+**Current:** **1.3.6** (build **35**; DMG + GitHub `v1.3.6`)  
 **Last updated:** 2026-09-07 (v1.3.6 notes: Emitter 0.7 — SA locals/BI, window I/O remap, PIMAIN)
 
 This file tracks design notes and progress for work after 1.0.7.  
@@ -28,7 +28,7 @@ Append new design sections as we go; mark items done when implemented.
 - SA DOVAR sanitize + `PI-FREE` / `PI-POOL-OK` so emit does not snapshot host malloc ptrs into `BI-*`
 - Verified: `PIMAIN.app` (10-digit π window) settles at KEY; tetra path unchanged in spirit
 
-**Release:** `64Forth/releases/64Forth-1.3.6-macOS.dmg` + GitHub `v1.3.6` (pending)
+**Release:** `64Forth/releases/64Forth-1.3.6-macOS.dmg` + GitHub `v1.3.6`
 
 ---
 

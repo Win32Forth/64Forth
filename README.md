@@ -69,7 +69,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ## Status (v1.3.6)
 
-- [x] **v1.3.6:** Emitter **0.7** — SA nested locals + BI host slots; window I/O remap; `PIMAIN.app` (10-digit π); prep for DMG + GitHub release
+- [x] **v1.3.6:** Emitter **0.7** — SA nested locals + BI host slots; window I/O remap; `PIMAIN.app` (10-digit π); DMG + GitHub release
 - [x] **v1.3.5:** Emitter **0.6** — stand-alone `.app` (`EMIT-APP` / `EMIT-WINDOW-APP`), `MS@` SA timer, FROMLIB outdir; tetra verified; DMG + GitHub release
 - [x] **v1.3.4:** Emitter Phase 1 (`EMIT-TETRA`, `/EMIT-STANDALONE`) + quiet AutoLoad (`WARNING`/DEFER late-binding); packaging landed in 1.3.5
 - [x] **v1.3.3:** **SYSVOC** / **EMITTER** cold vocabularies; cleaner FORTH; Hyper hooks → SYSVOC; kernel `-ROT`; `LOCAL-INIT`; `BOOT_WORD_COUNT` 321; ANSValidate + Hayes green; DMG + GitHub release
