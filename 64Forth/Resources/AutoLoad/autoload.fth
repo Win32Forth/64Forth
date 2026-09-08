@@ -15,6 +15,7 @@
 \ by default, we are loading the editor, the Emitter application builder and
 \ the hyper text system as part of what the user has available when they
 \ start using 64Forth
+
     FROMLIB REQUIRE EDITOR/SZ-EDITOR.fth
     \ Size follows the graphic window on each SZ-REDRAW (SZ-SYNC-SIZE).
     EDITOR 80 20 SET-EDIT-WINDOW FORTH

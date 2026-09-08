@@ -46,18 +46,6 @@ FALSE DIRECTIVE \TCOM
 FALSE DIRECTIVE \EMITTER      \ optional; Emitter usually slices ITC, not source
 [THEN]
 
-[UNDEFINED] TCOM-ANEW [IF]
-: TCOM-ANEW  ( "<spaces>name" -- )
-  >IN @
-  BL WORD FIND IF
-    DROP OVER >IN ! FORGET
-  ELSE
-    DROP
-  THEN
-  >IN !  CREATE
-  ;
-[THEN]
-
 [UNDEFINED] TCOM-ABORT [IF]
 : TCOM-ABORT  ( c-addr u -- )  TYPE CR ABORT ;
 [THEN]
@@ -209,8 +197,8 @@ VARIABLE ASM-EXEC-LEN
 [THEN]
 
 \ Marker must not be named ASMARM64 — that name is the VOCABULARY below.
-\ (TCOM-ANEW ASMARM64 then VOCABULARY ASMARM64 left a broken wid; ALSO failed.)
-TCOM-ANEW ASMARM64-MOD
+\ (ANEW ASMARM64 then VOCABULARY ASMARM64 left a broken wid; ALSO failed.)
+ANEW ASMARM64-MOD
 
 FORTH DEFINITIONS
 DECIMAL
@@ -1236,7 +1224,9 @@ ALSO ASMARM64
 
 \ Kernel ships an empty ASSEMBLER vocabulary. Make ASSEMBLER select ASMARM64
 \ so ASSEMBLER WORDS / ASSEMBLER DEFINITIONS see the toolkit.
+REDEF-WARNING @ REDEF-WARNING OFF
 : ASSEMBLER  ( -- )  ASMARM64 ;
+REDEF-WARNING !
 
 \ Host smoke / regression suite lives in Assembler/ASMARMTESTS.fth
 \   FROMLIB FLOAD Assembler/ASMARMTESTS.fth  →  ASM-TESTS

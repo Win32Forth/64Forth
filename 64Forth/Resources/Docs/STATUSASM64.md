@@ -32,7 +32,7 @@ Make **`64TCOMARM64/ASMARM64.fth`** a **practical AArch64 assembler toolkit** th
 ### P0 — Dual-load + overlay + 64Forth load path
 
 - [x] Emit backend abstraction (`HERE-T` / `C,-T` / `C!-T` / `C@-T` / `,-T` on both hosts)
-- [x] `\ANS` bootstrap (no full `TARGETARM64`): DIRECTIVE, `TCOM-ANEW`, DEFERs, host buffer, `U>=`
+- [x] `\ANS` bootstrap (no full `TARGETARM64`): DIRECTIVE, DEFERs, host buffer, `U>=`
 - [x] **Overlay:** `MARKER ASMARM64-OVERLAY`; `ASMARM64-DISCARD` (before marker) frees buffers + runs marker
 - [x] 64Forth `Library/Assembler/asmarm64.fth` load helper
 - [x] Smoke: host load → `ASM-HOST-SMOKE` → discard (agent verified 2026-08-23)
@@ -179,7 +179,7 @@ ASMARM64-DISCARD                       \ forget words + free buffers
 ### Bootstrap on `\ANS`
 
 - `DIRECTIVE` / `\ANS` / `\TCOM` if undefined
-- `TCOM-ANEW`, `TCOM-ABORT`, `DEFER SETASSEM` / `A;` / `END-CODE` if missing
+- `TCOM-ABORT`, `DEFER SETASSEM` / `A;` / `END-CODE` if missing
 - Overlay marker + host emit backend
 - Do **not** pull `64DIR`, OPT, LIB, SIM, MACHO
 

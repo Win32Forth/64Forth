@@ -138,23 +138,6 @@ DOC" ABORT quote ( x -- ) if x nonzero type message and THROW -2 (immediate)"
     -2 POSTPONE LITERAL POSTPONE THROW POSTPONE THEN
   ELSE 34 PARSE ROT IF TYPE CR -2 THROW THEN 2DROP THEN ; IMMEDIATE
 
-DOC" ANEW ( 'name' -- ) FORGET name if present, then CREATE reload marker"
-: ANEW
-  >IN @ >R BL WORD FIND IF
-    DROP R@ >IN ! S" Reloading module: " TYPE BL WORD COUNT TYPE CR
-    R@ >IN ! FORGET
-  ELSE
-    DROP R@ >IN ! S" Loading module: " TYPE BL WORD COUNT TYPE CR
-  THEN R> >IN ! CREATE ;
-
-: ANEWMODULE
-  >IN @ BL WORD FIND IF
-    DROP dup >IN ! S" Reloading module: " TYPE BL WORD COUNT TYPE CR
-    dup >IN ! FORGET
-  ELSE
-    DROP dup >IN ! S" Loading module: " TYPE BL WORD COUNT TYPE CR
-  THEN >IN ! CREATE ;
-
 DOC" ON ( addr -- ) store 1 at addr"
 : ON 1 SWAP ! ;
 DOC" OFF ( addr -- ) store 0 at addr"
@@ -248,6 +231,20 @@ DOC" MARKER ( 'name' -- ) restore point: HERE + all FORTH hash heads"
   DOES>
     DUP @ DP !
     CELL+ DICT-THREADS 0 DO DUP @ LATEST I CELLS + ! CELL+ LOOP DROP ;
+
+DOC" ANEW ( 'name' -- ) FORGET name if present, then CREATE reload marker"
+: ANEW
+  >IN @ >R
+  BL WORD DUP COUNT TYPE            \ display the module name
+  FIND                              \ is the module defined
+  IF EXECUTE                        \ if it is execute it to get rid of it
+    S"  :Reloading module " TYPE    \ then display reloading message
+  ELSE
+    DROP                            \ not defined, discard FIND address
+    S"  :Loading module " TYPE      \ dislay loading message
+  THEN CR                           \ add a new line
+  R> >IN !                          \ restore input pointer for MARKER
+  MARKER ;                          \ define the new marker
 
 \ --- 7. Double-Number ---
 DOC" 2CONSTANT ( x1 x2 'name' -- ) create double constant"

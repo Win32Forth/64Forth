@@ -16,12 +16,14 @@
 \
 \ Public domain.
 
-FORTH DEFINITIONS
+ONLY FORTH ALSO DEFINITIONS
 DECIMAL
 
-[UNDEFINED] ASM-CLEAR [IF]
-  S" Assembler/asmarm64.fth" FROMLIB INCLUDED
-[THEN]
+FROMLIB REQUIRE Assembler/asmarm64.fth
+
+\ [UNDEFINED] ASM-CLEAR [IF]
+\   S" Assembler/asmarm64.fth" FROMLIB INCLUDED
+\ [THEN]
 
 [UNDEFINED] LAST [IF]
   S" HOST-CODE: LAST required to patch CFA" TYPE CR
@@ -57,6 +59,8 @@ DOC" CODE ( -- ) define a kernel-style CODE word; assemble until END-CODE"
   BTI-C,                       \ Apple landing pad
   ;
 
+REDEF-WARNING @ REDEF-WARNING OFF
+
 DOC" END-CODE ( -- ) emit NEXT, make RX copy, set CFA, leave assembler"
 : END-CODE  ( -- )
   NEXT,
@@ -67,7 +71,8 @@ DOC" END-CODE ( -- ) emit NEXT, make RX copy, set CFA, leave assembler"
     FALSE TO ?ASM-ACTIVE
   THEN
   ;
-
+  
 : C;  ( -- )  END-CODE ; IMMEDIATE
 
+REDEF-WARNING !
 
