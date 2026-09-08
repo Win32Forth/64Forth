@@ -1,19 +1,32 @@
 \ app.fth — FORTH entry points: EMIT-APP / EMIT-WINDOW-APP (+ -TO)
 \ Requires save.fth (and thus target/reloc/run). Public domain.
 \
-\ After compiling a colon entry the normal way:
+\ Public words parse the entry name from the input stream so the .app
+\ basename matches the word (not LAST-INCLUDED — a nested REQUIRE like
+\ big-int.fth must not rename PIMAIN.app):
 \   FROMLIB FLOAD Emitter/emitter.fth
-\   ' MAIN EMIT-APP                 \ → ./MAIN.app  (cwd)
-\   FROMLIB ' MAIN EMIT-APP         \ → <LIBRARY-PATH>/MAIN.app
-\   ' MAIN S" /tmp" EMIT-APP-TO     \ → /tmp/MAIN.app
+\   EMIT-APP MAIN                      \ → ./MAIN.app
+\   FROMLIB EMIT-APP MAIN              \ → <LIBRARY-PATH>/MAIN.app
+\   S" /tmp" EMIT-APP-TO MAIN          \ → /tmp/MAIN.app
 \
-\ Window wrapper (APP-NAME + WINDOW … WINDOW-OFF), title = stem of
-\ LAST-INCLUDED (uppercased). Load Emitter first, then the app .fth:
+\ Window wrapper (APP-NAME + WINDOW … WINDOW-OFF). Basename = parsed
+\ word; window title = stem of LAST-INCLUDED when set, else the word:
 \   FROMLIB FLOAD Emitter/emitter.fth
 \   S" …/tetra/tetra.fth" INCLUDED
-\   ' GAME EMIT-WINDOW-APP          \ → ./TETRA.app  (not MAIN.app)
-\   ' GAME S" /tmp" EMIT-WINDOW-APP-TO
-\ Pass GAME (or any body that expects an open window), not MAIN.
+\   EMIT-WINDOW-APP GAME               \ → ./GAME.app, title TETRA
+\   S" /tmp" EMIT-WINDOW-APP-TO GAME
+\ Pass a body that expects an open window (e.g. GAME), not MAIN.
+\
+\ Stack-based (xt) variants — naming follows NAME>STRING of the xt
+\ (less reliable if you pass a :NONAME or alias):
+\   ' MAIN EMIT-APP-XT
+\   ' MAIN S" /tmp" EMIT-APP-XT-TO
+\   ' GAME EMIT-WINDOW-APP-XT
+\   ' GAME S" /tmp" EMIT-WINDOW-APP-XT-TO
+\
+\ Both wrap the entry in CATCH. Default EMIT-ON-THROW prints the code
+\ then KEY DROP; override with ' MY-HANDLER IS EMIT-ON-THROW before
+\ emitting. WINDOW-OFF still runs after the handler.
 \
 \ Forces /EMIT-STANDALONE + /EMIT-UNBOUND, TGT-BUILDs, SAVE-IMAGEs, then
 \ runs Library/Emitter/app-build.sh via SYSTEM (found via LIBRARY-PATH).
@@ -131,15 +144,16 @@ CREATE EMIT-TITLE      64 ALLOT         \ counted title for SLITERAL into wrappe
   REPEAT
   ;
 
-\ Title for wrapper: LAST-INCLUDED stem, else xt name (uppercased).
+\ Window title only (EMIT-TITLE). Does not touch EMIT-NAMEBUF (basename).
+\ Prefers LAST-INCLUDED stem; else xt name (uppercased).
 \ Consumes xt from the stack; caller keeps its own copy (e.g. local).
 : (EMIT-TITLE!)  ( xt -- )
+  {: xt | -- :}
   LAST-INCLUDED DUP IF
-    (EMIT-STEM-UPPER!)                 \ path → EMIT-NAMEBUF; xt remains
-    DROP
+    (EMIT-STEM-UPPER!)                 \ path → EMIT-NAMEBUF temp
   ELSE
     2DROP
-    NAME>STRING DUP 0= IF
+    xt NAME>STRING DUP 0= IF
       2DROP ." EMIT-WINDOW-APP: no LAST-INCLUDED and empty xt name" CR ABORT
     THEN
     (EMIT-STEM-UPPER!)
@@ -195,6 +209,7 @@ CREATE EMIT-TITLE      64 ALLOT         \ counted title for SLITERAL into wrappe
   EMIT-TMP COUNT (EMIT-MKDIR)
   EMIT-TMP COUNT  EMIT-NAMEBUF COUNT  S" .img"  EMIT-IMGBUF  (EMIT-JOIN)
   EMIT-TMP COUNT  EMIT-NAMEBUF COUNT  S" .app"  EMIT-APPBUF  (EMIT-JOIN)
+  /EMIT-CONSOLE                     \ terminal I/O (SA-PRINT → write(1))
   /EMIT-STANDALONE
   /EMIT-UNBOUND
   xt TGT-BUILD
@@ -205,6 +220,7 @@ CREATE EMIT-TITLE      64 ALLOT         \ counted title for SLITERAL into wrappe
   ."   open " EMIT-APPBUF COUNT TYPE CR ;
 
 \ Like (EMIT-SAVE+PACK) but EMIT-NAMEBUF already set (for :NONAME wrappers).
+\ Caller arms /EMIT-WINDOW or /EMIT-CONSOLE before this (see *-APP-XT-TO).
 : (EMIT-SAVE+PACK-NAMED)  ( xt c-addr u -- )
   {: xt oa ou -- :}
   oa ou (EMIT-RESOLVE-OUT)
@@ -223,44 +239,136 @@ CREATE EMIT-TITLE      64 ALLOT         \ counted title for SLITERAL into wrappe
   ."   image: " EMIT-IMGBUF COUNT TYPE CR
   ."   open " EMIT-APPBUF COUNT TYPE CR ;
 
-\ Build :NONAME  S" TITLE" APP-NAME WINDOW <xt> WINDOW-OFF ;
-\ GRAPHICS must be searchable when this word is *defined* (POSTPONE FIND).
-ALSO GRAPHICS
-
-: (EMIT-WIN-WRAP)  ( xt c-addr u -- wxt )
-  {: xt a u -- :}
-  :NONAME
-  a u POSTPONE SLITERAL
-  POSTPONE APP-NAME
-  POSTPONE WINDOW
-  xt COMPILE,
-  POSTPONE WINDOW-OFF
-  POSTPONE ;
-  ;
-
-PREVIOUS
-
-: (EMIT-WINDOW-PACK)  ( xt c-addr u -- )
-  {: xt oa ou -- :}
-  xt (EMIT-TITLE!)
-  xt  EMIT-TITLE COUNT  (EMIT-WIN-WRAP)  TO xt
-  xt oa ou (EMIT-SAVE+PACK-NAMED)
-  ;
-
 \ --- public FORTH API ---
 ONLY FORTH DEFINITIONS
 ALSO SYSVOC ALSO EMITTER
 
-: EMIT-APP-TO  ( xt c-addr u -- )
-  (EMIT-SAVE+PACK) ;
+\ Auto-CATCH handler (n -- ). Override before EMIT-APP / EMIT-WINDOW-APP:
+\   : MY-THROW  ( n -- )  ... ;  ' MY-THROW IS EMIT-ON-THROW
+\ Default prints the code then KEY DROP so the message stays visible before
+\ exit; WINDOW-OFF still runs after the handler in the window wrap.
 
-: EMIT-APP  ( xt -- )
+DEFER EMIT-ON-THROW
+
+\ :NONAME  <xt> CATCH ?DUP IF <handler> THEN ;
+\ Captures ACTION-OF EMIT-ON-THROW at wrap time.
+\ LITERAL must be POSTPONEd: bare LITERAL is IMMEDIATE and would run while
+\ compiling this word (stack underflow), not while compiling the :NONAME.
+: (EMIT-CATCH-WRAP)  ( xt -- wxt )
+  {: xt | h -- :}
+  ACTION-OF EMIT-ON-THROW TO h
+  :NONAME
+    xt POSTPONE LITERAL
+    POSTPONE CATCH
+    POSTPONE ?DUP
+    POSTPONE IF
+      h COMPILE,
+    POSTPONE THEN
+  POSTPONE ;
+  ;
+
+\ Non-window EMIT-APP: FORTH TYPE + KEY (terminal).
+: (EMIT-ON-THROW-DEFAULT)  ( n -- )
+  S" exception " TYPE
+  BASE @ >R  DECIMAL
+  DUP 0< IF  S" -" TYPE  ABS  THEN
+  S>D <# #S #> TYPE
+  R> BASE !
+  S\" \r\npress any key to exit " TYPE
+  KEY DROP
+  S\" \r\n" TYPE
+  ;
+
+\ Resolve GRAPHICS words by wid (not search order) so we never bind kernel KEY.
+: (EMIT-GFX-XT)  ( c-addr u -- xt )
+  2DUP GRAPHICS-WID SEARCH-WORDLIST
+  ?DUP 0= IF  ." EMIT: missing GRAPHICS " TYPE CR ABORT  THEN
+  DROP >R 2DROP R> ;
+
+S" KEY"        (EMIT-GFX-XT) CONSTANT (EMIT-GFX-KEY)
+S" WINDOW"     (EMIT-GFX-XT) CONSTANT (EMIT-GFX-WINDOW)
+S" WINDOW-OFF" (EMIT-GFX-XT) CONSTANT (EMIT-GFX-WINDOW-OFF)
+S" APP-NAME"   (EMIT-GFX-XT) CONSTANT (EMIT-GFX-APP-NAME)
+S" TYPE"       (EMIT-GFX-XT) CONSTANT (EMIT-GFX-TYPE)
+
+\ Error path only — success-path KEY belongs in the app source (e.g. PIMAIN),
+\ same as tetra: ONLY FORTH ALSO GRAPHICS … KEY … Host (APP-KEY) waits;
+\ see emit-host.inc.
+: (EMIT-ON-THROW-WIN)  ( n -- )
+  S" exception " (EMIT-GFX-TYPE) EXECUTE
+  BASE @ >R  DECIMAL
+  DUP 0< IF  S" -" (EMIT-GFX-TYPE) EXECUTE  ABS  THEN
+  S>D <# #S #> (EMIT-GFX-TYPE) EXECUTE
+  R> BASE !
+  S\" \r\npress any key to exit " (EMIT-GFX-TYPE) EXECUTE
+  (EMIT-GFX-KEY) EXECUTE DROP
+  S\" \r\n" (EMIT-GFX-TYPE) EXECUTE
+  ;
+
+\ :NONAME  title APP-NAME WINDOW
+\   <xt> CATCH ?DUP IF win-handler THEN
+\   WINDOW-OFF ;
+\ No automatic KEY here — the entry word decides (KEY DROP under GRAPHICS).
+: (EMIT-WIN-WRAP)  ( xt c-addr u -- wxt )
+  {: xt a u -- :}
+  :NONAME
+  a u POSTPONE SLITERAL
+  (EMIT-GFX-APP-NAME)   POSTPONE LITERAL POSTPONE EXECUTE
+  (EMIT-GFX-WINDOW)     POSTPONE LITERAL POSTPONE EXECUTE
+  xt POSTPONE LITERAL
+  POSTPONE CATCH
+  POSTPONE ?DUP
+  POSTPONE IF
+    ['] (EMIT-ON-THROW-WIN) COMPILE,
+  POSTPONE THEN
+  (EMIT-GFX-WINDOW-OFF) POSTPONE LITERAL POSTPONE EXECUTE
+  POSTPONE ;
+  ;
+
+' (EMIT-ON-THROW-DEFAULT) IS EMIT-ON-THROW
+
+\ Parse "<name>" from the input stream → xt (ABORT if undefined).
+: (EMIT-PARSE-XT)  ( -- xt )
+  BL WORD FIND DUP 0= IF
+    DROP COUNT ." EMIT-APP: undefined " TYPE CR ABORT
+  THEN
+  DROP ;
+
+\ --- stack-based (xt) ---
+
+: EMIT-APP-XT-TO  ( xt c-addr u -- )
+  {: xt a u -- :}
+  /EMIT-CONSOLE                       \ FORTH I/O stays console / SA-PRINT
+  xt (EMIT-APP-NAME!)                 \ basename from xt (not :NONAME wrap)
+  xt (EMIT-CATCH-WRAP) TO xt
+  xt a u (EMIT-SAVE+PACK-NAMED) ;
+
+: EMIT-APP-XT  ( xt -- )
+  S" ." EMIT-APP-XT-TO ;
+
+: EMIT-WINDOW-APP-XT-TO  ( xt c-addr u -- )
+  {: xt a u -- :}
+  /EMIT-WINDOW                        \ remap FORTH EMIT/TYPE/… → GRAPHICS
+  xt (EMIT-APP-NAME!)                 \ basename from entry xt
+  xt (EMIT-TITLE!)                    \ EMIT-TITLE from stem; clobbers NAMEBUF
+  xt (EMIT-APP-NAME!)                 \ restore basename
+  xt EMIT-TITLE COUNT (EMIT-WIN-WRAP) TO xt
+  xt a u (EMIT-SAVE+PACK-NAMED) ;
+
+: EMIT-WINDOW-APP-XT  ( xt -- )
+  S" ." EMIT-WINDOW-APP-XT-TO ;
+
+\ --- public: parse name from input; path on stack for *-TO ---
+
+: EMIT-APP-TO  ( c-addr u -- )        \ S" /tmp" EMIT-APP-TO MAIN
+  (EMIT-PARSE-XT) -ROT EMIT-APP-XT-TO ;
+
+: EMIT-APP  ( -- )                    \ EMIT-APP MAIN
   S" ." EMIT-APP-TO ;
 
-: EMIT-WINDOW-APP-TO  ( xt c-addr u -- )
-  (EMIT-WINDOW-PACK) ;
+: EMIT-WINDOW-APP-TO  ( c-addr u -- ) \ S" /tmp" EMIT-WINDOW-APP-TO PIMAIN
+  (EMIT-PARSE-XT) -ROT EMIT-WINDOW-APP-XT-TO ;
 
-: EMIT-WINDOW-APP  ( xt -- )
+: EMIT-WINDOW-APP  ( -- )             \ EMIT-WINDOW-APP PIMAIN
   S" ." EMIT-WINDOW-APP-TO ;
 
-CR .( EMIT-APP / EMIT-WINDOW-APP ready in FORTH. ) CR

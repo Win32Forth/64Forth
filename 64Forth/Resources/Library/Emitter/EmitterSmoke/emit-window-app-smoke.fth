@@ -1,13 +1,15 @@
-\ emit-window-app-smoke.fth — EMIT-WINDOW-APP wraps xt with APP-NAME/WINDOW.
-\ Title stem comes from LAST-INCLUDED — load the app .fth *after* Emitter.
-\   WinAppSmoke.fth → WINAPPSMOKE.app
+\ emit-window-app-smoke.fth — EMIT-WINDOW-APP-TO parses the entry name.
+\ Basename = word (W-GO → W-GO.app). Window title may still use
+\ LAST-INCLUDED stem when a file was included after Emitter.
 \
-\   64Forth --agent -f …/EmitterSmoke/emit-window-app-smoke.fth
+\ Canonical: Xcode Resources/Library/Emitter (Documents/64Forth/Library is a symlink).
+\ Prefer:  FROMLIB FLOAD Emitter/EmitterSmoke/emit-window-app-smoke.fth
+\ Agent:   …/64Forth --agent -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/emit-window-app-smoke.fth
 
 ONLY FORTH DEFINITIONS DECIMAL
 FROMLIB FLOAD Emitter/emitter.fth
 
-\ Seed LAST-INCLUDED after Emitter so the stem is the app file, not app.fth.
+\ Optional title stem (not the .app name).
 S" /tmp/WinAppSmoke.fth" W/O CREATE-FILE THROW
 DUP S" \ emit-window-app stem marker" ROT WRITE-FILE THROW
 CLOSE-FILE DROP
@@ -29,15 +31,15 @@ ALSO GRAPHICS
   ;
 ONLY FORTH ALSO SYSVOC ALSO EMITTER
 
-' W-GO S" /tmp" EMIT-WINDOW-APP-TO
+S" /tmp" EMIT-WINDOW-APP-TO W-GO
 
 : (SMOKE-CHECK)  ( -- )
-  S" /tmp/WINAPPSMOKE.app/Contents/Resources/app.img" FILE-STATUS NIP IF
-    ." FAIL: missing /tmp/WINAPPSMOKE.app (stem title?)" CR ABORT
+  S" /tmp/W-GO.app/Contents/Resources/app.img" FILE-STATUS NIP IF
+    ." FAIL: missing /tmp/W-GO.app (parsed name?)" CR ABORT
   THEN
-  ." ok WINAPPSMOKE.app bundle" CR
-  S\" EMIT_HEADLESS=1 /tmp/WINAPPSMOKE.app/Contents/MacOS/WINAPPSMOKE" SYSTEM IF
-    ." FAIL: headless WINAPPSMOKE exited non-zero" CR ABORT
+  ." ok W-GO.app bundle" CR
+  S\" EMIT_HEADLESS=1 /tmp/W-GO.app/Contents/MacOS/W-GO" SYSTEM IF
+    ." FAIL: headless W-GO exited non-zero" CR ABORT
   THEN
   ." ok headless run" CR
   ;

@@ -7,7 +7,9 @@
 \
 \ High-level stand-alone packaging lives in FORTH: EMIT-APP / EMIT-APP-TO
 \ (see app.fth). Load, compile your entry word normally, then:
-\   ' MAIN EMIT-APP
+\   EMIT-APP MAIN              \ parses name; → ./MAIN.app
+\   S" /tmp" EMIT-APP-TO MAIN
+\   ' MAIN EMIT-APP-XT         \ stack-xt variant
 \
 \   FROMLIB FLOAD Emitter/emitter.fth
 \   ALSO EMITTER          \ if a prior ONLY cleared it
@@ -25,4 +27,4 @@ FROMLIB FLOAD Emitter/save.fth
 FROMLIB FLOAD Emitter/app.fth
 
 \ app.fth leaves FORTH as CURRENT with EMITTER on the search order.
-CR .( emitter loaded — EMITTER slicer + FORTH EMIT-APP.) CR
+.( emitter loaded — EMITTER slicer + FORTH EMIT-APP.) CR

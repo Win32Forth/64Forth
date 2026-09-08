@@ -72,6 +72,16 @@ VARIABLE SCAN-LIM
 VARIABLE SCAN-MARK?   \ nonzero => (MARK) while walking
 VARIABLE SCAN-ADDR
 
+\ Lit payload may be a number or an xt (CATCH / [']).
+\ Only follow user-dict addresses — @ on small ints SIGSEGVs past CATCH.
+: LIT-PAYLOAD-MARK  ( x -- )
+  DUP 7 AND IF  DROP EXIT  THEN
+  DUP USER-DICT HERE WITHIN 0= IF  DROP EXIT  THEN
+  DUP COLON-WORD? IF  (MARK) EXIT  THEN
+  DUP DATA-WORD? IF  (MARK) EXIT  THEN
+  DROP ;
+
+
 : (COLON-WALK)  ( body -- )
   \ Updates SCAN-LIM. SCAN-MARK? selects whether to (MARK) xts.
   DUP SCAN-ADDR !
@@ -87,7 +97,9 @@ VARIABLE SCAN-ADDR
     ELSE
       SCAN-MARK? @ IF  DUP (MARK)  THEN
       DUP LIT-ADDR = IF
-        DROP  16 SCAN-ADDR +!  SCAN-ADDR @ SCAN-COVER
+        DROP
+        SCAN-MARK? @ IF  SCAN-ADDR @ 8 + @ LIT-PAYLOAD-MARK  THEN
+        16 SCAN-ADDR +!  SCAN-ADDR @ SCAN-COVER
       ELSE DUP BR-OP? IF
         DROP
         SCAN-ADDR @ 8 +                 \ offset cell

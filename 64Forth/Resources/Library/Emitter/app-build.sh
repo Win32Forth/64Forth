@@ -41,7 +41,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
   <key>CFBundleName</key><string>$BIN</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundleShortVersionString</key><string>0.6</string>
+  <key>CFBundleShortVersionString</key><string>0.7</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict>

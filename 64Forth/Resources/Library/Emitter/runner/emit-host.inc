@@ -1,8 +1,10 @@
 /* emit-host.inc — thin GRAPHICS host for Emitter stand-alone runner.
- * Implements host_app_* slots 0–8 (AppOutputHost ABI) and slot 9 (MS@ /
- * gettimeofday). Public domain.
+ * Implements host_app_* slots 0–8 (AppOutputHost ABI), slot 9 (MS@ /
+ * gettimeofday), slots 10–11 (malloc / free), slots 12–14 (BI-MUL /
+ * BI-DIVMOD / BI-ISQRT). Public domain.
  */
 #import <Cocoa/Cocoa.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <math.h>
@@ -11,6 +13,8 @@
 enum { EMIT_COLS_MAX = 256, EMIT_ROWS_MAX = 128, EMIT_KEYCAP = 64 };
 
 typedef int64_t (*emit_host_fn)(int64_t, int64_t);
+
+#include "emit-bi.inc"
 
 static int emit_opened = 0;
 static int emit_cols = 80, emit_rows = 25;
@@ -118,6 +122,21 @@ static int64_t emit_map_key(NSEvent *ev) {
   emit_key_push(0x1B);
   emit_window = nil;
   emit_view = nil;
+  /* ITC may have already returned; stop [NSApp run] so the process exits.
+   * stop: alone often sits until the next event — post a wake-up. */
+  if (NSApp) {
+    [NSApp stop:nil];
+    NSEvent *wake = [NSEvent otherEventWithType:NSEventTypeApplicationDefined
+                                       location:NSZeroPoint
+                                  modifierFlags:0
+                                      timestamp:0
+                                   windowNumber:0
+                                        context:nil
+                                        subtype:0
+                                          data1:0
+                                          data2:0];
+    [NSApp postEvent:wake atStart:YES];
+  }
   return YES;
 }
 @end
@@ -250,15 +269,23 @@ static int64_t host_app_keyq(int64_t a, int64_t b) {
   return -1;
 }
 
+/*
+ * Wait for a graphics-window key (interactive host_app_key semantics).
+ * GRAPHICS KEY also loops on −1:
+ *   BEGIN (APP-KEY) DUP 0< WHILE DROP (APP-PUMP) REPEAT
+ * Blocking here means even a single (APP-KEY) call waits; returning −1 on
+ * empty still works with that Forth loop. Headless: ESC once.
+ * Do not map !emit_opened → ESC (WINDOW-OFF clears the flag after KEY).
+ */
 static int64_t host_app_key(int64_t a, int64_t b) {
   (void)a; (void)b;
-  int64_t k = emit_key_pop();
-  if (k >= 0) return k;
+  if (emit_headless)
+    return 0x1B;
   for (;;) {
-    if (!emit_opened) return 0x1B;
     emit_pump_events(0.05);
-    k = emit_key_pop();
-    if (k >= 0) return k;
+    int64_t k = emit_key_pop();
+    if (k >= 0)
+      return k;
   }
 }
 
@@ -300,8 +327,45 @@ static int64_t host_ms_gettimeofday(int64_t tv, int64_t tz) {
                                (struct timezone *)(uintptr_t)tz);
 }
 
-/* Slot table — must match Emitter reloc.fth HOST-APP slots 0–9. */
-static emit_host_fn host_fn[10] = {
+/* Slot 10: ALLOCATE's bl _malloc (x0=size). Returns pointer or 0. */
+static int64_t host_malloc(int64_t sz, int64_t unused) {
+  (void)unused;
+  if (sz <= 0) return 0;
+  return (int64_t)(uintptr_t)malloc((size_t)sz);
+}
+
+/* Slot 11: FREE's bl _free (x0=ptr). */
+static int64_t host_free(int64_t ptr, int64_t unused) {
+  (void)unused;
+  free((void *)(uintptr_t)ptr);
+  return 0;
+}
+
+/* Slots 12–14: BI hooks. Forth leaves a,b,r / num,den,quot,rem / a,r in
+ * x0..x3 then BLR into the veneer. emit_host_fn is (x0,x1) only — capture
+ * x2/x3 before any C prologue can clobber them (-O2). */
+__attribute__((noinline, optnone))
+static int64_t host_bi_mul_slot(int64_t a, int64_t b) {
+  int64_t r;
+  __asm__ volatile("mov %0, x2" : "=r"(r));
+  emit_bi_mul(a, b, r);
+  return 0;
+}
+__attribute__((noinline, optnone))
+static int64_t host_bi_divmod_slot(int64_t num, int64_t den) {
+  int64_t quot, rem;
+  __asm__ volatile("mov %0, x2\n\tmov %1, x3" : "=r"(quot), "=r"(rem));
+  emit_bi_divmod(num, den, quot, rem);
+  return 0;
+}
+__attribute__((noinline, optnone))
+static int64_t host_bi_isqrt_slot(int64_t a, int64_t r) {
+  emit_bi_isqrt(a, r);
+  return 0;
+}
+
+/* Slot table — must match Emitter reloc.fth HOST-APP slots 0–14. */
+static emit_host_fn host_fn[15] = {
   host_app_open,
   host_app_close,
   host_app_blit,
@@ -311,5 +375,10 @@ static emit_host_fn host_fn[10] = {
   host_app_name,
   host_app_tone,
   host_app_pump,
-  host_ms_gettimeofday
+  host_ms_gettimeofday,
+  host_malloc,
+  host_free,
+  host_bi_mul_slot,
+  host_bi_divmod_slot,
+  host_bi_isqrt_slot
 };

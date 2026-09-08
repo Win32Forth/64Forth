@@ -2,8 +2,9 @@
 \ Regression for tetra WAIT-DROP (SPACE worked; gravity timer did not
 \ because SA NOP'd MS@'s bl _gettimeofday).
 \
-\   /Applications/64Forth.app/Contents/MacOS/64Forth --agent \
-\     -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/timer-sa-smoke.fth
+\ Canonical: Xcode Resources/Library/Emitter (Documents/64Forth/Library is a symlink).
+\ Prefer:  FROMLIB FLOAD Emitter/EmitterSmoke/timer-sa-smoke.fth
+\ Agent:   …/64Forth --agent -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/timer-sa-smoke.fth
 
 ONLY FORTH DEFINITIONS DECIMAL
 FROMLIB FLOAD Emitter/emitter.fth
@@ -17,7 +18,7 @@ ALSO GRAPHICS
   ;
 ONLY FORTH ALSO SYSVOC ALSO EMITTER
 
-' T-TIMER S" /tmp" EMIT-APP-TO
+S" /tmp" EMIT-APP-TO T-TIMER
 
 : (SMOKE-CHECK)  ( -- )
   S" /tmp/T-TIMER.app/Contents/Resources/app.img" FILE-STATUS NIP IF

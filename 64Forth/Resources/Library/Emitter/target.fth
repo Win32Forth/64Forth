@@ -124,11 +124,29 @@ FALSE VALUE ?EMIT-STANDALONE
 : /EMIT-STANDALONE  ( -- )  TRUE  TO ?EMIT-STANDALONE ;
 : /EMIT-HOSTDATA    ( -- )  FALSE TO ?EMIT-STANDALONE ;
 
+\ EMIT-WINDOW-APP: remap FORTH console I/O xts → GRAPHICS at MAP-CELL time
+\ so app sources (BI./PI./.) need not recompile under ALSO GRAPHICS.
+\ EMIT-APP leaves this false (console / SA-PRINT → write(1)).
+FALSE VALUE ?EMIT-WINDOW
+: /EMIT-WINDOW   ( -- )  TRUE  TO ?EMIT-WINDOW ;
+: /EMIT-CONSOLE  ( -- )  FALSE TO ?EMIT-WINDOW ;
+
 \ Phase 2b: leave MAGIC|slot .quads unbound so SAVE-IMAGE can persist them.
 \ Default false — TGT-BUILD still HOST-BINDs for interactive TGT-RUN.
 FALSE VALUE ?EMIT-UNBOUND
 : /EMIT-UNBOUND  ( -- )  TRUE  TO ?EMIT-UNBOUND ;
 : /EMIT-BOUND    ( -- )  FALSE TO ?EMIT-UNBOUND ;
+
+\ Installed by reloc.fth once GRAPHICS-WID exists (window I/O force-reach).
+DEFER TGT-MARK-WINDOW-IO
+: TGT-MARK-WINDOW-IO-NONE  ( -- )  ;
+' TGT-MARK-WINDOW-IO-NONE IS TGT-MARK-WINDOW-IO
+
+\ Installed by reloc.fth: FORTH EMIT/TYPE/… → GRAPHICS counterparts when
+\ ?EMIT-WINDOW. Identity otherwise.
+DEFER IO-REMAP  ( xt -- xt' )
+: IO-REMAP-NONE  ( xt -- xt )  ;
+' IO-REMAP-NONE IS IO-REMAP
 
 VARIABLE TGT-DATA-BYTES
 
@@ -317,6 +335,7 @@ VARIABLE DOES-N
   0 ;
 
 : MAP-CELL  ( old -- )
+  IO-REMAP
   DUP MAP-FIND ?DUP IF  NIP PTR,  ELSE
     ." unmapped " NAME>STRING TYPE CR ABORT
   THEN ;
@@ -367,8 +386,57 @@ VARIABLE DOES-N
 
 : LIT-PAYLOAD,  ( host-lit -- )
   \ LIT cells live in the code image (colon bodies).
+  \ xt literals (CATCH / ['] / EMIT wrap) must become mapped CFAs —
+  \ DATA-REBASE only covers DATA-WORD spans, not colon/prim xts.
+  \ Window builds: ['] EMIT etc. follow the same FORTH→GRAPHICS remap.
+  IO-REMAP
+  DUP MAP-FIND ?DUP IF
+    NIP
+    TGT-HERE 0 PTR-RELOC-ADD
+    TGT, EXIT
+  THEN
   DATA-REBASE IF  TGT-HERE 0 PTR-RELOC-ADD  THEN
   TGT, ;
+
+\ After MOVE of a DODOES import, retarget user-PFA cells that hold mapped
+\ xts (CONSTANT / VALUE / DEFER / IS targets). Without this, (EMIT-GFX-KEY)
+\ keeps a host GRAPHICS KEY CFA — EXECUTE in the throw handler SEGVs and the
+\ window only flashes (TETRA/GAME never hits that path on success).
+\ Cells that are not mapped xts (small integers, buffers) are left alone.
+: IMPORT-RELOC-XT-CELLS  ( new u -- )
+  {: new u | a end x n -- :}
+  new 16 + TO a
+  new u + TO end
+  BEGIN  a 8 + end U> 0= WHILE    \ while cell [a,a+8) fits in span
+    a @ IO-REMAP TO x
+    x MAP-FIND ?DUP IF
+      TO n
+      n a !
+      a 1 PTR-RELOC-ADD
+    THEN
+    a 8 + TO a
+  REPEAT ;
+
+\ DOVAR user PFA (new+16): drop host heap / foreign pointers so stand-alone
+\ does not FREE or dereference emit-session malloc addresses (BI-* after PI.).
+\ Keep small cells and pointers that rebase into sliced data.
+: SA-SANITIZE-DOVAR  ( new u -- )
+  {: new u | a end v -- :}
+  new 16 + TO a
+  new u + TO end
+  BEGIN  a 8 + end U> 0= WHILE
+    a @ TO v
+    v IF
+      v $10000 U< 0= IF          \ keep small integers
+        v MAP-FIND ?DUP IF  DROP  \ keep mapped xt
+        ELSE
+          v DATA-REBASE IF  a !   \ slide into sliced data
+          ELSE  0 a !  THEN       \ foreign (host heap, etc.) → 0
+        THEN
+      THEN
+    THEN
+    a 8 + TO a
+  REPEAT ;
 
 \ Copy CFA..DATA-END into the RW data segment; retarget CFA to sliced
 \ (DOVAR)/(DOCON)/(DODOES). DOES> does_ip is sliced into code (DOES-SLICE).
@@ -389,10 +457,12 @@ VARIABLE DOES-N
   8 + TO code
   code new !
   new 1 PTR-RELOC-ADD
+  xt DOVAR? IF  new u SA-SANITIZE-DOVAR  THEN
   xt DODOES? IF
     new 8 + @ DOES-SLICE
     new 8 + !
     new 8 + 1 PTR-RELOC-ADD
+    new u IMPORT-RELOC-XT-CELLS
   THEN ;
 
 : WRITE-BODY  ( xt -- )
@@ -504,12 +574,33 @@ VARIABLE DOES-N
   TGT-ORG @ TGT-SIZE 5 MPROTECT THROW
   TGT-ORG @ TGT-SIZE ICACHE-INVAL ;
 
+\ ABORT → THROW with no outer interpreter in SA. Apps must CATCH.
+\ Use 1 THROW (not ABORT) so a test harness can CATCH the refusal cleanly.
+: TGT-REQUIRE-CATCH  ( -- )
+  ['] ABORT MARKED? 0= IF  EXIT  THEN
+  ['] CATCH MARKED? IF  EXIT  THEN
+  ." emit: ABORT reachable but CATCH is not" CR
+  ."   wrap the entry with CATCH (handle errors; never QUIT)" CR
+  1 THROW ;
+
+\ CATCH returns via (CATCH-OK) in SYSVOC; mark it when CATCH is in the graph.
+: (CATCH-OK-XT)  ( -- xt )
+  S" (CATCH-OK)" ['] SYSVOC 2 CELLS + SEARCH-WORDLIST
+  0= IF  ." (CATCH-OK) missing from SYSVOC" CR 1 THROW  THEN ;
+
+: TGT-MARK-CATCH-OK  ( -- )
+  ['] CATCH MARKED? 0= IF  EXIT  THEN
+  (CATCH-OK-XT) (MARK) ;
+
 : TGT-BUILD  ( xt -- )
   TGT-CLOSE
   0 TGT-DATA-BYTES !
   PTR-RELOC-CLEAR
   DOES-CLEAR
   REACH-FROM
+  TGT-REQUIRE-CATCH
+  TGT-MARK-CATCH-OK
+  TGT-MARK-WINDOW-IO
   ['] (DOCOL) (MARK)
   ['] (NEXT)  (MARK)
   ['] EXIT    (MARK)
@@ -522,6 +613,7 @@ VARIABLE DOES-N
   ?EMIT-STANDALONE IF  65536 TGT-DATA-OPEN  THEN
   \ Use U. — GRAPHICS on the search order shadows FORTH .
   ." opened " TGT-ORG @ U.  TGT-LIMIT @ U.  ."  cap " TGT-SIZE U. CR
+  ?EMIT-WINDOW IF  ." window-io: FORTH EMIT/TYPE/CR/. /KEY → GRAPHICS" CR  THEN
   TGT-RESERVE
   ." reserved " TGT-SIZE U. CR
   TGT-WRITE

@@ -1,5 +1,8 @@
 \ hyper-sysvoc.fth — Hyper hooks moved to SYSVOC
 \ Public domain.
+\ Canonical: Xcode Resources/Library/Emitter (Documents/64Forth/Library is a symlink).
+\ Prefer:  FROMLIB FLOAD Emitter/EmitterSmoke/hyper-sysvoc.fth
+\ Agent:   …/64Forth --agent -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/hyper-sysvoc.fth
 
 CR ." --- hyper → SYSVOC ---" CR
 

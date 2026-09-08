@@ -1,10 +1,34 @@
 # 64Forth development status
 
-**Current:** **1.3.5** (build **34**; DMG + GitHub `v1.3.5`)  
-**Last updated:** 2026-09-06 (v1.3.5 notes: Emitter 0.6 stand-alone apps — tetra / FROMLIB / EMIT-WINDOW-APP)
+**Current:** **1.3.6** (build **35**; prep for DMG + GitHub `v1.3.6`)  
+**Last updated:** 2026-09-07 (v1.3.6 notes: Emitter 0.7 — SA locals/BI, window I/O remap, PIMAIN)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.3.6 — Emitter 0.7 SA locals / BI / window I/O
+
+**Version strings:** marketing **1.3.6**, build **35** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
+
+**Console header stamp** (`ConsoleView.swift` `banner` — refresh date/time just before DMG):
+
+```text
+=== 64Forth 1.3.6 === Sep 7, 2026 7:50 PM ===
+```
+
+**Highlights (vs 1.3.5):**
+
+*Emitter **0.7***
+- Stand-alone **`(LOCAL-FRAME-EXIT)`** as SA-BLOCK (EXIT no longer NOP’s nested `{: … :}` frame pops — fixes PI-POOL → PI-ALLOC1 garbage `ALLOCATE` / Dock bounce)
+- SA **locals BSS** sizing: `local_frame_depth` / `local_frames` / `rsp` / `n` via `SA-BSS-ENSURE-SZ` / `SA-LOCALS-DISCOVER`
+- SA **BigInteger host**: slots 12–14 (`BI-MUL` / `BI-DIVMOD` / `BI-ISQRT`) → `runner/emit-bi.inc`; `host_tmp0` 32 bytes; CBZ/BLR X9 → HOST-APP veneers
+- **`EMIT-WINDOW-APP` I/O remap**: FORTH `EMIT`/`TYPE`/`CR`/`SPACE`/`.`/`KEY`/`KEY?` → GRAPHICS at emit time (`IO-REMAP`)
+- SA DOVAR sanitize + `PI-FREE` / `PI-POOL-OK` so emit does not snapshot host malloc ptrs into `BI-*`
+- Verified: `PIMAIN.app` (10-digit π window) settles at KEY; tetra path unchanged in spirit
+
+**Release:** `64Forth/releases/64Forth-1.3.6-macOS.dmg` + GitHub `v1.3.6` (pending)
 
 ---
 
@@ -62,7 +86,7 @@ Append new design sections as we go; mark items done when implemented.
 
 ## Emitter app kit (post-1.3.3 design) — GRAPHICS stand-alone base
 
-**Emitter version:** **0.6** (bundle `CFBundleShortVersionString` via `app-build.sh`; tetra stand-alone play verified)  
+**Emitter version:** **0.7** (bundle `CFBundleShortVersionString` via `app-build.sh`; tetra + PIMAIN window apps)  
 **Doc:** [`APPKIT.md`](APPKIT.md)
 
 **FROMLIB visibility:** `FROMLIB?` / `FROMLIB-OFF` / `LIBRARY-PATH` / `LAST-INCLUDED` — Forth can read/clear the host arm, get the Library root, and the last INCLUDE/FLOAD path. `EMIT-APP` / `EMIT-APP-TO` honor armed `FROMLIB` for relative outdirs; `app-build.sh` is resolved via `LIBRARY-PATH`. **`EMIT-WINDOW-APP`** wraps an xt with `APP-NAME`/`WINDOW`/`WINDOW-OFF` and names the `.app` from the `LAST-INCLUDED` stem (e.g. `tetra.fth` → `TETRA.app`).
@@ -95,6 +119,7 @@ Append new design sections as we go; mark items done when implemented.
 - [x] `EMIT-APP` / `EMIT-APP-TO` — one-shot `.app` from a compiled xt (`Library/Emitter/app.fth`; smoke `EmitterSmoke/emit-app-smoke.fth`)
 - [x] `EMIT-WINDOW-APP` / `EMIT-WINDOW-APP-TO` — `APP-NAME`/`WINDOW` wrapper; basename from `LAST-INCLUDED` (`EmitterSmoke/emit-window-app-smoke.fth`)
 - [x] FROMLIB arm visible + honored by `EMIT-APP*` (`FROMLIB?` / `LIBRARY-PATH`)
+- [x] `CATCH`/`THROW` `CODE-BOUNDS`; SA-EXCEPT data cells; `EMIT-APP*` auto-`CATCH` + overridable `EMIT-ON-THROW` (message + `KEY DROP`)
 
 ---
 

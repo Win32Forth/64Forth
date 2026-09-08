@@ -2,7 +2,9 @@
 \ Lives under Library/Emitter/EmitterSmoke. Does not modify tetra.fth.
 \ Public domain.
 \
-\   …/64Forth --agent -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/data-standalone-smoke.fth
+\ Canonical: Xcode Resources/Library/Emitter (Documents/64Forth/Library is a symlink).
+\ Prefer:  FROMLIB FLOAD Emitter/EmitterSmoke/data-standalone-smoke.fth
+\ Agent:   …/64Forth --agent -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/data-standalone-smoke.fth
 
 ONLY FORTH DEFINITIONS DECIMAL
 FROMLIB FLOAD Emitter/emitter.fth

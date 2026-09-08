@@ -41,8 +41,7 @@ DECIMAL
 : MAIN  ( -- )
   ['] APP-RUN CATCH
   ?DUP IF
-    .( AutoLoad MAIN: exception ) CR
-    .ERROR CR
+    ." AutoLoad MAIN: exception " . CR
   THEN
   ;
 

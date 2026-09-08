@@ -260,7 +260,7 @@ int main(int argc, char **argv) {
     uint32_t off = rd_u32(rel + i * 8);
     uint32_t slot = rd_u32(rel + i * 8 + 4);
     if (off + 8 > code_len) die("reloc off");
-    if (slot >= 10 || !host_fn[slot]) die("reloc slot");
+    if (slot >= 15 || !host_fn[slot]) die("reloc slot");
     uint64_t fn = (uint64_t)(uintptr_t)host_fn[slot];
     memcpy(buf + off, &fn, 8);
   }

@@ -3,6 +3,9 @@
 \
 \   FROMLIB FLOAD Emitter/emitter.fth
 \   FROMLIB FLOAD Emitter/EmitterSmoke/sa-files-smoke.fth
+\ Canonical: Xcode Resources/Library/Emitter (Documents/64Forth/Library is a symlink).
+\ Prefer:  FROMLIB FLOAD Emitter/EmitterSmoke/sa-files-smoke.fth
+\ Agent:   …/64Forth --agent -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/sa-files-smoke.fth
 
 ONLY FORTH ALSO SYSVOC ALSO EMITTER DEFINITIONS DECIMAL
 

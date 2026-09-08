@@ -2,8 +2,9 @@
 \ Lives under Library/Emitter/EmitterSmoke (shipped with Emitter).
 \ Public domain.
 \
-\   /Applications/64Forth.app/Contents/MacOS/64Forth --agent \
-\     -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/persist-smoke.fth
+\ Canonical: Xcode Resources/Library/Emitter (Documents/64Forth/Library is a symlink).
+\ Prefer:  FROMLIB FLOAD Emitter/EmitterSmoke/persist-smoke.fth
+\ Agent:   …/64Forth --agent -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/persist-smoke.fth
 
 ONLY FORTH DEFINITIONS DECIMAL
 FROMLIB FLOAD Emitter/emitter.fth

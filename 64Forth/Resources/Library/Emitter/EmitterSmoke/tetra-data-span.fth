@@ -2,6 +2,9 @@
 \ Expect: dict-scan DATA-SPAN covers comma/ALLOT bodies; standalone fill-notes
 \ + FILL.CURR succeed without ABORT/THROW in the target.
 \ Public domain.
+\ Canonical: Xcode Resources/Library/Emitter (Documents/64Forth/Library is a symlink).
+\ Prefer:  FROMLIB FLOAD Emitter/EmitterSmoke/tetra-data-span.fth
+\ Agent:   …/64Forth --agent -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/tetra-data-span.fth
 
 ONLY FORTH DEFINITIONS DECIMAL
 FROMLIB FLOAD Emitter/emitter.fth

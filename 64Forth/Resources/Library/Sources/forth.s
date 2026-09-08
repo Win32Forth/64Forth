@@ -285,7 +285,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #15                    // "64Forth v1.3.5\n"
+    mov x2, #15                    // "64Forth v1.3.6\n"
     mov x16, #4
     svc #0x80
 
@@ -8874,8 +8874,9 @@ XLOAD_RUN:
 // CATCH ( i*x xt -- j*x 0 | i*x n )
 // R-stack frame (top first): saved_IP, saved_DSP, saved_TOS, prev_handler
 // handler points at saved_IP.
+// Emitter: apps that can ABORT must also reach CATCH (handle errors; no QUIT).
 
-    BOOT_WORD "CATCH", "CATCH ( xt -- n ) execute xt; push 0 or throw code", 0, XCATCH
+    BOOT_WORD "CATCH", "CATCH ( xt -- n ) execute xt; push 0 or throw code", 0, XCATCH, XCATCH_END
 XCATCH:
     DPOP x5                        // xt; prior TOS restored
     adrp x7, throw_handler@page
@@ -8922,10 +8923,11 @@ XCATCH:
 1:
     ldr x1, [x21]                  // code field (same as EXECUTE)
     br x1
+XCATCH_END:
 
 // Normal completion of CATCH'd xt
 
-    BOOT_WORD "(CATCH-OK)", "(CATCH-OK) ( -- 0 ) CATCH success path", 0, XCATCH_OK
+    BOOT_WORD "(CATCH-OK)", "(CATCH-OK) ( -- 0 ) CATCH success path", 0, XCATCH_OK, XCATCH_OK_END
 XCATCH_OK:
     adrp x7, throw_handler@page
     add x7, x7, throw_handler@pageoff
@@ -8940,17 +8942,21 @@ _cok_push0:
     str x20, [x22, #-8]!
     mov x20, #0
     NEXT
+XCATCH_OK_END:
 
-// THROW ( k -- )  0 THROW is a no-op drop; nonzero restores CATCH frame
+// THROW ( k -- )  0 THROW is a no-op drop; nonzero restores CATCH frame.
+// CODE-BOUNDS covers catch-restore + zero + SA fatal exit. Host soft-abandon
+// (print / clear / _error_abandon) lives past XTHROW_END — never QUIT.
+// Stand-alone: out-of-span BL to soft-abandon is NOP'd → fall into exit(1).
 
-    BOOT_WORD "THROW", "THROW ( n -- ) raise exception n (0 is no-op)", 0, XTHROW
+    BOOT_WORD "THROW", "THROW ( n -- ) raise exception n (0 is no-op)", 0, XTHROW, XTHROW_END
 XTHROW:
     cbz x20, _throw_zero
     mov x5, x20                    // k
     adrp x7, throw_handler@page
     add x7, x7, throw_handler@pageoff
     ldr x1, [x7]
-    cbz x1, _throw_abort
+    cbz x1, _throw_uncaught
     mov x23, x1
     ldr x19, [x23], #8             // IP
     ldr x22, [x23], #8             // DSP
@@ -8963,28 +8969,33 @@ XTHROW:
 _throw_zero:
     ldr x20, [x22], #8
     NEXT
-_throw_abort:
-    // Uncaught THROW (e.g. typing ?COMP at the console): print code, soft-abort
-    // the current line. Do NOT go through full _do_quit — under the embed host
-    // that can leave the evaluate path in a bad state. Clear stacks, abandon
-    // the rest of SOURCE, and return via the normal interpret-done path.
+_throw_uncaught:
+    // No CATCH frame. Never enter QUIT.
+    // Host: BL soft-abandon (outside this CODE-BOUNDS span).
+    // SA (/EMIT-STANDALONE): that BL is NOP'd → fall through to exit(1).
+    bl   _throw_soft_abandon
+    mov  x0, #1                    // EXIT_FAILURE
+    mov  x16, #1                   // SYS_exit
+    svc  #0x80
+XTHROW_END:
+
+_throw_soft_abandon:
+    // Interactive / embed only (outside THROW CODE-BOUNDS): print code,
+    // clear stacks, soft-abandon the current SOURCE line — not _do_quit.
     stp  x5, xzr, [sp, #-16]!      // save throw code
     adrp x0, str_uncaught_throw@page
     add  x0, x0, str_uncaught_throw@pageoff
     bl   _print_string_svc
     ldr  x0, [sp], #16
-    // print absolute value if negative (common ANS codes are negative)
     cmp  x0, #0
     cneg x0, x0, lt
     bl   _print_unsigned
     mov  x0, #10
     bl   _putchar
-    // clear data stack
     adrp x22, data_stack@page
     add  x22, x22, data_stack@pageoff
     add  x22, x22, #4096
     mov  x20, #0
-    // clear return stack + CATCH nesting (leave no DOCOL frames)
     adrp x23, return_stack@page
     add  x23, x23, return_stack@pageoff
     add  x23, x23, #2048
@@ -15303,7 +15314,7 @@ env_n_file:     .asciz "FILE"
 env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
-str_hello:  .asciz "64Forth v1.3.5\n"
+str_hello:  .asciz "64Forth v1.3.6\n"
 str_dbg_keys: .asciz " [F6=over F7=into F8=out Esc/q=abort Cmd-Shift-Y=go]\n"
 str_dbg_abort: .asciz "DEBUG aborted\n"
 str_prompt: .asciz "\nok> "

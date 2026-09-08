@@ -2,8 +2,9 @@
 \ Also checks FROMLIB? / LIBRARY-PATH and Library-based app-build.sh resolve.
 \ Lives under Library/Emitter/EmitterSmoke.
 \
-\   /Applications/64Forth.app/Contents/MacOS/64Forth --agent \
-\     -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/emit-app-smoke.fth
+\ Canonical: Xcode Resources/Library/Emitter (Documents/64Forth/Library is a symlink).
+\ Prefer:  FROMLIB FLOAD Emitter/EmitterSmoke/emit-app-smoke.fth
+\ Agent:   …/64Forth --agent -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/emit-app-smoke.fth
 
 ONLY FORTH DEFINITIONS DECIMAL
 FROMLIB FLOAD Emitter/emitter.fth
@@ -36,7 +37,7 @@ ALSO GRAPHICS
   ;
 ONLY FORTH ALSO SYSVOC ALSO EMITTER
 
-' T-GFX S" /tmp" EMIT-APP-TO
+S" /tmp" EMIT-APP-TO T-GFX
 
 \ Checks must be colon words — interpret-time IF is not reliable here.
 : (SMOKE-CHECK)  ( -- )

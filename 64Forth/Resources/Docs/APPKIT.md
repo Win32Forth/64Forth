@@ -1,9 +1,9 @@
 # Emitter stand-alone app kit (GRAPHICS)
 
-**Emitter version:** **0.6** (stand-alone GRAPHICS emit; tetra verified as `.app`).  
-**Status:** design freeze for the window/IO surface (2026-09-05); packaging path live as of 2026-09-06.  
+**Emitter version:** **0.7** (stand-alone GRAPHICS emit; tetra + PIMAIN verified as `.app`).  
+**Status:** design freeze for the window/IO surface (2026-09-05); packaging path live as of 2026-09-06; SA locals/BI + window I/O remap in **0.7** (2026-09-07).  
 **Menus** and **File-Access-in-kit** are deferred.  
-**First emit target:** `tetra/tetra.fth` (64TCOM tree) — interactive GRAPHICS + stand-alone `EMIT-WINDOW-APP` → `TETRA.app`.
+**First emit target:** `tetra/tetra.fth` (64TCOM tree) — interactive GRAPHICS + stand-alone `EMIT-WINDOW-APP` → `TETRA.app`. Also `PI/pi-chudnovsky.fth` → `PIMAIN.app`.
 
 This document names the runtime base that Emitter-built stand-alone apps will sit on. It is **not** a second GUI toolkit: it is the existing **GRAPHICS** vocabulary plus host `(APP-*)` hooks, with room for a later **MENUS** vocabulary.
 
@@ -136,4 +136,5 @@ Emitter milestone: emit **tetra** as a stand-alone macOS app that still uses the
    - **Done (Forth entry):** `EMIT-APP ( xt -- )` / `EMIT-APP-TO ( xt c-addr u -- )` in **FORTH** (`Library/Emitter/app.fth`) — `/EMIT-STANDALONE` + `/EMIT-UNBOUND` + `TGT-BUILD` + `SAVE-IMAGE` + `SYSTEM` `app-build.sh` (found via `LIBRARY-PATH`). App basename = word name. `' MAIN EMIT-APP` → `./MAIN.app`; **`FROMLIB ' MAIN EMIT-APP`** → `<LIBRARY-PATH>/MAIN.app`. Relative `EMIT-APP-TO` outdirs honor armed `FROMLIB`. Smoke: `Library/Emitter/EmitterSmoke/emit-app-smoke.fth`.
    - **Done:** `EMIT-WINDOW-APP` / `EMIT-WINDOW-APP-TO` — build a `:NONAME` headless main `S" STEM" APP-NAME WINDOW <xt> WINDOW-OFF ;` then pack. **STEM** = uppercase basename of `LAST-INCLUDED` (load the app `.fth` *after* Emitter). Example: include `tetra.fth`, then `' GAME EMIT-WINDOW-APP` → `TETRA.app`. Smoke: `EmitterSmoke/emit-window-app-smoke.fth`.
    - **Done:** `FROMLIB?` / `FROMLIB-OFF` / `LIBRARY-PATH` / `LAST-INCLUDED` — Forth-visible FROMLIB arm, Library root, and last INCLUDE/FLOAD path.
+   - **Done:** `CATCH` / `(CATCH-OK)` / `THROW` have `CODE-BOUNDS`. **SA-EXCEPT** retargets their BSS ADRPs into RW `TGT-DATA` cells. **`EMIT-APP` / `EMIT-WINDOW-APP` auto-wrap with `CATCH`**; default `EMIT-ON-THROW` prints the code then **`KEY DROP`** so the user can read it before shutdown (override with `' MY-HANDLER IS EMIT-ON-THROW`). Raw `TGT-BUILD` still refuses `ABORT` without `CATCH`. Uncaught `THROW` never enters `QUIT`.
 4. Later: **MENUS** vocab; document File-Access as part of the kit fence when stand-alone apps need declared file imports.

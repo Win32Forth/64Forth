@@ -1,23 +1,20 @@
 \ Emitter/test.fth — build+run ladder (empty, TYPE, IF/ELSE, VALUE, CREATE, DO).
-\ Canonical copy lives under Resources/Library/Emitter; sync into
-\ Documents/64Forth/Library/Emitter after edits (RESTORE-SHIPPED stomps Library).
+\ Canonical tree: XCodeProjects/64Forth/64Forth/Resources/Library/Emitter
+\ Documents/64Forth/Library is a symlink to that tree — edit either path.
 \ Public domain.
 \
+\ Interactive (preferred):
 \   FROMLIB FLOAD Emitter/test.fth
-\ Or via agent (outside Library):
-\   /Applications/64Forth.app/Contents/MacOS/64Forth --agent \
-\     -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/agent-smoke.fth
-\ GRAPHICS mini (WINDOW / AT / EMIT path):
-\   …/64Forth --agent -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/gfx-smoke.fth
-\ Tetra subset + MAIN build:
-\   …/64Forth --agent -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/tetra-smoke.fth
-\ Interactive MAIN/GAME (GUI console, not --agent):
-\   …/Library/Emitter/EmitterSmoke/tetra-gui-smoke.fth  then  EMIT-TETRA  (ESC quits)
-\ Stand-alone data segment (Phase 1):
-\   …/64Forth --agent -f …/Library/Emitter/EmitterSmoke/data-standalone-smoke.fth
-\ One-shot .app from a compiled word (FORTH):
-\   FROMLIB FLOAD Emitter/emitter.fth   then   ' MAIN EMIT-APP
-\   …/64Forth --agent -f …/Library/Emitter/EmitterSmoke/emit-app-smoke.fth
+\ Smokes (same tree via FROMLIB or the Documents symlink):
+\   FROMLIB FLOAD Emitter/EmitterSmoke/agent-smoke.fth
+\   FROMLIB FLOAD Emitter/EmitterSmoke/gfx-smoke.fth
+\   FROMLIB FLOAD Emitter/EmitterSmoke/tetra-smoke.fth
+\   FROMLIB FLOAD Emitter/EmitterSmoke/emit-app-smoke.fth
+\   FROMLIB FLOAD Emitter/EmitterSmoke/emit-window-app-smoke.fth
+\ Agent (path through the symlink — same files as the project):
+\   …/64Forth --agent -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/agent-smoke.fth
+\ GUI tetra:
+\   FROMLIB FLOAD Emitter/EmitterSmoke/tetra-gui-smoke.fth   then  EMIT-TETRA
 
 
 ONLY FORTH DEFINITIONS DECIMAL

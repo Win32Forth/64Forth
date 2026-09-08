@@ -1,5 +1,5 @@
 \ =============================================================================
-\ pi-chudnovsky.fth — High-precision π via the Chudnovsky algorithm
+\ pi-chudnovsky.fth — High-precision PI via the Chudnovsky algorithm
 \ =============================================================================
 \
 \ Requires: BigInteger/big-int.fth (BIG-INTEGER vocabulary; ALSO BIG-INTEGER before use)
@@ -16,24 +16,33 @@
 \     K <- K + 12
 \
 \   sqrt10005 = isqrt(10005 * D^2)
-\   π_scaled  = (426880 * sqrt10005 * D) / S     ≈ π * 10^prec
+\   PI_scaled  = (426880 * sqrt10005 * D) / S     ≈ PI * 10^prec
 \
 \ Each term contributes ~14.18 correct decimal digits, so
 \   N = prec/14 + 10  is ample.
 \
-\ Usage:
-\   FROMLIB FLOAD BigInteger/big-int.fth
-\   ALSO BIG-INTEGER
+\ Usage (prefer FLOAD so edits redefine; REQUIRE skips if already loaded):
 \   FROMLIB FLOAD PI/pi-chudnovsky.fth
-\   100 PI.          \ print π to 100 decimal places
+\   100 PI.          \ print PI to 100 decimal places (console)
+\ Stand-alone window app (Emitter already loaded at 64Forth startup):
+\   FROMLIB FLOAD PI/pi-chudnovsky.fth
+\   EMIT-WINDOW-APP PIMAIN
 \
 \ Or:  FROMLIB FLOAD PI/pi-test.fth
+\
+\ Do NOT put GRAPHICS on the search order while loading this file: GRAPHICS CR
+\ / EMIT call WINDOW, so a trailing CR would pop the graphics window.
 \
 \ =============================================================================
 
 DECIMAL
 
+\ Clear search order so a prior ALSO GRAPHICS (e.g. after tetra) cannot
+\ make PI-DEMO's ." / . / CR bind GRAPHICS and open a window while loading.
+ONLY FORTH DEFINITIONS
+
 \ BI words live in vocabulary BIG-INTEGER (not on FORTH alone after library load).
+FROMLIB REQUIRE BigInteger/big-int.fth
 ALSO BIG-INTEGER
 
 \ ---- working big-int pool (allocated on first use) ---------------------------
@@ -56,28 +65,37 @@ VARIABLE BI-REM
 VARIABLE BI-WORK
 VARIABLE BI-T1
 VARIABLE BI-T2
-VARIABLE BI-PI              \ final scaled π
+VARIABLE BI-PI              \ final scaled PI
 VARIABLE BI-SQ              \ isqrt(10005 * D^2)
 VARIABLE BI-C3              \ 640320^3
 
-\ Free everything (safe if never allocated).
+\ Free pool buffers only when this process allocated them (PI-POOL-OK).
+\ Always zero the handles afterward.  Without the flag guard, a stand-alone
+\ image that captured host malloc pointers in BI-* (e.g. PI. run then emit
+\ in the same session) would FREE non-heap addresses → libmalloc abort
+\ (pointer being freed was not allocated / host_free).
 : PI-FREE  ( -- )
-  BI-M @ ?DUP IF BI-FREE THEN  0 BI-M !
-  BI-L @ ?DUP IF BI-FREE THEN  0 BI-L !
-  BI-X @ ?DUP IF BI-FREE THEN  0 BI-X !
-  BI-S @ ?DUP IF BI-FREE THEN  0 BI-S !
-  BI-D @ ?DUP IF BI-FREE THEN  0 BI-D !
-  BI-TERM @ ?DUP IF BI-FREE THEN  0 BI-TERM !
-  BI-TMP @ ?DUP IF BI-FREE THEN  0 BI-TMP !
-  BI-TMP2 @ ?DUP IF BI-FREE THEN  0 BI-TMP2 !
-  BI-QUOT @ ?DUP IF BI-FREE THEN  0 BI-QUOT !
-  BI-REM @ ?DUP IF BI-FREE THEN  0 BI-REM !
-  BI-WORK @ ?DUP IF BI-FREE THEN  0 BI-WORK !
-  BI-T1 @ ?DUP IF BI-FREE THEN  0 BI-T1 !
-  BI-T2 @ ?DUP IF BI-FREE THEN  0 BI-T2 !
-  BI-PI @ ?DUP IF BI-FREE THEN  0 BI-PI !
-  BI-SQ @ ?DUP IF BI-FREE THEN  0 BI-SQ !
-  BI-C3 @ ?DUP IF BI-FREE THEN  0 BI-C3 !
+  PI-POOL-OK @ IF
+    BI-M @ ?DUP IF BI-FREE THEN
+    BI-L @ ?DUP IF BI-FREE THEN
+    BI-X @ ?DUP IF BI-FREE THEN
+    BI-S @ ?DUP IF BI-FREE THEN
+    BI-D @ ?DUP IF BI-FREE THEN
+    BI-TERM @ ?DUP IF BI-FREE THEN
+    BI-TMP @ ?DUP IF BI-FREE THEN
+    BI-TMP2 @ ?DUP IF BI-FREE THEN
+    BI-QUOT @ ?DUP IF BI-FREE THEN
+    BI-REM @ ?DUP IF BI-FREE THEN
+    BI-WORK @ ?DUP IF BI-FREE THEN
+    BI-T1 @ ?DUP IF BI-FREE THEN
+    BI-T2 @ ?DUP IF BI-FREE THEN
+    BI-PI @ ?DUP IF BI-FREE THEN
+    BI-SQ @ ?DUP IF BI-FREE THEN
+    BI-C3 @ ?DUP IF BI-FREE THEN
+  THEN
+  0 BI-M !  0 BI-L !  0 BI-X !  0 BI-S !  0 BI-D !
+  0 BI-TERM !  0 BI-TMP !  0 BI-TMP2 !  0 BI-QUOT !  0 BI-REM !
+  0 BI-WORK !  0 BI-T1 !  0 BI-T2 !  0 BI-PI !  0 BI-SQ !  0 BI-C3 !
   FALSE PI-POOL-OK ! ;
 
 \ Allocate one buffer sized for `digits` decimal digits of *product* headroom.
@@ -125,7 +143,7 @@ VARIABLE BI-C3              \ 640320^3
   DUP DUP * OVER *              \ ( k  k^3 )   via k,k → k,k^2 → k,k^2,k → k,k^3
   SWAP 16 * - ;                 \ k^3 - 16*k
 
-\ Compute scaled π into BI-PI.  prec = digits + guard.
+\ Compute scaled PI into BI-PI.  prec = digits + guard.
 \ Stack: ( digits -- )
 : PI-COMPUTE  ( digits -- )
   {: digits | prec maxk k kk factor :}
@@ -208,7 +226,7 @@ VARIABLE BI-C3              \ 640320^3
 
 \ ---- Pretty-printer ----------------------------------------------------------
 
-\ Print π to `digits` places:  3.14159...
+\ Print PI to `digits` places:  3.14159...
 : PI.  ( digits -- )
   {: digits | n depth0 :}
   DEPTH TO depth0
@@ -216,7 +234,7 @@ VARIABLE BI-C3              \ 640320^3
   BI-PI @ BI-ZERO? IF  ." 0"  DEPTH depth0 - 0 MAX 0 ?DO DROP LOOP  EXIT  THEN
   BI-PI @ BI-ABS!
 
-  \ Trim guard digits: BI-PI := floor(π * 10^digits)
+  \ Trim guard digits: BI-PI := floor(PI * 10^digits)
   digits PI-PREC @ = IF
   ELSE
     PI-PREC @ digits -
@@ -251,9 +269,34 @@ VARIABLE BI-C3              \ 640320^3
 
 \ Compute and print with a banner.
 : PI-DEMO  ( digits -- )
-  CR ." Computing π to " DUP . ." decimal places..." CR
+  CR ." Computing PI to " DUP . ." decimal places..." CR
   DUP PI.
   CR ." done." CR ;
 
+\ Load-time banners must use FORTH CR (GRAPHICS CR would open a window).
+ONLY FORTH DEFINITIONS
+ALSO BIG-INTEGER
+
 .( pi-chudnovsky.fth loaded.) CR
 .( Try:  50 PI.   or   100 PI-DEMO ) CR
+    
+\ Stand-alone entry for EMIT-WINDOW-APP — same pattern as tetra:
+\   ONLY FORTH ALSO GRAPHICS  … KEY …
+\ GRAPHICS KEY waits on (APP-KEY)/(APP-PUMP). Do not leave GRAPHICS on the
+\ search order for load-time CR/." (that would open a window).
+\ Digit I/O stays FORTH EMIT/TYPE; EMIT-WINDOW-APP remaps those to GRAPHICS.
+ONLY FORTH ALSO GRAPHICS
+: PIMAIN  ( -- )
+  CLS
+  ." Computing PI to 10 places..." CR
+  10 PI-DEMO
+  CR ." Done. Press any key to exit."
+  KEY DROP
+  ;
+
+ONLY FORTH DEFINITIONS
+ALSO BIG-INTEGER
+
+\ Clear any live pool from this session so a later EMIT-*-APP does not
+\ snapshot host malloc pointers into BI-* (stand-alone FREE abort).
+PI-FREE

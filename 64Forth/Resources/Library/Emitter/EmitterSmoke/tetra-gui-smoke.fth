@@ -6,14 +6,14 @@
 \ Do NOT TGT-RUN under --agent: (APP-OPEN) is a no-op and KEY blocks forever.
 \
 \ Agent-safe (build + reach only):
-\   /Applications/64Forth.app/Contents/MacOS/64Forth --agent \
-\     -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/tetra-gui-smoke.fth
 \
 \ Interactive (real GRAPHICS window + keys) — in the 64Forth console:
-\   S" $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/tetra-gui-smoke.fth" INCLUDED
 \   EMIT-TETRA
 \ Arrow keys / Space / S / P as in SETUP chrome. ESC → WINDOW-OFF (ANS arm)
 \ and returns to the console. After game-over banner, ESC also quits.
+\ Canonical: Xcode Resources/Library/Emitter (Documents/64Forth/Library is a symlink).
+\ Prefer:  FROMLIB FLOAD Emitter/EmitterSmoke/tetra-gui-smoke.fth
+\ Agent:   …/64Forth --agent -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/tetra-gui-smoke.fth
 
 ONLY FORTH DEFINITIONS DECIMAL
 FROMLIB FLOAD Emitter/emitter.fth
