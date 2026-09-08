@@ -147,6 +147,14 @@ DOC" ANEW ( 'name' -- ) FORGET name if present, then CREATE reload marker"
     DROP R@ >IN ! S" Loading module: " TYPE BL WORD COUNT TYPE CR
   THEN R> >IN ! CREATE ;
 
+: ANEWMODULE
+  >IN @ BL WORD FIND IF
+    DROP dup >IN ! S" Reloading module: " TYPE BL WORD COUNT TYPE CR
+    dup >IN ! FORGET
+  ELSE
+    DROP dup >IN ! S" Loading module: " TYPE BL WORD COUNT TYPE CR
+  THEN >IN ! CREATE ;
+
 DOC" ON ( addr -- ) store 1 at addr"
 : ON 1 SWAP ! ;
 DOC" OFF ( addr -- ) store 0 at addr"

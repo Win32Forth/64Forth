@@ -213,10 +213,21 @@ next_debug:
     cbnz x2, 1f
     adrp x2, debug_floor@page
     add  x2, x2, debug_floor@pageoff
+    
     ldr  x2, [x2]
     cbz  x2, 2f
     cmp  x23, x2
-    b.hs 1f                         // not nested under DEBUG → no pause
+    b.lo 20f                        // deeper than BPGO → F8 / pause checks
+    b.eq 1f                         // same frame as DBG-ON → execute, stay armed
+    mov  x28, #0                    // shallower than BPGO → session over
+    adrp x3, debug_armed@page
+    add  x3, x3, debug_armed@pageoff
+    str  xzr, [x3]
+    adrp x3, debug_bp_go@page
+    add  x3, x3, debug_bp_go@pageoff
+    str  xzr, [x3]
+    b    1f
+20:
     // F8 step-out: skip while RSP at/deeper than mark (x23 <= debug_out)
     adrp x2, debug_out@page
     add  x2, x2, debug_out@pageoff
@@ -233,6 +244,25 @@ next_debug:
     b.lo 1f                         // F6: still inside stepped-over word
 2:
     ldr  x21, [x19]                 // peek upcoming xt (do not bump IP yet)
+    adrp x2, debug_bp_go@page
+    add  x2, x2, debug_bp_go@pageoff
+    ldr  x3, [x2]
+    cbz  x3, 6f                     // not in "go until BP" mode
+    adrp x3, debug_bp_xts@page
+    add  x3, x3, debug_bp_xts@pageoff
+    mov  x4, #8
+3:
+    ldr  x5, [x3], #8
+    cbz  x5, 4f
+    cmp  x5, x21
+    b.eq 7f                         // hit
+4:
+    subs x4, x4, #1
+    b.ne 3b
+    b    1f                         // no slot matched → execute, no pause
+7:
+    str  xzr, [x2]                  // clear go-until; now single-step
+6:
     ldr  x2, [x21]
     adrp x3, XCATCH_OK@page
     add  x3, x3, XCATCH_OK@pageoff
@@ -2685,6 +2715,21 @@ XDBGOFF:
     mov x0, #10
     bl _putchar
     RESTORE_VM
+    NEXT
+
+    BOOT_WORD "BREAK-TABLE", "BREAK-TABLE ( -- addr ) 8 xt slots", 0, XBREAK_TABLE
+XBREAK_TABLE:
+    str  x20, [x22, #-8]!
+    adrp x20, debug_bp_xts@page
+    add  x20, x20, debug_bp_xts@pageoff
+    NEXT
+
+    BOOT_WORD "(BP-GO)", "(BP-GO) ( -- ) run until a BREAK-XT hits", 0, XBPGO
+XBPGO:
+    adrp x0, debug_bp_go@page
+    add  x0, x0, debug_bp_go@pageoff
+    mov  x1, #1
+    str  x1, [x0]
     NEXT
 
 // .( ( -- ) IMMEDIATE — parse until ')' and TYPE (Core Ext). Boot CODE so AutoLoad
@@ -14644,20 +14689,24 @@ _debug_pause:
     bl _host_debug_paint
     b 4f
 3:
-    mov x28, #0                    // go: disarm NEXT mirror + host flag
+    mov  x28, #0
     adrp x1, debug_armed@page
-    add x1, x1, debug_armed@pageoff
-    str xzr, [x1]
+    add  x1, x1, debug_armed@pageoff
+    str  xzr, [x1]
+    adrp x1, debug_bp_go@page
+    add  x1, x1, debug_bp_go@pageoff
+    str  xzr, [x1]
     adrp x1, debug_midline@page
-    add x1, x1, debug_midline@pageoff
-    str xzr, [x1]
+    add  x1, x1, debug_midline@pageoff
+    str  xzr, [x1]
     adrp x1, debug_over@page
-    add x1, x1, debug_over@pageoff
-    str xzr, [x1]
+    add  x1, x1, debug_over@pageoff
+    str  xzr, [x1]
     adrp x1, debug_out@page
-    add x1, x1, debug_out@pageoff
-    str xzr, [x1]
-    bl _host_debug_paint
+    add  x1, x1, debug_out@pageoff
+    str  xzr, [x1]
+    bl   _host_debug_paint
+
 4:
     // Reload DBG mirror (go / abort / DBG-OFF may have cleared memory)
     adrp x0, debug_armed@page
@@ -15358,6 +15407,8 @@ debug_field_count: .quad 0         // nonzero → _putchar tallies debug_field_l
 debug_field_len:   .quad 0         // chars in DEBUG word field (name + inline)
 debug_busy:     .quad 0            // set while _debug_pause runs
 debug_floor:    .quad 0            // RSP at DBG-ON; pause only if x23 < floor
+debug_bp_go:    .quad 0            // 1 = skip pause unless xt is in table
+debug_bp_xts:   .skip 64           // 8 xt slots, 0 = empty
 debug_over:     .quad 0            // F6: skip pause while x23 < this RSP
 debug_out:      .quad 0            // F8: skip pause while x23 <= this RSP
 debug_abort:    .quad 0            // Esc/q: THROW code for next_debug after pause
@@ -15449,6 +15500,7 @@ eval_arg_len:   .quad 0
 forth_init_str:
     .incbin "kernel1.fth"
     .incbin "kernel2.fth"
+    .incbin "debug-bp.fth"
     .incbin "vocemit.fth"
     .incbin "app-output.fth"
     .incbin "app-points.fth"
