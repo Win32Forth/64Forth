@@ -33,36 +33,39 @@ Append new design sections as we go; mark items done when implemented.
 
 ## v1.3.8 design — SZ-EDITOR in its own window (three-window model)
 
-**Status:** Phase 1 in progress (host). **Not** a release yet.
+**Status:** Phase 4 done (VSplit removed). **Not** a release yet — Phase 5 polish / 1.3.8.
 
 ### Product shape
 
 | Window | Role |
 |--------|------|
 | **Console** | Forth REPL only (no VSplit with the editor) |
-| **SZ-EDITOR** | Facility character grid + KEY loop (`FacilityEditorHost`) |
+| **SZ-EDITOR** | Facility character grid + KEY loop (`FacilityEditorHost`, **macOS only**) |
 | **App Output** | GRAPHICS / Emitter / stand-alone apps only (`AppOutputHost`) |
 
 **Hard rule:** Do **not** merge SZ-EDITOR into App Output. Emitter and compiling application programs keep using the App Output window for graphics I/O. The editor is a third window, separate from both the console and App Output.
 
+**iOS:** SZ-EDITOR is unsupported (no `FacilityEditorHost`); Console remains REPL-only.
+
 ### UX constraints
 
-- Console stays a **fully live REPL** while the editor’s KEY loop is running (host-queued evaluate; same spirit as today’s command pane).
+- Console stays a **fully live REPL** while the editor’s KEY loop is running (host-queued evaluate).
 - Dirty / save / quit remain Forth-owned (S/D). Host titlebar close injects editor-quit key **17**, then deferred teardown (same pattern as App Output).
 - Open the editor window on **TERMINAL-REFRESH** while facility is active — not on bare `PAGE` (orphan-PAGE discipline unchanged).
+- `SEE` = kernel decompiler (console only); `VIEW` / ⌘E / ⌘-click open SZ-EDITOR.
 
 ### Host pieces
 
 - `Host/FacilityEditorHost.swift` — `NSWindow` + `FacilityGridView` painting `FacilityTerminal` Unicode cells + reverse attrs
-- Feature flag: `KernelBridge.useSeparateFacilityEditor` (default **on**; set `false` to fall back to the Option A console VSplit while iterating)
 - Key routing order: **App Output** (if key) → **SZ-EDITOR** (if key) → **Console**
+- Legacy Option A console VSplit / `useSeparateFacilityEditor` flag — **removed** (Phase 4)
 
 ### Phases (summary)
 
 1. Skeleton host + flag-gated paint/keys — **done**
 2. Live full-console REPL evaluate while KEY waits — **done** (host wired)
 3. Menus / VIEW / Hyper / DEBUG retarget — **done** (direct menu hooks; console keeps arrows; DEBUG redraws editor window)
-4. Delete console VSplit code
+4. Delete console VSplit code — **done**
 5. Polish + 1.3.8 release prep (outer-top `[X]` removed; keep Files-list `[X]`)
 
 ---

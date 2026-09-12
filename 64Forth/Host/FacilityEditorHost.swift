@@ -39,7 +39,6 @@ final class FacilityEditorHost: NSObject, NSWindowDelegate {
     /// Open (or raise) the editor window and redraw from FacilityTerminal.
     /// Called on TERMINAL-REFRESH while facility is active (separate-editor mode).
     func presentFromRefresh() {
-        guard KernelBridge.useSeparateFacilityEditor else { return }
         if AgentChannel.isRequested { return }
         guard FacilityTerminal.shared.isActive else { return }
 

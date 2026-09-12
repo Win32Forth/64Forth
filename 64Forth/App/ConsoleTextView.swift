@@ -16,46 +16,25 @@ import AppKit
 
 /// Which surface this text view belongs to (split editor vs command pane).
 enum ConsolePaneKind {
-    /// Single full-window console (facility inactive).
+    /// Single full-window console — always a live REPL.
     case full
-    /// Upper facility / SZ-EDITOR grid.
+    /// Legacy upper facility / SZ-EDITOR grid (unused; safe no-op paths).
     case facility
-    /// Lower interactive command pane (Option A).
+    /// Legacy lower interactive command pane (Option A).
     case command
 }
 
-/// Full Console acts as a live REPL while SZ-EDITOR KEY waits (separate-window mode).
-/// Facility paint/keys live in `FacilityEditorHost`, not this text view.
-private func liveConsoleWhileSeparateEditor(_ pane: ConsolePaneKind) -> Bool {
-    pane == .full && KernelBridge.useSeparateFacilityEditor
-}
-
-/// Scroll view that feeds trackpad/mouse wheel into SZ-EDITOR (not the NSTextView string).
+/// Scroll view for the console transcript. Wheel always scrolls natively;
+/// SZ-EDITOR scrolling lives in the editor window, not here.
 final class ConsoleNSScrollView: NSScrollView {
-    /// When `.command`, wheel always scrolls this view; never the facility grid.
     var paneKind: ConsolePaneKind = .full
 
     override func scrollWheel(with event: NSEvent) {
-        // Command pane: native scroll of command transcript.
-        if paneKind == .command {
-            super.scrollWheel(with: event)
-            return
-        }
-        // Facility / legacy full-as-grid: map wheel to SZ-SCROLL-*.
-        // Separate-editor: full Console scrolls its own transcript.
-        if paneKind != .command,
-           !liveConsoleWhileSeparateEditor(paneKind),
-           KernelBridge.shared.isFacilityTerminalActive,
-           KernelBridge.shared.isEvaluating {
-            KernelBridge.shared.reportFacilityScroll(event)
-            return
-        }
         super.scrollWheel(with: event)
     }
 
-    /// Report visible size in monospaced cells so SZ-EDITOR can match the window.
-    /// Only the facility / full console drives metrics — the command pane is short and
-    /// must never overwrite preferred facility cols/rows (that broke click→cell mapping).
+    /// Report visible size in monospaced cells for an idle full console.
+    /// When the facility is active, the editor window owns metrics.
     override func layout() {
         super.layout()
         reportVisibleCellMetrics()
@@ -67,7 +46,8 @@ final class ConsoleNSScrollView: NSScrollView {
     }
 
     private func reportVisibleCellMetrics() {
-        guard paneKind == .facility || paneKind == .full else { return }
+        guard paneKind == .full else { return }
+        guard !KernelBridge.shared.isFacilityTerminalActive else { return }
         guard let textView = documentView as? NSTextView else { return }
         let clip = contentView.bounds.size
         guard clip.width > 1, clip.height > 1 else { return }
@@ -75,237 +55,55 @@ final class ConsoleNSScrollView: NSScrollView {
     }
 }
 
-/// NSTextView that reports mouse clicks in facility/SZ-EDITOR mode (Phase 4a).
+/// NSTextView for the console REPL (⌘-click VIEW, protected prefix, history).
 final class ConsoleNSTextView: NSTextView {
-    /// Console (non-facility) ⌘-click → VIEW word at UTF-16 index.
+    /// Console ⌘-click → VIEW word at UTF-16 index.
     var onCommandClickAtUTF16: ((Int) -> Void)?
-    /// Split-pane role (facility vs command).
+    /// Split-pane role (legacy facility/command kept for ConsoleView compile).
     var paneKind: ConsolePaneKind = .full
     /// First UTF-16 index the user may edit (command pane prompt is before this).
     var editableStartUTF16: Int = 0
     /// Called when this view takes focus via click (so SwiftUI can update FocusState).
-    /// Must be cheap and idempotent — not every first-responder pulse.
     var onPaneActivated: (() -> Void)?
 
-    /// Facility grid must accept clicks and KEY focus even when not AppKit-editable.
     override var acceptsFirstResponder: Bool { true }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func becomeFirstResponder() -> Bool {
-        let ok = super.becomeFirstResponder()
-        // Do not set sticky command-focus from FR alone — ok> makeFirstResponder on
-        // the command pane must not re-route KEY after the user clicked the editor.
-        // Sticky is set only by mouseDown / onPaneActivated / explicit host APIs.
-        return ok
+        super.becomeFirstResponder()
     }
 
-    /// Thin vertical I-beam for the Facility / SZ-EDITOR insert point (host paint).
-    private lazy var facilityCaretView: NSView = {
-        let v = NSView(frame: .zero)
-        v.wantsLayer = true
-        v.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
-        v.isHidden = true
-        return v
-    }()
+    // MARK: - Legacy caret stubs (ConsoleView still calls these; no overlay)
 
-    /// True while SZ-EDITOR / facility owns the insert point (may be blink-off phase).
-    private var facilityCaretActive = false
-    /// Visible half of the blink cycle.
-    private var facilityCaretBlinkOn = true
-    /// Last UTF-16 index for the facility bar (reposition on layout if needed).
-    private var facilityCaretUTF16: Int = 0
-    /// ~0.53s matches typical AppKit insertion-point blink period.
-    private var facilityCaretBlinkTimer: Timer?
-
-    // MARK: - Insertion point (facility overlay vs command-pane AppKit caret)
-
-    /// Facility pane: never draw AppKit I-beam (custom overlay only). Command pane: normal caret.
-    override var shouldDrawInsertionPoint: Bool {
-        if paneKind == .command {
-            return isEditable && (window?.firstResponder === self)
-        }
-        if paneKind == .facility, KernelBridge.shared.isFacilityTerminalActive {
-            return false
-        }
-        // Legacy: full console hosted the facility grid — suppress system caret.
-        // Separate-editor: full console is a live REPL and needs a normal caret.
-        if paneKind == .full, KernelBridge.shared.isFacilityTerminalActive,
-           !liveConsoleWhileSeparateEditor(paneKind) {
-            return false
-        }
-        return super.shouldDrawInsertionPoint
-    }
-
-    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
-        if paneKind != .command, KernelBridge.shared.isFacilityTerminalActive,
-           !liveConsoleWhileSeparateEditor(paneKind) { return }
-        super.drawInsertionPoint(in: rect, color: color, turnedOn: flag)
-    }
-
-    override var insertionPointColor: NSColor? {
-        get {
-            if paneKind != .command, KernelBridge.shared.isFacilityTerminalActive,
-               !liveConsoleWhileSeparateEditor(paneKind) { return .clear }
-            return super.insertionPointColor
-        }
-        set { super.insertionPointColor = newValue }
-    }
-
-    /// Avoid a zero-length selection paint flashing at the top-left of the grid.
-    /// Command pane keeps normal selection so typing and caret placement work.
-    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool) {
-        if paneKind != .command, KernelBridge.shared.isFacilityTerminalActive,
-           !liveConsoleWhileSeparateEditor(paneKind) {
-            // Keep a collapsed selection for AppKit, but force location 0 and never
-            // allow a non-empty range that would look like text selection on the grid.
-            let zero = [NSValue(range: NSRange(location: 0, length: 0))]
-            super.setSelectedRanges(zero, affinity: affinity, stillSelecting: false)
-            return
-        }
-        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
-    }
-
-    // MARK: - Facility I-beam caret (+ blink)
-
-    /// Place a 2pt vertical bar at the left edge of the character cell at `utf16Index`.
-    /// Repositions and restarts blink (visible) so typing/motion feels like a normal editor.
     func showFacilityLineCaret(atUTF16 utf16Index: Int) {
-        facilityCaretUTF16 = utf16Index
-        facilityCaretActive = true
-        facilityCaretBlinkOn = true
-        if facilityCaretView.superview !== self {
-            addSubview(facilityCaretView)
-        }
-        layoutFacilityCaretBar()
-        startFacilityCaretBlinkTimer()
+        _ = utf16Index
     }
 
-    func hideFacilityLineCaret() {
-        facilityCaretActive = false
-        facilityCaretBlinkOn = true
-        stopFacilityCaretBlinkTimer()
-        facilityCaretView.isHidden = true
-    }
-
-    private func layoutFacilityCaretBar() {
-        guard facilityCaretActive else {
-            facilityCaretView.isHidden = true
-            return
-        }
-        guard let layoutManager, let textContainer else {
-            facilityCaretView.isHidden = true
-            return
-        }
-        let length = (string as NSString).length
-        let utf16Index = facilityCaretUTF16
-        guard length > 0, utf16Index >= 0, utf16Index < length else {
-            facilityCaretView.isHidden = true
-            return
-        }
-
-        layoutManager.ensureLayout(for: textContainer)
-        let charRange = NSRange(location: utf16Index, length: 1)
-        let glyphRange = layoutManager.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
-        guard glyphRange.length > 0 else {
-            facilityCaretView.isHidden = true
-            return
-        }
-        var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-        let origin = textContainerOrigin
-        rect.origin.x += origin.x
-        rect.origin.y += origin.y
-
-        // Insert-point bar: left edge of the cell (before the character).
-        let barWidth: CGFloat = 2
-        let x = max(0, rect.minX - barWidth * 0.5)
-        facilityCaretView.frame = NSRect(x: x, y: rect.minY, width: barWidth, height: max(rect.height, 1))
-        facilityCaretView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
-        facilityCaretView.isHidden = !facilityCaretBlinkOn
-    }
-
-    private func startFacilityCaretBlinkTimer() {
-        if facilityCaretBlinkTimer != nil { return }
-        // Common AppKit period; main run-loop common modes so it ticks during KEY pump.
-        let t = Timer(timeInterval: 0.53, repeats: true) { [weak self] _ in
-            self?.facilityCaretBlinkTick()
-        }
-        RunLoop.main.add(t, forMode: .common)
-        facilityCaretBlinkTimer = t
-    }
-
-    private func stopFacilityCaretBlinkTimer() {
-        facilityCaretBlinkTimer?.invalidate()
-        facilityCaretBlinkTimer = nil
-    }
-
-    private func facilityCaretBlinkTick() {
-        guard facilityCaretActive,
-              KernelBridge.shared.isFacilityTerminalActive,
-              !KernelBridge.shared.isCommandPaneFocused else {
-            hideFacilityLineCaret()
-            return
-        }
-        facilityCaretBlinkOn.toggle()
-        facilityCaretView.isHidden = !facilityCaretBlinkOn
-    }
+    func hideFacilityLineCaret() {}
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        // Command pane: normal text shortcuts (copy/paste into command line).
-        if paneKind == .command {
-            return super.performKeyEquivalent(with: event)
-        }
-        if !liveConsoleWhileSeparateEditor(paneKind),
-           KernelBridge.shared.consumeEditorHotKeyIfNeeded(event) { return true }
-        // ⌘X/C/V while SZ-EDITOR is open (menu may not claim them during KEY wait).
-        // Separate-editor + full console: use normal clipboard, not editor keys.
-        if !liveConsoleWhileSeparateEditor(paneKind),
-           KernelBridge.shared.isEvaluating, KernelBridge.shared.isFacilityTerminalActive {
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if mods.contains(.command), !mods.contains(.shift) {
-                let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
-                if ch == "x" || ch == "c" || ch == "v" {
-                    if KernelBridge.shared.pushEditorClipboardKey(ch) { return true }
-                }
-            }
-        }
-        return super.performKeyEquivalent(with: event)
+        super.performKeyEquivalent(with: event)
     }
 
     override func keyDown(with event: NSEvent) {
-        if paneKind == .command || liveConsoleWhileSeparateEditor(paneKind) {
-            // Ensure we are first responder and caret is past the prompt before insert.
-            if window?.firstResponder !== self {
-                window?.makeFirstResponder(self)
-            }
-            if paneKind == .command {
-                KernelBridge.shared.setCommandPaneFocused(true)
-            } else {
-                KernelBridge.shared.setCommandPaneFocused(false)
-            }
-            let end = (string as NSString).length
-            let start = min(max(0, editableStartUTF16), end)
-            let sel = selectedRange()
-            if sel.length == 0, sel.location < start {
-                setSelectedRange(NSRange(location: end, length: 0))
-            }
-            super.keyDown(with: event)
+        // Legacy facility pane: do not route KEY into the grid from the console.
+        if paneKind == .facility {
             return
         }
-        // Facility / editor: own KEY routing here if the local monitor left the event
-        // (e.g. stale command-focus flag). Never fall through to non-editable super
-        // which would drop printables.
-        if KernelBridge.shared.isEvaluating, KernelBridge.shared.isFacilityTerminalActive {
+        if window?.firstResponder !== self {
+            window?.makeFirstResponder(self)
+        }
+        if paneKind == .command {
+            KernelBridge.shared.setCommandPaneFocused(true)
+        } else {
             KernelBridge.shared.setCommandPaneFocused(false)
-            if KernelBridge.shared.consumeEditorHotKeyIfNeeded(event) { return }
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if mods.contains(.command), !mods.contains(.shift) {
-                let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
-                if ch == "x" || ch == "c" || ch == "v" {
-                    if KernelBridge.shared.pushEditorClipboardKey(ch) { return }
-                }
-            }
-            if KernelBridge.shared.deliverFacilityKeyDown(event) { return }
+        }
+        let end = (string as NSString).length
+        let start = min(max(0, editableStartUTF16), end)
+        let sel = selectedRange()
+        if sel.length == 0, sel.location < start {
+            setSelectedRange(NSRange(location: end, length: 0))
         }
         super.keyDown(with: event)
     }
@@ -330,352 +128,44 @@ final class ConsoleNSTextView: NSTextView {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        if paneKind == .command {
-            super.scrollWheel(with: event)
-            return
-        }
-        // Facility / legacy full-as-grid: scroll the editor, not the text view.
-        if paneKind != .command,
-           !liveConsoleWhileSeparateEditor(paneKind),
-           KernelBridge.shared.isFacilityTerminalActive,
-           KernelBridge.shared.isEvaluating {
-            KernelBridge.shared.reportFacilityScroll(event)
-            return
-        }
         super.scrollWheel(with: event)
     }
 
-    // MARK: - Facility context menu (Cut / Copy / Paste → SZ-EDITOR keys)
-
-    /// Custom Edit menu while SZ-EDITOR owns the facility terminal (not NSTextView’s system menu).
-    private lazy var facilityContextMenu: NSMenu = {
-        let menu = NSMenu(title: "Edit")
-        menu.autoenablesItems = false
-        let cut = NSMenuItem(title: "Cut", action: #selector(facilityCut(_:)), keyEquivalent: "x")
-        cut.keyEquivalentModifierMask = .command
-        cut.target = self
-        let copy = NSMenuItem(title: "Copy", action: #selector(facilityCopy(_:)), keyEquivalent: "c")
-        copy.keyEquivalentModifierMask = .command
-        copy.target = self
-        let paste = NSMenuItem(title: "Paste", action: #selector(facilityPaste(_:)), keyEquivalent: "v")
-        paste.keyEquivalentModifierMask = .command
-        paste.target = self
-        menu.addItem(cut)
-        menu.addItem(copy)
-        menu.addItem(paste)
-        return menu
-    }()
-
-    private var facilityEditorMenuActive: Bool {
-        paneKind != .command
-            && !liveConsoleWhileSeparateEditor(paneKind)
-            && KernelBridge.shared.isFacilityTerminalActive
-            && KernelBridge.shared.isEvaluating
-    }
-
-    override func menu(for event: NSEvent) -> NSMenu? {
-        if facilityEditorMenuActive {
-            // Do not probe NSPasteboard here — general.string on the main thread
-            // can priority-invert (user-interactive wait on pasteboard server).
-            // Cut/Copy/Paste stay enabled; Forth no-ops on empty selection/clip.
-            return facilityContextMenu
-        }
-        return super.menu(for: event)
-    }
-
-    override func rightMouseDown(with event: NSEvent) {
-        if facilityEditorMenuActive {
-            // Keep focus; do not let NSTextView select into the facility paint grid.
-            window?.makeFirstResponder(self)
-            NSMenu.popUpContextMenu(facilityContextMenu, with: event, for: self)
-            return
-        }
-        super.rightMouseDown(with: event)
-    }
-
-    @objc private func facilityCut(_ sender: Any?) {
-        _ = KernelBridge.shared.pushEditorClipboardKey("x")
-    }
-
-    @objc private func facilityCopy(_ sender: Any?) {
-        _ = KernelBridge.shared.pushEditorClipboardKey("c")
-    }
-
-    @objc private func facilityPaste(_ sender: Any?) {
-        _ = KernelBridge.shared.pushEditorClipboardKey("v")
-    }
-
-    /// Facility drag-select tracking (plain / shift; not ⌘ VIEW or double-click word).
-    private var facilityDragTracking = false
-    private var facilityDragShift = false
-    private var facilityLastDragCol = -1
-    private var facilityLastDragRow = -1
-    /// Latest drag pointer (view coords) for edge auto-scroll.
-    private var facilityDragPoint = NSPoint.zero
-    /// Timer: pan view while pointer sits in a text-band edge zone during drag.
-    private var facilityEdgeScrollTimer: Timer?
-
-    private func stopFacilityEdgeScroll() {
-        facilityEdgeScrollTimer?.invalidate()
-        facilityEdgeScrollTimer = nil
-    }
-
-    /// Vertical/horizontal edge direction from a text-band cell (-1 / 0 / +1).
-    private func facilityEdgeDirections(col: Int, row: Int) -> (v: Int, h: Int) {
-        let band = KernelBridge.shared.facilityTextBand
-        let v: Int
-        if row <= band.textTop { v = -1 }
-        else if row >= band.textBot { v = 1 }
-        else { v = 0 }
-        let h: Int
-        if col <= band.textLeft { h = -1 }
-        else if col >= band.textRight { h = 1 }
-        else { h = 0 }
-        return (v, h)
-    }
-
-    private func startFacilityEdgeScrollIfNeeded(v: Int, h: Int) {
-        if v == 0 && h == 0 {
-            stopFacilityEdgeScroll()
-            return
-        }
-        if facilityEdgeScrollTimer != nil { return }
-        // ~10 Hz: pan + re-extend selection while held at the edge.
-        let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
-            self?.facilityEdgeScrollTick()
-        }
-        RunLoop.main.add(t, forMode: .common)
-        facilityEdgeScrollTimer = t
-        // Immediate first step so the user does not wait a full interval.
-        facilityEdgeScrollTick()
-    }
-
-    private func facilityEdgeScrollTick() {
-        guard facilityDragTracking,
-              KernelBridge.shared.isFacilityTerminalActive,
-              KernelBridge.shared.isEvaluating else {
-            stopFacilityEdgeScroll()
-            return
-        }
-        let idx = characterIndexForInsertion(at: facilityDragPoint)
-        guard let cell = KernelBridge.shared.facilityTextCellClamped(fromUTF16: idx) else {
-            stopFacilityEdgeScroll()
-            return
-        }
-        let (v, h) = facilityEdgeDirections(col: cell.col, row: cell.row)
-        if v == 0 && h == 0 {
-            stopFacilityEdgeScroll()
-            return
-        }
-        let band = KernelBridge.shared.facilityTextBand
-        // Free end stays on the edge cell of the text band after each pan.
-        let edgeCol = h < 0 ? band.textLeft : (h > 0 ? band.textRight : cell.col)
-        let edgeRow = v < 0 ? band.textTop : (v > 0 ? band.textBot : cell.row)
-        KernelBridge.shared.reportFacilityEdgeScroll(vertical: v, horizontal: h)
-        facilityLastDragCol = edgeCol
-        facilityLastDragRow = edgeRow
-        KernelBridge.shared.reportFacilityMouse(
-            col: edgeCol,
-            row: edgeRow,
-            phase: .drag,
-            shift: facilityDragShift
-        )
-    }
-
     override func mouseDown(with event: NSEvent) {
+        // Legacy facility pane: ignore grid mouse; editor window owns input.
+        if paneKind == .facility {
+            return
+        }
+
         let pt = convert(event.locationInWindow, from: nil)
         let idx = characterIndexForInsertion(at: pt)
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let cmd = mods.contains(.command)
-        let shift = mods.contains(.shift) && !cmd
-        // Triple is clickCount >= 3; double is exactly 2 (do not treat triple as double).
-        let tripleClick = event.clickCount >= 3 && !cmd
-        let doubleClick = event.clickCount == 2 && !cmd
 
-        // Command pane / live full Console (separate-editor): normal REPL selection.
-        if paneKind == .command || liveConsoleWhileSeparateEditor(paneKind) {
-            if paneKind == .command {
-                KernelBridge.shared.setCommandPaneFocused(true)
-            } else {
-                KernelBridge.shared.setCommandPaneFocused(false)
-            }
-            window?.makeFirstResponder(self)
-            // Always notify so SwiftUI FocusState leaves the facility pane.
-            onPaneActivated?()
-            // ⌘-click → VIEW word under click (idle console parity; works while editor KEY waits).
-            if cmd {
-                onCommandClickAtUTF16?(idx)
-                return
-            }
-            // Native click/drag selection (including protected transcript for Copy).
-            super.mouseDown(with: event)
-            // Collapsed caret in the protected prompt → move to end for typing.
-            let sel = selectedRange()
-            if sel.length == 0 {
-                let end = (string as NSString).length
-                let start = min(max(0, editableStartUTF16), end)
-                if sel.location < start {
-                    setSelectedRange(NSRange(location: end, length: 0))
-                }
-            }
-            return
-        }
-
-        if paneKind == .facility || paneKind == .full,
-           KernelBridge.shared.isFacilityTerminalActive, KernelBridge.shared.isEvaluating {
-            // Sticky flag is the KEY routing authority — clear it first (and keep
-            // clearing after FocusState / late ok> callbacks on the next turn).
+        if paneKind == .command {
+            KernelBridge.shared.setCommandPaneFocused(true)
+        } else {
             KernelBridge.shared.setCommandPaneFocused(false)
-            KernelBridge.shared.resetFacilityMouseQueue()
-            window?.makeFirstResponder(self)
-            onPaneActivated?()
-            window?.makeFirstResponder(self)
-            KernelBridge.shared.setCommandPaneFocused(false)
-            // Beat a racing onCommandLineDone that might re-assert command sticky.
-            DispatchQueue.main.async {
-                KernelBridge.shared.setCommandPaneFocused(false)
-            }
-            stopFacilityEdgeScroll()
-
-            // Prefer exact cell; fall back to full-grid clamp (incl. find/status chrome).
-            let cell = KernelBridge.shared.facilityCell(fromUTF16: idx)
-                ?? KernelBridge.shared.facilityGridCellClamped(fromUTF16: idx)
-
-            // Immediate host I-beam so click feedback is not delayed until KEY/REDRAW.
-            if let cell {
-                let cols = max(1, KernelBridge.shared.facilityCols)
-                let prefix = (KernelBridge.shared.facilityPaintPrefix as NSString).length
-                let loc = prefix + cell.row * (cols + 1) + cell.col
-                showFacilityLineCaret(atUTF16: loc)
-            }
-
-            if cmd {
-                facilityDragTracking = false
-                facilityDragShift = false
-                if let cell {
-                    KernelBridge.shared.reportFacilityMouse(
-                        col: cell.col, row: cell.row, phase: .down, command: true
-                    )
-                } else {
-                    KernelBridge.shared.reportFacilityMouse(
-                        utf16Index: idx, phase: .down, command: true
-                    )
-                }
-                return
-            }
-            if tripleClick {
-                facilityDragTracking = false
-                facilityDragShift = false
-                if let cell {
-                    KernelBridge.shared.reportFacilityMouse(
-                        col: cell.col, row: cell.row, phase: .down, tripleClick: true
-                    )
-                }
-                return
-            }
-            if doubleClick {
-                facilityDragTracking = false
-                facilityDragShift = false
-                if let cell {
-                    KernelBridge.shared.reportFacilityMouse(
-                        col: cell.col, row: cell.row, phase: .down, doubleClick: true
-                    )
-                }
-                return
-            }
-            // Plain or ⇧ press: track for drag / shift-extend.
-            facilityDragTracking = true
-            facilityDragShift = shift
-            facilityDragPoint = pt
-            if let cell {
-                facilityLastDragCol = cell.col
-                facilityLastDragRow = cell.row
-                KernelBridge.shared.reportFacilityMouse(
-                    col: cell.col, row: cell.row, phase: .down, shift: shift
-                )
-            } else {
-                facilityDragTracking = false
-                facilityDragShift = false
-            }
-            return
         }
+        window?.makeFirstResponder(self)
+        onPaneActivated?()
 
-        // Console REPL: ⌘-click → VIEW word under click (same as ⌘E on that token).
-        if cmd, !KernelBridge.shared.isEvaluating {
+        // ⌘-click → VIEW word under click (works while editor KEY waits).
+        if cmd {
             onCommandClickAtUTF16?(idx)
-            window?.makeFirstResponder(self)
             return
         }
 
         super.mouseDown(with: event)
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        if facilityDragTracking,
-           KernelBridge.shared.isFacilityTerminalActive,
-           KernelBridge.shared.isEvaluating {
-            let pt = convert(event.locationInWindow, from: nil)
-            facilityDragPoint = pt
-            let idx = characterIndexForInsertion(at: pt)
-            // Prefer clamped text-band cell so drags past the frame still track.
-            guard let cell = KernelBridge.shared.facilityTextCellClamped(fromUTF16: idx)
-                    ?? KernelBridge.shared.facilityCell(fromUTF16: idx) else {
-                return
+        // Collapsed caret in the protected prompt → move to end for typing.
+        let sel = selectedRange()
+        if sel.length == 0 {
+            let end = (string as NSString).length
+            let start = min(max(0, editableStartUTF16), end)
+            if sel.location < start {
+                setSelectedRange(NSRange(location: end, length: 0))
             }
-            let (v, h) = facilityEdgeDirections(col: cell.col, row: cell.row)
-            startFacilityEdgeScrollIfNeeded(v: v, h: h)
-            // Throttle: only when the cell under the pointer changes (or edge timer).
-            if cell.col == facilityLastDragCol, cell.row == facilityLastDragRow {
-                return
-            }
-            facilityLastDragCol = cell.col
-            facilityLastDragRow = cell.row
-            KernelBridge.shared.reportFacilityMouse(
-                col: cell.col,
-                row: cell.row,
-                phase: .drag,
-                shift: facilityDragShift
-            )
-            return
         }
-        super.mouseDragged(with: event)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        if facilityDragTracking {
-            facilityDragTracking = false
-            stopFacilityEdgeScroll()
-            let shift = facilityDragShift
-            facilityDragShift = false
-            if KernelBridge.shared.isFacilityTerminalActive,
-               KernelBridge.shared.isEvaluating {
-                let pt = convert(event.locationInWindow, from: nil)
-                let idx = characterIndexForInsertion(at: pt)
-                if let cell = KernelBridge.shared.facilityTextCellClamped(fromUTF16: idx)
-                    ?? KernelBridge.shared.facilityCell(fromUTF16: idx) {
-                    KernelBridge.shared.reportFacilityMouse(
-                        col: cell.col,
-                        row: cell.row,
-                        phase: .up,
-                        shift: shift
-                    )
-                } else if facilityLastDragCol >= 0 {
-                    // Release outside grid: finalize at last in-grid cell.
-                    KernelBridge.shared.reportFacilityMouse(
-                        col: facilityLastDragCol,
-                        row: facilityLastDragRow,
-                        phase: .up,
-                        shift: shift
-                    )
-                }
-                facilityLastDragCol = -1
-                facilityLastDragRow = -1
-                return
-            }
-            facilityLastDragCol = -1
-            facilityLastDragRow = -1
-        }
-        super.mouseUp(with: event)
     }
 }
 
@@ -755,10 +245,8 @@ struct ConsoleTextView: NSViewRepresentable {
 
         context.coordinator.textView = textView
         onTextViewReady(textView)
-        // Initial cell metrics before first layout pass.
         DispatchQueue.main.async {
             scrollView.layoutSubtreeIfNeeded()
-            // layout() reports metrics; force one more pass after window attach
             scrollView.layout()
         }
         return scrollView
@@ -769,8 +257,8 @@ struct ConsoleTextView: NSViewRepresentable {
         context.coordinator.parent = self
         if let sv = scrollView as? ConsoleNSScrollView {
             sv.paneKind = paneKind
-            // Only the facility (upper) pane drives SZ-EDITOR cell metrics.
-            if paneKind == .facility || paneKind == .full {
+            // Idle full console only — editor window owns metrics while facility is active.
+            if paneKind == .full, !KernelBridge.shared.isFacilityTerminalActive {
                 let clip = sv.contentView.bounds.size
                 if clip.width > 1, clip.height > 1 {
                     KernelBridge.shared.updateConsoleMetrics(scrollView: sv, textView: textView)
@@ -787,17 +275,9 @@ struct ConsoleTextView: NSViewRepresentable {
             ctv.onPaneActivated = { [weak coord] in
                 coord?.parent.onPaneActivated()
             }
-            // Keep facility selectable + editable for reliable first-responder / click
-            // focus; shouldChangeTextIn rejects all grid mutations while facility is on.
-            ctv.isEditable = true
+            ctv.isEditable = paneKind != .facility
             ctv.isSelectable = true
-            // Facility I-beam is drawn by ConsoleView; never on the command pane.
-            if paneKind != .facility {
-                ctv.hideFacilityLineCaret()
-            } else if !KernelBridge.shared.isFacilityTerminalActive
-                        || KernelBridge.shared.isCommandPaneFocused {
-                ctv.hideFacilityLineCaret()
-            }
+            ctv.hideFacilityLineCaret()
         }
 
         var shouldScroll = false
@@ -807,18 +287,15 @@ struct ConsoleTextView: NSViewRepresentable {
             context.coordinator.lastHandledPinCaretRequest = pinCaretRequest
         }
 
-        // Facility *grid* paint: only the upper facility pane freezes selection/scroll.
-        let facilityPaint = paneKind == .facility
-            && KernelBridge.shared.isFacilityTerminalActive
+        // Legacy facility pane: host may still replace the string; do not fight scroll/caret.
+        let legacyFacilityPane = paneKind == .facility
 
         if textView.string != text {
             let oldString = textView.string
             let selected = textView.selectedRange()
             let end = (text as NSString).length
             let oldEnd = (oldString as NSString).length
-            // Prefix growth: append into storage so the clip view does not jump to top
-            // (full `string =` reset fights live FLOAD scroll in the command pane).
-            let isPrefixAppend = !facilityPaint && text.hasPrefix(oldString) && end > oldEnd
+            let isPrefixAppend = !legacyFacilityPane && text.hasPrefix(oldString) && end > oldEnd
 
             context.coordinator.isProgrammaticUpdate = true
             if isPrefixAppend {
@@ -835,9 +312,7 @@ struct ConsoleTextView: NSViewRepresentable {
             }
             context.coordinator.isProgrammaticUpdate = false
 
-            if facilityPaint {
-                // Facility owns the grid; keep selection at 0 and do not auto-scroll
-                // the NSScrollView (wheel scroll is handled as SZ-SCROLL-* keys).
+            if legacyFacilityPane {
                 textView.setSelectedRange(NSRange(location: 0, length: 0))
                 shouldScroll = false
             } else if needsPinCaret || isPrefixAppend || selected.location >= oldEnd {
@@ -845,7 +320,6 @@ struct ConsoleTextView: NSViewRepresentable {
                 shouldScroll = true
                 pinOnScroll = true
             } else if selected.location <= end {
-                // Mid-line edit (arrows + backspace): keep the caret; do not jump to EOL.
                 textView.setSelectedRange(selected)
                 shouldScroll = true
                 pinOnScroll = false
@@ -856,7 +330,7 @@ struct ConsoleTextView: NSViewRepresentable {
             }
 
             Self.resizeTextViewToFitContent(textView)
-        } else if needsPinCaret, !facilityPaint {
+        } else if needsPinCaret, !legacyFacilityPane {
             let end = (text as NSString).length
             textView.setSelectedRange(NSRange(location: end, length: 0))
             shouldScroll = true
@@ -864,7 +338,7 @@ struct ConsoleTextView: NSViewRepresentable {
             Self.resizeTextViewToFitContent(textView)
         }
 
-        if shouldScroll, !facilityPaint {
+        if shouldScroll, !legacyFacilityPane {
             if paneKind == .command {
                 Self.scrollToEndNow(in: textView, pinCaret: pinOnScroll)
             }
@@ -882,27 +356,21 @@ struct ConsoleTextView: NSViewRepresentable {
         }
 
         // Claim first responder only when this pane should own focus.
-        // Sticky flag is authoritative: never let commandText / ok> updates steal
-        // FR after the user clicked the facility (sticky false).
-        if isFocused, let window = scrollView.window, window.firstResponder !== textView {
+        // Never steal FR for the legacy facility pane.
+        if isFocused, paneKind != .facility,
+           let window = scrollView.window, window.firstResponder !== textView {
             if paneKind == .command, !KernelBridge.shared.isCommandPaneFocusedFlag {
                 // Editor owns input — do not reclaim FR for command binding updates.
-            } else if paneKind == .facility, KernelBridge.shared.isCommandPaneFocusedFlag {
-                // Command pane owns input — do not steal FR on grid paint.
             } else {
                 window.makeFirstResponder(textView)
                 if paneKind == .command {
                     KernelBridge.shared.setCommandPaneFocused(true)
-                } else if paneKind == .facility {
-                    KernelBridge.shared.setCommandPaneFocused(false)
                 }
             }
         }
     }
 
     static func scheduleScrollToInsertionPoint(in textView: NSTextView, pinCaret: Bool = true) {
-        // Immediate pass: bulk TYPE replaces used to async-only scroll, so each
-        // `string =` reset left the clip view at the top until FLOAD finished.
         scrollToEndNow(in: textView, pinCaret: pinCaret)
         DispatchQueue.main.async {
             scrollToEndNow(in: textView, pinCaret: pinCaret)
@@ -913,8 +381,6 @@ struct ConsoleTextView: NSViewRepresentable {
     }
 
     /// Grow the text view and scroll to the caret (or document end).
-    /// `pinCaret` is for engine output / new prompt only — mid-line editing must
-    /// pass false so backspace after left-arrow does not jump to EOL.
     static func scrollToEndNow(in textView: NSTextView, pinCaret: Bool = true) {
         resizeTextViewToFitContent(textView)
         if pinCaret {
@@ -1049,9 +515,12 @@ struct ConsoleTextView: NSViewRepresentable {
             let len = (textView.string as NSString).length
             let minLoc = min(max(0, parent.editableStartUTF16), len)
 
-            // Command pane: always allow typing in the input region, even while the
-            // editor KEY loop is active. If the caret is stuck in the prompt, move
-            // it to the end and insert there so characters are not silently dropped.
+            // Legacy facility pane: never mutate via AppKit (safe no-op host surface).
+            if parent.paneKind == .facility {
+                return false
+            }
+
+            // Command pane: always allow typing in the input region.
             if parent.paneKind == .command {
                 if affectedCharRange.location < minLoc {
                     guard let replacement = replacementString, !replacement.isEmpty else {
@@ -1059,7 +528,6 @@ struct ConsoleTextView: NSViewRepresentable {
                     }
                     let end = (textView.string as NSString).length
                     textView.setSelectedRange(NSRange(location: end, length: 0))
-                    // Perform the insert ourselves at the end of the field.
                     if let storage = textView.textStorage {
                         storage.beginEditing()
                         storage.replaceCharacters(in: NSRange(location: end, length: 0), with: replacement)
@@ -1075,201 +543,30 @@ struct ConsoleTextView: NSViewRepresentable {
                 return true
             }
 
-            // Facility grid string is host-painted only — never mutate via AppKit.
-            // Separate-editor full Console is a live REPL, not a grid surface.
-            if parent.paneKind == .facility
-                || (parent.paneKind == .full && !liveConsoleWhileSeparateEditor(parent.paneKind)),
-               KernelBridge.shared.isFacilityTerminalActive {
-                return false
-            }
-
+            // .full is always a live REPL (including while facility KEY waits).
             if affectedCharRange.location < minLoc {
-                return false
-            }
-            // While the kernel is evaluating, KEY/KEY? input is captured by the
-            // NSEvent keyDown monitor in KernelBridge (not here). Reject edits so
-            // typed keys do not appear on the facility/console line.
-            // Exception: separate-editor live Console REPL while KEY waits.
-            if KernelBridge.shared.isEvaluating,
-               !KernelBridge.shared.isCommandPaneFocused,
-               !liveConsoleWhileSeparateEditor(parent.paneKind) {
                 return false
             }
             return true
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            // -----------------------------------------------------------------
-            // While kernel_eval is active (KEY / EKEY / SZ-KEY waiting — e.g.
-            // SZ-EDITOR), AppKit still delivers doCommandBy for arrows, Delete,
-            // Home/End, PgUp/Dn, Return.  We must NOT move the NSTextView caret
-            // or change the facility paint string; instead push classic F-PC
-            // key codes into the Forth key queue (same numbers as sz-edit.fth):
-            //
-            //   1  Home / start of line     5  End / end of line
-            //   2  Left arrow               6  Right arrow
-            //   8  Backspace (delete left) 10  Enter / LF
-            //  14  Down arrow              16  Up arrow
-            //  23  Page Up                 24  Page Down
-            //  28  Ctrl-Home / start file  29  Ctrl-End / end of file
-            // 127  Forward Delete (delete under cursor)
-            //
-            // KernelBridge's keyDown monitor also maps hardware keys; this path
-            // is the reliable fallback when the text view eats the event first.
-            // -----------------------------------------------------------------
-
-            // Command pane / live full Console (separate-editor): normal REPL editing.
-            if parent.paneKind == .command
-                || liveConsoleWhileSeparateEditor(parent.paneKind) {
-                if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                    return parent.onReturnPressed()
-                }
-                if commandSelector == #selector(NSResponder.moveUp(_:)) {
-                    parent.onHistoryUp()
-                    return true
-                }
-                if commandSelector == #selector(NSResponder.moveDown(_:)) {
-                    parent.onHistoryDown()
-                    return true
-                }
-                return false // normal character editing
-            }
-
-            if KernelBridge.shared.isEvaluating {
-                // Prefer modifiers from the current key event (NSEvent.modifierFlags can
-                // be empty during some doCommandBy deliveries).
-                let rawMods = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
-                let mods = rawMods.intersection([.command, .control, .option, .shift])
-                let cmd = mods.contains(.command) && !mods.contains(.shift)
-
-                // ⌘← / ⌘→ → in-buffer find prev/next (same file); host key 20/21
-                // AppKit maps ⌘←/→ to line-start/end selectors — steal them here as fallback.
-                if cmd {
-                    if commandSelector == #selector(NSResponder.moveLeft(_:))
-                        || commandSelector == #selector(NSResponder.moveBackward(_:))
-                        || commandSelector == #selector(NSResponder.moveToBeginningOfLine(_:))
-                        || commandSelector == #selector(NSResponder.moveToLeftEndOfLine(_:)) {
-                        parent.onKeyCharacter(20) // SZ-FIND-PREV
-                        return true
-                    }
-                    if commandSelector == #selector(NSResponder.moveRight(_:))
-                        || commandSelector == #selector(NSResponder.moveForward(_:))
-                        || commandSelector == #selector(NSResponder.moveToEndOfLine(_:))
-                        || commandSelector == #selector(NSResponder.moveToRightEndOfLine(_:)) {
-                        parent.onKeyCharacter(21) // SZ-FIND-NEXT
-                        return true
-                    }
-                    // ⌘PgUp / ⌘PgDn → Hyper prev/next (keys 26/27)
-                    if commandSelector == #selector(NSResponder.pageUp(_:)) {
-                        parent.onKeyCharacter(26) // SZ-HYPER-PREV
-                        return true
-                    }
-                    if commandSelector == #selector(NSResponder.pageDown(_:)) {
-                        parent.onKeyCharacter(27) // SZ-HYPER-NEXT
-                        return true
-                    }
-                }
-
-                // Return → LF (10); ⇧Return → 132 (find previous while Cmd-F field open)
-                if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                    let shiftOnly = mods.contains(.shift)
-                        && !mods.contains(.command)
-                        && !mods.contains(.option)
-                    parent.onKeyCharacter(shiftOnly ? 132 : 10)
-                    return true
-                }
-                // Tab → ASCII 9; SZ-EDITOR expands to spaces (must not be swallowed)
-                if commandSelector == #selector(NSResponder.insertTab(_:)) {
-                    parent.onKeyCharacter(9)
-                    return true
-                }
-                // Shift-Tab: ignore for now (no outdent yet)
-                if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
-                    return true
-                }
-                // Delete (backspace) → BS (8); erase character left of cursor
-                if commandSelector == #selector(NSResponder.deleteBackward(_:)) {
-                    parent.onKeyCharacter(8)
-                    return true
-                }
-                // Forward Delete (fn-Delete / Del) → 127; erase under cursor
-                if commandSelector == #selector(NSResponder.deleteForward(_:)) {
-                    parent.onKeyCharacter(127)
-                    return true
-                }
-                // Left arrow / Ctrl-B style → 2 (SZ-LEFT)
-                if commandSelector == #selector(NSResponder.moveLeft(_:))
-                    || commandSelector == #selector(NSResponder.moveBackward(_:)) {
-                    parent.onKeyCharacter(2)
-                    return true
-                }
-                // Right arrow / Ctrl-F style → 6 (SZ-RIGHT)
-                if commandSelector == #selector(NSResponder.moveRight(_:))
-                    || commandSelector == #selector(NSResponder.moveForward(_:)) {
-                    parent.onKeyCharacter(6)
-                    return true
-                }
-                // Up arrow → 16 (SZ-UP)
-                if commandSelector == #selector(NSResponder.moveUp(_:)) {
-                    parent.onKeyCharacter(16)
-                    return true
-                }
-                // Down arrow → 14 (SZ-DOWN)
-                if commandSelector == #selector(NSResponder.moveDown(_:)) {
-                    parent.onKeyCharacter(14)
-                    return true
-                }
-                // Ctrl/Cmd-Home, Cmd-↑, scroll-to-doc-start → start of file (28)
-                if commandSelector == #selector(NSResponder.moveToBeginningOfDocument(_:))
-                    || commandSelector == #selector(NSResponder.scrollToBeginningOfDocument(_:)) {
-                    parent.onKeyCharacter(28)
-                    return true
-                }
-                // Ctrl/Cmd-End, Cmd-↓, scroll-to-doc-end → end of file (29)
-                if commandSelector == #selector(NSResponder.moveToEndOfDocument(_:))
-                    || commandSelector == #selector(NSResponder.scrollToEndOfDocument(_:)) {
-                    parent.onKeyCharacter(29)
-                    return true
-                }
-                // Home / beginning of line → 1 (SZ-HOME-LINE)
-                if commandSelector == #selector(NSResponder.moveToBeginningOfLine(_:))
-                    || commandSelector == #selector(NSResponder.moveToLeftEndOfLine(_:)) {
-                    parent.onKeyCharacter(1)
-                    return true
-                }
-                // End / end of line → 5 (SZ-END-LINE)
-                if commandSelector == #selector(NSResponder.moveToEndOfLine(_:))
-                    || commandSelector == #selector(NSResponder.moveToRightEndOfLine(_:)) {
-                    parent.onKeyCharacter(5)
-                    return true
-                }
-                // Page Up → 23 (SZ-PGUP)
-                if commandSelector == #selector(NSResponder.pageUp(_:)) {
-                    parent.onKeyCharacter(23)
-                    return true
-                }
-                // Page Down → 24 (SZ-PGDN)
-                if commandSelector == #selector(NSResponder.pageDown(_:)) {
-                    parent.onKeyCharacter(24)
-                    return true
-                }
-                // Any other command (select all, etc.): swallow so NSTextView
-                // does not mutate the facility terminal paint.
+            // Legacy facility pane: swallow AppKit editing commands.
+            if parent.paneKind == .facility {
                 return true
             }
 
-            // -----------------------------------------------------------------
-            // Normal REPL (not waiting on KEY): Return submits the input line;
-            // Up/Down recall history; Left stops at the protected prefix edge.
-            // -----------------------------------------------------------------
-            // Facility grid still painted in this view: never commit a REPL line.
-            // Separate-editor full Console is handled above as a live REPL.
-            if KernelBridge.shared.isFacilityTerminalActive,
-               !liveConsoleWhileSeparateEditor(parent.paneKind) {
-                return true
-            }
+            // .full / .command: normal REPL — Return, history, protected-prefix clamp.
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 return parent.onReturnPressed()
+            }
+            if commandSelector == #selector(NSResponder.moveUp(_:)) {
+                parent.onHistoryUp()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.moveDown(_:)) {
+                parent.onHistoryDown()
+                return true
             }
 
             let minLoc = min(max(0, parent.editableStartUTF16), (textView.string as NSString).length)
@@ -1277,16 +574,6 @@ struct ConsoleTextView: NSViewRepresentable {
             let caretInInputLine = sel.length == 0 && sel.location >= minLoc
 
             if caretInInputLine {
-                // Up / Down on the editable input line → command history
-                if commandSelector == #selector(NSResponder.moveUp(_:)) {
-                    parent.onHistoryUp()
-                    return true
-                }
-                if commandSelector == #selector(NSResponder.moveDown(_:)) {
-                    parent.onHistoryDown()
-                    return true
-                }
-                // Left: do not walk the caret into protected engine output
                 if commandSelector == #selector(NSResponder.moveLeft(_:))
                     || commandSelector == #selector(NSResponder.moveBackward(_:)) {
                     if sel.location <= minLoc {
@@ -1295,7 +582,6 @@ struct ConsoleTextView: NSViewRepresentable {
                     textView.setSelectedRange(NSRange(location: sel.location - 1, length: 0))
                     return true
                 }
-                // Word-left / Home / Page Up / document start → clamp to input start
                 if commandSelector == #selector(NSResponder.moveWordLeft(_:))
                     || commandSelector == #selector(NSResponder.moveWordBackward(_:))
                     || commandSelector == #selector(NSResponder.moveToBeginningOfLine(_:))
@@ -1315,100 +601,6 @@ struct ConsoleTextView: NSViewRepresentable {
 
 #else
 import UIKit
-import ObjectiveC
-
-private let facilityCaretViewTag = 0xFAC1_CA2E
-private var facilityCaretBlinkTimerKey: UInt8 = 0
-private var facilityCaretBlinkOnKey: UInt8 = 0
-private var facilityCaretUTF16Key: UInt8 = 0
-
-extension UITextView {
-    private var facilityCaretBlinkTimer: Timer? {
-        get { objc_getAssociatedObject(self, &facilityCaretBlinkTimerKey) as? Timer }
-        set { objc_setAssociatedObject(self, &facilityCaretBlinkTimerKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    private var facilityCaretBlinkOn: Bool {
-        get { (objc_getAssociatedObject(self, &facilityCaretBlinkOnKey) as? Bool) ?? true }
-        set { objc_setAssociatedObject(self, &facilityCaretBlinkOnKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    private var facilityCaretUTF16: Int {
-        get { (objc_getAssociatedObject(self, &facilityCaretUTF16Key) as? Int) ?? 0 }
-        set { objc_setAssociatedObject(self, &facilityCaretUTF16Key, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    /// Thin vertical I-beam for the Facility / SZ-EDITOR insert point (+ blink).
-    func showFacilityLineCaret(atUTF16 utf16Index: Int) {
-        facilityCaretUTF16 = utf16Index
-        facilityCaretBlinkOn = true
-        // Hide UITextView insertion point while we draw our own.
-        tintColor = .clear
-        layoutFacilityCaretBar()
-        if facilityCaretBlinkTimer == nil {
-            let t = Timer(timeInterval: 0.53, repeats: true) { [weak self] _ in
-                self?.facilityCaretBlinkTick()
-            }
-            RunLoop.main.add(t, forMode: .common)
-            facilityCaretBlinkTimer = t
-        }
-    }
-
-    func hideFacilityLineCaret() {
-        facilityCaretBlinkTimer?.invalidate()
-        facilityCaretBlinkTimer = nil
-        facilityCaretBlinkOn = true
-        viewWithTag(facilityCaretViewTag)?.isHidden = true
-        // Restore default caret tint for normal REPL.
-        tintColor = .systemBlue
-    }
-
-    private func facilityCaretBlinkTick() {
-        guard KernelBridge.shared.isFacilityTerminalActive else {
-            hideFacilityLineCaret()
-            return
-        }
-        facilityCaretBlinkOn.toggle()
-        viewWithTag(facilityCaretViewTag)?.isHidden = !facilityCaretBlinkOn
-    }
-
-    private func layoutFacilityCaretBar() {
-        let caret: UIView
-        if let existing = viewWithTag(facilityCaretViewTag) {
-            caret = existing
-        } else {
-            let v = UIView(frame: .zero)
-            v.tag = facilityCaretViewTag
-            v.backgroundColor = .systemBlue
-            v.isUserInteractionEnabled = false
-            v.isHidden = true
-            addSubview(v)
-            caret = v
-        }
-
-        let utf16Index = facilityCaretUTF16
-        let ns = (text ?? "") as NSString
-        let length = ns.length
-        guard length > 0, utf16Index >= 0, utf16Index < length,
-              let start = position(from: beginningOfDocument, offset: utf16Index),
-              let end = position(from: start, offset: 1),
-              let textRange = textRange(from: start, to: end) else {
-            caret.isHidden = true
-            return
-        }
-
-        let rect = firstRect(for: textRange)
-        guard rect.width > 0 || rect.height > 0 else {
-            caret.isHidden = true
-            return
-        }
-        let barWidth: CGFloat = 2
-        let x = max(0, rect.minX - barWidth * 0.5)
-        caret.frame = CGRect(x: x, y: rect.minY, width: barWidth, height: max(rect.height, 1))
-        caret.backgroundColor = .systemBlue
-        caret.isHidden = !facilityCaretBlinkOn
-    }
-}
 
 /// iOS console editor (UITextView). Core REPL input; facility/editor keys via pushKey.
 struct ConsoleTextView: UIViewRepresentable {
@@ -1474,9 +666,6 @@ struct ConsoleTextView: UIViewRepresentable {
         if isFocused, !tv.isFirstResponder {
             tv.becomeFirstResponder()
         }
-        if !KernelBridge.shared.isFacilityTerminalActive {
-            tv.hideFacilityLineCaret()
-        }
     }
 
     private func scrollToEnd(_ tv: UITextView) {
@@ -1513,25 +702,31 @@ struct ConsoleTextView: UIViewRepresentable {
                 return false
             }
             if KernelBridge.shared.isEvaluating {
-                // Return → LF for KEY loop
                 if text == "\n" {
                     parent.onKeyCharacter(10)
                     return false
                 }
-                // Single char → push as Latin-1/Unicode scalar
                 if text.count == 1, let sc = text.unicodeScalars.first {
                     var v = Int32(sc.value)
-                    if v == 127 { v = 8 } // treat DEL as BS in facility
+                    if v == 127 { v = 8 }
                     parent.onKeyCharacter(v)
                 }
                 return false
             }
-            // Return submits the input line
             if text == "\n" {
                 return parent.onReturnPressed()
             }
             return true
         }
     }
+}
+
+extension UITextView {
+    /// Legacy no-op stubs (macOS ConsoleView still references the AppKit APIs).
+    func showFacilityLineCaret(atUTF16 utf16Index: Int) {
+        _ = utf16Index
+    }
+
+    func hideFacilityLineCaret() {}
 }
 #endif

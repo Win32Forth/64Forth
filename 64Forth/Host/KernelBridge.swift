@@ -704,11 +704,9 @@ public func host_debug_paint() {
     let screen = term.render()
     let paint: () -> Void = {
         KernelBridge.shared.onTerminalRefresh?(screen)
-        // Separate-editor: ensure DEBUG Files column appears even if ConsoleView
-        // already returned early from a prior refresh race.
-        if KernelBridge.useSeparateFacilityEditor {
-            FacilityEditorHost.shared.redraw()
-        }
+        // Ensure DEBUG Files column appears even if ConsoleView already
+        // returned early from a prior refresh race.
+        FacilityEditorHost.shared.redraw()
     }
     if Thread.isMainThread {
         paint()
@@ -786,11 +784,6 @@ public func host_sz_cmd_get(_ ptr: UnsafeMutableRawPointer?, _ maxLen: Int) -> I
 final class KernelBridge {
     static let shared = KernelBridge()
 
-    /// When true, SZ-EDITOR paints in `FacilityEditorHost` (its own window).
-    /// App Output (`AppOutputHost`) stays GRAPHICS/Emitter-only — never merge them.
-    /// Set false to fall back to the Option A console VSplit while iterating.
-    static var useSeparateFacilityEditor: Bool = true
-
     private(set) var isKernelLive = false
 
     /// Data-stack depth in cells after the last eval (for `ok(n)>` prompt). 0 if kernel not live.
@@ -829,9 +822,6 @@ final class KernelBridge {
     /// Phase 1 split: the lower scrollable command pane is a separate view, so the
     /// facility grid may use the full upper pane (0 reserved rows in cell math).
     static let facilityCommandAreaLines = 0
-    /// Extra columns relative to measured fit. +10 widens overall by ~12 vs the
-    /// prior −2 setting (user: still ~12 cols too narrow with side panel).
-    private static let facilityColAdjust = 10
     /// Rows subtracted from measured pane height. 0 = fit pane; +1 leaves a
     /// little air above the splitter (user: one monospaced cell of gap).
     private static let facilityRowSafety = 0
@@ -853,8 +843,7 @@ final class KernelBridge {
         let cw = max(consoleCellWidth, 1)
         let lh = max(consoleLineHeight, 1)
         let usable = consoleUsableSize.width > 1 ? consoleUsableSize : consoleVisibleSize
-        let colAdjust = Self.useSeparateFacilityEditor ? 0 : Self.facilityColAdjust
-        let cols = max(24, Int(floor(usable.width / cw)) + colAdjust)
+        let cols = max(24, Int(floor(usable.width / cw)))
         let totalRows = max(1, Int(floor(usable.height / lh)))
         let rows = max(
             10,
@@ -870,7 +859,6 @@ final class KernelBridge {
         cellWidth: CGFloat,
         cellHeight: CGFloat
     ) {
-        guard Self.useSeparateFacilityEditor else { return }
         guard contentSize.width > 1, contentSize.height > 1 else { return }
         // Inset matches FacilityGridView origin padding (4+4).
         let usableW = max(1, contentSize.width - 8)
@@ -887,7 +875,7 @@ final class KernelBridge {
     /// Wakes SZ-EDITOR (KEY) when the preferred cell grid changes so REDRAW can sync.
     func updateConsoleVisibleSize(_ size: CGSize, font: Any?) {
         // Separate-editor mode: facility size comes from FacilityEditorHost only.
-        if Self.useSeparateFacilityEditor, isFacilityTerminalActive { return }
+        if isFacilityTerminalActive { return }
         #if os(macOS)
         // Prefer full metrics from the live text view when available.
         if let font = font as? NSFont {
@@ -911,7 +899,7 @@ final class KernelBridge {
     /// Accurate metrics from the live `NSScrollView` / `NSTextView` (insets, padding, scroller).
     func updateConsoleMetrics(scrollView: NSScrollView, textView: NSTextView) {
         // Do not let the Console window overwrite SZ-EDITOR cell math.
-        if Self.useSeparateFacilityEditor, isFacilityTerminalActive { return }
+        if isFacilityTerminalActive { return }
         let clip = scrollView.contentView.bounds.size
         guard clip.width > 1, clip.height > 1 else { return }
         let font = textView.font
@@ -2119,9 +2107,9 @@ final class KernelBridge {
         guard active, FacilityTerminal.shared.isActive else { return false }
         guard let key = facilityEditorKey(from: event) else { return false }
 
-        // Separate-editor: Console keeps plain arrows/history while it is key.
+        // Console keeps plain arrows/history while it is key.
         // Still allow ⌘ find / Hyper from any window while facility is open.
-        if Self.useSeparateFacilityEditor, !FacilityEditorHost.shared.isKeyWindowActive {
+        if !FacilityEditorHost.shared.isKeyWindowActive {
             switch key {
             case 20, 21, 26, 27, 28, 29:
                 return pushKey(key)
@@ -2130,8 +2118,7 @@ final class KernelBridge {
             }
         }
 
-        // Legacy split / editor window key: steal find/hyper and motion so the
-        // NSTextView never mutates the facility paint string.
+        // Editor window key: steal find/hyper and motion.
         return pushKey(key)
         #else
         return false
@@ -2380,18 +2367,12 @@ final class KernelBridge {
             let mods = event.modifierFlags.intersection([.control, .option, .shift, .command])
             let facilityOn = FacilityTerminal.shared.isActive
 
-            // Sticky flag only (not first-responder). After a command-pane line,
-            // ok> may leave FR on the command view even after the user clicked the
-            // editor; FR-based routing left the editor dead.
-            let commandPaneFocus = self.isCommandPaneFocusedFlag
-
             // Window ownership (explicit order): App Output → SZ-EDITOR → Console.
             // App Output stays GRAPHICS/Emitter-only; editor is a separate host.
             if AppOutputHost.shared.routeKeyIfActive(event) {
                 return nil
             }
-            if Self.useSeparateFacilityEditor,
-               FacilityEditorHost.shared.routeKeyIfActive(event) {
+            if FacilityEditorHost.shared.routeKeyIfActive(event) {
                 return nil
             }
 
@@ -2408,90 +2389,10 @@ final class KernelBridge {
                 return nil
             }
 
-            // Separate-editor mode: facility KEY only when the editor window is key.
-            // Otherwise the console REPL owns typing (Phase 2 live evaluate).
-            let editorWindowOwnsKeys = !Self.useSeparateFacilityEditor
-                || FacilityEditorHost.shared.isKeyWindowActive
+            // Facility KEY only when the editor window is key; else Console REPL types.
+            let editorWindowOwnsKeys = FacilityEditorHost.shared.isKeyWindowActive
 
-            // Lower command pane owns typing + clipboard while sticky is set.
-            // Still steal editor-global ⌘ shortcuts (save/close/quit/find/hyper/VIEW).
-            if commandPaneFocus {
-                if mods.contains(.command), active && facilityOn {
-                    let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
-                    if ch == "s", !mods.contains(.shift) {
-                        self.pushKey(19)
-                        return nil
-                    }
-                    if ch == "s", mods.contains(.shift) {
-                        self.onSaveAsPanelRequest?()
-                        return nil
-                    }
-                    if ch == "n", !mods.contains(.shift) {
-                        self.pushKey(31)
-                        return nil
-                    }
-                    if ch == "o", !mods.contains(.shift) {
-                        self.onOpenPanelRequest?()
-                        return nil
-                    }
-                    if ch == "w", !mods.contains(.shift) {
-                        self.pushKey(17)
-                        return nil
-                    }
-                    if ch == "q", !mods.contains(.shift) {
-                        self.requestQuitFromEditor()
-                        return nil
-                    }
-                    // ⌘E → VIEW word under command caret (ConsoleView notification)
-                    // even while the lower pane owns typing.
-                    if ch == "e", !mods.contains(.shift) {
-                        self.viewWordUnderConsoleCursor()
-                        return nil
-                    }
-                    // ⌘F find field; ⌘G / ⌘⇧G find next/prev in the open buffer.
-                    if ch == "f", !mods.contains(.shift) {
-                        self.pushKey(131)
-                        return nil
-                    }
-                    if ch == "g" {
-                        self.pushKey(mods.contains(.shift) ? 20 : 21)
-                        return nil
-                    }
-                    // ⌘PgUp / ⌘PgDn — Hyper prev/next (same as facility-focused).
-                    if !mods.contains(.shift), event.keyCode == 116 {
-                        self.pushKey(26)
-                        return nil
-                    }
-                    if !mods.contains(.shift), event.keyCode == 121 {
-                        self.pushKey(27)
-                        return nil
-                    }
-                    // ⌘← / ⌘→ — in-buffer find (steal before NSTextView line-start/end).
-                    // Do not call consumeEditorHotKeyIfNeeded — it no-ops while command focused.
-                    if !mods.contains(.shift), !mods.contains(.option) {
-                        switch event.keyCode {
-                        case 123: // left
-                            self.pushKey(20)
-                            return nil
-                        case 124: // right
-                            self.pushKey(21)
-                            return nil
-                        case 115: // Home
-                            self.pushKey(28)
-                            return nil
-                        case 119: // End
-                            self.pushKey(29)
-                            return nil
-                        default:
-                            break
-                        }
-                    }
-                }
-                return event
-            }
-
-            // Editor owns KEY (sticky clear): deliver facility keys even if FR lags.
-            // Separate-editor mode: only when FacilityEditorHost is the key window.
+            // Editor owns KEY: deliver facility keys even if FR lags.
             if active, facilityOn, editorWindowOwnsKeys {
                 if self.consumeEditorHotKeyIfNeeded(event) {
                     return nil
@@ -2509,7 +2410,7 @@ final class KernelBridge {
                 return nil
             }
 
-            // Phase 5 idle / facility-adjacent ⌘E / ⌘F / ⌘G
+            // Idle / facility-adjacent ⌘E / ⌘F / ⌘G
             if mods.contains(.command) {
                 let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
                 if ch == "e", !mods.contains(.shift) {
@@ -2518,7 +2419,7 @@ final class KernelBridge {
                         return nil
                     }
                     // Console key (or idle): VIEW token under console caret.
-                    if !active || (Self.useSeparateFacilityEditor && !editorWindowOwnsKeys) {
+                    if !active || !editorWindowOwnsKeys {
                         self.viewWordUnderConsoleCursor()
                         return nil
                     }
@@ -2541,16 +2442,13 @@ final class KernelBridge {
 
             guard active else { return event }
 
-            // Legacy split / non-key-window fallback (App Output already handled above).
+            // Editor-window fallback (App Output already handled above).
             if editorWindowOwnsKeys, self.deliverFacilityKeyDown(event) {
                 return nil
             }
             if mods.contains(.command) { return event }
-            // Separate-editor + console key: do not swallow — let the REPL type.
-            if Self.useSeparateFacilityEditor, !editorWindowOwnsKeys {
-                return event
-            }
-            return nil
+            // Console key while facility open: do not swallow — let the REPL type.
+            return event
         }
     }
 
@@ -2921,9 +2819,9 @@ final class KernelBridge {
     /// EMITs go to the facility grid when it is active, unless command-pane bypass
     /// is on *and* we are not mid SZ-REDRAW (PAGE/AT-XY … TERMINAL-REFRESH).
     private var emitToFacilityGrid: Bool {
-        let term = FacilityTerminal.shared
-        guard term.isActive else { return false }
-        if term.gridPaintActive { return true }
+        let (active, gridPaint) = FacilityTerminal.shared.emitRoutingState()
+        guard active else { return false }
+        if gridPaint { return true }
         return !isFacilityEmitBypass
     }
 
