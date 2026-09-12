@@ -67,8 +67,9 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ---
 
-## Status (v1.3.7)
+## Status (v1.3.8)
 
+- [x] **v1.3.8:** **SZ-EDITOR** in its own window (three-window model: Console / SZ-EDITOR / App Output); live Console REPL while editor KEY waits; `SEE` decompile vs `VIEW` editor; DMG + GitHub release (pending local DMG)
 - [x] **v1.3.7:** **ANEW** on `MARKER` (load/reload messages); **BREAK** / **BPGO** (8 breakpoints); DMG + GitHub release
 - [x] **v1.3.6:** Emitter **0.7** — SA nested locals + BI host slots; window I/O remap; `PIMAIN.app` (10-digit π); DMG + GitHub release
 - [x] **v1.3.5:** Emitter **0.6** — stand-alone `.app` (`EMIT-APP` / `EMIT-WINDOW-APP`), `MS@` SA timer, FROMLIB outdir; tetra verified; DMG + GitHub release
@@ -89,8 +90,10 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 - [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Agent-channel.md`
 - [ ] **Later (optional):** DMG `/Volumes/…` open noise — see STATUS
 
-**Console header** (GUI): `=== 64Forth 1.3.7 === Sep 12, 2026 10:56 AM ===`  
+**Console header** (GUI): `=== 64Forth 1.3.8 === Sep 12, 2026 3:51 PM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
+
+**Windows (macOS):** **Console** (Forth REPL) · **SZ-EDITOR** (`FacilityEditorHost`, facility grid) · **App Output** (GRAPHICS / Emitter only). Do not merge the editor into App Output. iOS: Console only (no SZ-EDITOR host).
 
 ## Status (v1.1.1)
 
@@ -133,19 +136,20 @@ Stamp the date/time only when finishing a change set for a version, just before 
 - [x] **v1.1.0:** editor + scrollable command pane (Option A); staged evaluate while KEY waits; nested EVALUATE/CATCH safe for FLOAD/Hayes/ANS-VALIDATE; thick striped splitter; live command-pane scroll — see `Resources/Docs/STATUS.md`
 - [x] **v1.1.1:** command-pane VIEW (⌘E / ⌘-click); seed/restore console under editor; splitter resize stable; CLS vs FACILITY-OFF; no duplicate Files visits — see `Resources/Docs/STATUS.md`
 
-### Hypertext + SZ-EDITOR (v1.1.1)
+### Hypertext + SZ-EDITOR (v1.3.8)
 
 | Area | Done |
 |------|------|
-| **Hyper Phases 0–5** | Index CFG/NDX, offline + in-app reindex, LOCATE/VIEW, multi-hit ⌘PgUp/Dn, ⌘E VIEW, SEE→VIEW, `HYPER-VOC`; kernel sources shipped as `Library/Sources/` for release VIEW |
-| **SZ-EDITOR** | Full-screen Facility edit; save/close; find ⌘←/→ ⌘G; cut/copy/paste; mouse + wheel; Tab indent; `EDIT` opens SZ-EDITOR, `TextEdit` keeps system editor |
-| **Split command pane** | Facility above + host `ok(n)>` console below; key 133 / `(SZ-CMD@)` / `(SZ-CMD-DONE)`; shared stack; long FLOAD output scrolls live |
-| **Command-pane VIEW** | ⌘E / ⌘-click while KEY waits; seed lower pane from pre-editor transcript; no duplicate side-list visits on re-VIEW |
+| **Three windows (macOS)** | **Console** REPL · **SZ-EDITOR** (`FacilityEditorHost`) · **App Output** (GRAPHICS/Emitter only) — no console VSplit |
+| **Hyper Phases 0–5** | Index CFG/NDX, offline + in-app reindex, LOCATE/VIEW, multi-hit ⌘PgUp/Dn, ⌘E VIEW, `HYPER-VOC`; kernel sources shipped as `Library/Sources/` for release VIEW |
+| **SZ-EDITOR** | Own window facility edit; save/close; find ⌘←/→ ⌘G; cut/copy/paste; mouse + wheel; Tab indent; `EDIT` opens SZ-EDITOR, `TextEdit` keeps system editor |
+| **Live Console while KEY waits** | Full Console types/`ok(n)>` during editor KEY; key 133 / `(SZ-CMD@)` / `(SZ-CMD-DONE)`; shared stack |
+| **VIEW vs SEE** | `VIEW` / ⌘E / ⌘-click open SZ-EDITOR; `SEE` decompiles to Console only |
 | **Autoload** | Loads editor + Hyper, reindexes on startup when configured |
 
 **Docs:** `Resources/Docs/STATUS.md` (design + phase notes), `Resources/Library/Hyper/README.txt`, `Resources/Library/Editor/SZ-EDITOR-README.txt`, `Resources/Config/README.txt`, `Resources/Docs/README.txt`.
 
-Optional later: persist split ratio, multi-line command paste polish, App Sandbox for store builds, editor dual-buffer.
+Optional later: multi-line command paste polish, App Sandbox for store builds, editor dual-buffer.
 
 Open `64Forth.xcodeproj` in **full Xcode** (Apple Silicon; not Command Line Tools alone). Build the **64Forth** app target for a DMG.
 

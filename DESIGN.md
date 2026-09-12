@@ -1,9 +1,19 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-09-12 — **v1.3.7** (build 36) — ANEW on MARKER + BREAK/BPGO breakpoints; prior **1.3.6** Emitter **0.7** SA locals/BI + window I/O remap (`EMIT-WINDOW-APP`, PIMAIN); app-kit freeze still `Docs/APPKIT.md` (GRAPHICS 80×25 / 640×400; `\ANS`/`\TCOM`/`\EMITTER`; tetra + PIMAIN).
+**Updated:** 2026-09-12 — **v1.3.8** (build 37) — SZ-EDITOR in its own window (Console / SZ-EDITOR / App Output); prior **1.3.7** ANEW/MARKER + BREAK/BPGO; **1.3.6** Emitter **0.7** SA locals/BI + window I/O remap; app-kit freeze still `Docs/APPKIT.md` (GRAPHICS 80×25 / 640×400; `\ANS`/`\TCOM`/`\EMITTER`; tetra + PIMAIN).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
+
+**Host windows (macOS, v1.3.8+):**
+
+| Window | Role |
+|--------|------|
+| **Console** | Forth REPL only — never hosts the facility grid |
+| **SZ-EDITOR** | `FacilityEditorHost` — facility character grid + KEY loop |
+| **App Output** | `AppOutputHost` — GRAPHICS / Emitter / stand-alone apps only |
+
+Do **not** put SZ-EDITOR inside App Output. Console stays live while the editor KEY loop runs.
 
 ---
 
@@ -19,8 +29,8 @@
 | Floating-point (IEEE-64 F-stack, parse/print) | **TZForth** `TZForthFloat.swift` → `FloatHost.swift` | **`VOCABULARY FP`** (public names); thin FORTH hooks `FLIT` / `(F-OP)` |
 | File-Access + Block volumes | TZForth-style host + kernel CODE | `FileAccess.swift`, block file words, Hayes prepare-blocks |
 | XChar | Kernel UTF-8 CODE + high-level words; bulk `emit_buf` for multi-byte TYPE | ANS 18; validate via `ANSValidate/all-in-one.fth` |
-| Facility terminal grid | TZForth-style host | `FacilityTerminal.swift` — `PAGE`/`AT-XY` cell buffer for SZ-EDITOR |
-| SZ-EDITOR | TZForth Library/Editor port | Full-screen facility editor; `EDIT` entry; find/clip/mouse/wheel; Cmd-S/W/Q |
+| Facility terminal grid | TZForth-style host | `FacilityTerminal.swift` — `PAGE`/`AT-XY` cell buffer for SZ-EDITOR (thread-safe) |
+| SZ-EDITOR | TZForth Library/Editor port | Own `FacilityEditorHost` window (v1.3.8+); `EDIT`/`VIEW`; find/clip/mouse/wheel; Cmd-S/W/Q — not in Console or App Output |
 | Hypertext | F-PC HYPER lineage | LOCATE/VIEW, multi-hit ⌘PgUp/Dn, ⌘E, `HYPER-REINDEX`, `HYPER-VOC` |
 
 ---

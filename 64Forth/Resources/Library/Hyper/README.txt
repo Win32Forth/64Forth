@@ -29,8 +29,8 @@ Vocabulary
 Commands
 --------
   LOCATE <name>     Print defining path:line  (shows [n/m] if multiple hits)  (FORTH)
-  VIEW <name>       Open file in SZ-EDITOR at that line                       (FORTH)
-  SEE <name>        Decompile to console (kernel SEE; does not open editor)   (FORTH)
+  VIEW <name>       Open source in SZ-EDITOR window at that line              (FORTH)
+  SEE <name>        Decompile to Console (kernel SEE; does not open editor)   (FORTH)
   SEE-SOURCE        Alias of VIEW                                             (FORTH)
   SEE-HYPER         Optional: VIEW if indexed+editor, else decompile          (FORTH)
   DBG <name>        VIEW or untitled, then DEBUG                              (FORTH)
