@@ -69,7 +69,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ## Status (v1.3.8)
 
-- [x] **v1.3.8:** **SZ-EDITOR** in its own window (three-window model: Console / SZ-EDITOR / App Output); live Console REPL while editor KEY waits; `SEE` decompile vs `VIEW` editor; DMG + GitHub release (pending local DMG)
+- [x] **v1.3.8:** **SZ-EDITOR** in its own window (three-window model: Console / SZ-EDITOR / App Output); live Console REPL while editor KEY waits; `SEE` decompile vs `VIEW` editor; DMG + GitHub release
 - [x] **v1.3.7:** **ANEW** on `MARKER` (load/reload messages); **BREAK** / **BPGO** (8 breakpoints); DMG + GitHub release
 - [x] **v1.3.6:** Emitter **0.7** — SA nested locals + BI host slots; window I/O remap; `PIMAIN.app` (10-digit π); DMG + GitHub release
 - [x] **v1.3.5:** Emitter **0.6** — stand-alone `.app` (`EMIT-APP` / `EMIT-WINDOW-APP`), `MS@` SA timer, FROMLIB outdir; tetra verified; DMG + GitHub release

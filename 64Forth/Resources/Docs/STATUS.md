@@ -1,6 +1,6 @@
 # 64Forth development status
 
-**Current:** **1.3.8** (build **37**; DMG + GitHub `v1.3.8` pending)  
+**Current:** **1.3.8** (build **37**; DMG + GitHub `v1.3.8`)  
 **Last updated:** 2026-09-12 (v1.3.8: SZ-EDITOR own window; three-window model)
 
 This file tracks design notes and progress for work after 1.0.7.  
@@ -40,7 +40,7 @@ Append new design sections as we go; mark items done when implemented.
 - Legacy Option A console VSplit / `useSeparateFacilityEditor` flag **removed**
 - `FacilityTerminal` thread-safe (Forth EMIT vs main-thread `deactivate` race fixed)
 
-**Release:** `64Forth/releases/64Forth-1.3.8-macOS.dmg` + GitHub `v1.3.8` (attach after local DMG build)
+**Release:** `64Forth/releases/64Forth-1.3.8-macOS.dmg` + GitHub `v1.3.8`
 
 ---
 
