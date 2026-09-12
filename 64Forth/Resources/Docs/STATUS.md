@@ -1,10 +1,33 @@
 # 64Forth development status
 
-**Current:** **1.3.6** (build **35**; DMG + GitHub `v1.3.6`)  
-**Last updated:** 2026-09-07 (v1.3.6 notes: Emitter 0.7 — SA locals/BI, window I/O remap, PIMAIN)
+**Current:** **1.3.7** (build **36**; DMG + GitHub `v1.3.7`)  
+**Last updated:** 2026-09-12 (v1.3.7 notes: ANEW/MARKER reload + BREAK/BPGO breakpoints)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.3.7 — ANEW cleanup + debugger breakpoints
+
+**Version strings:** marketing **1.3.7**, build **36** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
+
+**Console header stamp** (`ConsoleView.swift` `banner` — refresh date/time just before DMG):
+
+```text
+=== 64Forth 1.3.7 === Sep 12, 2026 10:56 AM ===
+```
+
+**Highlights (vs 1.3.6):**
+
+*ANEW / module reload*
+- **`ANEW`** rewritten on top of **`MARKER`**: prints `name :Loading module` / `name :Reloading module`, executes an existing marker to forget, then defines a fresh marker (removed the older `FORGET`/`ANEWMODULE` path)
+- Related cold-load / vocabulary cleanup: AutoLoad `vocsys.fth`, quieter EMITTER native-helper rechain, Assembler touch-ups, HYPER.NDX refresh
+
+*Debugger*
+- **8 breakpoints** via **`BREAK`** / **`BPGO`** (topword) — `debug-bp.fth` + kernel support
+
+**Release:** `64Forth/releases/64Forth-1.3.7-macOS.dmg` + GitHub `v1.3.7`
 
 ---
 

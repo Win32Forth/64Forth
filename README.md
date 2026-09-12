@@ -67,8 +67,9 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ---
 
-## Status (v1.3.6)
+## Status (v1.3.7)
 
+- [x] **v1.3.7:** **ANEW** on `MARKER` (load/reload messages); **BREAK** / **BPGO** (8 breakpoints); DMG + GitHub release
 - [x] **v1.3.6:** Emitter **0.7** — SA nested locals + BI host slots; window I/O remap; `PIMAIN.app` (10-digit π); DMG + GitHub release
 - [x] **v1.3.5:** Emitter **0.6** — stand-alone `.app` (`EMIT-APP` / `EMIT-WINDOW-APP`), `MS@` SA timer, FROMLIB outdir; tetra verified; DMG + GitHub release
 - [x] **v1.3.4:** Emitter Phase 1 (`EMIT-TETRA`, `/EMIT-STANDALONE`) + quiet AutoLoad (`WARNING`/DEFER late-binding); packaging landed in 1.3.5
@@ -88,7 +89,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 - [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Agent-channel.md`
 - [ ] **Later (optional):** DMG `/Volumes/…` open noise — see STATUS
 
-**Console header** (GUI): `=== 64Forth 1.3.6 === Sep 7, 2026 7:50 PM ===`  
+**Console header** (GUI): `=== 64Forth 1.3.7 === Sep 12, 2026 10:56 AM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
 
 ## Status (v1.1.1)

@@ -6,9 +6,9 @@
 Canonical plan source: session `plan.md` (assembler toolkit).  
 Canonical code: `64TCOMARM64/ASMARM64.fth`.
 
-**Last updated:** 2026-09-07 (64Forth **1.3.6**; interactive `CODE`/`END-CODE` from **1.3.1**)  
+**Last updated:** 2026-09-12 (64Forth **1.3.7**; interactive `CODE`/`END-CODE` from **1.3.1**)  
 **Phase target:** 3.2 Assembler toolkit  
-**Pack release:** 64TCOM ARM64 **Version 0.9** (with 64Forth **1.3.6**; last dual ship was **1.1.9** / pack with **1.2.0**)  
+**Pack release:** 64TCOM ARM64 **Version 0.9** (with 64Forth **1.3.7**; last dual ship was **1.1.9** / pack with **1.2.0**)  
 **Assembler sync stamp:** `Synced Aug 23, 2026 3:16 PM` in both `ASMARM64.fth` headers  
 **64Forth-only:** `Library/Assembler/ASSEMBLER.fth` — interactive ITC `CODE` / `END-CODE` (not used by 64TCOM; does not redefine `ASSEMBLER` → `ASMARM64`)
 

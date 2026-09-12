@@ -315,7 +315,7 @@ _kernel_cold_start:
     mov x0, #1
     adrp x1, str_hello@page
     add x1, x1, str_hello@pageoff
-    mov x2, #15                    // "64Forth v1.3.6\n"
+    mov x2, #15                    // "64Forth v1.3.7\n"
     mov x16, #4
     svc #0x80
 
@@ -15363,7 +15363,7 @@ env_n_file:     .asciz "FILE"
 env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
-str_hello:  .asciz "64Forth v1.3.6\n"
+str_hello:  .asciz "64Forth v1.3.7\n"
 str_dbg_keys: .asciz " [F6=over F7=into F8=out Esc/q=abort Cmd-Shift-Y=go]\n"
 str_dbg_abort: .asciz "DEBUG aborted\n"
 str_prompt: .asciz "\nok> "

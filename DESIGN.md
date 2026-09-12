@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-09-07 — **v1.3.6** (build 35) — Emitter **0.7** SA locals/BI + window I/O remap (`EMIT-WINDOW-APP`, PIMAIN); app-kit freeze still `Docs/APPKIT.md` (GRAPHICS 80×25 / 640×400; `\ANS`/`\TCOM`/`\EMITTER`; tetra + PIMAIN).
+**Updated:** 2026-09-12 — **v1.3.7** (build 36) — ANEW on MARKER + BREAK/BPGO breakpoints; prior **1.3.6** Emitter **0.7** SA locals/BI + window I/O remap (`EMIT-WINDOW-APP`, PIMAIN); app-kit freeze still `Docs/APPKIT.md` (GRAPHICS 80×25 / 640×400; `\ANS`/`\TCOM`/`\EMITTER`; tetra + PIMAIN).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
