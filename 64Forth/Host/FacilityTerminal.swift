@@ -218,6 +218,22 @@ final class FacilityTerminal {
         }
     }
 
+    /// Unicode scalar at facility cell (space if out of range).
+    func scalarAt(col: Int, row: Int) -> UInt32 {
+        guard col >= 0, row >= 0, col < cols, row < rows else { return 32 }
+        let i = row * cols + col
+        guard i < cells.count else { return 32 }
+        return cells[i]
+    }
+
+    /// Attribute byte at facility cell (0 if out of range).
+    func attrAt(col: Int, row: Int) -> UInt8 {
+        guard col >= 0, row >= 0, col < cols, row < rows else { return 0 }
+        let i = row * cols + col
+        guard i < attrs.count else { return 0 }
+        return attrs[i]
+    }
+
     /// Multi-line string: `rows` lines of `cols` glyphs (one Unicode scalar each) + newline.
     /// Box-drawing and other BMP chars are one UTF-16 unit (selection/caret math still works).
     func render() -> String {

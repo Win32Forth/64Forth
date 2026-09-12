@@ -30,8 +30,9 @@ Commands
 --------
   LOCATE <name>     Print defining path:line  (shows [n/m] if multiple hits)  (FORTH)
   VIEW <name>       Open file in SZ-EDITOR at that line                       (FORTH)
-  SEE <name>        VIEW if SZ-EDITOR loaded, else decompile (kernel SEE)     (FORTH)
+  SEE <name>        Decompile to console (kernel SEE; does not open editor)   (FORTH)
   SEE-SOURCE        Alias of VIEW                                             (FORTH)
+  SEE-HYPER         Optional: VIEW if indexed+editor, else decompile          (FORTH)
   DBG <name>        VIEW or untitled, then DEBUG                              (FORTH)
   HYPER-NEXT        Visit history forward, else next multi-hit   (Cmd-PgDn)   (SYSVOC)
   HYPER-PREV        Visit history back, else previous multi-hit  (Cmd-PgUp)   (SYSVOC)

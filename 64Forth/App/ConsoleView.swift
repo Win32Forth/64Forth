@@ -92,7 +92,7 @@ struct ConsoleView: View {
     /// After Return in the command pane, restore command focus when the line finishes
     /// — unless the user clicked the facility editor first (cleared in onPaneActivated).
     @State private var preferCommandFocusAfterEval = false
-    /// ⌘-click / ⌘E VIEW from the command pane: run HYPER-VIEW-CU without a CR / ok>
+    /// ⌘-click / ⌘E VIEW from the command pane: run `VIEW name` without a CR / ok>
     /// (and without scrolling the transcript to a new prompt).
     @State private var suppressNextCommandPrompt = false
     /// Throttle live scroll work during huge command-pane TYPE dumps (~20 Hz).
@@ -269,6 +269,12 @@ struct ConsoleView: View {
             onHistoryUp: { recallHistory(up: true) },
             onHistoryDown: { recallHistory(up: false) },
             onKeyCharacter: { c in
+                // Separate-editor: console typing stays in the NSTextView; facility
+                // KEY lives in FacilityEditorHost. Still push for non-editor KEY waits.
+                if KernelBridge.useSeparateFacilityEditor,
+                   kernel.isFacilityTerminalActive {
+                    return
+                }
                 kernel.pushKey(c)
             },
             onCommandClickUTF16: { idx in
@@ -276,6 +282,10 @@ struct ConsoleView: View {
             },
             onPaneActivated: {
                 isFocused = true
+                // Live REPL while SZ-EDITOR KEY waits: console owns typing.
+                if KernelBridge.useSeparateFacilityEditor {
+                    kernel.setCommandPaneFocused(false)
+                }
             },
             onTextViewReady: { textView in
                 DispatchQueue.main.async {
@@ -320,6 +330,7 @@ struct ConsoleView: View {
             // and the first TERMINAL-REFRESH, keep writing consoleText so seed can
             // capture the full pre-editor transcript. Routing to commandText early
             // left the lower pane empty (or only post-PAGE crumbs) and skipped seed.
+            // Separate-editor mode: always the full Console window (never App Output).
             if self.isEditorSplitActive {
                 self.appendCommandOutput(chunk)
             } else {
@@ -328,6 +339,45 @@ struct ConsoleView: View {
         }
         // After SZ-DO-CONSOLE-LINE finishes EVALUATE, host appends ok(n)> .
         kernel.onCommandLineDone = {
+            // Separate SZ-EDITOR window: prompt goes to the full Console REPL.
+            if KernelBridge.useSeparateFacilityEditor {
+                if self.suppressNextCommandPrompt {
+                    self.suppressNextCommandPrompt = false
+                    self.preferCommandFocusAfterEval = false
+                    _ = self.kernel.consumeForceCommandFocusAfterDebug()
+                    return
+                }
+                if !self.consoleText.hasSuffix("\n") {
+                    self.appendEngineOutput("\n")
+                }
+                let n = self.kernel.dataStackDepth
+                self.appendEngineOutput("ok(\(n))> ")
+                let forceAfterDebug = self.kernel.consumeForceCommandFocusAfterDebug()
+                let prefer = self.preferCommandFocusAfterEval
+                self.preferCommandFocusAfterEval = false
+                guard prefer || forceAfterDebug else { return }
+                self.pinCaretRequest += 1
+                self.isFocused = true
+                self.kernel.setCommandPaneFocused(false)
+                #if os(macOS)
+                func claimConsoleFocus(attempts: Int) {
+                    guard attempts > 0 else { return }
+                    if let tv = self.consoleTextView, let win = tv.window {
+                        win.makeKeyAndOrderFront(nil)
+                        win.makeFirstResponder(tv)
+                        let end = (tv.string as NSString).length
+                        tv.setSelectedRange(NSRange(location: end, length: 0))
+                    }
+                    if attempts > 1 {
+                        DispatchQueue.main.async {
+                            claimConsoleFocus(attempts: attempts - 1)
+                        }
+                    }
+                }
+                claimConsoleFocus(attempts: 3)
+                #endif
+                return
+            }
             guard self.isEditorSplitActive else { return }
             // Silent VIEW from ⌘-click / ⌘E: no CR/ok> and no scroll.
             if self.suppressNextCommandPrompt {
@@ -381,9 +431,26 @@ struct ConsoleView: View {
         kernel.onOpenPanelRequest = { [self] in
             handleFileOpen()
         }
+        // ⌘E / Tools→VIEW: direct hook (same deferral trap as File→Open).
+        kernel.onViewWordUnderCursor = { [self] in
+            handleViewWordUnderCursor()
+        }
         kernel.onTerminalRefresh = { screen in
             // Ignore late paints after FACILITY-OFF (race with async exit).
             guard FacilityTerminal.shared.isActive else { return }
+
+            // Separate SZ-EDITOR window: paint FacilityEditorHost only.
+            // Console stays a full REPL; App Output stays GRAPHICS/Emitter-only.
+            if KernelBridge.useSeparateFacilityEditor {
+                // Heal any reverse-video attrs wrongly stamped onto the REPL
+                // transcript (legacy path mapped grid cells onto consoleText).
+                clearConsoleFacilityHighlightAttrs()
+                #if os(macOS)
+                FacilityEditorHost.shared.presentFromRefresh()
+                #endif
+                return
+            }
+
             isProgrammaticConsoleAppend = true
             // First paint: seed the lower command pane with the live console
             // transcript (banner / cwd / AutoLoad / ok>), then put the grid above.
@@ -423,8 +490,18 @@ struct ConsoleView: View {
                 applyFacilityCursorHighlight()
             }
         }
-        // FACILITY-OFF / editor Cmd-W: restore REPL text so exit is obvious.
+        // FACILITY-OFF / editor Cmd-W: close dedicated editor window, or restore split.
         kernel.onFacilityExit = {
+            if KernelBridge.useSeparateFacilityEditor {
+                clearConsoleFacilityHighlightAttrs()
+                #if os(macOS)
+                FacilityEditorHost.shared.close()
+                (consoleTextView as? ConsoleNSTextView)?.hideFacilityLineCaret()
+                #endif
+                kernel.setCommandPaneFocused(false)
+                kernel.setFacilityEmitBypass(false)
+                return
+            }
             restoreConsoleAfterFacility()
         }
         // Forth `CLS` / Tools menu: clear host console (not editor exit).
@@ -695,7 +772,9 @@ struct ConsoleView: View {
         }
         // Facility PAGE/AT-XY paints replace the whole console body each frame.
         // Leave the NSScrollView scroll position alone (facility uses its own TOP).
-        if kernel.isFacilityTerminalActive {
+        // Separate-editor: console is a live REPL — do not map grid reverse-video
+        // onto the transcript (that left stuck blue/white highlights mid-console).
+        if kernel.isFacilityTerminalActive, !KernelBridge.useSeparateFacilityEditor {
             applyFacilitySelectionHighlight()
             applyFacilityCursorHighlight()
             return
@@ -952,7 +1031,13 @@ struct ConsoleView: View {
 
     @discardableResult
     private func handleReturnKey() -> Bool {
-        // Never start a nested evaluate while the facility editor owns the console.
+        // Separate SZ-EDITOR window: stage console line into the editor KEY loop
+        // (key 133 / SZ-DO-CONSOLE-LINE) — never nested host evaluate.
+        if KernelBridge.useSeparateFacilityEditor,
+           kernel.isFacilityTerminalActive, kernel.isEvaluating {
+            return submitConsoleLineWhileEditorKeyWaits()
+        }
+        // Legacy split / other KEY waits: do not nest evaluate.
         if kernel.isFacilityTerminalActive || kernel.isEvaluating {
             return true
         }
@@ -964,6 +1049,46 @@ struct ConsoleView: View {
             }
         }
         commitUserInput()
+        return true
+    }
+
+    /// Full-console Return while SZ-EDITOR KEY waits (separate-window mode).
+    private func submitConsoleLineWhileEditorKeyWaits() -> Bool {
+        #if os(macOS)
+        if let tv = consoleTextView {
+            consoleText = tv.string
+        }
+        #endif
+        let prot = min(protectedLength, consoleText.count)
+        let user = String(consoleText.dropFirst(prot))
+        let line = user.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        isProgrammaticConsoleAppend = true
+        if !consoleText.hasSuffix("\n") {
+            consoleText += "\n"
+        }
+        markProtectedThroughEndOfText()
+        isProgrammaticConsoleAppend = false
+
+        if line.isEmpty {
+            appendPrompt()
+            return true
+        }
+
+        commandHistory.append(line)
+        if commandHistory.count > 50 {
+            commandHistory.removeFirst()
+        }
+        historyIndex = -1
+
+        preferCommandFocusAfterEval = true
+        if !kernel.submitCommandLineFromPane(line) {
+            preferCommandFocusAfterEval = false
+            appendEngineOutput("(command submit failed)\n")
+            appendPrompt()
+        }
+        isFocused = true
+        kernel.setCommandPaneFocused(false)
         return true
     }
 
@@ -1359,6 +1484,17 @@ struct ConsoleView: View {
             viewForthToken(at: idx, in: ns, placingCaretIn: tv)
             return
         }
+        // Separate-editor: Console key → VIEW token in the REPL transcript.
+        if KernelBridge.useSeparateFacilityEditor,
+           kernel.isEvaluating, kernel.isFacilityTerminalActive,
+           !FacilityEditorHost.shared.isKeyWindowActive,
+           let tv = consoleTextView {
+            var idx = tv.selectedRange().location
+            let ns = tv.string as NSString
+            if idx > ns.length { idx = ns.length }
+            viewForthToken(at: idx, in: ns, placingCaretIn: tv)
+            return
+        }
         #endif
         if kernel.isEvaluating, kernel.isFacilityTerminalActive {
             kernel.pushKey(18) // SZ-VIEW-UNDER (word under facility caret)
@@ -1394,16 +1530,20 @@ struct ConsoleView: View {
 
     /// Open Hyper VIEW for the token at `idx`. While the editor KEY loop is active,
     /// stages the line via key 133 (no nested host evaluate). Idle: host evaluate.
+    ///
+    /// Uses FORTH `VIEW name` (not `S" name" HYPER-VIEW-CU`). `HYPER-VIEW-CU` /
+    /// `(VIEW)` live in SYSVOC after Hyper load, so a bare `HYPER-VIEW-CU` is
+    /// `undefined` under ONLY FORTH and leaves the string on the stack (+2 depth).
+    /// `VIEW` stays in FORTH and already calls `(VIEW)` by XT.
     private func viewForthToken(at idx: Int, in ns: NSString, placingCaretIn tv: NSTextView) {
         #if os(macOS)
         var i = idx
         if i > ns.length { i = ns.length }
         guard let word = Self.forthToken(at: i, in: ns), !word.isEmpty else { return }
+        // PARSE-NAME stops at blank; reject whitespace-tainted tokens.
+        guard word.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return }
         tv.setSelectedRange(NSRange(location: min(i, ns.length), length: 0))
-        let escaped = word
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        let line = "S\" \(escaped)\" HYPER-VIEW-CU"
+        let line = "VIEW \(word)"
 
         if kernel.isEvaluating, kernel.isFacilityTerminalActive {
             // Safe while KEY waits. Silent: no CR/ok> / scroll (user is navigating
@@ -1412,8 +1552,13 @@ struct ConsoleView: View {
             preferCommandFocusAfterEval = false
             if !kernel.submitCommandLineFromPane(line) {
                 suppressNextCommandPrompt = false
-                appendCommandOutput("(VIEW submit failed)\n")
-                appendCommandPrompt()
+                if KernelBridge.useSeparateFacilityEditor {
+                    appendEngineOutput("(VIEW submit failed)\n")
+                    appendPrompt()
+                } else {
+                    appendCommandOutput("(VIEW submit failed)\n")
+                    appendCommandPrompt()
+                }
             }
             return
         }
@@ -1421,11 +1566,10 @@ struct ConsoleView: View {
 
         isProgrammaticConsoleAppend = true
         _ = kernel.evaluate(line)
-        // evaluate blocks until the editor exits. FACILITY-OFF restores the
-        // transcript (async from the Forth queue); ensure restore + prompt here
-        // if the callback has not already run.
+        // evaluate blocks until the editor exits. Separate-editor: console was
+        // never overwritten. Legacy split: restore if FACILITY-OFF raced.
         if !kernel.isFacilityTerminalActive {
-            if preFacilityConsole != nil {
+            if !KernelBridge.useSeparateFacilityEditor, preFacilityConsole != nil {
                 restoreConsoleAfterFacility()
             }
             ensureInputPrompt()
@@ -1468,9 +1612,34 @@ struct ConsoleView: View {
         return token.isEmpty ? nil : token
     }
 
+    /// Remove reverse-video / accent backgrounds stamped onto the REPL text storage.
+    /// Used when SZ-EDITOR lives in its own window so grid attrs never stick on the console.
+    private func clearConsoleFacilityHighlightAttrs() {
+        #if os(macOS)
+        guard let textView = consoleTextView, let storage = textView.textStorage else { return }
+        let full = NSRange(location: 0, length: storage.length)
+        guard full.length > 0 else { return }
+        storage.beginEditing()
+        storage.removeAttribute(.backgroundColor, range: full)
+        storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: full)
+        storage.endEditing()
+        #else
+        guard let textView = consoleTextView else { return }
+        let storage = textView.textStorage!
+        let full = NSRange(location: 0, length: storage.length)
+        guard full.length > 0 else { return }
+        storage.beginEditing()
+        storage.removeAttribute(.backgroundColor, range: full)
+        storage.addAttribute(.foregroundColor, value: UIColor.label, range: full)
+        storage.endEditing()
+        #endif
+    }
+
     /// Apply facility reverse-video cells (drag / range selection) onto the console storage.
+    /// Legacy split only — separate FacilityEditorHost draws selection itself.
     private func applyFacilitySelectionHighlight() {
         guard kernel.isFacilityTerminalActive else { return }
+        if KernelBridge.useSeparateFacilityEditor { return }
         let term = FacilityTerminal.shared
         #if os(macOS)
         guard let textView = consoleTextView, let storage = textView.textStorage else { return }
@@ -1538,9 +1707,14 @@ struct ConsoleView: View {
     /// SZ-EDITOR parks the cursor via AT-XY; we paint a line caret on that cell.
     /// Hidden while the lower command pane has focus so the “cursor” is not stuck
     /// looking like it still lives in the editor.
+    /// Legacy split only — separate FacilityEditorHost draws its own caret.
     private func applyFacilityCursorHighlight() {
         #if os(macOS)
         guard let textView = consoleTextView as? ConsoleNSTextView else { return }
+        if KernelBridge.useSeparateFacilityEditor {
+            textView.hideFacilityLineCaret()
+            return
+        }
         guard kernel.isFacilityTerminalActive else {
             textView.hideFacilityLineCaret()
             return
@@ -1563,6 +1737,10 @@ struct ConsoleView: View {
         textView.showFacilityLineCaret(atUTF16: loc)
         #else
         guard let textView = consoleTextView else { return }
+        if KernelBridge.useSeparateFacilityEditor {
+            textView.hideFacilityLineCaret()
+            return
+        }
         guard kernel.isFacilityTerminalActive else {
             textView.hideFacilityLineCaret()
             return

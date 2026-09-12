@@ -704,6 +704,11 @@ public func host_debug_paint() {
     let screen = term.render()
     let paint: () -> Void = {
         KernelBridge.shared.onTerminalRefresh?(screen)
+        // Separate-editor: ensure DEBUG Files column appears even if ConsoleView
+        // already returned early from a prior refresh race.
+        if KernelBridge.useSeparateFacilityEditor {
+            FacilityEditorHost.shared.redraw()
+        }
     }
     if Thread.isMainThread {
         paint()
@@ -781,6 +786,11 @@ public func host_sz_cmd_get(_ ptr: UnsafeMutableRawPointer?, _ maxLen: Int) -> I
 final class KernelBridge {
     static let shared = KernelBridge()
 
+    /// When true, SZ-EDITOR paints in `FacilityEditorHost` (its own window).
+    /// App Output (`AppOutputHost`) stays GRAPHICS/Emitter-only — never merge them.
+    /// Set false to fall back to the Option A console VSplit while iterating.
+    static var useSeparateFacilityEditor: Bool = true
+
     private(set) var isKernelLive = false
 
     /// Data-stack depth in cells after the last eval (for `ok(n)>` prompt). 0 if kernel not live.
@@ -835,14 +845,16 @@ final class KernelBridge {
     private var lastPreferredFacilityCols = 0
     private var lastPreferredFacilityRows = 0
 
-    /// Preferred facility grid (cols × rows) from the visible console, reserving
-    /// `facilityCommandAreaLines` rows below the editor for command entry.
+    /// Preferred facility grid (cols × rows).
+    /// Separate-editor mode: metrics come from `FacilityEditorHost` content size.
+    /// Legacy split: from the upper console pane, reserving `facilityCommandAreaLines`.
     func preferredFacilityCells() -> (cols: Int, rows: Int) {
         // Ceil cell size so we never over-count columns/rows (under-size → wrap).
         let cw = max(consoleCellWidth, 1)
         let lh = max(consoleLineHeight, 1)
         let usable = consoleUsableSize.width > 1 ? consoleUsableSize : consoleVisibleSize
-        let cols = max(24, Int(floor(usable.width / cw)) + Self.facilityColAdjust)
+        let colAdjust = Self.useSeparateFacilityEditor ? 0 : Self.facilityColAdjust
+        let cols = max(24, Int(floor(usable.width / cw)) + colAdjust)
         let totalRows = max(1, Int(floor(usable.height / lh)))
         let rows = max(
             10,
@@ -851,9 +863,31 @@ final class KernelBridge {
         return (cols, rows)
     }
 
+    #if os(macOS)
+    /// Metrics from the dedicated SZ-EDITOR window (not App Output, not console).
+    func updateFacilityEditorMetrics(
+        contentSize: CGSize,
+        cellWidth: CGFloat,
+        cellHeight: CGFloat
+    ) {
+        guard Self.useSeparateFacilityEditor else { return }
+        guard contentSize.width > 1, contentSize.height > 1 else { return }
+        // Inset matches FacilityGridView origin padding (4+4).
+        let usableW = max(1, contentSize.width - 8)
+        let usableH = max(1, contentSize.height - 8)
+        consoleVisibleSize = contentSize
+        consoleUsableSize = CGSize(width: usableW, height: usableH)
+        consoleCellWidth = max(1, cellWidth)
+        consoleLineHeight = max(1, cellHeight)
+        applyPreferredFacilityCellsIfChanged()
+    }
+    #endif
+
     /// Called from the console scroll view when its visible area or font changes.
     /// Wakes SZ-EDITOR (KEY) when the preferred cell grid changes so REDRAW can sync.
     func updateConsoleVisibleSize(_ size: CGSize, font: Any?) {
+        // Separate-editor mode: facility size comes from FacilityEditorHost only.
+        if Self.useSeparateFacilityEditor, isFacilityTerminalActive { return }
         #if os(macOS)
         // Prefer full metrics from the live text view when available.
         if let font = font as? NSFont {
@@ -876,6 +910,8 @@ final class KernelBridge {
     #if os(macOS)
     /// Accurate metrics from the live `NSScrollView` / `NSTextView` (insets, padding, scroller).
     func updateConsoleMetrics(scrollView: NSScrollView, textView: NSTextView) {
+        // Do not let the Console window overwrite SZ-EDITOR cell math.
+        if Self.useSeparateFacilityEditor, isFacilityTerminalActive { return }
         let clip = scrollView.contentView.bounds.size
         guard clip.width > 1, clip.height > 1 else { return }
         let font = textView.font
@@ -1559,6 +1595,94 @@ final class KernelBridge {
         }
     }
 
+    /// ⌘S / File→Save while KEY waits: inject SZ-CTRL-S (19) immediately.
+    /// Do not use NotificationCenter/`onReceive` — same deferral trap as Open.
+    func requestFileSave() {
+        if isEvaluating, isFacilityTerminalActive {
+            _ = pushKey(19)
+            return
+        }
+        // Idle: let ConsoleView print the hint via the notification path.
+        let post: () -> Void = {
+            NotificationCenter.default.post(name: .fileSave, object: nil)
+        }
+        if Thread.isMainThread { post() } else { DispatchQueue.main.async(execute: post) }
+    }
+
+    /// ⌘⇧S / File→Save As… while KEY waits: open NSSavePanel via ConsoleView hook.
+    func requestFileSaveAs() {
+        if isEvaluating, isFacilityTerminalActive {
+            let run: () -> Void = { self.onSaveAsPanelRequest?() }
+            if Thread.isMainThread { run() } else { DispatchQueue.main.async(execute: run) }
+            return
+        }
+        let post: () -> Void = {
+            NotificationCenter.default.post(name: .fileSaveAs, object: nil)
+        }
+        if Thread.isMainThread { post() } else { DispatchQueue.main.async(execute: post) }
+    }
+
+    /// ⌘W / File→Close Editor while KEY waits: inject quit-editor key (17).
+    func requestFileClose() {
+        if isEvaluating, isFacilityTerminalActive {
+            _ = pushKey(17)
+            return
+        }
+        let post: () -> Void = {
+            NotificationCenter.default.post(name: .fileClose, object: nil)
+        }
+        if Thread.isMainThread { post() } else { DispatchQueue.main.async(execute: post) }
+    }
+
+    /// ⌘N / File→New while KEY waits: inject new-buffer key (31).
+    func requestFileNew() {
+        if isEvaluating, isFacilityTerminalActive {
+            _ = pushKey(31)
+            return
+        }
+        let post: () -> Void = {
+            NotificationCenter.default.post(name: .fileNew, object: nil)
+        }
+        if Thread.isMainThread { post() } else { DispatchQueue.main.async(execute: post) }
+    }
+
+    /// ⌘← / ⌘→ / ⌘G — find prev/next in the open SZ-EDITOR buffer.
+    func requestEditorFind(prev: Bool) {
+        if isEvaluating, isFacilityTerminalActive {
+            _ = pushKey(prev ? 20 : 21)
+            return
+        }
+        let name: Notification.Name = prev ? .editorFindPrev : .editorFindNext
+        let post: () -> Void = { NotificationCenter.default.post(name: name, object: nil) }
+        if Thread.isMainThread { post() } else { DispatchQueue.main.async(execute: post) }
+    }
+
+    /// ⌘PgUp / ⌘PgDn — Hyper prev/next while editor KEY waits, else host evaluate.
+    func requestHyperNav(prev: Bool) {
+        if isEvaluating, isFacilityTerminalActive {
+            _ = pushKey(prev ? 26 : 27)
+            return
+        }
+        if isEvaluating { return }
+        evaluateHyperNav(prev ? "HYPER-PREV" : "HYPER-NEXT")
+    }
+
+    /// Host callback for ⌘E / VIEW under console caret (set by ConsoleView).
+    /// Direct call — NotificationCenter/`onReceive` defers while KEY waits.
+    var onViewWordUnderCursor: (() -> Void)?
+
+    /// ⌘E — VIEW word under caret (console transcript or facility caret).
+    func requestViewWordUnderCursor() {
+        let run: () -> Void = {
+            if let hook = self.onViewWordUnderCursor {
+                hook()
+            } else {
+                NotificationCenter.default.post(name: .viewWordUnderCursor, object: nil)
+            }
+        }
+        if Thread.isMainThread { run() } else { DispatchQueue.main.async(execute: run) }
+    }
+
     /// Single-flight gate for editor NSOpenPanel / NSSavePanel (host UI).
     private var editorFilePanelBusy = false
     private let editorFilePanelLock = NSLock()
@@ -1994,9 +2118,20 @@ final class KernelBridge {
         lock.unlock()
         guard active, FacilityTerminal.shared.isActive else { return false }
         guard let key = facilityEditorKey(from: event) else { return false }
-        // Only steal keys we care about for exclusive handling (find / hyper / nav).
-        // Always steal: find 20/21, hyper 26/27, and all motion when facility is up
-        // so NSTextView never sees them.
+
+        // Separate-editor: Console keeps plain arrows/history while it is key.
+        // Still allow ⌘ find / Hyper from any window while facility is open.
+        if Self.useSeparateFacilityEditor, !FacilityEditorHost.shared.isKeyWindowActive {
+            switch key {
+            case 20, 21, 26, 27, 28, 29:
+                return pushKey(key)
+            default:
+                return false
+            }
+        }
+
+        // Legacy split / editor window key: steal find/hyper and motion so the
+        // NSTextView never mutates the facility paint string.
         return pushKey(key)
         #else
         return false
@@ -2250,6 +2385,16 @@ final class KernelBridge {
             // editor; FR-based routing left the editor dead.
             let commandPaneFocus = self.isCommandPaneFocusedFlag
 
+            // Window ownership (explicit order): App Output → SZ-EDITOR → Console.
+            // App Output stays GRAPHICS/Emitter-only; editor is a separate host.
+            if AppOutputHost.shared.routeKeyIfActive(event) {
+                return nil
+            }
+            if Self.useSeparateFacilityEditor,
+               FacilityEditorHost.shared.routeKeyIfActive(event) {
+                return nil
+            }
+
             // Idle console: ⌘PgUp / ⌘PgDn → evaluate HYPER-PREV / HYPER-NEXT
             if mods.contains(.command), !mods.contains(.shift), !active,
                event.keyCode == 116 || event.keyCode == 121 {
@@ -2262,6 +2407,11 @@ final class KernelBridge {
             if active, self.deliverDebugStepperKey(event) {
                 return nil
             }
+
+            // Separate-editor mode: facility KEY only when the editor window is key.
+            // Otherwise the console REPL owns typing (Phase 2 live evaluate).
+            let editorWindowOwnsKeys = !Self.useSeparateFacilityEditor
+                || FacilityEditorHost.shared.isKeyWindowActive
 
             // Lower command pane owns typing + clipboard while sticky is set.
             // Still steal editor-global ⌘ shortcuts (save/close/quit/find/hyper/VIEW).
@@ -2341,7 +2491,8 @@ final class KernelBridge {
             }
 
             // Editor owns KEY (sticky clear): deliver facility keys even if FR lags.
-            if active, facilityOn {
+            // Separate-editor mode: only when FacilityEditorHost is the key window.
+            if active, facilityOn, editorWindowOwnsKeys {
                 if self.consumeEditorHotKeyIfNeeded(event) {
                     return nil
                 }
@@ -2354,7 +2505,7 @@ final class KernelBridge {
             }
 
             // SZ-EDITOR ⌘←/→ find and ⌘PgUp/Dn Hyper when facility FR not detected.
-            if self.consumeEditorHotKeyIfNeeded(event) {
+            if editorWindowOwnsKeys, self.consumeEditorHotKeyIfNeeded(event) {
                 return nil
             }
 
@@ -2362,15 +2513,17 @@ final class KernelBridge {
             if mods.contains(.command) {
                 let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
                 if ch == "e", !mods.contains(.shift) {
-                    if active && facilityOn {
-                        self.pushKey(18)
+                    if active && facilityOn && editorWindowOwnsKeys {
+                        self.pushKey(18) // VIEW under facility caret
                         return nil
                     }
-                    if !active {
+                    // Console key (or idle): VIEW token under console caret.
+                    if !active || (Self.useSeparateFacilityEditor && !editorWindowOwnsKeys) {
                         self.viewWordUnderConsoleCursor()
                         return nil
                     }
                 }
+                // Find / clipboard: facility-global while editor KEY waits (any window).
                 if ch == "f", active && facilityOn, !mods.contains(.shift) {
                     self.pushKey(131)
                     return nil
@@ -2381,22 +2534,22 @@ final class KernelBridge {
                 }
                 if active && facilityOn, !mods.contains(.shift),
                    ch == "x" || ch == "c" || ch == "v" {
-                    if self.pushEditorClipboardKey(ch) { return nil }
+                    // Clipboard chords: only when editor owns keys (console uses native).
+                    if editorWindowOwnsKeys, self.pushEditorClipboardKey(ch) { return nil }
                 }
             }
 
             guard active else { return event }
 
-            // Char-graphics app window owns keys when it is the key window
-            // (GRAPHICS KEY/KEY?). Must run before the evaluate swallow below.
-            if AppOutputHost.shared.routeKeyIfActive(event) {
-                return nil
-            }
-
-            if self.deliverFacilityKeyDown(event) {
+            // Legacy split / non-key-window fallback (App Output already handled above).
+            if editorWindowOwnsKeys, self.deliverFacilityKeyDown(event) {
                 return nil
             }
             if mods.contains(.command) { return event }
+            // Separate-editor + console key: do not swallow — let the REPL type.
+            if Self.useSeparateFacilityEditor, !editorWindowOwnsKeys {
+                return event
+            }
             return nil
         }
     }
@@ -2466,7 +2619,7 @@ final class KernelBridge {
 
     /// Phase 5: ⌘E — ask ConsoleView to VIEW the Forth token under the caret.
     private func viewWordUnderConsoleCursor() {
-        NotificationCenter.default.post(name: .viewWordUnderCursor, object: nil)
+        requestViewWordUnderCursor()
     }
 
     /// Clear the sticky multi-line paste stop (call before a paste batch if needed).

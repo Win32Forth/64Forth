@@ -4,7 +4,7 @@
 \ host paints the full screen (PAGE alone must not flush an empty buffer).
 \
 \ Layout (0-based rows; geometry from SET-EDIT-WINDOW / EDIT-WINDOW settings):
-\   row 0              outer top     [X]────────────── full width ──────────────╮
+\   row 0              outer top     ╭──────────────── full width ──────────────╮
 \   row 1              status        │ path L:C: size Select/Find│ find query… │
 \   row 2              col top       ├─────┬──────────────────────┬───────────────┤
 \   rows 3..(2+H)      body          │ NNN │ text (W cols)        │ visit list    │
@@ -36,8 +36,7 @@ DECIMAL
    7 CONSTANT SZ-TEXT-LEFT      \ first column of text body
   28 CONSTANT SZ-SIDE-WIDTH     \ visit list: leaf + line# + X
    7 CONSTANT SZ-CHROME-ROWS    \ facility rows = text height + this
-   3 CONSTANT SZ-CLOSE-XW       \ "[X]" close on outer top border (cols 0..2)
-   0 CONSTANT SZ-CLOSE-COL      \ leftmost col of [X] on OUTER-TOP
+\ (Outer-top [X] removed — dedicated SZ-EDITOR window has a native close button.)
 
 \ Dynamic geometry (set by SZ-APPLY-EDIT-WINDOW)
 VARIABLE SZ-TEXT-WIDTH          \ editable text columns
@@ -233,12 +232,12 @@ VARIABLE SZ-BOX-T2
    BEGIN  DUP 0> WHILE  1- BL EMIT  REPEAT  DROP
 ;
 
-\ Outer top border with [X] close control at the left (above status).
-\ Layout: [X]──────────────╮  (cols 0..2 = [X], then ─, then ╮)
+\ Outer top border (native window close — no in-grid [X]).
+\ Layout: ╭────────────────╮
 : SZ-DRAW-OUTER-TOP  ( -- )
    0 SZ-OUTER-TOP AT-XY
-   S" [X]" TYPE
-   SZ-COLS @ SZ-CLOSE-XW - 1- 0 MAX SZ-BOX-H-N   \ ─ through COLS-2
+   SZ-BOX-TL SZ-XEMIT                            \ ╭
+   SZ-COLS @ 2 - 0 MAX SZ-BOX-H-N                \ ─ through COLS-2
    SZ-BOX-TR SZ-XEMIT                            \ ╮
 ;
 
@@ -254,7 +253,7 @@ VARIABLE SZ-BOX-T2
    SZ-HELP2 @ SZ-DRAW-V-OUTER
    \ Files-column │ through the status row (between "Select/Find" and type-in)
    SZ-EDIT-RIGHT SZ-STAT-ROW AT-XY  SZ-BOX-V SZ-XEMIT
-   \ Outer top with [X] close (above status); bottom via SZ-DRAW-HELP-BOT later
+   \ Outer top border; bottom via SZ-DRAW-HELP-BOT later
    SZ-DRAW-OUTER-TOP
    \ Column top: ├─────┬──────────┬─────────────┤  (tees align with body │)
    SZ-FRAME-TOP SZ-BOX-LT SZ-BOX-TD SZ-BOX-RT SZ-DRAW-HBAR
@@ -792,7 +791,7 @@ VARIABLE SZ-NUMN
    SZ-EDIT-RIGHT SZ-SEL-LABW - 1 MAX
 ;
 
-\ Status row (path/meta; [X] close is on OUTER-TOP border above — see SZ-DRAW-OUTER-TOP).
+\ Status row (path/meta; quit via window close / ⌘W — not an in-grid [X]).
 \   cols 1 .. title-1     path + meta
 \   title .. EDIT-RIGHT-1 "Select/Find"
 \   EDIT-RIGHT            │  (Files separator extended up)

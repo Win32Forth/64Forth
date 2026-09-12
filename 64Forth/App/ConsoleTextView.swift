@@ -24,6 +24,12 @@ enum ConsolePaneKind {
     case command
 }
 
+/// Full Console acts as a live REPL while SZ-EDITOR KEY waits (separate-window mode).
+/// Facility paint/keys live in `FacilityEditorHost`, not this text view.
+private func liveConsoleWhileSeparateEditor(_ pane: ConsolePaneKind) -> Bool {
+    pane == .full && KernelBridge.useSeparateFacilityEditor
+}
+
 /// Scroll view that feeds trackpad/mouse wheel into SZ-EDITOR (not the NSTextView string).
 final class ConsoleNSScrollView: NSScrollView {
     /// When `.command`, wheel always scrolls this view; never the facility grid.
@@ -35,10 +41,10 @@ final class ConsoleNSScrollView: NSScrollView {
             super.scrollWheel(with: event)
             return
         }
-        // Facility / full console while editor active: always map wheel to SZ-SCROLL-*.
-        // Do not gate on isCommandPaneFocused — the mouse is over *this* pane, so a
-        // stale command-focus flag must not disable editor scrolling after click-back.
+        // Facility / legacy full-as-grid: map wheel to SZ-SCROLL-*.
+        // Separate-editor: full Console scrolls its own transcript.
         if paneKind != .command,
+           !liveConsoleWhileSeparateEditor(paneKind),
            KernelBridge.shared.isFacilityTerminalActive,
            KernelBridge.shared.isEvaluating {
             KernelBridge.shared.reportFacilityScroll(event)
@@ -122,21 +128,25 @@ final class ConsoleNSTextView: NSTextView {
         if paneKind == .facility, KernelBridge.shared.isFacilityTerminalActive {
             return false
         }
-        // Full console (no split): suppress system caret while facility grid is active.
-        if paneKind == .full, KernelBridge.shared.isFacilityTerminalActive {
+        // Legacy: full console hosted the facility grid — suppress system caret.
+        // Separate-editor: full console is a live REPL and needs a normal caret.
+        if paneKind == .full, KernelBridge.shared.isFacilityTerminalActive,
+           !liveConsoleWhileSeparateEditor(paneKind) {
             return false
         }
         return super.shouldDrawInsertionPoint
     }
 
     override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
-        if paneKind != .command, KernelBridge.shared.isFacilityTerminalActive { return }
+        if paneKind != .command, KernelBridge.shared.isFacilityTerminalActive,
+           !liveConsoleWhileSeparateEditor(paneKind) { return }
         super.drawInsertionPoint(in: rect, color: color, turnedOn: flag)
     }
 
     override var insertionPointColor: NSColor? {
         get {
-            if paneKind != .command, KernelBridge.shared.isFacilityTerminalActive { return .clear }
+            if paneKind != .command, KernelBridge.shared.isFacilityTerminalActive,
+               !liveConsoleWhileSeparateEditor(paneKind) { return .clear }
             return super.insertionPointColor
         }
         set { super.insertionPointColor = newValue }
@@ -145,7 +155,8 @@ final class ConsoleNSTextView: NSTextView {
     /// Avoid a zero-length selection paint flashing at the top-left of the grid.
     /// Command pane keeps normal selection so typing and caret placement work.
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool) {
-        if paneKind != .command, KernelBridge.shared.isFacilityTerminalActive {
+        if paneKind != .command, KernelBridge.shared.isFacilityTerminalActive,
+           !liveConsoleWhileSeparateEditor(paneKind) {
             // Keep a collapsed selection for AppKit, but force location 0 and never
             // allow a non-empty range that would look like text selection on the grid.
             let zero = [NSValue(range: NSRange(location: 0, length: 0))]
@@ -244,9 +255,12 @@ final class ConsoleNSTextView: NSTextView {
         if paneKind == .command {
             return super.performKeyEquivalent(with: event)
         }
-        if KernelBridge.shared.consumeEditorHotKeyIfNeeded(event) { return true }
+        if !liveConsoleWhileSeparateEditor(paneKind),
+           KernelBridge.shared.consumeEditorHotKeyIfNeeded(event) { return true }
         // ⌘X/C/V while SZ-EDITOR is open (menu may not claim them during KEY wait).
-        if KernelBridge.shared.isEvaluating, KernelBridge.shared.isFacilityTerminalActive {
+        // Separate-editor + full console: use normal clipboard, not editor keys.
+        if !liveConsoleWhileSeparateEditor(paneKind),
+           KernelBridge.shared.isEvaluating, KernelBridge.shared.isFacilityTerminalActive {
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if mods.contains(.command), !mods.contains(.shift) {
                 let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
@@ -259,12 +273,16 @@ final class ConsoleNSTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if paneKind == .command {
+        if paneKind == .command || liveConsoleWhileSeparateEditor(paneKind) {
             // Ensure we are first responder and caret is past the prompt before insert.
             if window?.firstResponder !== self {
                 window?.makeFirstResponder(self)
             }
-            KernelBridge.shared.setCommandPaneFocused(true)
+            if paneKind == .command {
+                KernelBridge.shared.setCommandPaneFocused(true)
+            } else {
+                KernelBridge.shared.setCommandPaneFocused(false)
+            }
             let end = (string as NSString).length
             let start = min(max(0, editableStartUTF16), end)
             let sel = selectedRange()
@@ -316,8 +334,9 @@ final class ConsoleNSTextView: NSTextView {
             super.scrollWheel(with: event)
             return
         }
-        // Facility: always scroll the editor when the pointer is over this view.
+        // Facility / legacy full-as-grid: scroll the editor, not the text view.
         if paneKind != .command,
+           !liveConsoleWhileSeparateEditor(paneKind),
            KernelBridge.shared.isFacilityTerminalActive,
            KernelBridge.shared.isEvaluating {
             KernelBridge.shared.reportFacilityScroll(event)
@@ -349,6 +368,7 @@ final class ConsoleNSTextView: NSTextView {
 
     private var facilityEditorMenuActive: Bool {
         paneKind != .command
+            && !liveConsoleWhileSeparateEditor(paneKind)
             && KernelBridge.shared.isFacilityTerminalActive
             && KernelBridge.shared.isEvaluating
     }
@@ -472,9 +492,13 @@ final class ConsoleNSTextView: NSTextView {
         let tripleClick = event.clickCount >= 3 && !cmd
         let doubleClick = event.clickCount == 2 && !cmd
 
-        // Command pane: normal text selection + editing (history is selectable for copy).
-        if paneKind == .command {
-            KernelBridge.shared.setCommandPaneFocused(true)
+        // Command pane / live full Console (separate-editor): normal REPL selection.
+        if paneKind == .command || liveConsoleWhileSeparateEditor(paneKind) {
+            if paneKind == .command {
+                KernelBridge.shared.setCommandPaneFocused(true)
+            } else {
+                KernelBridge.shared.setCommandPaneFocused(false)
+            }
             window?.makeFirstResponder(self)
             // Always notify so SwiftUI FocusState leaves the facility pane.
             onPaneActivated?()
@@ -1052,7 +1076,9 @@ struct ConsoleTextView: NSViewRepresentable {
             }
 
             // Facility grid string is host-painted only — never mutate via AppKit.
-            if parent.paneKind == .facility || parent.paneKind == .full,
+            // Separate-editor full Console is a live REPL, not a grid surface.
+            if parent.paneKind == .facility
+                || (parent.paneKind == .full && !liveConsoleWhileSeparateEditor(parent.paneKind)),
                KernelBridge.shared.isFacilityTerminalActive {
                 return false
             }
@@ -1063,8 +1089,10 @@ struct ConsoleTextView: NSViewRepresentable {
             // While the kernel is evaluating, KEY/KEY? input is captured by the
             // NSEvent keyDown monitor in KernelBridge (not here). Reject edits so
             // typed keys do not appear on the facility/console line.
+            // Exception: separate-editor live Console REPL while KEY waits.
             if KernelBridge.shared.isEvaluating,
-               !KernelBridge.shared.isCommandPaneFocused {
+               !KernelBridge.shared.isCommandPaneFocused,
+               !liveConsoleWhileSeparateEditor(parent.paneKind) {
                 return false
             }
             return true
@@ -1090,9 +1118,9 @@ struct ConsoleTextView: NSViewRepresentable {
             // is the reliable fallback when the text view eats the event first.
             // -----------------------------------------------------------------
 
-            // Command pane is identified by paneKind (not only the focus flag),
-            // so Return keeps working even if the flag briefly races.
-            if parent.paneKind == .command {
+            // Command pane / live full Console (separate-editor): normal REPL editing.
+            if parent.paneKind == .command
+                || liveConsoleWhileSeparateEditor(parent.paneKind) {
                 if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                     return parent.onReturnPressed()
                 }
@@ -1234,9 +1262,10 @@ struct ConsoleTextView: NSViewRepresentable {
             // Normal REPL (not waiting on KEY): Return submits the input line;
             // Up/Down recall history; Left stops at the protected prefix edge.
             // -----------------------------------------------------------------
-            // Facility grid still painted: never commit a REPL line (Return would
-            // re-enter evaluate while SZ-EDITOR may still be active, or race).
-            if KernelBridge.shared.isFacilityTerminalActive {
+            // Facility grid still painted in this view: never commit a REPL line.
+            // Separate-editor full Console is handled above as a live REPL.
+            if KernelBridge.shared.isFacilityTerminalActive,
+               !liveConsoleWhileSeparateEditor(parent.paneKind) {
                 return true
             }
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {

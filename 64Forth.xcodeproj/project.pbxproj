@@ -23,6 +23,7 @@
 		B1000016 /* AppMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000117 /* AppMain.swift */; };
 		B1000017 /* AgentChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000118 /* AgentChannel.swift */; };
 		B1000018 /* AppOutputHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000119 /* AppOutputHost.swift */; };
+		B1000019 /* FacilityEditorHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100011A /* FacilityEditorHost.swift */; };
 		FA6AA0DF301916D30007C369 /* 64Forth.jpg in Resources */ = {isa = PBXBuildFile; fileRef = FA6AA0DE301916D30007C369 /* 64Forth.jpg */; };
 /* End PBXBuildFile section */
 
@@ -53,6 +54,7 @@
 		B1000117 /* AppMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMain.swift; sourceTree = "<group>"; };
 		B1000118 /* AgentChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChannel.swift; sourceTree = "<group>"; };
 		B1000119 /* AppOutputHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOutputHost.swift; sourceTree = "<group>"; };
+		B100011A /* FacilityEditorHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FacilityEditorHost.swift; sourceTree = "<group>"; };
 		FA1CDF343048632900D22FCE /* app-output.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = "app-output.fth"; sourceTree = "<group>"; };
 		FA1CDF353048634500D22FCE /* app-points.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = "app-points.fth"; sourceTree = "<group>"; };
 		FA38151E304B00A900EB8DE3 /* boot_words_end.inc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.pascal; path = boot_words_end.inc; sourceTree = "<group>"; };
@@ -124,6 +126,7 @@
 				B1000113 /* FloatHost.swift */,
 				B1000114 /* FacilityTerminal.swift */,
 				B1000119 /* AppOutputHost.swift */,
+				B100011A /* FacilityEditorHost.swift */,
 			);
 			path = Host;
 			sourceTree = "<group>";
@@ -364,6 +367,7 @@
 				B1000013 /* FloatHost.swift in Sources */,
 				B1000014 /* FacilityTerminal.swift in Sources */,
 				B1000018 /* AppOutputHost.swift in Sources */,
+				B1000019 /* FacilityEditorHost.swift in Sources */,
 				B1000006 /* forth.s in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

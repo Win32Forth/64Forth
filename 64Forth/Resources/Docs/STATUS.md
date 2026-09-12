@@ -31,6 +31,42 @@ Append new design sections as we go; mark items done when implemented.
 
 ---
 
+## v1.3.8 design — SZ-EDITOR in its own window (three-window model)
+
+**Status:** Phase 1 in progress (host). **Not** a release yet.
+
+### Product shape
+
+| Window | Role |
+|--------|------|
+| **Console** | Forth REPL only (no VSplit with the editor) |
+| **SZ-EDITOR** | Facility character grid + KEY loop (`FacilityEditorHost`) |
+| **App Output** | GRAPHICS / Emitter / stand-alone apps only (`AppOutputHost`) |
+
+**Hard rule:** Do **not** merge SZ-EDITOR into App Output. Emitter and compiling application programs keep using the App Output window for graphics I/O. The editor is a third window, separate from both the console and App Output.
+
+### UX constraints
+
+- Console stays a **fully live REPL** while the editor’s KEY loop is running (host-queued evaluate; same spirit as today’s command pane).
+- Dirty / save / quit remain Forth-owned (S/D). Host titlebar close injects editor-quit key **17**, then deferred teardown (same pattern as App Output).
+- Open the editor window on **TERMINAL-REFRESH** while facility is active — not on bare `PAGE` (orphan-PAGE discipline unchanged).
+
+### Host pieces
+
+- `Host/FacilityEditorHost.swift` — `NSWindow` + `FacilityGridView` painting `FacilityTerminal` Unicode cells + reverse attrs
+- Feature flag: `KernelBridge.useSeparateFacilityEditor` (default **on**; set `false` to fall back to the Option A console VSplit while iterating)
+- Key routing order: **App Output** (if key) → **SZ-EDITOR** (if key) → **Console**
+
+### Phases (summary)
+
+1. Skeleton host + flag-gated paint/keys — **done**
+2. Live full-console REPL evaluate while KEY waits — **done** (host wired)
+3. Menus / VIEW / Hyper / DEBUG retarget — **done** (direct menu hooks; console keeps arrows; DEBUG redraws editor window)
+4. Delete console VSplit code
+5. Polish + 1.3.8 release prep (outer-top `[X]` removed; keep Files-list `[X]`)
+
+---
+
 ## v1.3.6 — Emitter 0.7 SA locals / BI / window I/O
 
 **Version strings:** marketing **1.3.6**, build **35** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner, kernel hello).
@@ -583,7 +619,7 @@ Shipped with DMG and GitHub release `v1.1.1`.
 | Version 1.1.1 / build 18 | **Done** |
 | ⌘-click / ⌘E VIEW from **command pane** while editor KEY waits | **Done** |
 | ⌘F / ⌘G / ⌘←→ / Hyper PgUp/Dn while command pane focused | **Done** |
-| VIEW word via staged line (`HYPER-VIEW-CU`) when evaluating | **Done** |
+| VIEW word via staged line (`VIEW name`; FORTH-visible) when evaluating | **Done** (was `HYPER-VIEW-CU` in SYSVOC → `undefined`) |
 | Seed lower command pane from pre-editor console transcript; restore on close | **Done** |
 | Splitter drag: orphan-PAGE no longer tears down split / wipes console | **Done** |
 | `CLS` clears host console only; editor exit is `FACILITY-OFF` (no transcript wipe) | **Done** |

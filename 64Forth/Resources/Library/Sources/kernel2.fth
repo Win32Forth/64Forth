@@ -210,7 +210,8 @@ DEFER EDIT
 
 DOC" SEE ( 'name' -- ) show help and decompile word (DEFER; Hyper may IS)"
 DEFER SEE
-: (SEE) ' DUP (SEE-HDR) DUP DOCOL? 0= IF (SEE-PRIM) EXIT THEN
+\ (SEE-HDR) is ( xt -- xt ); do not DUP before it or the xt is left on the stack.
+: (SEE) ' (SEE-HDR) DUP DOCOL? 0= IF (SEE-PRIM) EXIT THEN
   >BODY BEGIN (SEE-STEP) DUP 0= UNTIL DROP ;
 ' (SEE) IS SEE
 DOC" DEBUG ( 'name' -- ) F6 over, F7 into, F8 out, Esc/q abort, Cmd-Shift-Y go"

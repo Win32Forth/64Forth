@@ -46,7 +46,8 @@ struct SixtyFourForthApp: App {
             // File → Open… (⌘O): open panel; while SZ-EDITOR is open, loads into editor.
             CommandGroup(replacing: .newItem) {
                 Button("New") {
-                    NotificationCenter.default.post(name: .fileNew, object: nil)
+                    // Direct — NotificationCenter/`onReceive` defers while KEY waits.
+                    KernelBridge.shared.requestFileNew()
                 }
                 .keyboardShortcut("n", modifiers: .command)
                 Button("Open…") {
@@ -60,17 +61,18 @@ struct SixtyFourForthApp: App {
             // ⌘Q still quits the application.
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
-                    NotificationCenter.default.post(name: .fileSave, object: nil)
+                    // Direct pushKey(19) while KEY waits (same deferral trap as Open).
+                    KernelBridge.shared.requestFileSave()
                 }
                 .keyboardShortcut("s", modifiers: .command)
                 Button("Save As…") {
-                    NotificationCenter.default.post(name: .fileSaveAs, object: nil)
+                    KernelBridge.shared.requestFileSaveAs()
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
             }
             CommandGroup(after: .saveItem) {
                 Button("Close Editor") {
-                    NotificationCenter.default.post(name: .fileClose, object: nil)
+                    KernelBridge.shared.requestFileClose()
                 }
                 .keyboardShortcut("w", modifiers: .command)
             }
@@ -81,7 +83,8 @@ struct SixtyFourForthApp: App {
                 .keyboardShortcut("k", modifiers: [.command])
 
                 Button("VIEW Word Under Cursor") {
-                    NotificationCenter.default.post(name: .viewWordUnderCursor, object: nil)
+                    // Direct — NotificationCenter/`onReceive` defers while KEY waits.
+                    KernelBridge.shared.requestViewWordUnderCursor()
                 }
                 .keyboardShortcut("e", modifiers: [.command])
 
@@ -89,32 +92,32 @@ struct SixtyFourForthApp: App {
 
                 // Find: ⌘←/→ preferred; ⌘G / ⌘⇧G are reliable letter shortcuts (like ⌘E).
                 Button("Find Previous Word") {
-                    NotificationCenter.default.post(name: .editorFindPrev, object: nil)
+                    KernelBridge.shared.requestEditorFind(prev: true)
                 }
                 .keyboardShortcut(.leftArrow, modifiers: .command)
 
                 Button("Find Next Word") {
-                    NotificationCenter.default.post(name: .editorFindNext, object: nil)
+                    KernelBridge.shared.requestEditorFind(prev: false)
                 }
                 .keyboardShortcut(.rightArrow, modifiers: .command)
 
                 Button("Find Previous Word (G)") {
-                    NotificationCenter.default.post(name: .editorFindPrev, object: nil)
+                    KernelBridge.shared.requestEditorFind(prev: true)
                 }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
 
                 Button("Find Next Word (G)") {
-                    NotificationCenter.default.post(name: .editorFindNext, object: nil)
+                    KernelBridge.shared.requestEditorFind(prev: false)
                 }
                 .keyboardShortcut("g", modifiers: .command)
 
                 Button("Hyper Previous Hit") {
-                    NotificationCenter.default.post(name: .hyperPrev, object: nil)
+                    KernelBridge.shared.requestHyperNav(prev: true)
                 }
                 .keyboardShortcut(.pageUp, modifiers: .command)
 
                 Button("Hyper Next Hit") {
-                    NotificationCenter.default.post(name: .hyperNext, object: nil)
+                    KernelBridge.shared.requestHyperNav(prev: false)
                 }
                 .keyboardShortcut(.pageDown, modifiers: .command)
 

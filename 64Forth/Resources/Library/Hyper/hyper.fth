@@ -316,6 +316,12 @@ VARIABLE HYPER-LEAF-U
    ELSE  2DROP  THEN ;
 
 \ Append NDX hits for HYPER-SEEK (does not clear existing hits).
+\ Do NOT skip every line that starts with '#': pictured-numeric names
+\ (#  #S  #>  …) are stored as "#S 13" etc. A blanket '#' skip made
+\ VIEW #S a silent no-op while VIEW <# still worked ('<' ≠ '#').
+\ Header comments ("# Format: …") still no-op: first word is '#' but the
+\ remainder is not a pure line number, so (HYPER-TRY-LINE) / HYPER->LINE
+\ rejects them.
 : (HYPER-COLLECT-NDX)  ( -- )
    HYPER-ENSURE 0= IF  EXIT  THEN
    0 TO HYPER-POS
@@ -323,14 +329,13 @@ VARIABLE HYPER-LEAF-U
    BEGIN  HYPER-EOF? 0= WHILE
       HYPER-READ-LINE
       DUP 0= IF  2DROP
-      ELSE  OVER C@ [CHAR] # = IF  2DROP
       ELSE  OVER C@ 64 = IF
          DUP 1 < IF  2DROP
          ELSE  HYPER-SKIP1 HYPER-SKIP-BL
             DUP 0= IF  2DROP  ELSE  HYPER-SET-CUR  THEN
          THEN
       ELSE  (HYPER-TRY-LINE)
-      THEN THEN THEN
+      THEN THEN
    REPEAT ;
 
 \ --- Dictionary VIEW hits (header file-id + line) ----------------------------
@@ -1028,10 +1033,11 @@ S" DBG-SYNC-VIEW"      FORTH>SYSVOC
 S" DBG-HIGHLIGHT-NAME" FORTH>SYSVOC
 PREVIOUS
 
+\ Optional combo (not installed as SEE): VIEW when indexed+editor, else decompile.
 : SEE-HYPER  ( "name" -- )
    >IN @ >R
    PARSE-NAME
-   DUP 0= IF  R> DROP 2DROP ." SEE needs a name" CR EXIT  THEN
+   DUP 0= IF  R> DROP 2DROP ." SEE-HYPER needs a name" CR EXIT  THEN
    2DUP (HYPER-FIND) IF
       HYPER-EDITOR? IF
          R> DROP 2DROP
@@ -1044,7 +1050,10 @@ PREVIOUS
    2DROP
    R> >IN !
    (SEE-OLD) EXECUTE ;
-' SEE-HYPER IS SEE
+
+\ SEE stays the kernel decompiler; VIEW / SEE-SOURCE open SZ-EDITOR.
+\ Re-point at kernel (SEE) directly (CONSTANT (SEE-OLD) is for SEE-HYPER only).
+' (SEE) IS SEE
 
 : HYPER-RELOAD  ( -- )
    HYPER-LOAD IF  ." HYPER: " HYPER-NDX-NAME COUNT TYPE
@@ -1066,9 +1075,11 @@ PREVIOUS
 : HYPER-HELP  ( -- )
    CR
    ." LOCATE <name>     print path:line  [n/m] if multiple" CR
-   ." VIEW <name>       open in SZ-EDITOR at line" CR
+   ." VIEW <name>       open source in SZ-EDITOR at line" CR
+   ." SEE <name>        decompile to console (kernel SEE; no editor)" CR
+   ." SEE-SOURCE        alias of VIEW" CR
+   ." SEE-HYPER         VIEW if indexed+editor, else decompile (optional)" CR
    ." DBG <name>        VIEW or untitled, then DEBUG (F6/F7/F8; Esc abort; Cmd-Shift-Y go)" CR
-   ." SEE <name>        VIEW if editor loaded, else decompile" CR
    ." Cmd-PgUp/PgDn     visit history (back/forward); else multi-hit n/m" CR
    ." Cmd-Left/Right    prev/next occurrence in current editor file" CR
    ." Cmd-E / Cmd-click VIEW word; side list = visits (line# + [X] close)" CR
