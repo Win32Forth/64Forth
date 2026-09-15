@@ -231,7 +231,11 @@ VARIABLE BI-C3              \ 640320^3
   {: digits | n depth0 :}
   DEPTH TO depth0
   digits PI-COMPUTE
-  BI-PI @ BI-ZERO? IF  ." 0"  DEPTH depth0 - 0 MAX 0 ?DO DROP LOOP  EXIT  THEN
+  BI-PI @ BI-ZERO?
+  IF    S" 0" BI-TYPE
+        DEPTH depth0 - 0 MAX 0 ?DO DROP LOOP
+        EXIT
+  THEN
   BI-PI @ BI-ABS!
 
   \ Trim guard digits: BI-PI := floor(PI * 10^digits)
@@ -247,10 +251,10 @@ VARIABLE BI-C3              \ 640320^3
   digits BI-TMP @ BI-POWER10
   BI-PI @ BI-TMP @ BI-QUOT @ BI-REM @ BI-WORK @ BI-DIVMOD
   BI-QUOT @ BI.
-  [CHAR] . EMIT
+  S" ." BI-TYPE
 
   BI-REM @ BI-ZERO? IF
-    digits 0 ?DO  [CHAR] 0 EMIT  LOOP
+    digits 0 ?DO S" 0" BI-TYPE  LOOP
     DEPTH depth0 - 0 MAX 0 ?DO DROP LOOP
     EXIT
   THEN
@@ -262,9 +266,8 @@ VARIABLE BI-C3              \ 640320^3
     BI-TMP2 @ 10 BI/U DROP
     n 1+ TO n
   REPEAT
-  digits n -  0 MAX  0 ?DO  [CHAR] 0 EMIT  LOOP
+  digits n -  0 MAX  0 ?DO  S" 0 BI-TYPE"  LOOP
   BI-REM @ BI.
-  DEPTH depth0 - 0 MAX 0 ?DO DROP LOOP
 ;
 
 \ Compute and print with a banner.

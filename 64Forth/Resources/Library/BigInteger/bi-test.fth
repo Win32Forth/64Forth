@@ -40,7 +40,7 @@ VARIABLE T1  VARIABLE T2
 : BI-MAKE  ( digits var -- )
   OVER BI-NEW                    ( digits var bi ior )
   IF  DROP 2DROP  0 SWAP !  1 #BI-FAIL +!  ." FAIL: BI-NEW" CR  EXIT  THEN
-  NIP SWAP ! ;
+  SWAP ! DROP ;                  \ ( digits var bi -- ) store bi into var
 
 80 A  BI-MAKE
 80 B  BI-MAKE

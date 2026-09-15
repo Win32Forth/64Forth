@@ -79,7 +79,7 @@ ONLY FORTH ALSO BIG-INTEGER DEFINITIONS
 \ -----------------------------------------------------------------------------
 
 : BI-ALLOCATE  ( cap -- bi ior )
-  DUP 1 MAX
+  1 MAX
   DUP BI-BYTES ALLOCATE              ( cap addr ior )
   DUP IF  NIP NIP 0 SWAP EXIT  THEN DROP
   2DUP !                             \ store capacity
@@ -330,24 +330,28 @@ ONLY FORTH ALSO BIG-INTEGER DEFINITIONS
 \ Decimal I/O
 \ -----------------------------------------------------------------------------
 
+
+
+DEFER BI-TYPE   ' TYPE IS BI-TYPE
+
 : BI-U.9  ( u -- )
   BASE @ >R DECIMAL
-  0 <# # # # # # # # # # #> TYPE
+  0 <# # # # # # # # # # #> BI-TYPE
   R> BASE ! ;
 
 : BI.  ( bi -- )
   {: bi | n :}
-  bi BI-ZERO? IF  [CHAR] 0 EMIT EXIT  THEN
-  bi BI-SGN 0< IF  [CHAR] - EMIT  THEN
+  bi BI-ZERO? IF  S" 0" BI-TYPE EXIT  THEN
+  bi BI-SGN 0< IF  S" -" BI-TYPE  THEN
   bi BI-LEN TO n
   BASE @ >R DECIMAL
-  bi n 1- BI-LIMB @  0 <# #S #> TYPE
+  bi n 1- BI-LIMB @  0 <# #S #> BI-TYPE
   R> BASE !
   n 1- 0 ?DO
     bi n 2 - I - BI-LIMB @ BI-U.9
   LOOP ;
 
-: BI.S  ( bi -- )  BI. SPACE ;
+: BI.S  ( bi -- )  BI. S"  " BI-TYPE ;
 
 \ r = 10^n  (n ≥ 0)
 : BI-POWER10  ( n r -- )
@@ -368,7 +372,8 @@ ONLY FORTH ALSO BIG-INTEGER DEFINITIONS
   r BI-LEN q + r BI-LEN!
   r BI-NORM ;
 
-.( big-int.fth loaded.  Use: ALSO BIG-INTEGER ) CR
+.( big-int.fth loaded.  Use: ALSO BIG-INTEGER )
+
 
 \ Restore: FORTH first (and current), with ALSO depth for further ALSO <vocab>.
 ONLY FORTH ALSO DEFINITIONS
