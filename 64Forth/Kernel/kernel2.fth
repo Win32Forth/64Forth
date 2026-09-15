@@ -151,9 +151,10 @@ DOC" .R ( n n -- ) print n right-justified in field (no trailing space)"
 
 DOC" (THREAD-DEPTH) ( head -- n ) count words in one hash chain"
 : (THREAD-DEPTH) 0 SWAP BEGIN DUP WHILE SWAP 1+ SWAP 2 CELLS - @ REPEAT DROP ;
-DOC" (CONTEXT) ( -- wid ) first search-order wordlist, or FORTH"
+\ CONTEXT = search_order[0] = GET-ORDER wid1 (not widn). Empty order -> FORTH.
+DOC" (CONTEXT) ( -- wid ) first search-order wordlist (wid1), or FORTH"
 : (CONTEXT) GET-ORDER ?DUP 0= IF FORTH-WORDLIST EXIT THEN
-  BEGIN DUP 1 > WHILE SWAP DROP 1- REPEAT DROP ;
+  1- 0 ?DO NIP LOOP ;
 DOC" (WID.THREADS) ( wid -- ) print all thread depths for wid in aligned columns"
 : (WID.THREADS) DICT-THREADS 0 DO DUP I CELLS + @ (THREAD-DEPTH) 5 .R LOOP DROP ;
 DOC" .THREADS ( -- ) print CONTEXT wordlist hash-chain depths in aligned columns"
