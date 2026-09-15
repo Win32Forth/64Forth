@@ -69,7 +69,9 @@ DECIMAL
  27 CONSTANT SZ-HYPER-NEXT     \ Cmd-PgDn — next HYPER hit
  30 CONSTANT SZ-CMD-OPEN       \ host File→Open while KEY waiting
  31 CONSTANT SZ-CMD-NEW        \ host File→New while KEY waiting
- 35 CONSTANT SZ-CMD-SAVE-AS    \ host Save As panel picked a path
+\ Save-As ack must NOT be ASCII '#' (35) — typing # would fire Save As.
+\ Also avoid 134 (host DEBUG continue / ⌘⇧Y).
+135 CONSTANT SZ-CMD-SAVE-AS    \ host Save As panel picked a path
 131 CONSTANT SZ-FIND-EDIT-KEY  \ Cmd-F — type find string in status field
 132 CONSTANT SZ-SHIFT-ENTER    \ ⇧Return — find previous (while find field open)
 133 CONSTANT SZ-CMD-EVAL       \ host command-pane line ready (split console)

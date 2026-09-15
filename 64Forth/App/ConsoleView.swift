@@ -821,7 +821,7 @@ struct ConsoleView: View {
         ) { url in
             guard let url else { return }
             self.kernel.stageEditorOpenPath(url.path)
-            _ = self.kernel.pushKey(35)
+            _ = self.kernel.pushKey(135) // SZ-CMD-SAVE-AS (not ASCII '#' / not DEBUG 134)
         }
     }
 

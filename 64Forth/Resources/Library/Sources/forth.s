@@ -737,7 +737,7 @@ XSZ_CMD_DONE:
     mov  x2, #0
     b    _facility_op_go
 
-// (SZ-SAVE-AS-REQ) ( -- )  host NSSavePanel while KEY waits; then key 35
+// (SZ-SAVE-AS-REQ) ( -- )  host NSSavePanel while KEY waits; then key 135 (SZ-CMD-SAVE-AS)
     BOOT_WORD "(SZ-SAVE-AS-REQ)", "(SZ-SAVE-AS-REQ) ( -- ) request Save As panel (untitled ⌘S)", 0, XSZ_SAVE_AS_REQ
 XSZ_SAVE_AS_REQ:
     mov  x0, #10

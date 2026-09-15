@@ -585,7 +585,7 @@ private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> 
             DispatchQueue.main.async(execute: clear)
         }
     case 10:
-        // Untitled ⌘S: NSSavePanel on main, then stage path + key 35
+        // Untitled ⌘S: NSSavePanel on main, then stage path + SZ-CMD-SAVE-AS (135).
         let saveAs: () -> Void = {
             KernelBridge.shared.onSaveAsPanelRequest?()
         }
@@ -1565,7 +1565,7 @@ final class KernelBridge {
 
     /// Host replaces console body with rendered facility screen (cols×rows + newlines).
     var onTerminalRefresh: ((String) -> Void)?
-    /// Untitled save: host shows NSSavePanel, stages path, pushKey(35).
+    /// Untitled save: host shows NSSavePanel, stages path, pushKey(135) = SZ-CMD-SAVE-AS.
     var onSaveAsPanelRequest: (() -> Void)?
     /// ⌘O / File→Open while KEY waits: host shows NSOpenPanel (same path as menu).
     /// Stolen in the key monitor so SwiftUI menu/`onReceive` cannot defer and stack.
