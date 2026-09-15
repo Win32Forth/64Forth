@@ -102,7 +102,7 @@ DOC" .ELAPSED ( ms -- ) print ms as HH:MM:SS.mmm"
 : .ELAPSED BASE @ >R DECIMAL 1000 /MOD SWAP >R 60 /MOD SWAP >R 60 /MOD SWAP >R
   DUP 10 < IF 48 EMIT THEN 0 <# #S #> TYPE 58 EMIT R> .2DIG 58 EMIT R> .2DIG 46 EMIT R> .3DIG R> BASE ! ;
 DOC" ELAPSED ( 'name' -- ) run name once and print elapsed time"
-: ELAPSED ' MS@ >R EXECUTE MS@ R> - .ELAPSED CR ;
+: ELAPSED ' MS@ >R EXECUTE MS@ R> - CR .ELAPSED CR ;
 DOC" ? ( a-addr -- ) display the cell at a-addr (@ .)"
 : ? @ . ;
 DOC" ARSHIFT ( n u -- n' ) signed shift right"

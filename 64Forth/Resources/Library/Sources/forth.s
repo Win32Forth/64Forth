@@ -7220,12 +7220,15 @@ XPAD_END:
     BOOT_WORD "MS@", "MS@ ( -- u ) wall-clock milliseconds since epoch", 0, XMSFETCH, XMSFETCH_END
 XMSFETCH:
     SAVE_VM
-    sub sp, sp, #16                // struct timeval { tv_sec, tv_usec }
+    // timeval: tv_sec (8) + tv_usec (4) + pad (4). Zero slot so pad is not
+    // stack garbage; load usec as 32-bit (ldr x1 would include pad → ±2^32/1000 ms).
+    sub sp, sp, #16
+    stp xzr, xzr, [sp]
     mov x0, sp
     mov x1, xzr
     bl _gettimeofday
     ldr x0, [sp]                   // tv_sec
-    ldr x1, [sp, #8]               // tv_usec
+    ldr w1, [sp, #8]               // tv_usec (32-bit; zero-extends)
     add sp, sp, #16
     RESTORE_VM
     mov x2, #1000
