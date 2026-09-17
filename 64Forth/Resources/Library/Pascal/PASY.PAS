@@ -5,7 +5,7 @@
 Program DEMO;
         const
           Limit = 5;
-          Base = 10;
+          NumberBase = 10;
         var
           idx, sum, n : Integer ;
         var
@@ -40,8 +40,8 @@ Program DEMO;
                         begin
                            n := n - 1;
                         end;
-                until (n <= Base);
-                IF (sum > Base)
+                until (n <= NumberBase);
+                IF (sum > NumberBase)
                 then  begin
                         newline;
                         Write('Final sum is ',#sum,' (ok)');

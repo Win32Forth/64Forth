@@ -21,6 +21,8 @@ Examples
   FROMLIB FLOAD Assembler/ASMARMTESTS.fth \ then: ASM-TESTS
   FROMLIB FLOAD Emitter/emitter.fth        \ turnkey slicer (IN PROGRESS)
   \ Stand-alone app kit base = GRAPHICS (see Docs/APPKIT.md); first emit target: tetra
+  FROMLIB FLOAD Pascal/PASCAL.fth          \ Tiny Pascal → Forth translator
+  FROMLIB S" Pascal/PASY.PAS" PASCAL-TO-FILE   \ then INCLUDED + DEMO
 
 Assembler (ASMARM64)
 --------------------
@@ -45,6 +47,13 @@ Emitter (IN PROGRESS)
   Not finished — do not treat as a shipping compiler yet.
   Status: Docs/STATUS.md § v1.3.4
 
+Pascal (Tiny Pascal → Forth)
+----------------------------
+  Load:    FROMLIB FLOAD Pascal/PASCAL.fth
+  Words:   PASCAL"  PASCAL  PASCAL-TO-FILE   (.pas only; FROMLIB via PAS-RESOLVE)
+  Samples: PASY.PAS / PASY-SAMPLE.fth (clear demo), PASX.PAS / PASX-SAMPLE.fth
+  Docs:    Library/Pascal/README.txt
+
 User data (Documents/64Forth)
 -----------------------------
   First launch copies Library / AutoLoad / Docs into Documents/64Forth.
@@ -53,4 +62,5 @@ User data (Documents/64Forth)
 After editing Library .fth files, rebuild/run so the bundle copy updates
 (or use Tools → Update / Restore for the Documents/64Forth tree).
 
-See ANSValidate/README.txt, Editor/SZ-EDITOR-README.txt, and Docs/README.txt.
+See ANSValidate/README.txt, Editor/SZ-EDITOR-README.txt,
+Pascal/README.txt, and Docs/README.txt.

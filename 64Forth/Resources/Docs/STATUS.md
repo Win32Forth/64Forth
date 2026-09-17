@@ -8,6 +8,23 @@ Append new design sections as we go; mark items done when implemented.
 
 ---
 
+## Library/Pascal — Tiny Pascal → Forth (in tree)
+
+**Docs:** `Library/Pascal/README.txt` · load `FROMLIB FLOAD Pascal/PASCAL.fth`
+
+| Word | Role |
+|------|------|
+| `PASCAL"` / `PASCAL` | Translate `.pas` → Forth on the console |
+| `PASCAL-TO-FILE` | Translate `.pas` → sibling `.fth` (same folder/stem) |
+
+- **FROMLIB:** resolved in the entry words via `PAS-RESOLVE` (not in `PAS-OPEN`).
+- **Extension:** source must end in `.pas` (any case); `.fth` is rejected.
+- **Samples:** `PASY.PAS` / `PASY-SAMPLE.fth` (clear no-KEY demo); `PASX.PAS` / `PASX-SAMPLE.fth` (legacy stress). Generated `PASY.fth` / `PASX.fth` are free for `PASCAL-TO-FILE`.
+- **I/O:** prefer `Write(#n)` for numbers; bare `write`/`read` map to `EMIT`/`KEY`.
+- Related: `?EXIT` immediate form shared with `Kernel/app-output.fth` (`[UNDEFINED] ?EXIT`).
+
+---
+
 ## v1.3.8 — SZ-EDITOR in its own window (three-window model)
 
 **Version strings:** marketing **1.3.8**, build **37** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner).

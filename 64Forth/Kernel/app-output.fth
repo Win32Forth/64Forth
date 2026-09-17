@@ -35,7 +35,7 @@ DECIMAL
 [THEN]
 
 [UNDEFINED] ?EXIT [IF]
-: ?EXIT  ( flag -- )  IF EXIT THEN ;
+: ?EXIT  ( flag -- )  POSTPONE IF POSTPONE EXIT POSTPONE THEN ; IMMEDIATE
 [THEN]
 
 \ F-PC multi-line block comment: \\ … {  (opener is the word "\\")

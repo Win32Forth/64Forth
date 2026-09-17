@@ -11,6 +11,9 @@ DMG + commit/push — not on every intermediate build.
 Hybrid macOS app: ARM64 ITC kernel (assembly) + SwiftUI console/host
 (TZForth-style FileHost, AutoLoad, Library, FROMLIB).
 
+Library/Pascal — Tiny Pascal → Forth translator (`PASCAL"`, `PASCAL-TO-FILE`).
+See Library/Pascal/README.txt. Prefer PASY.PAS; PASX.PAS is the older stress sample.
+
 Three windows (v1.3.8+, macOS)
 -----------------------------
   Console     — Forth REPL only (live while the editor KEY loop runs).

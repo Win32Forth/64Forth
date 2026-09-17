@@ -147,7 +147,7 @@ Stamp the date/time only when finishing a change set for a version, just before 
 | **VIEW vs SEE** | `VIEW` / ⌘E / ⌘-click open SZ-EDITOR; `SEE` decompiles to Console only |
 | **Autoload** | Loads editor + Hyper, reindexes on startup when configured |
 
-**Docs:** `Resources/Docs/STATUS.md` (design + phase notes), `Resources/Library/Hyper/README.txt`, `Resources/Library/Editor/SZ-EDITOR-README.txt`, `Resources/Config/README.txt`, `Resources/Docs/README.txt`.
+**Docs:** `Resources/Docs/STATUS.md` (design + phase notes), `Resources/Library/Hyper/README.txt`, `Resources/Library/Editor/SZ-EDITOR-README.txt`, `Resources/Library/Pascal/README.txt`, `Resources/Config/README.txt`, `Resources/Docs/README.txt`.
 
 Optional later: multi-line command paste polish, App Sandbox for store builds, editor dual-buffer.
 
@@ -168,6 +168,12 @@ EDIT myfile              \ SZ-EDITOR; .fth added if no extension
 FROMLIB EDIT TCOM/SZ
 LOCATE DUP
 VIEW SWAP                \ multi-hit: ⌘PgDn / ⌘PgUp
+
+\ Tiny Pascal → Forth (see Library/Pascal/README.txt)
+FROMLIB FLOAD Pascal/PASCAL.fth
+FROMLIB S" Pascal/PASY.PAS" PASCAL-TO-FILE
+FROMLIB S" Pascal/PASY.fth" INCLUDED
+DEMO
 ```
 
 ### Phase 1 API (assembly ↔ Swift)

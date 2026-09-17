@@ -1,6 +1,6 @@
-\ PASCALX.FTH  Tiny Pascal Forth  (Tom Zimmer, 1987-91)
+\ PASCAL.FTH  Tiny Pascal Forth  (Tom Zimmer, 1987-91)
 \ Port to 64Forth, Forth-2012, 64-bit cells.
-\ Public domain.
+\ Public domain.  See Library/Pascal/README.txt.
 
 ANEW PASCAL_MODULE
 
@@ -11,26 +11,6 @@ ONLY FORTH ALSO DEFINITIONS DECIMAL
 [UNDEFINED] { [IF]
 : {  ( -- )  [CHAR] } PARSE 2DROP ; IMMEDIATE
 [THEN]
-
-\ Debug :/; name tracer — disabled. 64Forth does not hide a word under
-\ construction, so a new ";" cannot be terminated with ";" (use ENDDEF).
-\
-\ {  --- begin :/; trace ---
-\ CREATE colon-pad 256 ALLOT
-\ ' : CONSTANT KC
-\ ' ; CONSTANT KS
-\ : ENDDEF  KS EXECUTE ; IMMEDIATE
-\ : ;  ( -- )
-\     CR ." ;Finishing: " colon-pad COUNT TYPE CR
-\     [ KS ] LITERAL EXECUTE
-\ ENDDEF IMMEDIATE
-\ : :  ( 'name' -- )
-\     CR ." Defining: "
-\     >IN @ >R BL WORD COUNT 2DUP TYPE CR colon-pad PLACE
-\     R> >IN !
-\     KC EXECUTE
-\ ENDDEF
-\ }  --- end :/; trace ---
 
 \ ---------- compatibility ----------
 
@@ -43,8 +23,10 @@ ONLY FORTH ALSO DEFINITIONS DECIMAL
 
 \ 64Forth: EXIT before THEN ends the colon definition (like ';'), so
 \ "IF EXIT THEN" must not be used.  ?EXIT drops the caller's return.
-\ : ?EXIT  ( flag -- )  IF R> DROP THEN ;
+
+[UNDEFINED] ?EXIT [IF]
 : ?EXIT  ( flag -- )  POSTPONE IF POSTPONE EXIT POSTPONE THEN ; IMMEDIATE
+[THEN]
 
 : BOUNDS  ( a n -- a+n a )  OVER + SWAP ;
 
@@ -96,23 +78,44 @@ VARIABLE CAPS-DIFF
 \	C" HELLO " C" HELLO " CAPS-COMP . ;
 	
 VARIABLE #OUT
-: CROUT     CR  #OUT OFF ;
-: CROUT+    CROUT  2 SPACES  2 #OUT ! ;
+0 VALUE PAS-OUT-FID          \ 0 = console; else file-id for PASCAL-TO-FILE
+CREATE PAS-CH 1 ALLOT
+
+: PAS-EMIT  ( c -- )
+    PAS-OUT-FID IF
+        PAS-CH C!  PAS-CH 1 PAS-OUT-FID WRITE-FILE THROW
+    ELSE  EMIT
+    THEN ;
+: PAS-TYPE  ( a n -- )
+    PAS-OUT-FID IF
+        PAS-OUT-FID WRITE-FILE THROW
+    ELSE  TYPE
+    THEN ;
+: PAS-CR  ( -- )
+    PAS-OUT-FID IF
+        S\" \n" PAS-OUT-FID WRITE-FILE THROW
+    ELSE  CR
+    THEN ;
+: PAS-SPACES  ( n -- )
+    DUP 0> IF  0 DO BL PAS-EMIT LOOP  ELSE  DROP  THEN ;
+
+: CROUT     PAS-CR  #OUT OFF ;
+: CROUT+    CROUT  2 PAS-SPACES  2 #OUT ! ;
 : SP>COL    ( n -- )
-    #OUT @ - DUP 0> IF DUP SPACES #OUT +! ELSE DROP THEN ;
+    #OUT @ - DUP 0> IF DUP PAS-SPACES #OUT +! ELSE DROP THEN ;
 : CROUT++
-    6 SP>COL  #OUT @ 6 > IF CROUT 6 SPACES 6 #OUT ! THEN ;
+    6 SP>COL  #OUT @ 6 > IF CROUT 6 PAS-SPACES 6 #OUT ! THEN ;
 
 80 VALUE COLS
 : ?NLINE  ( n -- )  #OUT @ + COLS 10 - > IF CROUT++ THEN ;
 \ Track width without DUP after TYPE (that underflows or duplicates buried cells).
 : "OUT    ( a n -- )
-    127 MIN  DUP ?NLINE  2DUP TYPE SPACE  NIP #OUT +!  1 #OUT +! ;
+    127 MIN  DUP ?NLINE  2DUP PAS-TYPE  BL PAS-EMIT  NIP #OUT +!  1 #OUT +! ;
 : $OUT    ( a -- )  COUNT "OUT ;
-: CHROUT  ( c -- )  EMIT SPACE  2 #OUT +! ;
-: COUT    ( c -- )  1 ?NLINE EMIT  1 #OUT +! ;
+: CHROUT  ( c -- )  PAS-EMIT  BL PAS-EMIT  2 #OUT +! ;
+: COUT    ( c -- )  1 ?NLINE PAS-EMIT  1 #OUT +! ;
 : ##OUT   ( n -- )
-    0 <# #S #>  DUP ?NLINE  2DUP TYPE SPACE  NIP #OUT +!  1 #OUT +! ;
+    0 <# #S #>  DUP ?NLINE  2DUP PAS-TYPE  BL PAS-EMIT  NIP #OUT +!  1 #OUT +! ;
 
 
 \ ---------- file input (ANS File-Access, no TSREAD) ----------
@@ -175,8 +178,8 @@ CREATE WORD-PAD 256 ALLOT
     PASLEN !
     PASIN OFF
     #OUT @ DUP >R 39 > IF CROUT THEN
-    40 SP>COL ." \ " PASTIB PASLEN @ TYPE
-    CROUT  R> 6 > IF 6 SPACES 6 #OUT ! THEN ;
+    40 SP>COL  S" \ " PAS-TYPE  PASTIB PASLEN @ PAS-TYPE
+    CROUT  R> 6 > IF 6 PAS-SPACES 6 #OUT ! THEN ;
 
 : CHARREAD  ( -- c )
     BEGIN
@@ -801,34 +804,106 @@ DEFER EXPR-
         VAR$ OFF  A$ OFF
     THEN ;
 
-: MAIN2  ( c-addr -- )     \ counted name
-    INIT_ARRAYS
-    COUNT PAS-OPEN
-    CROUT PROGRAM
-    PAS-CLOSE ;
+CREATE PAS-NAMEBUF 256 ALLOT
+CREATE PAS-OUTBUF  256 ALLOT
 
-: PASCAL  ( "name" -- )
-    DECIMAL
-    PASWORD MAIN2 ;
+: PAS-ABS?  ( c-addr u -- flag )
+    DUP 0= IF  2DROP FALSE EXIT  THEN
+    OVER C@ [CHAR] / = IF  2DROP TRUE EXIT  THEN
+    OVER C@ [CHAR] ~ = IF  2DROP TRUE EXIT  THEN
+    2DROP FALSE ;
 
-: PASCAL"  ( c-addr u -- )
-    DECIMAL
+: PAS-S+  ( c-addr u dest -- )
+    >R  R@ COUNT +  SWAP DUP >R MOVE
+    R> R@ C@ + R> C! ;
+
+\ If FROMLIB is armed, rewrite a relative path under LIBRARY-PATH and clear
+\ the arm (folder translation for Library-relative names). Absolute or ~
+\ paths are unchanged. Without FROMLIB, the path stays cwd-relative.
+\ Done here — not in PAS-OPEN — so PASCAL / PASCAL" / PASCAL-TO-FILE share
+\ one commented resolve step.
+: PAS-RESOLVE  ( c-addr u -- c-addr' u' )
+    2DUP PAS-ABS? IF EXIT THEN
+    FROMLIB? 0= IF EXIT THEN
+    >R >R
+    LIBRARY-PATH DUP 0= IF
+        2DROP R> R> 2DROP FROMLIB-OFF
+        TRUE ABORT" PASCAL: FROMLIB armed but LIBRARY-PATH empty"
+    THEN
+    0 PAS-NAMEBUF C!
+    PAS-NAMEBUF PLACE
+    S" /" PAS-NAMEBUF PAS-S+
+    R> R> PAS-NAMEBUF PAS-S+
+    FROMLIB-OFF
+    PAS-NAMEBUF COUNT ;
+
+\ Require a .pas (any case) suffix so a .fth is never mistaken for source.
+: PAS-MUST-.PAS  ( c-addr u -- c-addr u )
+    DUP 4 < IF
+        TRUE ABORT" Pascal source must have a .pas extension"
+    THEN
+    2DUP + 4 -
+    DUP C@ [CHAR] . <> IF
+        DROP TRUE ABORT" Pascal source must have a .pas extension"
+    THEN
+    1+ DUP C@ BL OR [CHAR] P BL OR <> IF
+        DROP TRUE ABORT" Pascal source must have a .pas extension"
+    THEN
+    1+ DUP C@ BL OR [CHAR] A BL OR <> IF
+        DROP TRUE ABORT" Pascal source must have a .pas extension"
+    THEN
+    1+ C@ BL OR [CHAR] S BL OR <> IF
+        TRUE ABORT" Pascal source must have a .pas extension"
+    THEN ;
+
+: PAS-OUT-NAME  ( c-addr u -- c-addr2 u2 )
+    DUP 4 < IF
+        TRUE ABORT" PASCAL-TO-FILE: path too short"
+    THEN
+    PAS-OUTBUF PLACE
+    PAS-OUTBUF COUNT + 4 -
+    [CHAR] . OVER C!
+    [CHAR] f OVER 1+ C!
+    [CHAR] t OVER 2 + C!
+    [CHAR] h SWAP 3 + C!
+    PAS-OUTBUF COUNT ;
+
+: (PASCAL-TRANS)  ( c-addr u -- )
     INIT_ARRAYS
     PAS-OPEN
     CROUT PROGRAM
     PAS-CLOSE ;
 
-CR .( Loaded PASCALX.fth ) CR
+: PASCAL"  ( c-addr u -- )
+    DECIMAL
+    PAS-RESOLVE PAS-MUST-.PAS
+    (PASCAL-TRANS) ;
 
-\ BREAK THROW fromlib S" PASCAL/PASX.PAS" RESOLVE-KEY ' PASCAL" BPGO-XT
+: PASCAL  ( "name" -- )
+    DECIMAL
+    BL WORD COUNT
+    PAS-RESOLVE PAS-MUST-.PAS
+    (PASCAL-TRANS) ;
 
-\
-\ {  --- begin load-time PASX smoke test ---
-\ : test
-\ \	['] GET$ BREAK-XT
-\ \       ['] PASCAL" BREAK-XT
-\ \       ['] GET$ BREAK-XT
-\         FILE-ECHO ON
-\         S" PASX.PAS" ['] PASCAL" BPGO-XT ;
-\ test
-\ }  --- end load-time PASX smoke test ---
+\ Translate .pas → sibling .fth (same folder, same stem). Honors FROMLIB
+\ via PAS-RESOLVE before opening either file.
+: PASCAL-TO-FILE  ( c-addr u -- )
+    DECIMAL
+    PAS-RESOLVE PAS-MUST-.PAS
+    2DUP PAS-OUT-NAME
+    2DUP W/O CREATE-FILE ABORT" PASCAL-TO-FILE: can't create .fth"
+    TO PAS-OUT-FID
+    >R >R
+    ['] (PASCAL-TRANS) CATCH
+    PAS-OUT-FID IF
+        PAS-OUT-FID CLOSE-FILE DROP
+        0 TO PAS-OUT-FID
+    THEN
+    ?DUP IF  R> R> 2DROP THROW  THEN
+    CR  ." Wrote "  R> R> TYPE  CR ;
+
+.( Loaded PASCAL.fth ) CR
+
+\ Example:
+\   FROMLIB S" Pascal/PASY.PAS" PASCAL"
+\   FROMLIB S" Pascal/PASY.PAS" PASCAL-TO-FILE
