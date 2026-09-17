@@ -87,10 +87,7 @@ DOC" (SEE-STEP) ( addr -- addr' ) decompile one body cell; advances addr"
   R@ (SEE-BR?) IF R@ NAME>STRING TYPE SPACE R> DROP 8 + DUP @ . SPACE 8 + EXIT THEN
   R@ NAME>STRING TYPE SPACE R> DROP 8 + ;
 \ SEE / DEBUG / HELP are DEFERs installed after ABORT (DEFER defaults to ABORT).
-DOC" FLOAD ( 'name' -- ) synonym of INCLUDE; load and interpret a file"
-' INCLUDE ALIAS FLOAD
-DOC" REQUIRE ( 'name' -- ) load file once (PARSE-NAME REQUIRED)"
-: REQUIRE PARSE-NAME REQUIRED ;
+
 
 DOC" .FREE ( -- ) print free dictionary bytes remaining"
 : .FREE UNUSED U. SPACE S" bytes free" TYPE CR ;
@@ -223,6 +220,44 @@ DEFER DEBUG
 ' (DEBUG) IS DEBUG
 DOC" HELP ( 'name' -- ) show help and decompile word (same as SEE)"
 : HELP SEE ;
+
+\ File load via ALLOCATE+EVALUATE so ANEW/MARKER (HERE rewind) cannot
+\ invalidate the SOURCE text mid-interpret. Bare INCLUDE keeps (INCLUDE) dialog.
+DOC" (SLURP) ( c-addr u -- addr u ) read whole file into ALLOCATE buffer"
+: (SLURP)  ( c-addr u -- addr u )
+    R/O BIN OPEN-FILE THROW  >R
+    R@ FILE-SIZE THROW DROP          \ n (ud lo; hi dropped)
+    DUP 0=
+    IF  R> CLOSE-FILE THROW  PAD 0 EXIT
+    THEN
+    DUP ALLOCATE THROW               \ n addr
+    SWAP                             \ addr n
+    2DUP R@ READ-FILE THROW NIP      \ addr nread
+    R> CLOSE-FILE THROW ;
+
+DOC" INCLUDED ( c-addr u -- ) resolve (FROMLIB), slurp, EVALUATE, FREE"
+: INCLUDED  ( c-addr u -- )
+    RESOLVE-KEY                      \ c-addr' u' in include_name_pending
+    DUP 0= IF 2DROP EXIT THEN
+    (SLURP)                          \ a u
+    DUP 0= IF 2DROP EXIT THEN        \ empty file: (SLURP) may leave PAD 0 — no FREE
+    SWAP >R                          \ u    R: a
+    R@ SWAP                          \ a u  R: a
+    ['] EVALUATE CATCH               \ ior  R: a
+    R> FREE DROP                     \ drop FREE ior
+    THROW ;
+
+DOC" INCLUDE ( 'name'|bare -- ) named → INCLUDED; bare → (INCLUDE) dialog"
+: INCLUDE  ( "name" -- )
+    >IN @ >R BL WORD C@ 0=
+    IF  R> >IN ! (INCLUDE) EXIT THEN
+    R> >IN ! BL WORD COUNT INCLUDED ;
+
+DOC" FLOAD ( 'name'|bare -- ) synonym of INCLUDE"
+: FLOAD  INCLUDE ;
+
+DOC" REQUIRE ( 'name' -- ) load file once (PARSE-NAME REQUIRED)"
+: REQUIRE PARSE-NAME REQUIRED ;
 
 DOC" MARKER ( 'name' -- ) restore point: HERE + all FORTH hash heads"
 : MARKER

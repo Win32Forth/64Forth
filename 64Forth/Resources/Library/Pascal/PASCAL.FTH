@@ -1,790 +1,834 @@
-\\ PASCAL.SEQ       Tiny Pascal     Copyright 1987-91       Tom Zimmer
-
-  Here is the latest version of my Tiny Pascal Implimentation in Forth.
-
-  It doesn't do all that much, but it does translate the simple example
-included with the compiler (PASX.PAS) from PASCAL to Forth.
-
-  The PASCAL translator is Compiled as follows:
-
-        TCOM PASCAL <enter>
-
-  Once PASCAL has been compiled, you can use it to translate the pascal
-example file PASX.PAS into Forth with the following command line:
-
-        PASCAL PASX.PAS <enter>
-
-The Pascal translator will output Forth source to the console. To direct
-the translators output to a file use standard I/O redirection as in:
-
-        PASCAL PASX.PAS >PASX.SEQ enter
-
-A file PASX.SEQ will be created containing the Forth source for PASX.PAS.
-
-  P.S. Don't redirect the output to the same file as the input, or you
-will lose your original source.
-
-{
-64 value cols
-variable #out 0 #out !
-: cr        ( -- )
-            0 #out !
-            cr ;
-cr
-: sp>col    ( n -- )
-            #out @ - 0 max spaces ;
-
-: crout         ( --- )         cr ;
-: crout+        ( --- )         cr  2 spaces ;
-: crout++       ( --- )         6 sp>col #out @ 6 > if cr 6 spaces then ;
-
-: ?nline        ( n1 --- )      #out @ + cols 10 - > if crout++ then ;
-: "out          ( a1 n1 --- )   127 and dup ?nline type space ;
-: $out          ( a1 --- )      count "out ;
-: chrout        ( c1 --- )      emit space ;
-: cout          ( c1 --- )      1 ?nline emit ;
-: ##out         ( n1 --- )      6 ?nline 0 <# #s #> type space ;
-
-: pasquery      ( -- )          \ get a line from the input file
-                lineread count 2- 0max dup #tib ! tib swap cmove
-                >in off                         \ reset >IN
-\ ****
-\ Add these lines to echo each the pascal source line to the output as
-\ a Forth comment line.
-                #out @ dup>r 39 >
-                if      cr
-                then
-                40 sp>col ." \ " outbuf count 2- 0max type
-                cr r> 6 >
-                if      6 spaces
-                then
-\ ****
-                ;
-
-: charread      ( -- c1 )       \ get a character from the input file
-                >in @ #tib @ >=                 \ if at line end,
-                if      begin   pasquery        \ get a line of source
-                                #tib @ 0=       \ if tib empty?
-                        while   inlength @ 0=   \ and read buffer empty?
-                                if abort then   \ then end of file, leave
-                        repeat                  \ else repeat till we have
-                                                \ more source to parse
-                        ?keypause
-                then
-                tib >in @ + c@                  \ -- c1
-                incr> >in
-                ;
-
-0 value no-const-or-vars        0 value chrpr
-0 value typ                     0 value char-           0 value arraysize
-0 value varcnt                  0 value ptyp
-0 value parcnt                  0 value ptr
-
- 80 array a$
-160 array var$
-
-defer limtyp
-
-: clrbuf        ( a1 --- )              \ clear buffer
-                dup 69 erase dup 65 blank 0 swap c! ;
-
-: tokenpron     ( --- ) on> chrpr ;      \ token printing on
-
-: tokenproff    ( --- ) off> chrpr ;     \ token printing off
-
-\ : ?emit         ( c1 --- c1 )
-\                 dup bl  <> chrpr and
-\                 if      dup emit
-\                 then   ;
-
-: a-z           ( c1 --- f1 )
-                bl or 'a' 'z' between ;
-
-: a-f           ( c1 --- f1 )
-                bl or 'a' 'f' between ;
-
-: not0-f        ( c1 --- f1 )
-                bl or dup  '0' 'f' between 0=           \ not 0 to f
-                      swap '9' 'a' between or ;         \ or  9 to a
-
-: nota-zor0-9   ( c1 --- f1 )
-                bl or dup  '0' 'z' between 0=
-                      swap '9' 'a' within  or ;
-
-: typck        ( n1 --- f1 )
-                CREATE C, DOES> C@ typ = ;
-
- 0 typck keyword?        1 typck ident?
- 2 typck ==?             3 typck char?
- 4 typck #?              5 typck :=?
- 6 typck :?              7 typck <?
- 8 typck <=?             9 typck <>?
-10 typck >=?            11 typck >?
-12 typck string?        14 typck (?
-15 typck )?
-
-: keyck        ( n1 --- f1 )
-                CREATE C, DOES> C@ ptr = keyword? and ;
-
- 0 keyck and?            1 keyck array?
- 2 keyck begin?          3 keyck newline?
- 4 keyck case?           5 keyck const?
- 6 keyck div?            7 keyck do???
- 8 keyck downto?         9 keyck else?
-10 keyck endd?          11 keyck for?
-12 keyck func?          13 keyck if?
-14 keyck integer?       15 keyck mem?
-16 keyck mod?           17 keyck not?
-18 keyck of?            19 keyck or?
-20 keyck proc?          21 keyck read?
-22 keyck repeat?        23 keyck shl?
-24 keyck shr?           25 keyck then?
-26 keyck to?            27 keyck type?
-28 keyck until?         29 keyck var?
-30 keyck while?         31 keyck write?
-32 keyck in?
-
-code inset      ( a1 n1 -- )
-                pop cx
-                push #tib                       mov #tib bx
-                push >in                        mov >in  # 0 word
-                push 'tib       lodsw           mov 'tib ax
-                load_bx
-                jmp cx          end-code
-
-code insave     ( -- )
-                pop cx
-                push #tib
-                push >in
-                push 'tib
-                jmp cx          end-code
-
-code inrec      ( -- )
-                pop cx
-                pop 'tib
-                pop >in
-                pop #tib
-                jmp cx          end-code
-
-: crck         ( c1 -- f1 )
-                CREATE C, DOES> C@ char- = char? and ;
-
-';' crck ;?     '.' crck .?     '[' crck [?     ']' crck ]?
-'*' crck *?     '-' crck -?     '+' crck +?     ',' crck ,?
-'#' crck ##?
-
-                \ compile a word which check match on its own first
-                \ character.
-
-: a$=a$+char    ( c1 --- )
-                a$ count + c! 1 a$ c+! ;
-
-: var$move      ( --- )
-                a$ count var$ count + swap 1+ cmove
-                a$ 1+
-                begin   1+ dup c@ bl =
-                until   incr> varcnt
-                1+ a$ 1+ - var$ c+! ;
-
-: "pabort       ( f1 a1 n1 -- )         \ pascal abort handler
-                rot
-                if      crout tib #tib @ "out
-                        crout >in @ spaces "  - " "out
-                        "out bye
-                else    2drop
-                then    ;
-
-: to-or-downto?? to? downto? or 0= " To Expected !"             "pabort ;
-: ident??    ident?   0=  " Identifier Expected !"              "pabort ;
-: keyword??  keyword? 0=  " Keyword Expected !"                 "pabort ;
-: :??        :?       0=  " ':' Expected !"                     "pabort ;
-: (??        (?       0=  " '(' Expected !"                     "pabort ;
-: )??        )?       0=  " ')' Expected !"                     "pabort ;
-: :=??       :=?      0=  " ':=' Expected !"                    "pabort ;
-: ==??       ==?      0=  " '=' Expected !"                     "pabort ;
-: ;??        ;?       0=  " ';' Expected !"                     "pabort ;
-: .??        .?       0=  " '.' Expected !"                     "pabort ;
-: [??        [?       0=  " '[' Expected !"                     "pabort ;
-: ]??        ]?       0=  " ']' Expected !"                     "pabort ;
-: #??        #?       0=  " Number Expected !"                  "pabort ;
-: #a??       #?       0=  " No Consts or Vars Allowed here !"   "pabort ;
-: integer??  integer? 0=  " Integer Expected !"                 "pabort ;
-: until??    until?   0=  " Until Expected !"                   "pabort ;
-: mem??      mem?     0=  " Incorrect Keyword !"                "pabort ;
-: do??       do???    0=  " Do Expected !"                      "pabort ;
-: to??       to?      0=  " To Expected !"                      "pabort ;
-: of??       of?      0=  " Of Expected !"                      "pabort ;
-: end??      endd?    0=  " End Expected !"                     "pabort ;
-: then??     then?    0=  " Then Expected !"                    "pabort ;
-: string??   string?  0=  " Number Expected !"                  "pabort ;
-: found??    0= " Error in variable create process"             "pabort ;
-: no-const-or-vars??   no-const-or-vars
-             " No Consts or Vars Allowed here !"                "pabort ;
-
-: \=            ( c1 --- f1 ) ascii \ = ;
-
-: '=            ( c1 --- f1 ) ascii ' = ;
-
-: get$          ( c1/a1 --- c2 ) \ pass a1 the cfa of test rtn
-                !> limtyp        \ and get string till tst pass
-                a$ clrbuf
-                begin   a$=a$+char charread dup limtyp
-                        over 0= or
-                until   ;
-
-: bslsh         ( c1 --- )      \ dump text till '\'
-                ['] \= get$ drop
-                bl a$ 2+ c!     \ clear * to a blank
-                a$ count 1- type crout ;
-
-: a$>#          ( --- n1 )
-                a$ number? 2drop ;
-
-: skipblanks    ( --- c1 )
-                bl
-                begin   drop charread dup bl -
-                until   ;
-
-: string      ( c1 --- )
-              drop bl ['] '= get$ drop 0 a$=a$+char 12 =: typ ;
-
-: numbr       ( c1 --- n1 )
-              ['] not0-f get$ drop 4 =: typ >in decr a$># ;
-
-: coln          ( c1 --- )
-                drop    6 =: typ charread '=' =
-                if      5 =: typ
-                else    decr> >in
-                then   ;
-
-: gthan         ( c1 --- )
-                drop    charread '=' =
-                if      10 =: typ
-                else    11 =: typ
-                        decr> >in
-                then   ;
-
-: lthan         ( c1 --- )
-                drop    charread dup '>' =
-                if      drop    9 =: typ
-                else    '=' =
-                        if      8 =: typ
-                        else    7 =: typ
-                                decr> >in
-                        then
-                then   ;
-
-create kw-table
-," and    "    ," array  "    ," begin  "    ," newline"
-," case   "    ," const  "    ," div    "    ," do     "
-," downto "    ," else   "    ," end    "    ," for    "
-," func   "    ," if     "    ," integer"    ," mem    "
-," mod    "    ," not    "    ," of     "    ," or     "
-," proc   "    ," read   "    ," repeat "    ," shl    "
-," shr    "    ," then   "    ," to     "    ," type   "
-," until  "    ," var    "    ," while  "    ," write  "
-," in     "
-33 constant table-size
-
-: a$srch        ( -- f1 )
-                false
-                table-size 0
-                do      a$ 1+ i 8 * kw-table + count caps-comp 0=
-                        if      0= i =: ptr leave
-                        then
-                loop    ;
-
-: a-ident       ( c1 --- )
-                dup a-z
-                if      ['] nota-zor0-9 get$ drop
-                        decr> >in
-                        a$srch 0= 1 and =: typ
-                        r>drop               \ pop out of def above
-                then   ;
-
-: a-#           ( c1 --- n1 )
-                dup not0-f 0=
-                if      numbr                   \ -- n1
-                        r>drop               \ pop out of def above
-                then   ;
-
-: a-:           ( c1 --- )
-                dup ':' =
-                if      coln
-                        r>drop
-                then ;
-
-: a-<           ( c1 --- )
-                dup '<' =
-                if      lthan
-                        r>drop
-                then ;
-
-: a->           ( c1 --- )
-                dup '>' =
-                if      gthan
-                        r>drop
-                then ;
-
-: a-$           ( c1 --- )
-                dup ascii ' =
-                if      string
-                        r>drop
-                then ;
-
-: a-(           ( c1 --- )
-                dup '(' =
-                if      drop
-                        14 =: typ
-                        r>drop
-                then ;
-
-: a-)           ( c1 --- )
-                dup ')' =
-                if      drop
-                        15 =: typ
-                        r>drop
-                then ;
-
-: a-=           ( c1 --- )
-                dup '=' =
-                if      drop
-                        2 =: typ
-                        r>drop
-                then ;
-
-: token         ( --- c1 )
-                begin
-                        begin skipblanks ?dup
-                        until dup '\' =                 \ ignore comments
-                while   bslsh
-                repeat  a-ident a-#     a-:
-                        a-<     a->     a-$
-                        a-(     a-)     a-=
-                        3 =: typ                \ other characters
-                          =: char- ;
-
-256 constant maxcon     32 constant b/con       \ 8k
-768 constant maxvar     32 constant b/var       \ 24k
-
-0 value con#            0 value pcons
-0 value var#            0 value pvars
-
-: >c_name       ( n1 -- a1 )
-                b/con * pcons + 2+ ;
-
-: >v_name       ( n1 -- a1 )
-                b/var * pvars + 2+ ;
-
-: pconstant     ( n1 | <name> -- )
-                con# b/con * pcons + swap over !        \ drop in the value
-                bl word swap 2+ over c@ 1+ b/con 2- min cmove
-                incr> con# ;
-
-: pvariable     ( | <name> -- )
-                var# b/var * pvars + dup off            \ drop in a zero
-                bl word swap 2+ over c@ 1+ b/var 2- min cmove
-                incr> var# ;
-
-: $incon        ( a1 -- a2 f1 )
-                false swap
-                pcons con# b/con * bounds
-                ?do     i 2+ over dup c@ 1+ caps-comp 0=
-                        if      2drop true i 2+ leave
-                        then
-         b/con +loop    swap ;
-
-: $invar        ( a1 -- a2 f1 )
-                false swap
-                pvars var# b/var * bounds
-                ?do     i 2+ over dup c@ 1+ caps-comp 0=
-                        if      2drop true i 2+ leave
-                        then
-         b/var +loop    swap ;
-
-: pdefined      ( | <name> -- a1 f1 )   \ is following name defined in
-                                        \ constant or variable table?
-                bl word $incon ?dup ?exit $invar ;
-
-: a$constant    ( --- a1 )      \ make a constant, return name
-                a$ count inset -1 pconstant inrec
-                con# 1- >c_name ;
-
-: a$place       ( --- a1 )
-                a$ count inset pdefined inrec 0=
-                if      drop  a$constant
-                then   ;
-
-: a$variable    ( --- a1 )
-                a$ count inset pdefined inrec 0=
-                if      drop
-                        a$ count inset pvariable inrec
-                        var# 1- >v_name
-                then    ;
-
-: a$find??      ( --- a1 )
-                a$ count inset pdefined inrec 0=
-                if      cr ." ** Unspecified Identifier ->" count type
-                        a$constant crout+
-                then   ;
-
-: create-constant       ( --- )
-                begin   a$constant >r
-                        token   ==??
-                        token   ( --- n1 ) #??
-                        dup     here 2- !
-                        crout   ##out " CONSTANT" "out r> $out
-                        token   ;??
-                        token   ident? 0=
-                until   ;
-
-: const- ( --- )
-         no-const-or-vars?? token ident?? create-constant ;
-
-: makevars      ( --- f1 )
-                integer??
-                var$ count inset varcnt >r
-                begin   pvariable crout " VARIABLE" "out
-                        var# 1- >v_name $out
-                        decr> varcnt
-                        varcnt 1 <
-                until   r> =: varcnt
-                inrec   token ;? dup
-                if      drop token ident? then   0=  ;
-
-: makearrays    ( --- f1 )      \ var name array [23] of integer;
-                token   [??  token
-                #a??    2* =: arraysize
-                token   ]??             token   of??
-                token   integer??       token   ;??
-                var$ count inset
-                begin   pvariable crout
-                        arraysize ##out " ARRAY" "out
-                        var# 1- >v_name $out
-                        decr> varcnt
-                        varcnt 1 <
-                until   inrec token   ident? 0=  ;
-
-: var-          ( --- )         \ var name,name : integer;
-                no-const-or-vars?? token
-                begin   off> varcnt 0 var$ c!
-                        begin   ident?? var$move token ,?
-                        while   token
-                        repeat  :??
-                        token   array?
-                        if      makearrays
-                        else    makevars
-                        then
-                until   ;
-
-: par-pass      ( a1 --- )
-                >r var- crout " :" "out r> $out 16 sp>col
-                var$ count inset varcnt =: parcnt
-                begin   pdefined found??
-                        decr> varcnt
-                        varcnt 1 <
-                until   inrec   parcnt =: varcnt
-                begin   $out " !" "out
-                        decr> varcnt varcnt 1 <
-                until   )?? token ;
-
-: proc-         ( --- )
-                token   ident?? on> ptyp a$place ( --- a1 )
-                token   (?
-                if       off> ptyp par-pass
-                         on> no-const-or-vars
-                then     ;??     token   block- " ;" "out
-                on> ptyp ;??     token   block- ;
-
-: begin-        ( --- )
-                begin   token   statment   ;? 0=
-                until   end??   token ;
-
-: par-to-stk    ( --- )
-                begin   token   expr-      ,? 0=
-                until   )??     token ;
-
-: variable?     ( a1 --- f1 )   \ is name addr a1 in the array of variables?
-                pvars dup b/var maxvar * + ubetween ;
-
-: variable??    ( a1 --- )      \ error if not a variable
-                dup variable? 0=
-                if      crout " Assignment to NON-Variable->" "out
-                        count "out crout
-                else    drop
-                then   ;
-
-: varconout     ( a1 --- )
-                dup $out variable?
-                if      " @" "out
-                then   ;       \ test if this is a variable
-
-: constant-     ( --- )
-                ident?
-                if      a$find?? ( --- a1 ) token [?
-                        if      $out  token expr-
-                                " 2* + @" "out ]?? token
-                        else    (?   if      par-to-stk  $out
-                                     else    varconout
-                                     then
-                        then
-                else    #?
-                        if      ##out    token
-                        else    " ascii" "out a$place $out token
-                        then
-                then   ;
-
-                \ returns string for operator if true
-: +-or?         ( --- <a1> <n1> f1 )
-                -?  if  " -"  true exit then
-                +?  if  " +"  true exit then
-                or? if  " or" true exit then false ;
-
-: term-oper?    ( --- <a1>/f1 )
-                div? if " div" true exit then
-                mod? if " mod" true exit then
-                and? if " and" true exit then
-                shl? if " shl" true exit then
-                shr? if " shr" true exit then
-                  *? if " *"   true exit then false ;
-
-: factor-       ( --- )
-                not?
-                if      token   factor-         \ recurse here
-                        " 0=" "out
-                then   keyword?
-                if      mem??   token [?? token expr- ]??
-                        " @" "out token
-                else    (?
-                        if      token expr- )?? token
-                        else    constant-
-                        then
-                then   ;
-
-
-: term-         ( --- )
-                factor-  term-oper?             \ -- <a1> f1
-                if
-                        begin   token factor-
-                                $out           \ string is passed in
-                                term-oper? 0=
-                        until
-                then   ;
-
-: simp-expr     ( --- )
-                -?
-                if      token   term-   " negate" "out
-                else    +?
-                        if      token
-                        then   term-
-                then   +-or?
-                if
-                        begin   token simp-expr "out +-or? 0=
-                        until
-                then   ;
-
-: in-           ( --- )
-                [??  " dup" "out token simp-expr
-                     " ="   "out ,?
-                if
-                        begin  token crout++ " over" "out
-                                simp-expr    " = or" "out ,? 0=
-                        until
-                then   ]??          " nip" "out
-                token   ;
-
-: expr-         ( --- )
-                simp-expr
-                ==? if  token simp-expr " ="  "out then
-                 <? if  token simp-expr " <"  "out then
-                 >? if  token simp-expr " >"  "out then
-                <>? if  token simp-expr " <>" "out then
-                <=? if  token simp-expr " <=" "out then
-                >=? if  token simp-expr " >=" "out then
-                in? if  token in-                   then ;
-
-: var-assign    ( --- )
-                ident?? a$find?? token (?
-                if      par-to-stk
-                then   dup>r variable?
-                if      [?
-                        if      token expr-
-                                " 2* " "out
-                                ]??   token
-                                :=??
-                                token   expr- r> $out " ROT + !" "out
-                        else    :=??
-                                token   expr- r> $out " !" "out
-                        then
-                else    r> $out
-                then   ;
-
-: if-           ( --- )
-                token   expr-   then??
-                        crout+ " IF     " "out token statment else?
-                if      crout+ " ELSE   " "out token statment
-                then    crout+ " THEN   " "out ;
-
-: cases-        ( -- )
-                " dup" "out token constant- " ="    "out ,?
-                if      begin token crout++ " over" "out
-                                constant-   " = or" "out ,? 0=
-                        until
-                then    :??
-                crout+  " IF     " "out token statment
-                crout+  " ELSE   " "out ;
-
-: case-         ( --- )
-                token   expr-   of??
-                crout+ " CASE    " "out
-                begin   cases-
-                        ;? 0=
-                until   " drop" "out else?
-                if      token   statment
-                then    end??
-                crout+ " ENDCASE" "out token ;
-
-: while-        ( --- )
-                        crout+ " BEGIN  " "out token expr- do???
-                if      crout+ " WHILE  " "out token statment
-                        crout+ " REPEAT " "out
-                then   ;
-
-: repeat-       ( --- )
-                crout+  " BEGIN  " "out
-                begin   token statment ;? 0=
-                until   until?? token expr-
-                crout+  " UNTIL  " "out ;
-
-: for-          ( --- )
-                token   ident?? a$find?? >r token :=??
-                token   expr-   to-or-downto?? r> to?
-                if       1 >r
-                else    -1 >r
-                then    >r
-                token   expr-   do??    r>  r@ ##out >r
-                        " + swap" "out crout+ " DO     " "out
-                token   " I" "out r> $out " !" "out statment
-                        r> ##out crout+ " +LOOP  " "out ;
-
-: a$compile     ( --- )
-                '.' cout '"' chrout
-                a$ count 1 /string "out '"' chrout ;
-
-: write-        ( --- )
-                token   (??
-                begin   crout++
-                        token   string?
-                        if      a$compile token
-                        else    ##?
-                                if      token expr-     " ."    "out
-                                else    expr-           " emit" "out
-                                then
-                        then    ,? 0=
-                until   )?? token ;
-
-\ : #input        ( --- n1 )
-\                 query bl word number? 0=
-\                 " Must be a NUMBER" "pabort drop ;
-
-: read-         ( --- )
-                token   (??
-                begin   crout++
-                        token   ##?
-                        if      " #input"       "out token
-                        else    " key dup emit" "out
-                        then
-                        ident?? a$find??
-                        dup variable?? $out
-                        token   [?
-                        if      token expr- ]?? " 2* + "  "out
-                                token
-                        then    " !" "out
-                        ,? 0=
-                until   )?? token ;
-
-: mem-          ( --- )
-                token   [??     token   expr-   ]??
-                token   :=??    token   expr- " swap !" "out ;
-
-: newlin-       ( -- )
-                crout++
-                " cr" "out token ;
-
-: do-statment   ( --- )
-                ptr 31 and exec:        \ statment interpretation table
-        noop    noop    begin-  newlin- case-   noop    noop    noop
-        noop    noop    noop    for-    noop    if-     noop    mem-
-        noop    noop    noop    noop    noop    read-   repeat- noop
-        noop    noop    noop    noop    noop    noop    while-  write- ;
-
-: statment     ( --- )
-                crout++
-                keyword?
-                if      do-statment
-                else    var-assign
-                then    ;
-
-: begin-1       ( <a1> --- )    \ a1 exists if ptyp is on & is in HEAD SPACE.
-                ptyp
-                if      crout " :" "out ( a1 --- ) $out 16 sp>col
-                then    begin- ;
-
-0 value  ?stp
-
-: stp   on> ?stp ;
-
-: do-block      ( --- )
-                ptr 31 and exec:    \ block interpretation table
-        stp     stp     begin-1 stp     stp     const-  stp     stp
-        stp     stp     stp     stp     proc-   stp     stp     stp
-        stp     stp     stp     stp     proc-   stp     stp     stp
-        stp     stp     stp     stp     stp     var-    stp     stp ;
-
-: block-        ( <a1> --- )    \ a1 exists if ptyp is on
-                keyword?
-                if      off> ?stp
-                        begin   do-block ?stp
-                        until
-                then   ;
-
-: pas_init      ( -- )
-                #tib off        >in off
-                off> con#       off> var# ;
-
-: program       ( --- )
-                pas_init
-                off> no-const-or-vars
-                token                   \ pickup "Program" and discard
-                token   ident?? a$place ( --- a1 )
-                token   (?  on> ptyp
-                if      par-pass on> no-const-or-vars
-                        off> ptyp
-                then   ;??
-                token   block-
-                crout+ " ; " "out .??
-                crout crout ;
-
-: init_arrays       ( -- )
-                pcons ?exit
-                maxcon b/con * dup ds:alloc =: pcons pcons swap erase
-                maxvar b/var * dup ds:alloc =: pvars pvars swap erase
-                var$ off a$ off ;
-
-: main2         ( -- )
-                init_arrays
-                bl word $file abort" Couldn't open file."
-                crout
-                program ;
-
-: main          ( -- )
-                DECIMAL                         \ always select decimal
-                CAPS ON                         \ ignore cAsE
-                ?DS: SSEG !                     \ init search segment
-                DOSIO_INIT                      \ init EMIT, TYPE & SPACES
-                $FFF0 SET_MEMORY                \ default to 64k code space
-                DOS_TO_TIB                      \ move command tail to TIB
-                main2 ;
-
-}
-
+\ PASCALX.FTH  Tiny Pascal Forth  (Tom Zimmer, 1987-91)
+\ Port to 64Forth, Forth-2012, 64-bit cells.
+\ Public domain.
+
+ANEW PASCAL_MODULE
+
+\ FILE-ECHO ON
+ONLY FORTH ALSO DEFINITIONS DECIMAL
+
+\ { } comment to next } (Win32Forth-style; spans the current SOURCE refill)
+[UNDEFINED] { [IF]
+: {  ( -- )  [CHAR] } PARSE 2DROP ; IMMEDIATE
+[THEN]
+
+\ Debug :/; name tracer — disabled. 64Forth does not hide a word under
+\ construction, so a new ";" cannot be terminated with ";" (use ENDDEF).
+\
+\ {  --- begin :/; trace ---
+\ CREATE colon-pad 256 ALLOT
+\ ' : CONSTANT KC
+\ ' ; CONSTANT KS
+\ : ENDDEF  KS EXECUTE ; IMMEDIATE
+\ : ;  ( -- )
+\     CR ." ;Finishing: " colon-pad COUNT TYPE CR
+\     [ KS ] LITERAL EXECUTE
+\ ENDDEF IMMEDIATE
+\ : :  ( 'name' -- )
+\     CR ." Defining: "
+\     >IN @ >R BL WORD COUNT 2DUP TYPE CR colon-pad PLACE
+\     R> >IN !
+\     KC EXECUTE
+\ ENDDEF
+\ }  --- end :/; trace ---
+
+\ ---------- compatibility ----------
+
+: 0MAX  ( n -- n )  0 MAX ;
+
+: BETWEEN  ( n lo hi -- f )  1+ WITHIN ;
+
+\ ulo <= u <= uhi  (WITHIN is lo<=n<hi, so hi+1 makes the high end inclusive)
+: UBETWEEN  ( u ulo uhi -- f )  1+ WITHIN ;
+
+\ 64Forth: EXIT before THEN ends the colon definition (like ';'), so
+\ "IF EXIT THEN" must not be used.  ?EXIT drops the caller's return.
+\ : ?EXIT  ( flag -- )  IF R> DROP THEN ;
+: ?EXIT  ( flag -- )  POSTPONE IF POSTPONE EXIT POSTPONE THEN ; IMMEDIATE
+
+: BOUNDS  ( a n -- a+n a )  OVER + SWAP ;
+
+: NOOP ;
+
+: ,"  ( -- )
+    HERE  8 ALLOT
+    DUP 8 ERASE
+    [CHAR] " PARSE  7 MIN
+    ROT PLACE ALIGN ;
+
+\ Jump table after EXEC: in the caller. R> takes the table address (and
+\ abandons falling through the table). @ EXECUTE runs the selected word;
+\ then EXIT returns to EXEC:'s caller.  (@ >R is DTC-style and faults on
+\ 64Forth ITC: EXIT would set IP to a CFA, and NEXT/DOEXIT blow up.)
+: EXEC:  ( n -- )  R> SWAP 31 AND CELLS + @ EXECUTE ;
+
+\ at end of definition, return to caller's caller, not caller directly
+: R>DROP  R> R> DROP >R ;
+
+: NUMBER?  ( c-addr -- n dummy flag )
+    COUNT  OVER C@ [CHAR] - = DUP >R
+    IF  1 /STRING  THEN
+    0 0  2SWAP  >NUMBER             ( ud a u )
+    NIP 0=                          ( ud f )
+    R> IF  ROT NEGATE -ROT  THEN    \ negate low if needed
+    >R  DROP  0  R> ;               \ n  0  flag
+    
+\ No locals: EXIT inside {: … :} was dropping the comparison result, so
+\ A$SRCH treated every name as a keyword (TYP=0) → "Identifier Expected".
+\ BL OR folds A–Z/a–z so "Integer" matches KW-TABLE "integer".
+\ No EXIT-before-THEN (truncates the definition on 64Forth).
+VARIABLE CAPS-DIFF
+\ No LEAVE/EXIT — LEAVE inside CAPS-COMP faulted when called from $INCON's +LOOP.
+: CAPS-COMP  ( a1 a2 -- n )
+    0 CAPS-DIFF !
+    OVER C@ OVER C@ MIN 1+ 1
+    ?DO  CAPS-DIFF @ 0= IF
+            OVER I + C@ BL OR  OVER I + C@ BL OR  -
+            ?DUP IF CAPS-DIFF ! THEN
+         THEN
+    LOOP
+    CAPS-DIFF @ ?DUP IF >R 2DROP R> ELSE SWAP C@ SWAP C@ - THEN ;
+
+\ : TEST 	
+\	C" HELLO " C" HELLO" CAPS-COMP .
+\	C" HELLO" C" HELLO " CAPS-COMP .
+\	C" HELLO"  C" HELLO" CAPS-COMP . 
+\	C" HELLO " C" HELLO " CAPS-COMP . ;
+	
+VARIABLE #OUT
+: CROUT     CR  #OUT OFF ;
+: CROUT+    CROUT  2 SPACES  2 #OUT ! ;
+: SP>COL    ( n -- )
+    #OUT @ - DUP 0> IF DUP SPACES #OUT +! ELSE DROP THEN ;
+: CROUT++
+    6 SP>COL  #OUT @ 6 > IF CROUT 6 SPACES 6 #OUT ! THEN ;
+
+80 VALUE COLS
+: ?NLINE  ( n -- )  #OUT @ + COLS 10 - > IF CROUT++ THEN ;
+\ Track width without DUP after TYPE (that underflows or duplicates buried cells).
+: "OUT    ( a n -- )
+    127 MIN  DUP ?NLINE  2DUP TYPE SPACE  NIP #OUT +!  1 #OUT +! ;
+: $OUT    ( a -- )  COUNT "OUT ;
+: CHROUT  ( c -- )  EMIT SPACE  2 #OUT +! ;
+: COUT    ( c -- )  1 ?NLINE EMIT  1 #OUT +! ;
+: ##OUT   ( n -- )
+    0 <# #S #>  DUP ?NLINE  2DUP TYPE SPACE  NIP #OUT +!  1 #OUT +! ;
+
+
+\ ---------- file input (ANS File-Access, no TSREAD) ----------
+
+CREATE PASTIB  256 ALLOT
+VARIABLE PASIN
+VARIABLE PASLEN
+VARIABLE PASFID          \ 0 = closed
+VARIABLE SAV-IN
+VARIABLE SAV-LEN
+CREATE SAV-TIB  256 ALLOT
+CREATE WORD-PAD 256 ALLOT
+
+: INSAVE
+    PASIN @ SAV-IN !  PASLEN @ SAV-LEN !
+    PASTIB SAV-TIB 256 MOVE ;
+
+: INREC
+    SAV-IN @ PASIN !  SAV-LEN @ PASLEN !
+    SAV-TIB PASTIB 256 MOVE ;
+
+: INSET  ( a n -- )
+    INSAVE  DUP PASLEN !  PASTIB SWAP MOVE  PASIN OFF ;
+
+\ Skip blanks, then gather a blank-delimited word into WORD-PAD.
+: PASWORD  ( -- c-addr )
+    BEGIN
+        PASIN @ PASLEN @ >= IF TRUE ELSE
+        PASIN @ PASTIB + C@ BL > IF TRUE ELSE
+        1 PASIN +! FALSE THEN THEN
+    UNTIL
+    0 WORD-PAD C!
+    BEGIN
+        PASIN @ PASLEN @ >= IF TRUE ELSE
+        PASIN @ PASTIB + C@ BL > 0= IF TRUE ELSE
+        PASIN @ PASTIB + C@ WORD-PAD COUNT + C!
+        WORD-PAD C@ 1+ WORD-PAD C!
+        1 PASIN +! FALSE THEN THEN
+    UNTIL
+    WORD-PAD ;
+
+0 VALUE PAS-EOF
+
+: PAS-CLOSE  ( -- )
+    PASFID @ IF  PASFID @ CLOSE-FILE DROP  0 PASFID !  THEN
+    PASIN OFF  PASLEN OFF  FALSE TO PAS-EOF ;
+
+: PAS-OPEN  ( c-addr u -- )
+    PAS-CLOSE
+    R/O OPEN-FILE ABORT" Couldn't open file."
+    PASFID ! ;
+
+\ READ-LINE flag false = EOF.  A blank line is flag true with u=0 —
+\ that must NOT be treated as EOF (CHARREAD used to ABORT on PASLEN=0).
+: PASQUERY  ( -- )
+    PASFID @ 0= ABORT" A file MUST be open."
+    PASTIB 255 PASFID @ READ-LINE ABORT" READ-LINE failed"
+    0= IF  PASLEN OFF  PASIN OFF  TRUE TO PAS-EOF  EXIT  THEN
+    FALSE TO PAS-EOF
+    PASLEN !
+    PASIN OFF
+    #OUT @ DUP >R 39 > IF CROUT THEN
+    40 SP>COL ." \ " PASTIB PASLEN @ TYPE
+    CROUT  R> 6 > IF 6 SPACES 6 #OUT ! THEN ;
+
+: CHARREAD  ( -- c )
+    BEGIN
+        PASIN @ PASLEN @ >= IF
+            PAS-EOF ABORT" End of file"
+            PASQUERY
+        ELSE
+            PASTIB PASIN @ + C@
+            1 PASIN +!
+            EXIT
+        THEN
+    AGAIN ;
+
+\ ---------- translator state ----------
+
+0 VALUE NO-CONST-OR-VARS
+0 VALUE CHRPR
+0 VALUE TYP
+0 VALUE CHAR-
+0 VALUE ARRAYSIZE
+0 VALUE VARCNT
+0 VALUE PTYP
+0 VALUE PARCNT
+0 VALUE CMD-INDEX
+
+256 CONSTANT A$/SIZE
+CREATE A$   A$/SIZE ALLOT
+CREATE VAR$ A$/SIZE ALLOT
+
+DEFER LIMTYP
+
+: CLRBUF  ( a -- )  DUP A$/SIZE ERASE  0 SWAP C! ;
+
+: TOKENPRON   TRUE  TO CHRPR ;
+: TOKENPROFF  FALSE TO CHRPR ;
+
+: A-Z  ( c -- f )  BL OR  [CHAR] a [CHAR] z BETWEEN ;
+: A-F  ( c -- f )  BL OR  [CHAR] a [CHAR] f BETWEEN ;
+
+: NOT0-F  ( c -- f )
+    BL OR DUP [CHAR] 0 [CHAR] f BETWEEN 0=
+    SWAP [CHAR] 9 [CHAR] a BETWEEN OR ;
+
+: NOTA-ZOR0-9  ( c -- f )
+    BL OR DUP [CHAR] 0 [CHAR] z BETWEEN 0=
+    SWAP [CHAR] 9 [CHAR] a WITHIN OR ;
+
+: TYPCK  ( n -- )  CREATE C,  DOES> C@ TYP = ;
+
+ 0 TYPCK KEYWORD?     1 TYPCK IDENT?
+ 2 TYPCK ==?          3 TYPCK CHAR?
+ 4 TYPCK #?           5 TYPCK :=?
+ 6 TYPCK :?           7 TYPCK <?
+ 8 TYPCK <=?          9 TYPCK <>?
+10 TYPCK >=?         11 TYPCK >?
+12 TYPCK STRING?     14 TYPCK (?
+15 TYPCK )?
+
+: KEYCK  ( n -- )  CREATE C,  DOES> C@ CMD-INDEX = KEYWORD? AND ;
+
+ 0 KEYCK AND?         1 KEYCK ARRAY?
+ 2 KEYCK BEGIN?       3 KEYCK NEWLINE?
+ 4 KEYCK CASE?        5 KEYCK CONST?
+ 6 KEYCK DIV?         7 KEYCK DO???
+ 8 KEYCK DOWNTO?      9 KEYCK ELSE?
+10 KEYCK ENDD?       11 KEYCK FOR?
+12 KEYCK FUNC?       13 KEYCK IF?
+14 KEYCK INTEGER?    15 KEYCK MEM?
+16 KEYCK MOD?        17 KEYCK NOT?
+18 KEYCK OF?         19 KEYCK OR?
+20 KEYCK PROC?       21 KEYCK READ?
+22 KEYCK REPEAT?     23 KEYCK SHL?
+24 KEYCK SHR?        25 KEYCK THEN?
+26 KEYCK TO?         27 KEYCK TYPE?
+28 KEYCK UNTIL?      29 KEYCK VAR?
+30 KEYCK WHILE?      31 KEYCK WRITE?
+32 KEYCK IN?
+
+: CRCK  ( c -- )  CREATE C,  DOES> C@ CHAR- = CHAR? AND ;
+
+CHAR ; CRCK ;?     CHAR . CRCK .?
+CHAR [ CRCK [?     CHAR ] CRCK ]?
+CHAR * CRCK *?     CHAR - CRCK -?
+CHAR + CRCK +?     CHAR , CRCK ,?
+CHAR # CRCK ##?
+
+: A$=A$+CHAR  ( c -- )  
+	DUP 0 >					\ if c is not null 
+	IF 	A$ COUNT + C!  A$ C@ 1+ A$ C! 	\ then append it to A$
+	ELSE	DROP				\ other wise discard it
+	THEN 	;
+
+\ Pack A$ into VAR$ with a trailing blank separator for later PASWORD/INSET.
+\ Must use A$ COUNT — scanning for BL past A$ faults when the name has no
+\ trailing blank in the buffer (common after TOKEN; also breaks "a, b, c").
+: VAR$MOVE
+    A$ COUNT  DUP >R  VAR$ COUNT +  SWAP MOVE
+    BL  VAR$ 1+ VAR$ C@ + R@ +  C!
+    R> 1+ VAR$ C@ + VAR$ C!
+    VARCNT 1+ TO VARCNT ;
+
+: "PABORT  ( f a n -- )
+    ROT IF
+        CROUT  PASTIB PASLEN @ "OUT
+        CROUT  PASIN @ SPACES  S" ^ - " "OUT
+        "OUT  TRUE ABORT" Pascal Error"
+    ELSE  2DROP
+    THEN ;
+
+: TO-OR-DOWNTO??  TO? DOWNTO? OR 0=  S" To Expected !"            "PABORT ;
+: IDENT??     IDENT?   0=  S" Identifier Expected !"             "PABORT ;
+: KEYWORD??   KEYWORD? 0=  S" Keyword Expected !"                "PABORT ;
+: :??         :?       0=  S" ':' Expected !"                    "PABORT ;
+: (??         (?       0=  S" '(' Expected !"                    "PABORT ;
+: )??         )?       0=  S" ')' Expected !"                    "PABORT ;
+: :=??        :=?      0=  S" ':=' Expected !"                   "PABORT ;
+: ==??        ==?      0=  S" '=' Expected !"                    "PABORT ;
+: ;??         ;?       0=  S" ';' Expected !"                    "PABORT ;
+: .??         .?       0=  S" '.' Expected !"                    "PABORT ;
+: [??         [?       0=  S" '[' Expected !"                    "PABORT ;
+: ]??         ]?       0=  S" ']' Expected !"                    "PABORT ;
+: #??         #?       0=  S" Number Expected !"                 "PABORT ;
+: #A??        #?       0=  S" No Consts or Vars Allowed here !"  "PABORT ;
+: INTEGER??   INTEGER? 0=  S" Integer Expected !"                "PABORT ;
+: UNTIL??     UNTIL?   0=  S" Until Expected !"                  "PABORT ;
+: MEM??       MEM?     0=  S" Incorrect Keyword !"               "PABORT ;
+: DO??        DO???    0=  S" Do Expected !"                     "PABORT ;
+: TO??        TO?      0=  S" To Expected !"                     "PABORT ;
+: OF??        OF?      0=  S" Of Expected !"                     "PABORT ;
+: END??       ENDD?    0=  S" End Expected !"                    "PABORT ;
+: THEN??      THEN?    0=  S" Then Expected !"                   "PABORT ;
+: STRING??    STRING?  0=  S" Number Expected !"                 "PABORT ;
+: FOUND??     0= S" Error in variable create process"            "PABORT ;
+: NO-CONST-OR-VARS??
+    NO-CONST-OR-VARS  S" No Consts or Vars Allowed here !"       "PABORT ;
+
+: \=  ( c -- f )  [CHAR] \ = ;
+: '=  ( c -- f )  [CHAR] ' = ;
+
+: GET$  ( xt -- c )
+    	IS LIMTYP
+    	A$ CLRBUF
+    	BEGIN  A$=A$+CHAR  CHARREAD DUP LIMTYP  OVER 0= OR  UNTIL 
+\	CR S" --[" "OUT A$ $OUT S" ]--" "OUT
+	;
+
+\ Skip \...\ comments without buffering in A$.  A long comment used to
+\ overflow the 80-byte A$ and corrupt VAR$/translator state.  Source lines
+\ are already echoed by PASQUERY; do not re-emit the body (multi-line
+\ bodies would break the generated Forth).
+: BSLSH  ( c -- )
+    DROP
+    BEGIN
+        CHARREAD DUP [CHAR] \ <> OVER AND
+    WHILE  DROP
+    REPEAT
+    DROP ;
+
+: A$>#  ( -- n )  A$ NUMBER? 2DROP ;
+
+: SKIPBLANKS  ( -- c )
+    BL BEGIN DROP CHARREAD DUP BL - UNTIL ;
+
+: STRING  ( c -- )
+    DROP BL ['] '= GET$ DROP  0 A$=A$+CHAR  12 TO TYP ;
+
+: NUMBR  ( c -- n )
+    ['] NOT0-F GET$ DROP  4 TO TYP  -1 PASIN +!  A$># ;
+
+: COLN  ( c -- )
+    DROP  6 TO TYP
+    CHARREAD [CHAR] = =
+    IF  5 TO TYP  ELSE  -1 PASIN +!  THEN ;
+
+: GTHAN  ( c -- )
+    DROP  CHARREAD [CHAR] = =
+    IF  10 TO TYP  ELSE  11 TO TYP  -1 PASIN +!  THEN ;
+
+: LTHAN  ( c -- )
+    DROP  CHARREAD DUP [CHAR] > =
+    IF  DROP  9 TO TYP
+    ELSE  [CHAR] = =
+        IF  8 TO TYP  ELSE  7 TO TYP  -1 PASIN +!  THEN
+    THEN ;
+
+CREATE KW-TABLE
+    ," and"     ," array"   ," begin"   ," newline"
+    ," case"    ," const"   ," div"     ," do"
+    ," downto"  ," else"    ," end"     ," for"
+    ," func"    ," if"      ," integer" ," mem"
+    ," mod"     ," not"     ," of"      ," or"
+    ," proc"    ," read"    ," repeat"  ," shl"
+    ," shr"     ," then"    ," to"      ," type"
+    ," until"   ," var"     ," while"   ," write"
+    ," in"
+33 CONSTANT TABLE-SIZE
+
+\ No locals: DO/LOOP uses the return stack; locals+LEAVE is fragile here.
+: A$SRCH  ( -- f )
+    FALSE
+    TABLE-SIZE 0
+    DO  A$
+        KW-TABLE I 8 * +
+        CAPS-COMP 0=
+        IF  DROP TRUE  I TO CMD-INDEX  LEAVE  THEN
+    LOOP ;
+
+: A-IDENT  ( c -- f )
+    DUP A-Z IF
+        ['] NOTA-ZOR0-9 GET$ DROP    \ GET$ consumes lead char as first of A$
+        -1 PASIN +!
+        A$SRCH 0= 1 AND TO TYP
+\	S" (identifier)" "OUT
+        TRUE
+    ELSE FALSE THEN ;
+
+\ {  --- begin A-* token-label tracers ---
+\ : A-#  ( c -- n ) DUP NOT0-F  0= IF  NUMBR  	     A$ $OUT S"  (number)" "OUT   TRUE EXIT THEN FALSE ;
+\ : A-:  ( c -- )   DUP [CHAR] : = IF  COLN  	     A$ $OUT S"  :       " "OUT   TRUE EXIT THEN FALSE ;
+\ : A-<  ( c -- )   DUP [CHAR] < = IF  LTHAN 	     A$ $OUT S"  <       " "OUT   TRUE EXIT THEN FALSE ;
+\ : A->  ( c -- )   DUP [CHAR] > = IF  GTHAN 	     A$ $OUT S"  >       " "OUT   TRUE EXIT THEN FALSE ;
+\ : A-$  ( c -- )   DUP [CHAR] ' = IF  STRING 	     A$ $OUT S"  ' (tick)" "OUT   TRUE EXIT THEN FALSE ;
+\ : A-(  ( c -- )   DUP [CHAR] ( = IF  DROP 14 TO TYP  A$ $OUT S"  (       " "OUT   TRUE EXIT THEN FALSE ;
+\ : A-)  ( c -- )   DUP [CHAR] ) = IF  DROP 15 TO TYP  A$ $OUT S"  )       " "OUT   TRUE EXIT THEN FALSE ;
+\ : A-=  ( c -- )   DUP [CHAR] = = IF  DROP  2 TO TYP  A$ $OUT S"  =       " "OUT   TRUE EXIT THEN FALSE ;
+\ }  --- end A-* token-label tracers ---
+: A-#  ( c -- n true | c false ) DUP NOT0-F 0= IF NUMBR TRUE ELSE FALSE THEN ;
+: A-:  ( c -- true | c false ) DUP [CHAR] : = IF COLN TRUE ELSE FALSE THEN ;
+: A-<  ( c -- true | c false ) DUP [CHAR] < = IF LTHAN TRUE ELSE FALSE THEN ;
+: A->  ( c -- true | c false ) DUP [CHAR] > = IF GTHAN TRUE ELSE FALSE THEN ;
+: A-$  ( c -- true | c false ) DUP [CHAR] ' = IF STRING TRUE ELSE FALSE THEN ;
+: A-(  ( c -- true | c false ) DUP [CHAR] ( = IF DROP 14 TO TYP TRUE ELSE FALSE THEN ;
+: A-)  ( c -- true | c false ) DUP [CHAR] ) = IF DROP 15 TO TYP TRUE ELSE FALSE THEN ;
+: A-=  ( c -- true | c false ) DUP [CHAR] = = IF DROP  2 TO TYP TRUE ELSE FALSE THEN ;
+
+
+: TOKEN  ( -- )
+    	BEGIN
+        	BEGIN SKIPBLANKS ?DUP UNTIL
+        	DUP [CHAR] \ =
+    	WHILE  BSLSH
+    	REPEAT \ S" TOKEN " "OUT
+    	A-IDENT ?EXIT
+	A-# 	?EXIT
+	A-: 	?EXIT
+	A-< 	?EXIT
+	A-> 	?EXIT
+	A-$ 	?EXIT
+	A-( 	?EXIT
+	A-) 	?EXIT
+	A-= 	?EXIT
+    	3 TO TYP  TO CHAR- ;
+
+256 CONSTANT MAXCON   32 CONSTANT B/CON
+768 CONSTANT MAXVAR   32 CONSTANT B/VAR
+
+0 VALUE CON#
+0 VALUE PCONS
+0 VALUE VAR#
+0 VALUE PVARS
+
+: >C_NAME  ( n -- a )  B/CON * PCONS + CELL+ ;
+: >V_NAME  ( n -- a )  B/VAR * PVARS + CELL+ ;
+
+: PCONSTANT  ( n -- )
+    CON# B/CON * PCONS +  SWAP OVER !
+    PASWORD SWAP CELL+  OVER C@ 1 +  B/CON CELL - MIN  MOVE
+    CON# 1+ TO CON# ;
+
+: PVARIABLE  ( -- )
+    VAR# B/VAR * PVARS +  DUP OFF
+    PASWORD SWAP CELL+  OVER C@ 1 +  B/VAR CELL - MIN  MOVE
+    VAR# 1+ TO VAR# ;
+
+VARIABLE IN-ADDR
+\ CAPS-COMP takes two counted-string addresses. No LEAVE (nested +LOOP unsafe).
+\ Miss: leave original a with false so PDEFINED can try $INVAR.
+: $INCON  ( a -- a2 f )
+    0 IN-ADDR !
+    PCONS  CON# B/CON *  BOUNDS
+    ?DO  DUP I CELL+ CAPS-COMP 0=
+         IF  I CELL+ IN-ADDR !  THEN
+    B/CON +LOOP
+    IN-ADDR @ IF DROP IN-ADDR @ TRUE ELSE FALSE THEN ;
+
+: $INVAR  ( a -- a2 f )
+    0 IN-ADDR !
+    PVARS  VAR# B/VAR *  BOUNDS
+    ?DO  DUP I CELL+ CAPS-COMP 0=
+         IF  I CELL+ IN-ADDR !  THEN
+    B/VAR +LOOP
+    IN-ADDR @ IF DROP IN-ADDR @ TRUE ELSE FALSE THEN ;
+
+\ Avoid ?EXIT here — keep (a f) and fall through cleanly.
+: PDEFINED  ( -- a f )
+    PASWORD $INCON DUP IF ELSE DROP $INVAR THEN ;
+
+: A$CONSTANT  ( -- a )
+    A$ COUNT INSET  -1 PCONSTANT  INREC
+    CON# 1 - >C_NAME ;
+
+: A$PLACE  ( -- a )
+    A$ COUNT INSET PDEFINED INREC 0=
+    IF  DROP A$CONSTANT  THEN ;
+
+: A$VARIABLE  ( -- a )
+    A$ COUNT INSET PDEFINED INREC 0=
+    IF  DROP
+        A$ COUNT INSET PVARIABLE INREC
+        VAR# 1- >V_NAME
+    THEN ;
+
+: A$FIND??  ( -- a )
+    A$ COUNT INSET PDEFINED INREC 0=
+    IF  CR S" Unspecified Identifier ->" TYPE COUNT TYPE
+        A$CONSTANT CROUT+
+    THEN ;
+
+DEFER STATMENT
+DEFER BLOCK-
+DEFER EXPR-
+
+: CREATE-CONSTANT
+    BEGIN
+        A$CONSTANT >R
+        TOKEN ==??
+        TOKEN #??
+        CROUT ##OUT S" CONSTANT" "OUT R> $OUT
+        TOKEN ;??
+        TOKEN IDENT? 0=
+    UNTIL ;
+
+: CONST-  NO-CONST-OR-VARS??  TOKEN IDENT??  CREATE-CONSTANT ;
+
+: MAKEVARS  ( -- f )
+    INTEGER??
+    VAR$ COUNT INSET  VARCNT >R
+    BEGIN
+        PVARIABLE CROUT S" VARIABLE" "OUT
+        VAR# 1- >V_NAME $OUT
+        VARCNT 1 - TO VARCNT
+        VARCNT 1 <
+    UNTIL
+    R> TO VARCNT
+    INREC TOKEN ;? DUP
+    IF  DROP TOKEN IDENT?  THEN  0= ;
+
+: MAKEARRAYS  ( -- f )
+    TOKEN [??  TOKEN
+    #A??  CELLS TO ARRAYSIZE
+    TOKEN ]??  TOKEN OF??
+    TOKEN INTEGER??  TOKEN ;??
+    VAR$ COUNT INSET
+    BEGIN
+        PVARIABLE CROUT
+        S" CREATE" "OUT  VAR# 1- >V_NAME $OUT
+        ARRAYSIZE ##OUT S" ALLOT" "OUT
+        VARCNT 1- TO VARCNT
+        VARCNT 1 <
+    UNTIL
+    INREC TOKEN IDENT? 0= ;
+
+: VAR-
+    NO-CONST-OR-VARS?? TOKEN
+    BEGIN
+        0 TO VARCNT  0 VAR$ C!
+        BEGIN  IDENT?? VAR$MOVE TOKEN ,?
+        WHILE  TOKEN
+        REPEAT  :??
+        TOKEN ARRAY?
+        IF  MAKEARRAYS  ELSE  MAKEVARS  THEN
+    UNTIL ;
+
+: PAR-PASS  ( a -- )
+    >R VAR- CROUT S" :" "OUT R> $OUT 16 SP>COL
+    VAR$ COUNT INSET  VARCNT TO PARCNT
+    BEGIN  PDEFINED FOUND??
+        VARCNT 1- TO VARCNT
+        VARCNT 1 <
+    UNTIL  INREC  PARCNT TO VARCNT
+    BEGIN  $OUT S" !" "OUT
+        VARCNT 1 - TO VARCNT  VARCNT 1 <
+    UNTIL  )?? TOKEN ;
+
+: PROC-
+    TOKEN IDENT??  TRUE TO PTYP  A$PLACE
+    TOKEN (?
+    IF  FALSE TO PTYP  PAR-PASS  TRUE TO NO-CONST-OR-VARS  THEN
+    ;?? TOKEN BLOCK- S" ;" "OUT
+    TRUE TO PTYP  ;?? TOKEN BLOCK- ;
+
+: BEGIN-
+    BEGIN  TOKEN STATMENT  ;? 0=  UNTIL  END?? TOKEN ;
+
+: PAR-TO-STK
+    BEGIN  TOKEN EXPR-  ,? 0=  UNTIL  )?? TOKEN ;
+
+: VARIABLE?  ( a -- f )
+    PVARS DUP B/VAR MAXVAR * + UBETWEEN ;
+
+: VARIABLE??  ( a -- )
+    DUP VARIABLE? 0=
+    IF  CROUT S" Assignment to NON-Variable->" "OUT
+        COUNT "OUT CROUT
+    ELSE  DROP
+    THEN ;
+
+: VARCONOUT  ( a -- )
+    DUP $OUT VARIABLE? IF S" @" "OUT THEN ;
+
+: CONSTANT-
+    IDENT?
+    IF  A$FIND?? TOKEN [?
+        IF  $OUT TOKEN EXPR-  S" CELLS + @" "OUT  ]?? TOKEN
+        ELSE  (? IF  PAR-TO-STK $OUT  ELSE  VARCONOUT  THEN
+        THEN
+    ELSE  #?
+        IF  ##OUT TOKEN
+        ELSE  S" CHAR" "OUT A$PLACE $OUT TOKEN
+        THEN
+    THEN ;
+
+: +-OR?  ( -- a n f | f )
+    -?  IF S" -"  TRUE ELSE
+    +?  IF S" +"  TRUE ELSE
+    OR? IF S" OR" TRUE ELSE FALSE
+    THEN THEN THEN ;
+
+: TERM-OPER?  ( -- a n f | f )
+    DIV? IF S" /"   TRUE ELSE
+    MOD? IF S" MOD" TRUE ELSE
+    AND? IF S" AND" TRUE ELSE
+    SHL? IF S" LSHIFT" TRUE ELSE
+    SHR? IF S" RSHIFT" TRUE ELSE
+      *? IF S" *"   TRUE ELSE FALSE
+    THEN THEN THEN THEN THEN THEN ;
+
+: FACTOR-
+    NOT? IF  TOKEN FACTOR-  S" 0=" "OUT  THEN
+    KEYWORD?
+    IF  MEM?? TOKEN [?? TOKEN EXPR- ]??  S" @" "OUT TOKEN
+    ELSE  (?
+        IF  TOKEN EXPR- )?? TOKEN
+        ELSE  CONSTANT-
+        THEN
+    THEN ;
+
+: TERM-
+    FACTOR- TERM-OPER?
+    IF  BEGIN  TOKEN FACTOR-  "OUT  TERM-OPER? 0=  UNTIL  THEN ;
+
+: SIMP-EXPR
+    -?
+    IF  TOKEN TERM-  S" NEGATE" "OUT
+    ELSE  +? IF TOKEN THEN  TERM-
+    THEN
+    +-OR? IF  BEGIN  TOKEN SIMP-EXPR "OUT  +-OR? 0=  UNTIL  THEN ;
+
+: IN-
+    [?? S" DUP" "OUT TOKEN SIMP-EXPR S" =" "OUT ,?
+    IF  BEGIN  TOKEN CROUT++ S" OVER" "OUT
+              SIMP-EXPR S" = OR" "OUT  ,? 0=
+        UNTIL
+    THEN  ]?? S" NIP" "OUT TOKEN ;
+
+: (EXPR-)
+    SIMP-EXPR
+    ==? IF TOKEN SIMP-EXPR S" ="  "OUT THEN
+     <? IF TOKEN SIMP-EXPR S" <"  "OUT THEN
+     >? IF TOKEN SIMP-EXPR S" >"  "OUT THEN
+    <>? IF TOKEN SIMP-EXPR S" <>" "OUT THEN
+    <=? IF TOKEN SIMP-EXPR S" <=" "OUT THEN
+    >=? IF TOKEN SIMP-EXPR S" >=" "OUT THEN
+    IN? IF TOKEN IN- THEN ;
+' (EXPR-) IS EXPR-
+
+: VAR-ASSIGN
+    IDENT?? A$FIND?? TOKEN (?
+    IF  PAR-TO-STK  THEN
+    DUP >R VARIABLE?
+    IF  [?
+        IF  TOKEN EXPR-  S" CELLS " "OUT  ]?? TOKEN
+            :=?? TOKEN EXPR-  R> $OUT  S" ROT + !" "OUT
+        ELSE  :=?? TOKEN EXPR-  R> $OUT  S" !" "OUT
+        THEN
+    ELSE  R> $OUT
+    THEN ;
+
+: IF-
+    TOKEN EXPR- THEN??
+    CROUT+ S" IF     " "OUT TOKEN STATMENT ELSE?
+    IF  CROUT+ S" ELSE   " "OUT TOKEN STATMENT  THEN
+    CROUT+ S" THEN   " "OUT ;
+
+: CASES-
+    S" DUP" "OUT TOKEN CONSTANT- S" =" "OUT ,?
+    IF  BEGIN  TOKEN CROUT++ S" OVER" "OUT
+              CONSTANT- S" = OR" "OUT  ,? 0=
+        UNTIL
+    THEN  :??
+    CROUT+ S" IF     " "OUT TOKEN STATMENT
+    CROUT+ S" ELSE   " "OUT ;
+
+: CASE-
+    TOKEN EXPR- OF??
+    CROUT+ S" CASE    " "OUT
+    BEGIN  CASES-  ;? 0=  UNTIL
+    S" DROP" "OUT ELSE?
+    IF  TOKEN STATMENT  THEN
+    END??
+    CROUT+ S" ENDCASE" "OUT TOKEN ;
+
+: WHILE-
+    CROUT+ S" BEGIN  " "OUT TOKEN EXPR- DO???
+    IF  CROUT+ S" WHILE  " "OUT TOKEN STATMENT
+        CROUT+ S" REPEAT " "OUT
+    THEN ;
+
+: REPEAT-
+    CROUT+ S" BEGIN  " "OUT
+    BEGIN  TOKEN STATMENT ;? 0=  UNTIL
+    UNTIL?? TOKEN EXPR-
+    CROUT+ S" UNTIL  " "OUT ;
+
+: FOR-
+    TOKEN IDENT?? A$FIND?? >R TOKEN :=??
+    TOKEN EXPR- TO-OR-DOWNTO?? R> TO?
+    IF  1 >R  ELSE  -1 >R  THEN  >R
+    TOKEN EXPR- DO??  R> R@ ##OUT >R
+    S" + SWAP" "OUT CROUT+ S" DO     " "OUT
+    TOKEN S" I" "OUT R> $OUT S" !" "OUT STATMENT
+    R> ##OUT CROUT+ S" +LOOP  " "OUT ;
+
+: A$COMPILE
+    [CHAR] . COUT  [CHAR] " CHROUT
+    A$ COUNT 1 /STRING "OUT  [CHAR] " CHROUT ;
+
+: WRITE-
+    TOKEN (??
+    BEGIN  CROUT++
+        TOKEN STRING?
+        IF  A$COMPILE TOKEN
+        ELSE  ##?
+            IF  TOKEN EXPR- S" ." "OUT
+            ELSE  EXPR- S" EMIT" "OUT
+            THEN
+        THEN  ,? 0=
+    UNTIL  )?? TOKEN ;
+
+: READ-
+    TOKEN (??
+    BEGIN  CROUT++
+        TOKEN ##?
+        IF  S" KEY" "OUT TOKEN
+        ELSE  S" KEY DUP EMIT" "OUT
+        THEN
+        IDENT?? A$FIND??
+        DUP VARIABLE?? $OUT
+        TOKEN [?
+        IF  TOKEN EXPR- ]?? S" CELLS + " "OUT TOKEN  THEN
+        S" !" "OUT
+        ,? 0=
+    UNTIL  )?? TOKEN ;
+
+: MEM-
+    TOKEN [?? TOKEN EXPR- ]??
+    TOKEN :=?? TOKEN EXPR- S" SWAP !" "OUT ;
+
+: NEWLIN-  CROUT++ S" CR" "OUT TOKEN ;
+
+: DO-STATMENT
+    CMD-INDEX DUP TABLE-SIZE <
+	IF	EXEC:
+    		NOOP NOOP BEGIN- NEWLIN- CASE- NOOP NOOP NOOP
+    		NOOP NOOP NOOP FOR-  NOOP IF-   NOOP MEM-
+    		NOOP NOOP NOOP NOOP  NOOP READ- REPEAT- NOOP
+   		NOOP NOOP NOOP NOOP  NOOP NOOP  WHILE- WRITE- 
+	THEN ;
+
+: (STATMENT)
+    CROUT++
+    KEYWORD? IF DO-STATMENT ELSE VAR-ASSIGN THEN ;
+' (STATMENT) IS STATMENT ;
+
+: BEGIN-1
+    PTYP IF  CROUT S" :" "OUT $OUT 16 SP>COL  THEN
+    BEGIN- ;
+
+0 VALUE ?STP
+: STP  TRUE TO ?STP ;
+
+: DO-BLOCK
+    CMD-INDEX 31 AND EXEC:
+    STP STP BEGIN-1 STP STP CONST- STP STP
+    STP STP STP STP PROC- STP STP STP
+    STP STP STP STP PROC- STP STP STP
+    STP STP STP STP STP VAR- STP STP ;
+
+: (BLOCK-)
+    KEYWORD?
+    IF  FALSE TO ?STP
+        BEGIN DO-BLOCK ?STP UNTIL
+    THEN ;
+' (BLOCK-) IS BLOCK- ;
+
+: PAS_INIT  PASLEN OFF  PASIN OFF  0 TO CON#  0 TO VAR# ;
+
+: PROGRAM
+    PAS_INIT
+    FALSE TO NO-CONST-OR-VARS
+    TOKEN  TOKEN IDENT?? A$PLACE
+    TOKEN (?  TRUE TO PTYP
+    IF  PAR-PASS TRUE TO NO-CONST-OR-VARS  FALSE TO PTYP  THEN
+    ;?? TOKEN BLOCK-
+    CROUT+ S" ; " "OUT .??
+    CROUT CROUT ;
+
+: INIT_ARRAYS
+    PCONS 0= IF
+        MAXCON B/CON * DUP ALLOCATE THROW TO PCONS  PCONS SWAP ERASE
+        MAXVAR B/VAR * DUP ALLOCATE THROW TO PVARS  PVARS SWAP ERASE
+        VAR$ OFF  A$ OFF
+    THEN ;
+
+: MAIN2  ( c-addr -- )     \ counted name
+    INIT_ARRAYS
+    COUNT PAS-OPEN
+    CROUT PROGRAM
+    PAS-CLOSE ;
+
+: PASCAL  ( "name" -- )
+    DECIMAL
+    PASWORD MAIN2 ;
+
+: PASCAL"  ( c-addr u -- )
+    DECIMAL
+    INIT_ARRAYS
+    PAS-OPEN
+    CROUT PROGRAM
+    PAS-CLOSE ;
+
+CR .( Loaded PASCALX.fth ) CR
+
+\ BREAK THROW fromlib S" PASCAL/PASX.PAS" RESOLVE-KEY ' PASCAL" BPGO-XT
+
+\
+\ {  --- begin load-time PASX smoke test ---
+\ : test
+\ \	['] GET$ BREAK-XT
+\ \       ['] PASCAL" BREAK-XT
+\ \       ['] GET$ BREAK-XT
+\         FILE-ECHO ON
+\         S" PASX.PAS" ['] PASCAL" BPGO-XT ;
+\ test
+\ }  --- end load-time PASX smoke test ---

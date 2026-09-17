@@ -6,7 +6,6 @@
 \ then leaves ONLY FORTH DEFINITIONS.
 \
 \ EMITTER rechain stays in vocemit.fth (earlier in the cold blob).
-
 ONLY FORTH DEFINITIONS
 DECIMAL
 

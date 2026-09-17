@@ -1,5 +1,10 @@
 8 CONSTANT #BREAKS
 
+: NOBREAKS  ( -- )
+    #BREAKS 0 DO
+        0 I CELLS BREAK-TABLE + !
+    LOOP ;
+
 : BREAK-XT  ( xt -- )
   BREAK-TABLE #BREAKS 0 DO
     DUP I CELLS + @ 0= IF
@@ -26,12 +31,14 @@
     THEN
   LOOP ;
 
+: BPGO-XT  ( xt -- )
+  DBG-ON (BP-GO)          \ now: set debug_bp_go only
+  CATCH
+  DBG-OFF
+  ?DUP IF THROW THEN ;
+
 : BPGO  ( "<name>" -- )
   >IN @  BL WORD C@ 0= IF
     DROP ." BPGO needs a name" CR EXIT
   THEN  >IN !
-  ' DBG-ON (BP-GO)          \ now: set debug_bp_go only
-  CATCH
-  DBG-OFF
-  ?DUP IF THROW THEN
-;
+  ' BPGO-XT ;

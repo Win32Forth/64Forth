@@ -3774,17 +3774,46 @@ XSYSTEM:
 .equ INCL_MAX, 64
 .equ INCL_NAME, 256
 
+BOOT_WORD "RESOLVE-KEY", "RESOLVE-KEY ( c-addr u -- c-addr u ) FROMLIB/abs path in include_name_pending", 0, XRESOLVE_KEY
+XRESOLVE_KEY:
+    mov  x1, x20                   // u
+    ldr  x0, [x22], #8             // c-addr (TOS stays in x20 until result)
+    cbz  x1, 1f
+    bl   _copy_to_word_scratch     // x25 = len; word_scratch filled
+    // Host resolve may clobber; keep VM + x25 across the call.
+    SAVE_VM
+    stp  x25, xzr, [sp, #-16]!
+    bl   _resolve_abs_key          // pending+len set (abs or typed)
+    ldp  x25, xzr, [sp], #16
+    RESTORE_VM
+    b    2f
+1:
+    // Empty name: clear pending length
+    adrp x0, include_name_len@page
+    add  x0, x0, include_name_len@pageoff
+    str  xzr, [x0]
+2:
+    // Stable buffer (not word_scratch — OPEN-FILE/WORD reuse that)
+    adrp x0, include_name_pending@page
+    add  x0, x0, include_name_pending@pageoff
+    adrp x1, include_name_len@page
+    add  x1, x1, include_name_len@pageoff
+    ldr  x1, [x1]
+    str  x0, [x22, #-8]!           // push c-addr'
+    mov  x20, x1                   // TOS = u'
+    NEXT
+
 // INCLUDE / FLOAD ( "filename" | bare | "quoted path" -- )  always load
 
-    BOOT_WORD "INCLUDE", "INCLUDE ( -- ) name|dialog load and interpret file", 0, XINCLUDE
-XINCLUDE:
+    BOOT_WORD "(INCLUDE)", "(INCLUDE) ( -- ) name|dialog load and interpret file", 0, XPINCLUDE
+XPINCLUDE:
     bl   _next_filespec            // x25=len; word_scratch filled (0 = bare)
     b    _include_with_len
 
 // INCLUDED ( c-addr u -- )  always load from string
 
-    BOOT_WORD "INCLUDED", "INCLUDED ( c-addr u -- ) load and interpret named file (always)", 0, XINCLUDED
-XINCLUDED:
+    BOOT_WORD "(INCLUDED)", "(INCLUDED) ( c-addr u -- ) load and interpret named file (always)", 0, XPINCLUDED
+XPINCLUDED:
     mov  x1, x20                   // u
     ldr  x0, [x22], #8             // c-addr
     ldr  x20, [x22], #8

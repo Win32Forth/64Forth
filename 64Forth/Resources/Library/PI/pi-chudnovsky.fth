@@ -288,11 +288,12 @@ ALSO BIG-INTEGER
 \ GRAPHICS KEY waits on (APP-KEY)/(APP-PUMP). Do not leave GRAPHICS on the
 \ search order for load-time CR/." (that would open a window).
 \ Digit I/O stays FORTH EMIT/TYPE; EMIT-WINDOW-APP remaps those to GRAPHICS.
+
 ONLY FORTH ALSO GRAPHICS
 : PIMAIN  ( -- )
   CLS
   ." Computing PI to 10 places..." CR
-  10 PI-DEMO
+  20 PI-DEMO
   CR ." Done. Press any key to exit."
   KEY DROP
   ;
