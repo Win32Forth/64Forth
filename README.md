@@ -67,8 +67,9 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ---
 
-## Status (v1.3.8)
+## Status (v1.3.9)
 
+- [x] **v1.3.9:** High-level `INCLUDED` load-cwd; quoted `FLOAD` paths; `can't open:` + `THROW -38`; CATCH/`EVALUATE` `source_sp`; signed THROW; agent `INCLUDED`; Bubble Sort stack fix; DMG + GitHub release
 - [x] **v1.3.8:** **SZ-EDITOR** in its own window (three-window model: Console / SZ-EDITOR / App Output); live Console REPL while editor KEY waits; `SEE` decompile vs `VIEW` editor; DMG + GitHub release
 - [x] **v1.3.7:** **ANEW** on `MARKER` (load/reload messages); **BREAK** / **BPGO** (8 breakpoints); DMG + GitHub release
 - [x] **v1.3.6:** Emitter **0.7** — SA nested locals + BI host slots; window I/O remap; `PIMAIN.app` (10-digit π); DMG + GitHub release
@@ -90,7 +91,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 - [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Agent-channel.md`
 - [ ] **Later (optional):** DMG `/Volumes/…` open noise — see STATUS
 
-**Console header** (GUI): `=== 64Forth 1.3.8 === Sep 12, 2026 3:51 PM ===`  
+**Console header** (GUI): `=== 64Forth 1.3.9 === Sep 17, 2026 2:35 PM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
 
 **Windows (macOS):** **Console** (Forth REPL) · **SZ-EDITOR** (`FacilityEditorHost`, facility grid) · **App Output** (GRAPHICS / Emitter only). Do not merge the editor into App Output. iOS: Console only (no SZ-EDITOR host).

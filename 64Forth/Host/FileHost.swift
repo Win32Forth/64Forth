@@ -764,15 +764,35 @@ final class FileHost {
         loadCwdStack.append(frame)
         logicalCurrentDirectory = parent
         _ = FileManager.default.changeCurrentDirectoryPath(parent)
+        if ProcessInfo.processInfo.environment["FORTH64_TRACE_LOAD_CWD"] == "1" {
+            msg("[load-cwd BEGIN depth=\(loadCwdStack.count)] file=\(url.lastPathComponent) cwd=\(parent)\n")
+        }
+    }
+
+    /// High-level INCLUDED / BEGIN-LOAD-CWD: push load cwd for a resolved file path.
+    /// Nested relative OPEN-FILE / FLOAD then resolve against that file's folder.
+    func beginLoadCwd(forPath path: String) {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        beginLoadCwd(forFileURL: URL(fileURLWithPath: trimmed))
     }
 
     /// Restore cwd when a file INCLUDE/FLOAD SOURCE ends (kernel SOURCE-ID was > 0).
     func endLoadCwdIfNeeded() {
-        guard let frame = loadCwdStack.popLast() else { return }
+        let depthBefore = loadCwdStack.count
+        guard let frame = loadCwdStack.popLast() else {
+            if ProcessInfo.processInfo.environment["FORTH64_TRACE_LOAD_CWD"] == "1" {
+                msg("[load-cwd END empty-stack]\n")
+            }
+            return
+        }
         logicalCurrentDirectory = frame.logical
         let proc = frame.process.isEmpty ? frame.logical : frame.process
         if !proc.isEmpty {
             _ = FileManager.default.changeCurrentDirectoryPath(proc)
+        }
+        if ProcessInfo.processInfo.environment["FORTH64_TRACE_LOAD_CWD"] == "1" {
+            msg("[load-cwd END depth \(depthBefore)->\(loadCwdStack.count)] cwd=\(logicalCurrentDirectory)\n")
         }
     }
 

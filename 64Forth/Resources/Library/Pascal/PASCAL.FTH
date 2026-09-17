@@ -902,6 +902,11 @@ CREATE PAS-OUTBUF  256 ALLOT
     ?DUP IF  R> R> 2DROP THROW  THEN
     CR  ." Wrote "  R> R> TYPE  CR ;
 
+: PASFILE ( 'name' -- )
+    DECIMAL
+    BL WORD COUNT
+    PASCAL-TO-FILE ;
+
 .( Loaded PASCAL.fth ) CR
 
 \ Example:

@@ -1,13 +1,11 @@
 \ HayesTest.fth — 64Forth in-app Hayes / forth2012 driver
 \
-\ Canonical run (use the named path — do not rely on bare FLOAD + file dialog):
+\ Canonical run:
 \   FROMLIB FLOAD HayesTest/HayesTest.fth
 \
-\ Named FLOAD pins nested loads to this file's folder (HayesTest/), so
-\ FLOAD src/… and FLOAD prelimtest.fth inside src/ resolve correctly.
-\ Bare FROMLIB FLOAD + picker can fail early in debug-bootstrap (uncaught
-\ THROW) when the load-cwd stack does not match that layout — prefer the
-\ one-liner above. FILE-ECHO ON is fine for debugging but is not required.
+\ INCLUDED pushes load-cwd to this file's folder for the duration of the load,
+\ so nested FLOAD src/… and FLOAD prelimtest.fth inside src/ resolve correctly.
+\ FILE-ECHO ON is fine for debugging but is not required.
 \
 \ 64Forth notes:
 \   - Floating-point words live in vocabulary FP — driver does ONLY FORTH ALSO FP

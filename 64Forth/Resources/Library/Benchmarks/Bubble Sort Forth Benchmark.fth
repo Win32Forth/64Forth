@@ -36,7 +36,9 @@ align create thelist elements cells allot
 
 : bubble ( -- )
 \ ." bubbling..." cr
-  1 elements 1 do
+  \ Was: 1 elements 1 do — the leading 1 is not consumed by DO and
+  \ leaked once per bubble-sort (main runs 5 passes → ok(5)).
+  elements 1 do
     thelist elements i - cells mybounds do
       i 2@ > if i 2@ swap i 2! then
     1 cells +loop
@@ -51,7 +53,8 @@ align create thelist elements cells allot
 ;
 
 : bubble-with-flag ( -- )
-  1 elements 1 do
+  \ Same stray leading 1 as bubble (not a DO operand).
+  elements 1 do
     -1 thelist elements i - cells mybounds do
       i 2@ > if i 2@ swap i 2! drop 0 then
     1 cells +loop

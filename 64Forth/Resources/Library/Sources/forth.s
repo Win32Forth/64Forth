@@ -484,6 +484,14 @@ _kernel_set_end_include:
     str  x0, [x1]
     ret
 
+// void kernel_set_begin_load_cwd(void (*fn)(const char*, size_t)) — BEGIN-LOAD-CWD
+.globl _kernel_set_begin_load_cwd
+_kernel_set_begin_load_cwd:
+    adrp x1, begin_load_cwd_hook@page
+    add  x1, x1, begin_load_cwd_hook@pageoff
+    str  x0, [x1]
+    ret
+
 // void kernel_set_load_file(int (*fn)(const char*, size_t, const char**, size_t*))
 // path_len==0 → bare FLOAD/INCLUDE (host may show open panel).
 .globl _kernel_set_load_file
@@ -3555,6 +3563,39 @@ XFROMLIB_OFF:
 XFROMLIB_OFF_END:
     NEXT
 
+// BEGIN-LOAD-CWD ( c-addr u -- )  push host load cwd for file at path (high-level INCLUDED)
+// Nested relative OPEN-FILE / FLOAD resolve against that file's directory until END-LOAD-CWD.
+
+    BOOT_WORD "BEGIN-LOAD-CWD", "BEGIN-LOAD-CWD ( c-addr u -- ) push load cwd for file path", 0, XBEGIN_LOAD_CWD, XBEGIN_LOAD_CWD_END
+XBEGIN_LOAD_CWD:
+    mov  x1, x20                   // u
+    ldr  x0, [x22], #8             // c-addr
+    ldr  x20, [x22], #8            // drop under
+    cbz  x1, XBEGIN_LOAD_CWD_END
+    adrp x2, begin_load_cwd_hook@page
+    add  x2, x2, begin_load_cwd_hook@pageoff
+    ldr  x2, [x2]
+    cbz  x2, XBEGIN_LOAD_CWD_END
+    SAVE_VM
+    blr  x2                        // (path, path_len)
+    RESTORE_VM
+XBEGIN_LOAD_CWD_END:
+    NEXT
+
+// END-LOAD-CWD ( -- )  pop host load cwd (same hook as CODE INCLUDE SOURCE end)
+
+    BOOT_WORD "END-LOAD-CWD", "END-LOAD-CWD ( -- ) pop load cwd", 0, XEND_LOAD_CWD, XEND_LOAD_CWD_END
+XEND_LOAD_CWD:
+    adrp x0, end_include_hook@page
+    add  x0, x0, end_include_hook@pageoff
+    ldr  x0, [x0]
+    cbz  x0, XEND_LOAD_CWD_END
+    SAVE_VM
+    blr  x0
+    RESTORE_VM
+XEND_LOAD_CWD_END:
+    NEXT
+
 // LIBRARY-PATH ( -- c-addr u )  absolute Library root (user tree or bundle)
 
     BOOT_WORD "LIBRARY-PATH", "LIBRARY-PATH ( -- c-addr u ) absolute Library directory", 0, XLIBRARY_PATH, XLIBRARY_PATH_END
@@ -3801,6 +3842,20 @@ XRESOLVE_KEY:
     ldr  x1, [x1]
     str  x0, [x22, #-8]!           // push c-addr'
     mov  x20, x1                   // TOS = u'
+    NEXT
+
+// PARSE-FILESPEC ( -- c-addr u )  next file name; supports "quoted paths with spaces"
+// u=0 if bare (no name). c-addr is word_scratch (stable until next WORD/PARSE).
+
+    BOOT_WORD "PARSE-FILESPEC", "PARSE-FILESPEC ( -- c-addr u ) parse file name; quotes allow spaces", 0, XPARSE_FILESPEC, XPARSE_FILESPEC_END
+XPARSE_FILESPEC:
+    bl   _next_filespec            // x25=len; word_scratch filled (0 = bare)
+    adrp x0, word_scratch@page
+    add  x0, x0, word_scratch@pageoff
+    str  x20, [x22, #-8]!
+    str  x0, [x22, #-8]!           // c-addr under
+    mov  x20, x25                  // u TOS
+XPARSE_FILESPEC_END:
     NEXT
 
 // INCLUDE / FLOAD ( "filename" | bare | "quoted path" -- )  always load
@@ -8949,8 +9004,10 @@ XLOAD_RUN:
     b    _interpret_loop
 
 // CATCH ( i*x xt -- j*x 0 | i*x n )
-// R-stack frame (top first): saved_IP, saved_DSP, saved_TOS, prev_handler
+// R-stack frame (top first): saved_IP, saved_source_sp, saved_DSP, saved_TOS, prev_handler
 // handler points at saved_IP.
+// saved_source_sp lets nested ['] EVALUATE CATCH resume at the matching nest
+// level (see _interpret_empty) without waiting for the outermost SOURCE to end.
 // Emitter: apps that can ABORT must also reach CATCH (handle errors; no QUIT).
 
     BOOT_WORD "CATCH", "CATCH ( xt -- n ) execute xt; push 0 or throw code", 0, XCATCH, XCATCH_END
@@ -8962,6 +9019,10 @@ XCATCH:
     str x2, [x23, #-8]!            // prev_handler
     str x20, [x23, #-8]!           // saved_TOS
     str x22, [x23, #-8]!           // saved_DSP
+    adrp x2, source_sp@page
+    add x2, x2, source_sp@pageoff
+    ldr x2, [x2]
+    str x2, [x23, #-8]!            // saved_source_sp
     str x19, [x23, #-8]!           // saved_IP (resume after CATCH)
     str x23, [x7]                  // handler = &saved_IP
     // Return trampoline: NEXT after xt → catch_ok entry
@@ -9012,7 +9073,7 @@ XCATCH_OK:
     cbz x1, _cok_push0
     mov x23, x1
     ldr x19, [x23], #8             // resume IP
-    add x23, x23, #16              // skip DSP + TOS (keep xt results)
+    add x23, x23, #24              // skip source_sp + DSP + TOS (keep xt results)
     ldr x0, [x23], #8              // prev_handler
     str x0, [x7]
 _cok_push0:
@@ -9036,6 +9097,7 @@ XTHROW:
     cbz x1, _throw_uncaught
     mov x23, x1
     ldr x19, [x23], #8             // IP
+    add x23, x23, #8               // skip saved_source_sp
     ldr x22, [x23], #8             // DSP
     ldr x20, [x23], #8             // TOS
     ldr x0, [x23], #8              // prev_handler
@@ -9064,9 +9126,8 @@ _throw_soft_abandon:
     add  x0, x0, str_uncaught_throw@pageoff
     bl   _print_string_svc
     ldr  x0, [sp], #16
-    cmp  x0, #0
-    cneg x0, x0, lt
-    bl   _print_unsigned
+    // Print signed code so THROW -1 (ABORT / OPEN-FILE ior) is not shown as "1".
+    bl   _print_signed
     mov  x0, #10
     bl   _putchar
     adrp x22, data_stack@page
@@ -11012,23 +11073,23 @@ _interpret_empty:
     cbz  x0, _interpret_done       // base done
     // Outer SOURCE restored — usually continue scanning it (INCLUDE mid-line).
     //
-    // Special case: command-pane does  ['] EVALUATE CATCH  on the whole line.
-    // That CATCH stays active while FLOAD nests more SOURCE frames. An *inner*
-    // EVALUATE (e.g. Core test  S" 3 4 +" EVALUATE) must NOT resume that CATCH
-    // or the rest of ANS-VALIDATE is aborted at === Core ===.
-    // Only resume CATCH when this EVALUATE was the outermost nest (source_sp
-    // back to 0 after pop) — i.e. the command-line EVALUATE itself finished.
+    // Special case: ['] EVALUATE CATCH — resume CATCH when *this* EVALUATE
+    // ends (source_sp back to the value CATCH saved), not only when the
+    // outermost SOURCE ends. Bare inner EVALUATE (no matching CATCH) keeps
+    // scanning the outer SOURCE (source_sp != catch's saved_source_sp).
     cmn  x10, #1                   // ending id == -1 (EVALUATE / LOAD string)?
     b.ne _interpret_loop
     adrp x7, throw_handler@page
     add  x7, x7, throw_handler@pageoff
     ldr  x1, [x7]
     cbz  x1, _interpret_loop       // no CATCH: keep scanning outer
+    ldr  x3, [x1, #8]              // CATCH frame saved_source_sp
     adrp x2, source_sp@page
     add  x2, x2, source_sp@pageoff
     ldr  x2, [x2]
-    cbnz x2, _interpret_loop       // still nested under command EVALUATE
-    b    _catch_ok_resume          // command-line EVALUATE done → CATCH success
+    cmp  x2, x3
+    b.ne _interpret_loop           // deeper/shallower than this CATCH's EVALUATE
+    b    _catch_ok_resume          // matching EVALUATE done → CATCH success
 
 _interpret_done:
     // First completion is bootstrap (forth_init_str); fence user WORDS after that.
@@ -11047,7 +11108,7 @@ _catch_ok_resume:
     cbz  x1, 1f
     mov  x23, x1
     ldr  x19, [x23], #8            // resume IP
-    add  x23, x23, #16             // skip saved DSP + TOS (keep xt results)
+    add  x23, x23, #24             // skip source_sp + DSP + TOS (keep xt results)
     ldr  x0, [x23], #8             // prev_handler
     str  x0, [x7]
     str  x20, [x22, #-8]!
@@ -15476,6 +15537,7 @@ fromlib_clear_hook: .quad 0        // void (*)(void) — FROMLIB disarm (REQUIRE
 fromlib_query_hook: .quad 0        // long long (*)(void) — FROMLIB?
 library_path_hook: .quad 0         // int (*)(char*, size_t, size_t*) — LIBRARY-PATH
 end_include_hook: .quad 0          // void (*)(void) — file INCLUDE SOURCE ended (restore load cwd)
+begin_load_cwd_hook: .quad 0       // void (*)(path, path_len) — BEGIN-LOAD-CWD for high-level INCLUDED
 load_file_hook: .quad 0            // int (*)(path, path_len, out_ptr*, out_len*); path_len 0 = bare
 resolve_key_hook: .quad 0          // resolve path → absolute key
 last_load_key_hook: .quad 0        // absolute key of last successful load

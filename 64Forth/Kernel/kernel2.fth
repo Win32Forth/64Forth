@@ -224,8 +224,16 @@ DOC" HELP ( 'name' -- ) show help and decompile word (same as SEE)"
 \ File load via ALLOCATE+EVALUATE so ANEW/MARKER (HERE rewind) cannot
 \ invalidate the SOURCE text mid-interpret. Bare INCLUDE keeps (INCLUDE) dialog.
 DOC" (SLURP) ( c-addr u -- addr u ) read whole file into ALLOCATE buffer"
+\ Open failure: print can't open: <path> and THROW -38 (ANS non-existent file),
+\ matching CODE (INCLUDE) — not a bare OPEN-FILE ior -1.
 : (SLURP)  ( c-addr u -- addr u )
-    R/O BIN OPEN-FILE THROW  >R
+    2DUP R/O BIN OPEN-FILE           \ c-addr u fid ior
+    IF  DROP                         \ c-addr u   (drop fid)
+        \ S" not .( — .( is IMMEDIATE and would print at compile time only
+        S" can't open: " TYPE TYPE CR
+        -38 THROW
+    THEN                             \ c-addr u fid
+    >R 2DROP                         \ R: fid
     R@ FILE-SIZE THROW DROP          \ n (ud lo; hi dropped)
     DUP 0=
     IF  R> CLOSE-FILE THROW  PAD 0 EXIT
@@ -235,10 +243,8 @@ DOC" (SLURP) ( c-addr u -- addr u ) read whole file into ALLOCATE buffer"
     2DUP R@ READ-FILE THROW NIP      \ addr nread
     R> CLOSE-FILE THROW ;
 
-DOC" INCLUDED ( c-addr u -- ) resolve (FROMLIB), slurp, EVALUATE, FREE"
-: INCLUDED  ( c-addr u -- )
-    RESOLVE-KEY                      \ c-addr' u' in include_name_pending
-    DUP 0= IF 2DROP EXIT THEN
+DOC" (INCLUDED-BODY) ( c-addr u -- ) slurp + EVALUATE + FREE (no load-cwd)"
+: (INCLUDED-BODY)  ( c-addr u -- )
     (SLURP)                          \ a u
     DUP 0= IF 2DROP EXIT THEN        \ empty file: (SLURP) may leave PAD 0 — no FREE
     SWAP >R                          \ u    R: a
@@ -247,13 +253,26 @@ DOC" INCLUDED ( c-addr u -- ) resolve (FROMLIB), slurp, EVALUATE, FREE"
     R> FREE DROP                     \ drop FREE ior
     THROW ;
 
-DOC" INCLUDE ( 'name'|bare -- ) named → INCLUDED; bare → (INCLUDE) dialog"
-: INCLUDE  ( "name" -- )
-    >IN @ >R BL WORD C@ 0=
-    IF  R> >IN ! (INCLUDE) EXIT THEN
-    R> >IN ! BL WORD COUNT INCLUDED ;
+DOC" INCLUDED ( c-addr u -- ) resolve (FROMLIB), load-cwd, slurp, EVALUATE, FREE"
+\ BEGIN/END-LOAD-CWD so nested relative FLOAD/OPEN-FILE match CODE (INCLUDED).
+\ On THROW from the body, CATCH restores the path (c-addr u) under ior — drop
+\ it before rethrow so a failed FLOAD does not leak two stack cells.
+: INCLUDED  ( c-addr u -- )
+    RESOLVE-KEY                      \ c-addr' u' in include_name_pending
+    DUP 0= IF 2DROP EXIT THEN
+    2DUP BEGIN-LOAD-CWD
+    ['] (INCLUDED-BODY) CATCH        \ 0 | c-addr u ior
+    END-LOAD-CWD
+    ?DUP IF  >R 2DROP R> THROW  THEN ;
 
-DOC" FLOAD ( 'name'|bare -- ) synonym of INCLUDE"
+DOC" INCLUDE ( name|bare|quoted-path -- ) named INCLUDED; bare opens dialog"
+\ PARSE-FILESPEC supports quoted paths with spaces (unlike BL WORD).
+: INCLUDE
+    >IN @ >R PARSE-FILESPEC DUP 0=
+    IF  2DROP R> >IN ! (INCLUDE) EXIT THEN
+    R> DROP INCLUDED ;
+
+DOC" FLOAD ( name|bare|quoted-path -- ) synonym of INCLUDE"
 : FLOAD  INCLUDE ;
 
 DOC" REQUIRE ( 'name' -- ) load file once (PARSE-NAME REQUIRED)"

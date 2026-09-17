@@ -1,10 +1,35 @@
 # 64Forth development status
 
-**Current:** **1.3.8** (build **37**; DMG + GitHub `v1.3.8`)  
-**Last updated:** 2026-09-12 (v1.3.8: SZ-EDITOR own window; three-window model)
+**Current:** **1.3.9** (build **38**; DMG + GitHub `v1.3.9`)  
+**Last updated:** 2026-09-17 (v1.3.9: FLOAD/INCLUDED load-cwd, quoted paths, THROW/CATCH)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.3.9 — FLOAD/INCLUDED load-cwd, quoted paths, THROW/CATCH
+
+**Version strings:** marketing **1.3.9**, build **38** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner).
+
+**Console header stamp** (`ConsoleView.swift` `banner` — refresh date/time just before DMG):
+
+```text
+=== 64Forth 1.3.9 === Sep 17, 2026 2:35 PM ===
+```
+
+### Highlights (vs 1.3.8)
+
+- **High-level `INCLUDED` load-cwd:** `BEGIN-LOAD-CWD` / `END-LOAD-CWD` wrap `(INCLUDED-BODY)` so nested relative `FLOAD` / `OPEN-FILE` resolve against the loaded file’s folder (same behavior as CODE `(INCLUDED)`). Failed loads drop the restored path under ior before rethrow (no +2 stack leak).
+- **`PARSE-FILESPEC`:** `INCLUDE` / `FLOAD` accept quoted paths with spaces (`FROMLIB FLOAD "Benchmarks/Bubble Sort Forth Benchmark.fth"`).
+- **Missing file UX:** `(SLURP)` prints `can't open: <path>` and `THROW -38` (ANS non-existent file), matching CODE open-fail style — not a bare OPEN-FILE ior.
+- **CATCH / nested `EVALUATE`:** CATCH frames store `source_sp`; resume when the matching EVALUATE ends (fixes Hayes/`FLOAD` abort after AutoLoad when an outer `['] EVALUATE CATCH` stayed live across nested SOURCE).
+- **Signed THROW print:** uncaught codes print with sign (`THROW -1`, not `THROW 1`).
+- **Agent `-f` / `loadFile`:** uses `S" path" INCLUDED` (quoted `INCLUDE "…"` was mis-parsed by `BL WORD`).
+- **Bubble Sort benchmark:** remove stray leading `1` before `DO` (was leaking once per pass → `ok(5)`).
+- **Pascal:** `PASFILE` synonym for `PASCAL-TO-FILE`; HayesTest comment refresh for load-cwd.
+
+**Release:** `64Forth/releases/64Forth-1.3.9-macOS.dmg` + GitHub `v1.3.9`
 
 ---
 

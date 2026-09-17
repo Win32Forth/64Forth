@@ -119,6 +119,11 @@ private func kernel_set_library_path(
 @_silgen_name("kernel_set_end_include")
 private func kernel_set_end_include(_ fn: (@convention(c) () -> Void)?)
 
+@_silgen_name("kernel_set_begin_load_cwd")
+private func kernel_set_begin_load_cwd(
+    _ fn: (@convention(c) (UnsafePointer<CChar>?, Int) -> Void)?
+)
+
 @_silgen_name("kernel_set_load_file")
 private func kernel_set_load_file(
     _ fn: (@convention(c) (
@@ -397,6 +402,17 @@ private let kernelLibraryPathTrampoline: @convention(c) (
 
 private let kernelEndIncludeTrampoline: @convention(c) () -> Void = {
     FileHost.shared.endLoadCwdIfNeeded()
+}
+
+private let kernelBeginLoadCwdTrampoline: @convention(c) (
+    UnsafePointer<CChar>?,
+    Int
+) -> Void = { path, pathLen in
+    guard let path, pathLen > 0 else { return }
+    var bytes = [UInt8](repeating: 0, count: pathLen)
+    for i in 0..<pathLen { bytes[i] = UInt8(bitPattern: path[i]) }
+    let s = String(bytes: bytes, encoding: .utf8) ?? ""
+    FileHost.shared.beginLoadCwd(forPath: s)
 }
 
 private let kernelLoadFileTrampoline: @convention(c) (
@@ -1817,6 +1833,7 @@ final class KernelBridge {
         kernel_set_fromlib_query(kernelFromlibQueryTrampoline)
         kernel_set_library_path(kernelLibraryPathTrampoline)
         kernel_set_end_include(kernelEndIncludeTrampoline)
+        kernel_set_begin_load_cwd(kernelBeginLoadCwdTrampoline)
         kernel_set_load_file(kernelLoadFileTrampoline)
         kernel_set_resolve_key(kernelResolveKeyTrampoline)
         kernel_set_last_load_key(kernelLastLoadKeyTrampoline)
@@ -2732,10 +2749,12 @@ final class KernelBridge {
         guard !spec.isEmpty else {
             return evaluate("FLOAD")
         }
-        // Quote so paths with spaces round-trip through INCLUDE's parser.
+        // Use S" …" INCLUDED — high-level INCLUDE parses via BL WORD and would
+        // treat surrounding quotes as part of the filename (OPEN-FILE → THROW -1,
+        // printed historically as "uncaught THROW 1").
         let escaped = spec.replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
-        return evaluate("INCLUDE \"\(escaped)\"")
+        return evaluate("S\" \(escaped)\" INCLUDED")
     }
 
     /// Phase 4 AutoLoad boot.
