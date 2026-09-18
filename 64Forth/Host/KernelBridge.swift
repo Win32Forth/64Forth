@@ -2219,7 +2219,7 @@ final class KernelBridge {
     }
 
     /// Xcode-like DEBUG / TDBG keys while a stepper is paused.
-    /// F6 over, F7 into, F8 out, Esc/q abort, ⌘⇧Y/g continue.
+    /// F6 over, F7 into, F8 out, Esc/q abort, ⌘⇧Y/g continue, h = help.
     /// Also Space/Return/o = over, i = into — needed when running under Xcode,
     /// which often steals F6/F7 for its own debugger.
     /// Returns true if the event must not reach the editor / command pane.
@@ -2250,6 +2250,7 @@ final class KernelBridge {
         if ch == "i" { pushKey(Int32(Character("i").asciiValue ?? 105)); return true }
         if ch == "g" { pushKey(FacilityFKey.debugContinue); return true }
         if ch == "q" { pushKey(Int32(Character("q").asciiValue ?? 113)); return true }
+        if ch == "h" { pushKey(Int32(Character("h").asciiValue ?? 104)); return true }
         // Swallow other non-⌘ keys so they do not edit the buffer while paused.
         return true
     }

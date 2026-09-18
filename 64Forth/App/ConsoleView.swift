@@ -366,7 +366,20 @@ struct ConsoleView: View {
         guard !s.isEmpty else { return }
         let wasProg = isProgrammaticConsoleAppend
         isProgrammaticConsoleAppend = true
-        consoleText += s
+        // Kernel may emit BS (0x08) to erase the DEBUG block cursor (one Character).
+        if s.unicodeScalars.contains(UnicodeScalar(8)) {
+            var out = consoleText
+            for ch in s {
+                if ch == "\u{8}" {
+                    if !out.isEmpty { out.removeLast() }
+                } else {
+                    out.append(ch)
+                }
+            }
+            consoleText = out
+        } else {
+            consoleText += s
+        }
         markProtectedThroughEndOfText()
         isProgrammaticConsoleAppend = wasProg
     }

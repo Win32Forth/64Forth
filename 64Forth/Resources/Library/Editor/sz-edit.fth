@@ -31,7 +31,6 @@
 \   Cmd-W / Ctrl-Q  quit
 \
 \ Depends on: sz-host, sz-buffer, sz-screen
-
 DECIMAL
 
   1 CONSTANT SZ-HOME-LINE      \ Ctrl-A / Home
@@ -1906,6 +1905,93 @@ VARIABLE SZ-FL-CN0                            \ close: N before remove
       DUP SZ-WORD-HIT? IF  EXIT  THEN
    AGAIN ;
 
+\ --- DEBUG highlight: skip comments + clamp to : name … ; --------------------
+\ [lo,hi) = body of enclosing : NAME … ; (set on hist clear / DBG sync).
+VARIABLE SZ-HL-WIN-LO
+VARIABLE SZ-HL-WIN-HI
+VARIABLE SZ-HL-WIN-OK
+0 SZ-HL-WIN-OK !
+
+\ ASCII '\' — never write [CHAR] \ here (\ is the line-comment word).
+92 CONSTANT SZ-CH-BSLASH
+
+\ True if p is a whitespace-delimited one-char word c.
+: SZ-1CHAR-WORD?  ( p c -- flag )
+   >R
+   DUP C@ R> <> IF  DROP FALSE EXIT  THEN
+   DUP SZ-TBUF = IF  TRUE  ELSE  DUP 1- C@ SZ-WORD-SEP?  THEN
+   0= IF  DROP FALSE EXIT  THEN
+   1+ DUP SZ-TEND SZ-U>= IF  DROP TRUE EXIT  THEN
+   C@ SZ-WORD-SEP?
+;
+
+\ Skip Forth line/paren comments starting at p (p < limit). Leaves p' >= p.
+: SZ-SKIP-COMMENT  ( p limit -- p' )
+   >R                                    \ R: limit
+   DUP R@ SZ-U>= IF  R> DROP EXIT  THEN
+   DUP SZ-CH-BSLASH SZ-1CHAR-WORD? IF
+      BEGIN
+         DUP R@ SZ-U>= IF  R> DROP EXIT  THEN
+         DUP C@ DUP SZ-CH-LF = SWAP SZ-CH-CR = OR IF
+            R> DROP EXIT
+         THEN
+         1+
+      AGAIN
+   THEN
+   DUP [CHAR] ( SZ-1CHAR-WORD? IF
+      1+                                 \ after '('
+      BEGIN
+         DUP R@ SZ-U>= IF  R> DROP EXIT  THEN
+         DUP [CHAR] ) SZ-1CHAR-WORD? IF
+            1+  R> DROP EXIT             \ after ')'
+         THEN
+         1+
+      AGAIN
+   THEN
+   R> DROP
+;
+
+\ Like SZ-SEARCH-FWD but skips \…EOL and ( … ) ; stops at def-window hi.
+: SZ-SEARCH-FWD-CODE  ( start -- addr|0 )
+   SZ-TOKEN C@ 0= IF  DROP 0 EXIT  THEN
+   SZ-HL-WIN-OK @ IF  SZ-HL-WIN-HI @  ELSE  SZ-TEND  THEN  >R
+   BEGIN
+      DUP SZ-TOKEN C@ + R@ U> IF  R> DROP DROP 0 EXIT  THEN
+      \ Jump comment runs before testing a hit (so mid-line \ … is skipped).
+      DUP R@ SZ-SKIP-COMMENT
+      2DUP = IF
+         DROP
+         DUP SZ-WORD-HIT? IF  R> DROP EXIT  THEN
+         1+
+      ELSE
+         NIP                              \ advanced over a comment
+      THEN
+   AGAIN
+;
+
+: SZ-HL-CAPTURE-DEF-WINDOW  ( -- )
+   0 SZ-HL-WIN-OK !
+   SZ-TBUF 0= IF  EXIT  THEN
+   1 SZ-TOKEN C!  [CHAR] : SZ-TOKEN 1+ C!
+   SZ-CUR @ DUP SZ-TBUF U< IF  DROP SZ-TBUF  THEN
+   SZ-SEARCH-FWD
+   DUP 0= IF  DROP  SZ-CUR @ SZ-SEARCH-BWD  THEN
+   DUP 0= IF  DROP EXIT  THEN
+   1+                                         \ after ':'
+   BEGIN
+      DUP SZ-TEND U< IF  DUP C@ SZ-WORD-SEP?  ELSE  FALSE  THEN
+   WHILE  1+  REPEAT
+   BEGIN
+      DUP SZ-TEND U< IF  DUP C@ SZ-WORD-SEP? 0=  ELSE  FALSE  THEN
+   WHILE  1+  REPEAT                          \ after NAME
+   SZ-HL-WIN-LO !
+   1 SZ-TOKEN C!  [CHAR] ; SZ-TOKEN 1+ C!
+   SZ-HL-WIN-LO @ SZ-SEARCH-FWD
+   DUP 0= IF  DROP SZ-TEND  THEN
+   SZ-HL-WIN-HI !
+   -1 SZ-HL-WIN-OK !
+;
+
 \ Case-insensitive string equality (for BRANCH / 0BRANCH detection).
 \ Lengths are u1/u2: DUP 3 PICK compares u2 with u1. Do NOT use
 \ `3 PICK OVER` — that compares a1 (address) with u2 and never matches.
@@ -1934,7 +2020,10 @@ VARIABLE SZ-HL-HIST-N
 VARIABLE SZ-HL-PRUNE-LO
 VARIABLE SZ-HL-PRUNE-HI
 
-: SZ-HL-HIST-CLEAR  ( -- )  0 SZ-HL-HIST-N ! ;
+: SZ-HL-HIST-CLEAR  ( -- )
+   0 SZ-HL-HIST-N !
+   SZ-HL-CAPTURE-DEF-WINDOW
+;
 
 : SZ-HL-HIST-NADDR  ( i -- addr )
    SZ-HL-HIST-NSZ * SZ-HL-HIST-NAME + ;
@@ -2031,6 +2120,56 @@ VARIABLE SZ-HL-PRUNE-HI
    R> DROP
 ;
 
+\ ( ha c-addr u -- flag ) load alias; true if whole-word match at ha.
+\ Defined before SZ-HL-FIND-IF-TARGET / near-scanners (no forward refs).
+: SZ-HL-MATCH  ( ha c-addr u -- flag )
+   ROT >R
+   63 MIN DUP SZ-TOKEN C!
+   SZ-TOKEN CHAR+ SWAP CMOVE
+   R> SZ-WORD-HIT?
+;
+
+\ Find ELSE (depth 1) or THEN (depth 0) after IF. Nested IF/THEN counted.
+\ ( if-ha -- tgt-ha|0 )
+\ Use nested IF/ELSE/THEN only — 64Forth control words keep orig/dest on the
+\ data stack, so AGAIN inside IF would consume the wrong address.
+: SZ-HL-FIND-IF-TARGET  ( if-ha -- tgt|0 )
+   2 +                                   \ after "IF"
+   1 >R                                  \ R: depth
+   BEGIN
+      DUP SZ-TEND SZ-U>= IF  R> DROP DROP 0 EXIT  THEN
+      DUP S" IF" SZ-HL-MATCH IF
+         R> 1+ >R                        \ depth++
+         2 +                             \ skip "IF"
+      ELSE
+         DUP S" ELSE" SZ-HL-MATCH IF
+            R@ 1 = IF  R> DROP EXIT  THEN \ depth 1 → tgt
+            4 +                          \ skip nested ELSE
+         ELSE
+            DUP S" THEN" SZ-HL-MATCH IF
+               R> 1- DUP 0= IF  DROP EXIT  THEN  \ depth 0 → tgt
+               >R
+               4 +                       \ skip nested THEN
+            ELSE
+               1+                        \ next byte
+            THEN
+         THEN
+      THEN
+   AGAIN
+;
+
+\ Taken 0BRANCH on IF: next name search starts after ELSE/THEN so IF-body
+\ tokens (e.g. inner R>) are not chosen. Prune hist in (IF, target].
+: SZ-HL-MARK-IF-DEST  ( if-ha -- )
+   DUP SZ-HL-FIND-IF-TARGET
+   DUP 0= IF  2DROP EXIT  THEN
+   \ if-ha tgt
+   2DUP SWAP SZ-HL-HIST-PRUNE-RANGE      \ prune ends in (if, tgt]
+   NIP  4 +                              \ after ELSE/THEN (both length 4)
+   DUP SZ-TBUF U< OVER SZ-TEND U> OR IF  DROP EXIT  THEN
+   SZ-CUR !
+;
+
 \ Prune history ends in (DO|?DO, hi] for counted loops (like BEGIN for UNTIL).
 : SZ-HL-PRUNE-BACK-TO-DO  ( hi -- )
    >R
@@ -2065,6 +2204,21 @@ VARIABLE SZ-HL-PRUNE-HI
    SZ-ENSURE-VISIBLE
 ;
 
+\ Debug-time token map: highlight an explicit buffer span (no name search).
+: SZ-HIGHLIGHT-SPAN  ( addr u -- )
+   SZ-VIEW-RELEASE
+   DUP 0= IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
+   OVER DUP 0= SWAP SZ-TBUF U< OR IF  2DROP  0 SZ-SEL-OK !  EXIT  THEN
+   2DUP + DUP SZ-TEND U> IF  DROP 2DROP  0 SZ-SEL-OK !  EXIT  THEN
+   >R                                    \ addr u  R: end
+   OVER R@  SZ-SEL-END ! SZ-SEL-BEG !
+   -1 SZ-SEL-OK !
+   OVER SZ-CUR !
+   DUP 63 MIN SZ-TOKEN C!
+   DROP R> SZ-HL-HIST-PUSH
+   SZ-ENSURE-VISIBLE
+;
+
 \ ITC control flow compiles BRANCH/0BRANCH; source still has IF/ELSE/….
 \ From last highlight end (or CUR), scan at most SZ-HL-NEAR-MAX bytes for a
 \ whole-word alias. A short scan (not "file search") so we tolerate newline,
@@ -2077,15 +2231,9 @@ VARIABLE SZ-HL-PRUNE-HI
    DUP SZ-TEND U> IF  DROP SZ-TEND  THEN
 ;
 
-\ ( ha c-addr u -- flag ) load alias; true if whole-word match at ha.
-: SZ-HL-MATCH  ( ha c-addr u -- flag )
-   ROT >R
-   63 MIN DUP SZ-TOKEN C!
-   SZ-TOKEN CHAR+ SWAP CMOVE
-   R> SZ-WORD-HIT?
-;
-
 \ ( -- flag ) scan window for first IF/WHILE/UNTIL.
+\ IF + taken 0BRANCH (DBG-TOS@ = 0): mark CUR after ELSE/THEN so the next
+\ name highlight does not pick IF-body tokens (e.g. R> before THEN).
 : SZ-HIGHLIGHT-0BRANCH-NEAR  ( -- flag )
    SZ-HL-NEAR-FROM
    DUP SZ-HL-NEAR-MAX + >R                    \ R: limit
@@ -2093,7 +2241,12 @@ VARIABLE SZ-HL-PRUNE-HI
       DUP R@ SZ-U>= IF  R> DROP DROP FALSE EXIT  THEN
       DUP >R                                  \ R: limit ha
       R@ S" IF"    SZ-HL-MATCH IF
-         R> R> DROP SZ-HIGHLIGHT-SET TRUE EXIT
+         R> R> DROP                      \ ha
+         DUP >R  SZ-HIGHLIGHT-SET
+         [DEFINED] DBG-TOS@ [IF]
+            DBG-TOS@ 0= IF  R@ SZ-HL-MARK-IF-DEST  THEN
+         [THEN]
+         R> DROP TRUE EXIT
       THEN
       R@ S" WHILE" SZ-HL-MATCH IF
          R> R> DROP                      \ ha
@@ -2243,16 +2396,20 @@ VARIABLE SZ-HL-NEGF
    THEN
 ;
 
-\ LIT: highlight the source number matching DBG-INLINE (cell after paused IP).
-\ Near window first (same idea as BRANCH aliases); on miss, whole-buffer
-\ SEARCH-FWD from CUR then TBUF so ": test 3 …" still hits when CUR is at
-\ file start and 3 sits just past SZ-HL-NEAR-MAX.
-: SZ-HIGHLIGHT-LIT-NEAR  ( -- flag )
-   [DEFINED] DBG-INLINE [IF]
-      DBG-INLINE SZ-HL-NUM>TOKEN
-   [ELSE]
-      FALSE EXIT
-   [THEN]
+\ True if x looks like a dictionary CFA (same guards as kernel _print_xt_name).
+: SZ-HL-XT-LIKE?  ( x -- flag )
+   DUP 0= IF  DROP FALSE EXIT  THEN
+   DUP 7 AND IF  DROP FALSE EXIT  THEN
+   DUP 8 - @  65535 AND                  \ nfa byte offset (low 16 bits)
+   DUP 0= IF  2DROP FALSE EXIT  THEN
+   DUP 4096 SZ-U>= IF  2DROP FALSE EXIT  THEN
+   OVER SWAP - C@  NIP                   \ NFA length
+   DUP 0= IF  DROP FALSE EXIT  THEN
+   64 U<
+;
+
+\ Search for current SZ-TOKEN: near window, then CUR, then TBUF.
+: SZ-HL-SEARCH-TOKEN  ( -- flag )
    SZ-TOKEN C@ 0= IF  FALSE EXIT  THEN
    SZ-HL-NEAR-FROM
    DUP SZ-HL-NEAR-MAX + >R
@@ -2268,6 +2425,39 @@ VARIABLE SZ-HL-NEGF
          R> DROP SZ-HIGHLIGHT-SET TRUE EXIT
       THEN
       1+
+   AGAIN
+;
+
+\ LIT: ['] word → highlight the word name (or "[']"); else decimal literal.
+: SZ-HIGHLIGHT-LIT-NEAR  ( -- flag )
+   [UNDEFINED] DBG-INLINE [IF]  FALSE EXIT  [THEN]
+   DBG-INLINE
+   DUP SZ-HL-XT-LIKE? IF
+      NAME>STRING
+      63 MIN DUP SZ-TOKEN C!
+      DUP 0= IF  2DROP
+      ELSE
+         SZ-TOKEN CHAR+ SWAP CMOVE
+         SZ-HL-SEARCH-TOKEN IF  TRUE EXIT  THEN
+      THEN
+   ELSE  DROP  THEN
+   \ Try ['] / ' tick forms in the near window.
+   SZ-HL-NEAR-FROM
+   DUP SZ-HL-NEAR-MAX + >R
+   BEGIN
+      DUP R@ SZ-U>= IF  R> DROP DROP
+         DBG-INLINE SZ-HL-NUM>TOKEN
+         SZ-HL-SEARCH-TOKEN
+         EXIT
+      THEN
+      DUP >R
+      R@ S" [']" SZ-HL-MATCH IF
+         R> R> DROP SZ-HIGHLIGHT-SET TRUE EXIT
+      THEN
+      R@ S" '" SZ-HL-MATCH IF
+         R> R> DROP SZ-HIGHLIGHT-SET TRUE EXIT
+      THEN
+      R> 1+
    AGAIN
 ;
 
@@ -2325,13 +2515,23 @@ VARIABLE SZ-HL-NEGF
    DUP SZ-TOKEN C!
    SZ-TOKEN CHAR+ SWAP CMOVE          \ ( c-addr u -- )
    \ Prefer after last highlight of this same name (2nd TEST2 call site).
-   \ Else SZ-CUR (MARK-LOOP-DEST leaves CUR past BEGIN on REPEAT/AGAIN).
+   \ Else SZ-CUR — MARK-IF-DEST / MARK-LOOP-DEST leave CUR past THEN/BEGIN
+   \ so the next name does not re-hit IF/loop-body tokens (e.g. wrong R>).
+   \ Only fall back to def-window lo when CUR is outside the :…; body.
    SZ-HL-HIST-FIND DUP 0= IF
       DROP SZ-CUR @
    THEN
    DUP SZ-TBUF U< OVER SZ-TEND U> OR IF  DROP SZ-TBUF  THEN
-   SZ-SEARCH-FWD
-   DUP 0= IF  DROP SZ-TBUF SZ-SEARCH-FWD  THEN
+   SZ-HL-WIN-OK @ IF
+      DUP SZ-HL-WIN-LO @ U< IF  DROP SZ-HL-WIN-LO @  THEN
+      DUP SZ-HL-WIN-HI @ SZ-U>= IF  DROP SZ-HL-WIN-LO @  THEN
+   THEN
+   SZ-SEARCH-FWD-CODE
+   DUP 0= IF
+      DROP
+      SZ-HL-WIN-OK @ IF  SZ-HL-WIN-LO @  ELSE  SZ-TBUF  THEN
+      SZ-SEARCH-FWD-CODE
+   THEN
    SZ-HIGHLIGHT-SET
 ;
 

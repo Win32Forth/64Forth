@@ -4,10 +4,10 @@
 
 Program DEMO;
         const
-          Limit = 5;
+          Limit = 7;
           NumberBase = 10;
         var
-          idx, sum, n : Integer ;
+          idx, sum, n, alldone : Integer ;
         var
           squares : array [6] of Integer;
 
@@ -52,4 +52,6 @@ Program DEMO;
                         Write('Unexpected small sum');
                         newline;
                       end;
+\*              Write('Press Return to Leave');
+                read(alldone);  *\
         END.

@@ -2569,6 +2569,15 @@ XDBGSHOWXT:
     add x20, x20, debug_show_xt@pageoff
     NEXT
 
+    // DBG-SYNC-VIEW stores 1 here after a real HYPER-VIEW so the kernel can
+    // commit debug_view_cfa; leave 0 on DBG-SYNC-SKIP? / inactive editor.
+    BOOT_WORD "DBG-SYNC-OK", "DBG-SYNC-OK ( -- addr ) set 1 after DBG VIEW; kernel commits view CFA", 0, XDBGSYNCOK
+XDBGSYNCOK:
+    str x20, [x22, #-8]!
+    adrp x20, debug_sync_ok@page
+    add x20, x20, debug_sync_ok@pageoff
+    NEXT
+
     BOOT_WORD "DBG-HL-XT", "DBG-HL-XT ( -- addr ) xt of DBG-HIGHLIGHT-NAME or 0", 0, XDBGHLXT
 XDBGHLXT:
     str x20, [x22, #-8]!
@@ -2589,6 +2598,57 @@ XDBGINLINE:
     str x20, [x22, #-8]!
     adrp x20, debug_inline@page
     add x20, x20, debug_inline@pageoff
+    ldr x20, [x20]
+    NEXT
+
+    // TOS from _debug_capture snapshot (for taken-0BRANCH highlight dest).
+    // Empty stack → 0. sbuf[scnt-1] is TOS (see _debug_capture).
+    BOOT_WORD "DBG-TOS@", "DBG-TOS@ ( -- x ) data-stack TOS at last DEBUG pause; 0 if empty", 0, XDBGTOSAT
+XDBGTOSAT:
+    str x20, [x22, #-8]!
+    adrp x0, debug_scnt@page
+    add x0, x0, debug_scnt@pageoff
+    ldr x0, [x0]
+    cbz x0, 1f
+    adrp x1, debug_sbuf@page
+    add x1, x1, debug_sbuf@pageoff
+    sub x0, x0, #1
+    ldr x20, [x1, x0, lsl #3]
+    NEXT
+1:
+    mov x20, #0
+    NEXT
+
+    // Snapshot readers for debug-time token maps (Forth dbg-map.fth).
+    BOOT_WORD "DBG-XT@", "DBG-XT@ ( -- xt ) upcoming xt at last pause", 0, XDBGXTAT
+XDBGXTAT:
+    str x20, [x22, #-8]!
+    adrp x20, debug_xt@page
+    add x20, x20, debug_xt@pageoff
+    ldr x20, [x20]
+    NEXT
+
+    BOOT_WORD "DBG-IP@", "DBG-IP@ ( -- ip ) paused IP (upcoming cell)", 0, XDBGIPAT
+XDBGIPAT:
+    str x20, [x22, #-8]!
+    adrp x20, debug_ip@page
+    add x20, x20, debug_ip@pageoff
+    ldr x20, [x20]
+    NEXT
+
+    BOOT_WORD "DBG-CFA@", "DBG-CFA@ ( -- cfa|0 ) enclosing colon CFA at last pause", 0, XDBGCFAAT
+XDBGCFAAT:
+    str x20, [x22, #-8]!
+    adrp x20, debug_cfa@page
+    add x20, x20, debug_cfa@pageoff
+    ldr x20, [x20]
+    NEXT
+
+    BOOT_WORD "DBG-BODY#", "DBG-BODY# ( -- u ) body cell index of paused IP", 0, XDBGBODYN
+XDBGBODYN:
+    str x20, [x22, #-8]!
+    adrp x20, debug_body_cells@page
+    add x20, x20, debug_body_cells@pageoff
     ldr x20, [x20]
     NEXT
 
@@ -2643,7 +2703,7 @@ XTDBGDISARM:
     str  xzr, [x0]
     NEXT
 
-    BOOT_WORD "DBG-ON", "DBG-ON ( -- ) arm NEXT stepper (F6 over, F7 into, F8 out, Esc abort, Cmd-Shift-Y go)", 0, XDBGON
+    BOOT_WORD "DBG-ON", "DBG-ON ( -- ) arm NEXT stepper (F6/Space/o over, F7/i into, F8 out, Esc/q abort, Cmd-Shift-Y/g go)", 0, XDBGON
 XDBGON:
     adrp x0, debug_floor@page
     add  x0, x0, debug_floor@pageoff
@@ -2671,6 +2731,34 @@ XDBGON:
     adrp x0, debug_midline@page
     add  x0, x0, debug_midline@pageoff
     str  xzr, [x0]                  // fresh session: next pause starts a line
+    adrp x0, debug_help_shown@page
+    add  x0, x0, debug_help_shown@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_cursor_on@page
+    add  x0, x0, debug_cursor_on@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_need_stacks@page
+    add  x0, x0, debug_need_stacks@pageoff
+    str  xzr, [x0]
+    mov  x1, #1
+    adrp x0, debug_need_intro@page
+    add  x0, x0, debug_need_intro@pageoff
+    str  x1, [x0]                   // first pause: help + entry stacks
+    adrp x0, debug_line_col@page
+    add  x0, x0, debug_line_col@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_stack_anchor@page
+    add  x0, x0, debug_stack_anchor@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_ip@page
+    add  x0, x0, debug_ip@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_cfa@page
+    add  x0, x0, debug_cfa@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_body_cells@page
+    add  x0, x0, debug_body_cells@pageoff
+    str  xzr, [x0]
     NEXT
 
     BOOT_WORD "DBG-OFF", "DBG-OFF ( -- ) disarm NEXT stepper", 0, XDBGOFF
@@ -2681,6 +2769,33 @@ XDBGOFF:
     str  xzr, [x0]
     adrp x0, debug_midline@page
     add  x0, x0, debug_midline@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_help_shown@page
+    add  x0, x0, debug_help_shown@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_cursor_on@page
+    add  x0, x0, debug_cursor_on@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_need_stacks@page
+    add  x0, x0, debug_need_stacks@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_need_intro@page
+    add  x0, x0, debug_need_intro@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_line_col@page
+    add  x0, x0, debug_line_col@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_stack_anchor@page
+    add  x0, x0, debug_stack_anchor@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_ip@page
+    add  x0, x0, debug_ip@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_cfa@page
+    add  x0, x0, debug_cfa@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_body_cells@page
+    add  x0, x0, debug_body_cells@pageoff
     str  xzr, [x0]
     adrp x0, debug_floor@page
     add  x0, x0, debug_floor@pageoff
@@ -10902,16 +11017,16 @@ _try_number_after_find:
 // print "undefined: name" and abandon the rest of SOURCE (soft fault).
 // Name comes from undef_name_buf (captured at FIND miss / ' fail), not a
 // possibly-stale word_scratch after float parse or FILE-ECHO.
+// Always print the name first — INCLUDED/FLOAD wrap EVALUATE in CATCH, so a
+// bare THROW -13 would otherwise hide which token failed (uncaught -13 only).
 _undefined_word:
+    bl   _report_undefined
     adrp x7, throw_handler@page
     add  x7, x7, throw_handler@pageoff
     ldr  x1, [x7]
-    cbz  x1, _undef_print_abandon
+    cbz  x1, _error_abandon
     mov  x20, #-13                 // ANS: undefined word
     b    XTHROW
-_undef_print_abandon:
-    bl   _report_undefined
-    b    _error_abandon
 
 // _capture_undef_name: x0=addr, x1=len — snapshot failed token for reporting.
 // Clamps to 255 chars; always NUL-terminates undef_name_buf.
@@ -11165,12 +11280,16 @@ _set_source:
     str x0, [x2]
     ret
 
-// _file_echo_upto_cursor: if FILE-ECHO nonzero and SOURCE-ID > 0 (INCLUDE),
+// _file_echo_upto_cursor: if FILE-ECHO nonzero and this SOURCE is a file load,
 // write any not-yet-echoed source text through the end of the line that
 // contains the next non-whitespace character (lookahead from word_cursor).
 // That way blank lines skipped by the parser are still echoed.
 // Tracks progress in file_echo_pos (absolute address).
 // Safe to call with any VM regs live; uses only x0-x4/x16 (+ frame).
+// Echo when:
+//   SOURCE-ID > 0  (CODE INCLUDE buffer), or
+//   SOURCE-ID == -1 AND include_name_len != 0  (high-level INCLUDED =
+//     (SLURP)+EVALUATE — EVALUATE sets SOURCE-ID -1, but the load path is set).
 _file_echo_upto_cursor:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -11179,12 +11298,20 @@ _file_echo_upto_cursor:
     add x0, x0, file_echo@pageoff
     ldr x0, [x0]
     cbz x0, _fe_done
-    // Only for INCLUDE / file-ish buffers (SOURCE-ID > 0)
+    // SOURCE-ID > 0 → classic file INCLUDE
     adrp x0, source_id_var@page
     add x0, x0, source_id_var@pageoff
     ldr x0, [x0]
     cmp x0, #0
-    b.le _fe_done
+    b.gt 0f
+    // SOURCE-ID == -1 (EVALUATE): echo only while an INCLUDE name is pending
+    cmn x0, #1                     // x0 == -1?
+    b.ne _fe_done
+    adrp x0, include_name_len@page
+    add x0, x0, include_name_len@pageoff
+    ldr x0, [x0]
+    cbz x0, _fe_done
+0:
     // source base / end
     adrp x1, source_addr@page
     add x1, x1, source_addr@pageoff
@@ -11497,16 +11624,14 @@ _putchar:
     add  x3, x3, #1
     str  x3, [x2]
 0:
-    // Track mid-line for DEBUG pause spacing (only while stepper armed).
+    // Track mid-line + column while DEBUG armed (for post-step stack pad).
     adrp x1, debug_armed@page
     add  x1, x1, debug_armed@pageoff
     ldr  x1, [x1]
     cbz  x1, 1f
-    adrp x2, debug_midline@page
-    add  x2, x2, debug_midline@pageoff
-    cmp  w0, #10
-    cset x3, ne                // 1 if not NL
-    str  x3, [x2]
+    stp  x0, xzr, [sp, #-16]!
+    bl   _debug_note_byte          // w0 = byte
+    ldp  x0, xzr, [sp], #16
 1:
     // emit_hook?
     adrp x1, emit_hook@page
@@ -11570,8 +11695,14 @@ _write_stdout:
     add  x4, x4, x20
     str  x4, [x3]
 2:
+    // DEBUG line column (TYPE etc. bypass _putchar).
+    mov  x0, x19
+    mov  x1, x20
+    bl   _debug_note_buf
     mov  x1, x20                   // n
-    mov  x2, x0                    // keep hook
+    adrp x0, emit_buf_hook@page
+    add  x0, x0, emit_buf_hook@pageoff
+    ldr  x2, [x0]                  // hook
     mov  x0, x19                   // buf
     blr  x2
     b    _ws_done
@@ -11592,6 +11723,9 @@ _ws_try_byte:
     add  x4, x4, x20
     str  x4, [x3]
 3:
+    mov  x0, x19
+    mov  x1, x20
+    bl   _debug_note_buf
     mov  x0, #1
     mov  x1, x19
     mov  x2, x20
@@ -13362,6 +13496,9 @@ _sa_write:
     stp x19, x20, [sp, #16]
     mov x19, x0
     mov x20, x1
+    mov x0, x19
+    mov x1, x20
+    bl  _debug_note_buf
     adr x0, sa_print_emit_buf_ptr
     ldr x0, [x0]
     cbnz x0, 1f
@@ -13521,9 +13658,20 @@ _print_string_svc:
     mov x2, #0
 _pss_len:
     ldrb w3, [x1, x2]
-    cbz w3, _pss_print
+    cbz w3, _pss_tally
     add x2, x2, #1
     b _pss_len
+_pss_tally:
+    // DEBUG column counter (word field / stack pad) — numbers use this path.
+    adrp x3, debug_field_count@page
+    add x3, x3, debug_field_count@pageoff
+    ldr x3, [x3]
+    cbz x3, _pss_print
+    adrp x3, debug_field_len@page
+    add x3, x3, debug_field_len@pageoff
+    ldr x4, [x3]
+    add x4, x4, x2
+    str x4, [x3]
 _pss_print:
     mov x0, x1
     mov x1, x2
@@ -14102,7 +14250,8 @@ _pd_done:
 
 // Print return stack: n: c0 c1 ... (c0 nearest TOS / x23). Uses live x23.
 // While DEBUG is armed, only cells deeper than debug_floor (the word under
-// test). Always skip CATCH's 4-cell frame. Do not fall through to "0:".
+// test). Always skip CATCH's 5-cell frame (IP, source_sp, DSP, TOS, prev).
+// Do not fall through to "0:".
 _print_rstack:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -14138,7 +14287,7 @@ _print_rstack:
     add x0, x23, x20, lsl #3
     cmp x0, x22
     b.ne 3f
-    add x20, x20, #4
+    add x20, x20, #5               // full CATCH frame
     b 2b
 3:
     add x19, x19, #1
@@ -14163,7 +14312,7 @@ _print_rstack:
     add x0, x23, x20, lsl #3
     cmp x0, x22
     b.ne 6f
-    add x20, x20, #4
+    add x20, x20, #5               // full CATCH frame
     b 5b
 6:
     ldr x0, [x23, x20, lsl #3]
@@ -14183,6 +14332,245 @@ _pr_empty:
     bl _putchar
 _pr_done:
     ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// DEBUG data stack: full depth in (n):, at most 6 cells nearest TOS.
+// Depth > 6 → leading "..." then the top 6 (oldest-of-those … TOS).
+// Does not change .S (_print_dots).
+_debug_print_dots:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+
+    adrp x19, data_stack@page
+    add x19, x19, data_stack@pageoff
+    add x19, x19, #4096            // stack base (SP0)
+
+    cmp x22, x19
+    b.ge _dpd_empty
+
+    sub x21, x19, x22
+    lsr x21, x21, #3               // mem_cells; depth == mem_cells
+
+    mov x0, #40                    // '('
+    bl _putchar
+    mov x0, x21
+    bl _print_unsigned
+    mov x0, #41                    // ')'
+    bl _putchar
+    mov x0, #58                    // ':'
+    bl _putchar
+    mov x0, #32
+    bl _putchar
+
+    cmp x21, #6
+    b.ls _dpd_no_ellip
+    mov x0, #'.'
+    bl _putchar
+    mov x0, #'.'
+    bl _putchar
+    mov x0, #'.'
+    bl _putchar
+    mov x0, #32
+    bl _putchar
+_dpd_no_ellip:
+    // under_count = depth-1; show_under = min(under_count, 5)
+    cmp x21, #1
+    b.eq _dpd_print_tos
+    sub x19, x21, #1               // under_count
+    cmp x19, #5
+    b.ls _dpd_su
+    mov x19, #5
+_dpd_su:
+    // print under indices show_under-1 .. 0 (older of top6 → next-to-TOS)
+_dpd_mem_loop:
+    cbz x19, _dpd_print_tos
+    sub x19, x19, #1
+    lsl x0, x19, #3
+    ldr x0, [x22, x0]
+    bl _print_signed
+    mov x0, #32
+    bl _putchar
+    b _dpd_mem_loop
+
+_dpd_print_tos:
+    mov x0, x20
+    bl _print_signed
+    mov x0, #32
+    bl _putchar
+    b _dpd_done
+
+_dpd_empty:
+    mov x0, #40                    // '('
+    bl _putchar
+    mov x0, #48                    // '0'
+    bl _putchar
+    mov x0, #41                    // ')'
+    bl _putchar
+    mov x0, #58                    // ':'
+    bl _putchar
+
+_dpd_done:
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// DEBUG return stack: full visible depth; at most 6 nearest cells.
+// Print nearest (top / x23) first → deeper to the right (unlike data stack).
+// Depth > 6 → those 6 then trailing "..." (omitted deeper cells on the right).
+// Same CATCH 5-cell / debug_floor rules as _print_rstack. Does not change R.S.
+_debug_print_rstack:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+    sub sp, sp, #64                // buf[6] visible cell values (nearest first)
+    adrp x19, return_stack@page
+    add x19, x19, return_stack@pageoff
+    add x19, x19, #2048            // RP0
+    adrp x0, debug_floor@page
+    add x0, x0, debug_floor@pageoff
+    ldr x0, [x0]
+    cbz x0, 1f
+    cmp x0, x19
+    b.hi 1f
+    cmp x0, x23
+    b.ls 1f
+    mov x19, x0                    // clip to DBG-ON RSP
+1:
+    cmp x23, x19
+    b.ge _dpr_empty
+    sub x21, x19, x23
+    lsr x21, x21, #3
+    cbz x21, _dpr_empty
+    adrp x22, throw_handler@page
+    add x22, x22, throw_handler@pageoff
+    ldr x22, [x22]                 // handler == &saved_IP or 0
+    // count visible + collect up to 6 nearest into buf
+    mov x19, xzr                   // visible count
+    mov x20, xzr                   // index
+    mov x9, xzr                    // collected (temp; → x21 before print)
+2:
+    cmp x20, x21
+    b.hs 4f
+    add x0, x23, x20, lsl #3
+    cmp x0, x22
+    b.ne 3f
+    add x20, x20, #5               // full CATCH frame
+    b 2b
+3:
+    add x19, x19, #1
+    cmp x9, #6
+    b.hs 31f
+    ldr x0, [x23, x20, lsl #3]
+    str x0, [sp, x9, lsl #3]
+    add x9, x9, #1
+31:
+    add x20, x20, #1
+    b 2b
+4:
+    cbz x19, _dpr_empty
+    mov x21, x9                    // collected count (callee-saved)
+    mov x0, #40                    // '('
+    bl _putchar
+    mov x0, x19
+    bl _print_unsigned
+    mov x0, #41                    // ')'
+    bl _putchar
+    mov x0, #58                    // ':'
+    bl _putchar
+    mov x0, #32
+    bl _putchar
+    // print collected nearest→deeper (buf[0] .. buf[n-1]); top on the left
+    mov x20, xzr
+5:
+    cmp x20, x21
+    b.hs 6f
+    ldr x0, [sp, x20, lsl #3]
+    bl _print_r_ip
+    mov x0, #32
+    bl _putchar
+    add x20, x20, #1
+    b 5b
+6:
+    cmp x19, #6
+    b.ls _dpr_done
+    mov x0, #'.'
+    bl _putchar
+    mov x0, #'.'
+    bl _putchar
+    mov x0, #'.'
+    bl _putchar
+    mov x0, #32
+    bl _putchar
+    b _dpr_done
+_dpr_empty:
+    mov x0, #40                    // '('
+    bl _putchar
+    mov x0, #48                    // '0'
+    bl _putchar
+    mov x0, #41                    // ')'
+    bl _putchar
+    mov x0, #58                    // ':'
+    bl _putchar
+_dpr_done:
+    add sp, sp, #64
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// Resolve enclosing colon for DEBUG view/map.
+// In:  x0 = IP, x1 = peek/upcoming xt (debug_xt) — may be 0.
+// Out: x0 = colon CFA or 0, x1 = byte offset from body.
+// CATCH sets IP to catch_ok_cell (not a colon body) then branches to the
+// caught xt; use that xt as the enclosing colon when it is DOCOL.
+_debug_resolve_enclosing:
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    mov x19, x0                    // IP
+    mov x20, x1                    // peek xt
+    // CATCH trampoline: IP is the one-cell catch_ok_cell in BSS
+    adrp x0, catch_ok_cell@page
+    add x0, x0, catch_ok_cell@pageoff
+    cmp x19, x0
+    b.ne 1f
+    mov x0, x20
+    cbz x0, 8f
+    tst x0, #7
+    b.ne 8f
+    ldr x1, [x0]
+    adrp x2, DOCOL@page
+    add x2, x2, DOCOL@pageoff
+    cmp x1, x2
+    b.ne 8f
+    mov x1, xzr                    // body cell 0 (about to enter / in CATCH pause)
+    b 9f
+1:
+    mov x0, x19
+    bl _ip_find_colon              // x0=cfa x1=bytes
+    cbnz x0, 9f
+    // No colon contains IP (interpret / CODE). If peek is a colon, prefer it
+    // so F7 into CATCH/EXECUTE/EVALUATE-target still syncs the user word.
+    mov x0, x20
+    cbz x0, 8f
+    tst x0, #7
+    b.ne 8f
+    ldr x1, [x0]
+    adrp x2, DOCOL@page
+    add x2, x2, DOCOL@pageoff
+    cmp x1, x2
+    b.ne 8f
+    mov x1, xzr
+    b 9f
+8:
+    mov x0, xzr
+    mov x1, xzr
+9:
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
@@ -14319,10 +14707,46 @@ _fmt_ip_label:
     mov x21, x0                    // ip
     cmp x2, #2
     b.lt 9f
+    // CATCH trampoline cell — not a threaded return
+    adrp x1, catch_ok_cell@page
+    add x1, x1, catch_ok_cell@pageoff
+    cmp x21, x1
+    b.ne 20f
+    // write "(CATCH)" if it fits
+    sub x2, x23, x19
+    cmp x2, #7
+    b.lt 7f
+    mov w4, #'('
+    strb w4, [x19], #1
+    mov w4, #'C'
+    strb w4, [x19], #1
+    mov w4, #'A'
+    strb w4, [x19], #1
+    mov w4, #'T'
+    strb w4, [x19], #1
+    mov w4, #'C'
+    strb w4, [x19], #1
+    mov w4, #'H'
+    strb w4, [x19], #1
+    mov w4, #')'
+    strb w4, [x19], #1
+    b 8f
+20:
+    mov x0, x21
     bl _ip_find_colon
     cbz x0, 7f
     mov x22, x1                    // byte offset from body
     asr x22, x22, #3               // → cells (signed; backward = negative)
+    // Reject absurd offsets (CATCH prev_handler / DSP / etc. misread as IP)
+    cmp x22, #0
+    b.ge 21f
+    neg x1, x22
+    b 22f
+21:
+    mov x1, x22
+22:
+    cmp x1, #512                   // >512 cells → hex fallback
+    b.hi 7f
     ldr x1, [x0, #-8]
     and x1, x1, #0xFFFF
     cbz x1, 7f
@@ -14455,7 +14879,7 @@ _debug_print_inline_suffix:
     adrp x0, debug_inline@page
     add x0, x0, debug_inline@pageoff
     ldr x20, [x0]                  // inline cell
-    // LIT?
+    // LIT?  Prefer xt name when payload is a CFA (['] word → CATCH).
     adrp x1, cfa_lit@page
     add x1, x1, cfa_lit@pageoff
     ldr x1, [x1]
@@ -14463,6 +14887,23 @@ _debug_print_inline_suffix:
     b.ne 2f
     mov x0, #32
     bl _putchar
+    mov x0, x20
+    cbz x0, 11f
+    tst x0, #7
+    b.ne 11f
+    ldr x1, [x0, #-8]
+    and x1, x1, #0xFFFF
+    cbz x1, 11f
+    cmp x1, #4096
+    b.hs 11f
+    sub x2, x0, x1                 // NFA
+    ldrb w2, [x2]
+    cbz w2, 11f
+    cmp w2, #64
+    b.hs 11f
+    bl _print_xt_name              // x0 still payload xt
+    b 9f
+11:
     mov x0, x20
     bl _print_signed
     b 9f
@@ -14519,6 +14960,36 @@ _debug_print_inline_suffix:
     ldp x29, x30, [sp], #16
     ret
 
+// x0 = xt (CFA). Out: x0 = 1 if F7/i can nest, else 0.
+// Into-able: DOCOL, DODOES (DEFER/DOES>), CATCH, EXECUTE.
+_debug_xt_intoable:
+    cbz x0, 0f
+    tst x0, #7
+    b.ne 0f
+    ldr x1, [x0]                   // code field
+    adrp x0, DOCOL@page
+    add x0, x0, DOCOL@pageoff
+    cmp x1, x0
+    b.eq 1f
+    adrp x0, DODOES@page
+    add x0, x0, DODOES@pageoff
+    cmp x1, x0
+    b.eq 1f
+    adrp x0, XEXECUTE@page
+    add x0, x0, XEXECUTE@pageoff
+    cmp x1, x0
+    b.eq 1f
+    adrp x0, XCATCH@page
+    add x0, x0, XCATCH@pageoff
+    cmp x1, x0
+    b.eq 1f
+0:
+    mov x0, #0
+    ret
+1:
+    mov x0, #1
+    ret
+
 // x0 = xt (CFA). Print counted NFA; "?" if it looks invalid.
 _print_xt_name:
     stp x29, x30, [sp, #-16]!
@@ -14558,12 +15029,193 @@ _pxn_q:
     ldp x29, x30, [sp], #16
     ret
 
-// Pause at NEXT: show upcoming xt, data stack, return stack; wait for key.
-// F6=over F7=into F8=out; Esc/q=abort; 134/g=continue (⌘⇧Y).
-// Key 0 = host window-resize wake → DBG-WHEEL → SZ-REDRAW (SZ-SYNC-SIZE).
-// Must preserve full VM (esp. TOS x20): sync/highlight push onto the data
-// stack and leave x20 clobbered; restoring only DSP used to corrupt TYPE args
-// after a few F6 steps (e.g. ptr=0x1c, u=3 on ."  ?").
+// DEBUG_STACK_COL: S aligns here after ">> " + 20-col name field.
+.equ DEBUG_STACK_COL, 23
+
+// w0 = output byte. Update debug_line_col / midline when stepper armed.
+// UTF-8 continuation bytes do not advance the column (█ counts as 1).
+_debug_note_byte:
+    adrp x1, debug_armed@page
+    add x1, x1, debug_armed@pageoff
+    ldr x1, [x1]
+    cbz x1, 9f
+    adrp x2, debug_line_col@page
+    add x2, x2, debug_line_col@pageoff
+    adrp x3, debug_midline@page
+    add x3, x3, debug_midline@pageoff
+    cmp w0, #10
+    b.ne 1f
+    str xzr, [x2]
+    str xzr, [x3]
+    ret
+1:
+    cmp w0, #8                     // BS
+    b.ne 2f
+    ldr x1, [x2]
+    cbz x1, 11f
+    sub x1, x1, #1
+    str x1, [x2]
+11:
+    ldr x1, [x2]
+    cmp x1, #0
+    cset x1, ne
+    str x1, [x3]
+    ret
+2:
+    and w1, w0, #0xC0
+    cmp w1, #0x80                  // UTF-8 continuation
+    b.eq 9f
+    ldr x1, [x2]
+    add x1, x1, #1
+    str x1, [x2]
+    mov x1, #1
+    str x1, [x3]
+9:
+    ret
+
+// x0=buf x1=len — advance DEBUG column for a bulk write (TYPE / sa_write).
+_debug_note_buf:
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    adrp x2, debug_armed@page
+    add x2, x2, debug_armed@pageoff
+    ldr x2, [x2]
+    cbz x2, 8f
+    mov x19, x0
+    mov x20, x1
+1:
+    cbz x20, 8f
+    ldrb w0, [x19], #1
+    bl _debug_note_byte
+    sub x20, x20, #1
+    b 1b
+8:
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// Pad current line to DEBUG_STACK_COL; if already past, emit one space.
+_debug_pad_to_stack_col:
+    stp x29, x30, [sp, #-16]!
+    stp x19, xzr, [sp, #-16]!
+    adrp x0, debug_line_col@page
+    add x0, x0, debug_line_col@pageoff
+    ldr x19, [x0]
+    cmp x19, #DEBUG_STACK_COL
+    b.eq 3f
+    b.hi 2f
+    mov x0, #DEBUG_STACK_COL
+    sub x19, x0, x19
+1:
+    cbz x19, 3f
+    sub x19, x19, #1
+    mov x0, #32
+    bl _putchar
+    b 1b
+2:
+    mov x0, #32                    // past stack col: one space then S
+    bl _putchar
+3:
+    ldp x19, xzr, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// DEBUG: UTF-8 full block U+2588 as wait cursor; host BS deletes one Character.
+// Save debug_line_col before the glyph so cursor_off can restore it — BS alone is
+// not enough if sync/highlight emitted during the wait, and avoids UTF-8 col drift.
+_debug_cursor_on:
+    stp x29, x30, [sp, #-16]!
+    adrp x0, debug_line_col@page
+    add x0, x0, debug_line_col@pageoff
+    ldr x1, [x0]
+    adrp x0, debug_stack_anchor@page
+    add x0, x0, debug_stack_anchor@pageoff
+    str x1, [x0]                   // column after word (+ TYPE); stacks pad from here
+    mov x0, #0xE2
+    bl _putchar
+    mov x0, #0x96
+    bl _putchar
+    mov x0, #0x88
+    bl _putchar
+    mov x1, #1
+    adrp x0, debug_cursor_on@page
+    add x0, x0, debug_cursor_on@pageoff
+    str x1, [x0]
+    ldp x29, x30, [sp], #16
+    ret
+
+_debug_cursor_off:
+    stp x29, x30, [sp, #-16]!
+    adrp x0, debug_cursor_on@page
+    add x0, x0, debug_cursor_on@pageoff
+    ldr x1, [x0]
+    cbz x1, 1f
+    str xzr, [x0]
+    mov x0, #8                     // BS — ConsoleView drops last Character
+    bl _putchar
+    adrp x0, debug_stack_anchor@page
+    add x0, x0, debug_stack_anchor@pageoff
+    ldr x1, [x0]
+    adrp x0, debug_line_col@page
+    add x0, x0, debug_line_col@pageoff
+    str x1, [x0]                   // restore pre-cursor column for pad-to-23
+1:
+    ldp x29, x30, [sp], #16
+    ret
+
+// Print S≤6 then pad so R starts 45 cols after S (30 + 15), then R≤6.
+_debug_print_SR:
+    stp x29, x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    adrp x0, debug_field_len@page
+    add x0, x0, debug_field_len@pageoff
+    str xzr, [x0]
+    mov x1, #1
+    adrp x0, debug_field_count@page
+    add x0, x0, debug_field_count@pageoff
+    str x1, [x0]
+    mov x0, #83                    // 'S'
+    bl _putchar
+    bl _debug_print_dots
+    adrp x0, debug_field_len@page
+    add x0, x0, debug_field_len@pageoff
+    ldr x19, [x0]
+    cmp x19, #45
+    b.hs 1f
+    mov x0, #45
+    sub x0, x0, x19
+    mov x19, x0
+2:
+    cbz x19, 3f
+    sub x19, x19, #1
+    mov x0, #32
+    bl _putchar
+    b 2b
+1:
+    b.eq 3f
+    mov x0, #32
+    bl _putchar
+3:
+    mov x0, #82                    // 'R'
+    bl _putchar
+    bl _debug_print_rstack
+    adrp x0, debug_field_count@page
+    add x0, x0, debug_field_count@pageoff
+    str xzr, [x0]
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+
+// Pause at NEXT: intro help+stacks once; then word + cursor; post-step S/R.
+// First pause:
+//   [help]
+//   (pad)S… R…                 (S at col 23)
+//   >> WORD █                  (one space after name, then block cursor)
+// After a step (no h on that word):
+//   >> WORD [TYPE…][pad]S… R…  (pad to col 23, or one space if past)
+//   >> NEXT █
+// h-help on the word line → stacks on the following line at col 23.
+// F6/Space/o/Return=over F7/i=into F8=out; Esc/q=abort; 134/g=go; h=help.
 _debug_pause:
     stp x29, x30, [sp, #-48]!
     mov x29, sp
@@ -14573,90 +15225,112 @@ _debug_pause:
     adrp x0, debug_xt@page
     add x0, x0, debug_xt@pageoff
     str x21, [x0]
-    // Inline cell after IP (LIT's value while paused on LIT; else next xt cell).
     ldr x0, [x19, #8]
     adrp x1, debug_inline@page
     add x1, x1, debug_inline@pageoff
     str x0, [x1]
-    // Newline only if the last emit was not already EOL (avoids blank lines
-    // between consecutive pauses; still separates after "." / TYPE mid-line).
+    // Snapshot IP / enclosing CFA / body cell# for Forth token maps.
+    // Must save before nested DBG-SYNC/HL clobber live x19.
+    adrp x0, debug_ip@page
+    add x0, x0, debug_ip@pageoff
+    str x19, [x0]
+    mov x0, x19
+    mov x1, x21                       // peek xt (already in debug_xt)
+    bl _debug_resolve_enclosing       // CATCH trampoline / interpret → colon xt
+    adrp x2, debug_cfa@page
+    add x2, x2, debug_cfa@pageoff
+    str x0, [x2]
+    lsr x1, x1, #3                    // bytes → cells
+    adrp x2, debug_body_cells@page
+    add x2, x2, debug_body_cells@pageoff
+    str x1, [x2]
+    // --- Session intro: help, then entry stacks, then first word ---
+    adrp x0, debug_need_intro@page
+    add x0, x0, debug_need_intro@pageoff
+    ldr x1, [x0]
+    cbz x1, 19f
+    str xzr, [x0]
     adrp x0, debug_midline@page
     add x0, x0, debug_midline@pageoff
     ldr x1, [x0]
-    cbz x1, 20f
+    cbz x1, 40f
     str xzr, [x0]
     mov x0, #10
     bl _putchar
+40:
+    adrp x0, str_dbg_keys@page
+    add x0, x0, str_dbg_keys@pageoff
+    stp x0, xzr, [sp, #-16]!
+41:
+    ldr x1, [sp]
+    ldrb w0, [x1], #1
+    str x1, [sp]
+    cbz w0, 42f
+    bl _putchar
+    b 41b
+42:
+    add sp, sp, #16
+    mov x0, #10
+    bl _putchar
+    bl _debug_pad_to_stack_col
+    bl _debug_print_SR
+    mov x0, #10
+    bl _putchar
+    b 26f
+19:
+    // --- Post-step stacks for the word that just finished (if any) ---
+    adrp x0, debug_need_stacks@page
+    add x0, x0, debug_need_stacks@pageoff
+    ldr x1, [x0]
+    cbz x1, 26f
+    str xzr, [x0]
+    adrp x0, debug_help_shown@page
+    add x0, x0, debug_help_shown@pageoff
+    ldr x1, [x0]
+    cbz x1, 20f
+    str xzr, [x0]                  // consume sticky help flag
+    mov x0, #10                    // stacks below the help line
+    bl _putchar
+    bl _debug_pad_to_stack_col
+    bl _debug_print_SR
+    mov x0, #10
+    bl _putchar
+    b 26f
 20:
+    bl _debug_pad_to_stack_col     // align to col 23 (or +1 space if past)
+    bl _debug_print_SR
+    mov x0, #10
+    bl _putchar
+26:
+    // --- Upcoming word + one space + block cursor ---
+    // New line after stacks/help: force col 0 so pad-to-23 cannot inherit a
+    // stale count from the previous S/R dump if NL tracking missed.
+    // Nestable (colon / DOES> / CATCH / EXECUTE): "I>> " else ">> ".
+    adrp x0, debug_line_col@page
+    add x0, x0, debug_line_col@pageoff
+    str xzr, [x0]
+    mov x0, x21
+    bl _debug_xt_intoable
+    cbz x0, 27f
+    mov x0, #'I'
+    bl _putchar
+27:
     mov x0, #62                    // '>'
     bl _putchar
     mov x0, #62
     bl _putchar
     mov x0, #32
     bl _putchar
-    // Word (+ LIT / ±CELLS) in a 20-col field after ">> "; stacks at col 20.
-    // Wider than 20 → print word then one space (stacks not aligned).
-    adrp x0, debug_field_len@page
-    add x0, x0, debug_field_len@pageoff
-    str xzr, [x0]
-    mov x1, #1
-    adrp x0, debug_field_count@page
-    add x0, x0, debug_field_count@pageoff
-    str x1, [x0]
     mov x0, x21
     bl _print_xt_name
-    bl _debug_print_inline_suffix   // LIT value / branch±CELLS
-    adrp x0, debug_field_count@page
-    add x0, x0, debug_field_count@pageoff
-    str xzr, [x0]
-    adrp x0, debug_field_len@page
-    add x0, x0, debug_field_len@pageoff
-    ldr x24, [x0]
-    cmp x24, #20
-    b.hs 21f
-    mov x0, #20
-    sub x0, x0, x24                // spaces to reach col 20
-    stp x0, xzr, [sp, #-16]!
-22:
-    ldr x0, [sp]
-    cbz x0, 24f
-    sub x0, x0, #1
-    str x0, [sp]
-    mov x0, #32
+    bl _debug_print_inline_suffix
+    mov x0, #32                    // one space after the word, then cursor
     bl _putchar
-    b 22b
-24:
-    add sp, sp, #16
-    b 23f
-21:
-    b.eq 23f                       // exactly 20: stacks abut field end
-    mov x0, #32                    // overflow: one separating space
-    bl _putchar
-23:
-    mov x0, #83                    // 'S'
-    bl _putchar
-    bl _print_dots
-    mov x0, #32
-    bl _putchar
-    mov x0, #82                    // 'R'
-    bl _putchar
-    bl _print_rstack
+    bl _debug_cursor_on
     bl _debug_capture
     bl _debug_sync_view
     bl _debug_highlight
     bl _host_debug_paint
-    adrp x0, str_dbg_keys@page
-    add x0, x0, str_dbg_keys@pageoff
-    stp x0, xzr, [sp, #-16]!
-0:
-    ldr x1, [sp]
-    ldrb w0, [x1], #1
-    str x1, [sp]
-    cbz w0, 8f
-    bl _putchar
-    b 0b
-8:
-    add sp, sp, #16
 1:
     bl _getchar
     lsr x1, x0, #24
@@ -14688,6 +15362,10 @@ _debug_pause:
     b.eq 1b
     str xzr, [x1]
 5:
+    cmp w0, #'h'                   // help to the right of the word
+    b.eq 16f
+    cmp w0, #'H'
+    b.eq 16f
     cmp w0, #134                   // host: ⌘⇧Y continue
     b.eq 3f
     cmp w0, #'g'
@@ -14716,21 +15394,70 @@ _debug_pause:
     b.eq 11f
     cmp w0, #7                     // SZ-VSCROLL-DN
     b.eq 11f
-    cmp w0, #0                     // host resize wake (pushKey 0) → SZ-REDRAW
+    cmp w0, #0                     // host resize wake → SZ-REDRAW
     b.eq 11f
+    b 1b
+16:
+    // h: show help once at the stack column (after word field / cursor).
+    adrp x1, debug_help_shown@page
+    add x1, x1, debug_help_shown@pageoff
+    ldr x0, [x1]
+    cbnz x0, 1b                    // already shown this / sticky
+    bl _debug_cursor_off
+    adrp x0, str_dbg_keys@page
+    add x0, x0, str_dbg_keys@pageoff
+    stp x0, xzr, [sp, #-16]!
+17:
+    ldr x1, [sp]
+    ldrb w0, [x1], #1
+    str x1, [sp]
+    cbz w0, 18f
+    bl _putchar
+    b 17b
+18:
+    add sp, sp, #16
+    mov x1, #1
+    adrp x0, debug_help_shown@page
+    add x0, x0, debug_help_shown@pageoff
+    str x1, [x0]
+    bl _debug_cursor_on
     b 1b
 11:
     bl _debug_wheel
     b 1b
 9:
+    // F6/Space/o = step over. Nest-skip (debug_over=RSP) only for colon
+    // words: DOCOL pushes a return IP. Primitives like >R also deepen RSP
+    // without a call frame — marking over there skipped pauses until a
+    // matching R> (e.g. INCLUDE: >R … then jump to DROP after R>).
+    bl _debug_cursor_off
+    mov x1, #1
+    adrp x0, debug_need_stacks@page
+    add x0, x0, debug_need_stacks@pageoff
+    str x1, [x0]
     adrp x1, debug_out@page
     add x1, x1, debug_out@pageoff
-    str xzr, [x1]                  // cancel step-out
+    str xzr, [x1]
     adrp x1, debug_over@page
     add x1, x1, debug_over@pageoff
-    str x23, [x1]                  // skip pauses while RSP deeper than now
+    str xzr, [x1]                  // default: single-step (like into)
+    adrp x0, debug_xt@page
+    add x0, x0, debug_xt@pageoff
+    ldr x0, [x0]                   // peek xt (x21 may be clobbered by SYNC/HL)
+    cbz x0, 4f
+    ldr x0, [x0]                   // code field
+    adrp x2, DOCOL@page
+    add x2, x2, DOCOL@pageoff
+    cmp x0, x2
+    b.ne 4f
+    str x23, [x1]                  // colon: skip pauses while RSP deeper
     b 4f
 10:
+    bl _debug_cursor_off
+    mov x1, #1
+    adrp x0, debug_need_stacks@page
+    add x0, x0, debug_need_stacks@pageoff
+    str x1, [x0]
     adrp x1, debug_out@page
     add x1, x1, debug_out@pageoff
     str xzr, [x1]
@@ -14739,8 +15466,11 @@ _debug_pause:
     str xzr, [x1]
     b 4f
 12:
-    // F8 step out: run until RSP shallower than now (return to caller).
-    // At the DEBUG top word this finishes the session (floor check skips pauses).
+    bl _debug_cursor_off
+    mov x1, #1
+    adrp x0, debug_need_stacks@page
+    add x0, x0, debug_need_stacks@pageoff
+    str x1, [x0]
     adrp x1, debug_over@page
     add x1, x1, debug_over@pageoff
     str xzr, [x1]
@@ -14749,7 +15479,24 @@ _debug_pause:
     str x23, [x1]
     b 4f
 13:
-    // Esc/q: abort — next_debug will THROW -1 after we return.
+    bl _debug_cursor_off
+    adrp x0, debug_need_stacks@page
+    add x0, x0, debug_need_stacks@pageoff
+    str xzr, [x0]
+    adrp x0, debug_need_intro@page
+    add x0, x0, debug_need_intro@pageoff
+    str xzr, [x0]
+    adrp x1, debug_midline@page
+    add x1, x1, debug_midline@pageoff
+    ldr x0, [x1]
+    cbz x0, 131f
+    str xzr, [x1]
+    mov x0, #10
+    bl _putchar
+131:
+    adrp x0, debug_help_shown@page
+    add x0, x0, debug_help_shown@pageoff
+    str xzr, [x0]
     adrp x0, str_dbg_abort@page
     add x0, x0, str_dbg_abort@pageoff
     stp x0, xzr, [sp, #-16]!
@@ -14782,6 +15529,24 @@ _debug_pause:
     bl _host_debug_paint
     b 4f
 3:
+    bl _debug_cursor_off
+    adrp x0, debug_need_stacks@page
+    add x0, x0, debug_need_stacks@pageoff
+    str xzr, [x0]
+    adrp x0, debug_need_intro@page
+    add x0, x0, debug_need_intro@pageoff
+    str xzr, [x0]
+    adrp x1, debug_midline@page
+    add x1, x1, debug_midline@pageoff
+    ldr x0, [x1]
+    cbz x0, 32f
+    str xzr, [x1]
+    mov x0, #10
+    bl _putchar
+32:
+    adrp x0, debug_help_shown@page
+    add x0, x0, debug_help_shown@pageoff
+    str xzr, [x0]
     mov  x28, #0
     adrp x1, debug_armed@page
     add  x1, x1, debug_armed@pageoff
@@ -14801,7 +15566,6 @@ _debug_pause:
     bl   _host_debug_paint
 
 4:
-    // Reload DBG mirror (go / abort / DBG-OFF may have cleared memory)
     adrp x0, debug_armed@page
     add x0, x0, debug_armed@pageoff
     ldr x28, [x0]
@@ -14909,31 +15673,42 @@ _debug_ds_restore:
     ldp x29, x30, [sp], #16
     ret
 
-// If IP sits in a different colon word than last pause, HYPER-VIEW it.
+// If enclosing colon changed, HYPER-VIEW it (CATCH trampoline aware).
 _debug_sync_view:
     stp x29, x30, [sp, #-16]!
+    // Prefer CFA already resolved at pause entry (debug_cfa).
+    adrp x0, debug_cfa@page
+    add x0, x0, debug_cfa@pageoff
+    ldr x0, [x0]
+    cbnz x0, 10f
     mov x0, x19
-    bl _ip_find_colon
+    adrp x1, debug_xt@page
+    add x1, x1, debug_xt@pageoff
+    ldr x1, [x1]
+    bl _debug_resolve_enclosing
+10:
     cbz x0, 9f
     adrp x1, debug_view_cfa@page
     add x1, x1, debug_view_cfa@pageoff
     ldr x2, [x1]
     cmp x0, x2
     b.eq 9f
-    str x0, [x1]
+    // Hold new CFA on the CPU stack; commit to debug_view_cfa only after
+    // DBG-SYNC-VIEW sets debug_sync_ok (skip/no-op must not stick the CFA).
+    stp x0, x1, [sp, #-16]!            // new cfa, &debug_view_cfa
     adrp x24, debug_view_name@page
     add x24, x24, debug_view_name@pageoff
     strb wzr, [x24]
     tst x0, #7
-    b.ne 9f
+    b.ne 8f
     ldr x1, [x0, #-8]
     and x1, x1, #0xFFFF
-    cbz x1, 9f
+    cbz x1, 8f
     cmp x1, #4096
-    b.hs 9f
+    b.hs 8f
     sub x0, x0, x1
     ldrb w1, [x0], #1
-    cbz w1, 9f
+    cbz w1, 8f
     cmp w1, #31
     b.ls 1f
     mov w1, #31
@@ -14951,12 +15726,14 @@ _debug_sync_view:
     adrp x0, debug_show_xt@page
     add x0, x0, debug_show_xt@pageoff
     ldr x0, [x0]
-    cbz x0, 9f
+    cbz x0, 8f
     adrp x1, debug_view_name@page
     add x1, x1, debug_view_name@pageoff
     ldrb w2, [x1], #1
-    cbz w2, 9f
-    // Isolate user data stack, push name only, call, restore cells.
+    cbz w2, 8f
+    adrp x3, debug_sync_ok@page
+    add x3, x3, debug_sync_ok@pageoff
+    str xzr, [x3]                      // Forth sets 1 after a real VIEW
     stp x1, x2, [sp, #-16]!            // c-addr, u
     bl _debug_ds_isolate
     ldp x1, x2, [sp], #16
@@ -14969,6 +15746,16 @@ _debug_sync_view:
     ldr x0, [x0]
     bl _debug_call_xt
     bl _debug_ds_restore
+    adrp x3, debug_sync_ok@page
+    add x3, x3, debug_sync_ok@pageoff
+    ldr x0, [x3]
+    str xzr, [x3]
+    cbz x0, 8f
+    ldp x0, x1, [sp], #16              // new cfa, &debug_view_cfa
+    str x0, [x1]
+    b 9f
+8:
+    add sp, sp, #16                    // drop new cfa / &view_cfa
 9:
     ldp x29, x30, [sp], #16
     ret
@@ -15457,7 +16244,7 @@ env_n_file_ext: .asciz "FILE-EXT"
 env_s_utf8:     .asciz "UTF-8"
 
 str_hello:  .asciz "64Forth v1.3.7\n"
-str_dbg_keys: .asciz " [F6=over F7=into F8=out Esc/q=abort Cmd-Shift-Y=go]\n"
+str_dbg_keys: .asciz "[F6/Space/o/Return=over F7/i=into(I>>) F8=out Esc/q=abort Cmd-Shift-Y/g=go h=help]"
 str_dbg_abort: .asciz "DEBUG aborted\n"
 str_prompt: .asciz "\nok> "
 str_ok:     .asciz " ok\n"
@@ -15498,14 +16285,21 @@ tdebug_armed:   .quad 0            // nonzero → host steals F6/F7 for TCOMDBG 
 debug_midline:  .quad 0            // 1 if last DEBUG emit was not NL (pause spacing)
 debug_field_count: .quad 0         // nonzero → _putchar tallies debug_field_len
 debug_field_len:   .quad 0         // chars in DEBUG word field (name + inline)
+debug_help_shown: .quad 0          // 1 → prior pause printed h-help; stacks go on next line
+debug_cursor_on:  .quad 0          // 1 → block cursor glyph pending BS erase
+debug_need_stacks: .quad 0         // 1 → next pause prints post-step S/R for prior word
+debug_need_intro: .quad 0          // 1 → first pause prints help + entry stacks
+debug_line_col:   .quad 0          // display column on current DEBUG output line
+debug_stack_anchor: .quad 0        // line_col after word/TYPE, before block cursor
 debug_busy:     .quad 0            // set while _debug_pause runs
 debug_floor:    .quad 0            // RSP at DBG-ON; pause only if x23 < floor
 debug_bp_go:    .quad 0            // 1 = skip pause unless xt is in table
 debug_bp_xts:   .skip 64           // 8 xt slots, 0 = empty
-debug_over:     .quad 0            // F6: skip pause while x23 < this RSP
+debug_over:     .quad 0            // F6 over colon: skip pause while x23 < this RSP
 debug_out:      .quad 0            // F8: skip pause while x23 <= this RSP
 debug_abort:    .quad 0            // Esc/q: THROW code for next_debug after pause
 debug_show_xt:  .quad 0            // DBG-SYNC-VIEW xt (set by Hyper)
+debug_sync_ok:  .quad 0            // 1 if last DBG-SYNC-VIEW did HYPER-VIEW
 debug_hl_xt:    .quad 0            // DBG-HIGHLIGHT-NAME xt (set by Hyper/editor)
 debug_wheel_xt: .quad 0            // DBG-WHEEL xt (set by editor)
 debug_view_cfa: .quad 0            // last colon shown in SZ-EDITOR
@@ -15517,6 +16311,9 @@ debug_ret_ipcell: .quad debug_ret_cfa
 debug_skip_nl:  .quad 0            // skip leftover CR from the DEBUG command line
 debug_xt:       .quad 0            // peek xt at last pause
 debug_inline:   .quad 0            // [IP+8] at pause (LIT payload when xt is LIT)
+debug_ip:       .quad 0            // paused IP (upcoming body cell)
+debug_cfa:      .quad 0            // enclosing colon CFA at last pause (0 if none)
+debug_body_cells: .quad 0          // (IP − body) / 8 at last pause
 debug_scnt:     .quad 0
 debug_sbuf:     .skip DBG_STACK_MAX * 8
 debug_rcnt:     .quad 0

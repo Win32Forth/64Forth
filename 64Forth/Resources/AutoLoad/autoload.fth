@@ -16,7 +16,6 @@
 \ the hyper text system as part of what the user has available when they
 \ start using 64Forth
 \ FILE-ECHO ON
-\     FLOAD vocsys.fth
     FROMLIB REQUIRE EDITOR/SZ-EDITOR.fth
     \ Size follows the graphic window on each SZ-REDRAW (SZ-SYNC-SIZE).
     EDITOR 80 20 SET-EDIT-WINDOW FORTH

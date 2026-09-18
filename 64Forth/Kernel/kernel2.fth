@@ -288,6 +288,11 @@ DOC" MARKER ( 'name' -- ) restore point: HERE + all FORTH hash heads"
     DUP @ DP !
     CELL+ DICT-THREADS 0 DO DUP @ LATEST I CELLS + ! CELL+ LOOP DROP ;
 
+\ Optional post-ANEW callback (e.g. dbg-map prune). Default no-op.
+DEFER ANEW-HOOK
+: ANEW-HOOK-NOP  ( -- )  ;
+' ANEW-HOOK-NOP IS ANEW-HOOK
+
 DOC" ANEW ( 'name' -- ) FORGET name if present, then CREATE reload marker"
 : ANEW
   >IN @ >R
@@ -300,7 +305,8 @@ DOC" ANEW ( 'name' -- ) FORGET name if present, then CREATE reload marker"
     S"  :Loading module " TYPE      \ dislay loading message
   THEN CR                           \ add a new line
   R> >IN !                          \ restore input pointer for MARKER
-  MARKER ;                          \ define the new marker
+  MARKER                            \ define the new marker
+  ANEW-HOOK ;                       \ discard stale debug maps, etc.
 
 \ --- 7. Double-Number ---
 DOC" 2CONSTANT ( x1 x2 'name' -- ) create double constant"

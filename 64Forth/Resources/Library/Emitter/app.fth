@@ -334,6 +334,9 @@ S" TYPE"       (EMIT-GFX-XT) CONSTANT (EMIT-GFX-TYPE)
   THEN
   DROP ;
 
+\ ONLY FORTH DEFINITIONS
+\ ALSO SYSVOC ALSO EMITTER
+
 \ --- stack-based (xt) ---
 
 : EMIT-APP-XT-TO  ( xt c-addr u -- )

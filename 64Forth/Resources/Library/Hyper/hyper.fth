@@ -428,6 +428,7 @@ CREATE HYPER-ORDER-TMP  16 CELLS ALLOT
 0 VALUE HYPER-FL-PUT-XT              \ SZ-FL-PUT ( a u line i -- )
 0 VALUE HYPER-FL-SCUR-XT             \ SZ-FL-SET-CUR ( i -- )
 0 VALUE HYPER-HL-XT                  \ SZ-HIGHLIGHT-NAME ( c-addr u -- )
+0 VALUE HYPER-HL-CLR-XT              \ SZ-HL-HIST-CLEAR ( -- )
 0 VALUE HYPER-REDRAW-XT              \ SZ-REDRAW ( -- )
 FALSE VALUE HYPER-SKIP-NOTE?         \ true → next VIEW-NAME skips HIST-NOTE
 
@@ -510,11 +511,16 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    HYPER-CMD FIND IF  TO HYPER-FL-SCUR-XT  ELSE  DROP 0 TO HYPER-FL-SCUR-XT  THEN
    S" SZ-HIGHLIGHT-NAME" HYPER-CMD HYPER-PLACE
    HYPER-CMD FIND IF  TO HYPER-HL-XT  ELSE  DROP 0 TO HYPER-HL-XT  THEN
+   S" SZ-HL-HIST-CLEAR" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  TO HYPER-HL-CLR-XT  ELSE  DROP 0 TO HYPER-HL-CLR-XT  THEN
    S" SZ-REDRAW" HYPER-CMD HYPER-PLACE
    HYPER-CMD FIND IF  TO HYPER-REDRAW-XT  ELSE  DROP 0 TO HYPER-REDRAW-XT  THEN
    ONLY FORTH
+   \ Prefer debug-time token map when dbg-map.fth is loaded.
+   [DEFINED] DBG-MAP-BIND [IF]
+      ALSO HYPER-VOC  DBG-MAP-BIND DROP  PREVIOUS
+   [THEN]
    HYPER-EDIT-XT 0<> ;
-
 \ Editor Cmd-click already noted origin — skip one HIST-NOTE in VIEW-NAME.
 : HYPER-SKIP-NOTE  ( -- )  TRUE TO HYPER-SKIP-NOTE? ;
 
@@ -970,19 +976,66 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC
 \ From the idle console this must enter SZ-EDIT-LOOP (SZ-EDIT-NEW / VIEW)
 \ so the stepper runs on the first frame. Already in the editor: switch
 \ buffer and DEBUG in this EVALUATE (command pane).
-ALSO SYSVOC ALSO EDITOR
+\ Pin order for Hyper/SYSVOC names while compiling this block.
+\ Runtime SZ-* lookup uses ONLY FORTH ALSO EDITOR (idle order has no EDITOR).
+ONLY FORTH DEFINITIONS ALSO HYPER-VOC ALSO SYSVOC ALSO EDITOR
+
 : DBG-UNTITLED  ( -- )
-   HYPER-EDITOR-ACTIVE? IF
-      SZ-DO-MENU-NEW
-      SZ-REDRAW
+   HYPER-EDITOR-ACTIVE? >R
+   ONLY FORTH ALSO EDITOR
+   R> IF
+      S" SZ-DO-MENU-NEW" HYPER-CMD HYPER-PLACE
+      HYPER-CMD FIND IF  EXECUTE  ELSE  DROP  THEN
+      S" SZ-REDRAW" HYPER-CMD HYPER-PLACE
+      HYPER-CMD FIND IF  EXECUTE  ELSE  DROP  THEN
    ELSE
-      SZ-EDIT-NEW
-   THEN ;
+      S" SZ-EDIT-NEW" HYPER-CMD HYPER-PLACE
+      HYPER-CMD FIND IF  EXECUTE
+      ELSE  DROP ." DBG: load Editor/SZ-EDITOR.fth first" CR  THEN
+   THEN
+   ONLY FORTH ALSO HYPER-VOC ;
+
+\ Do not VIEW these as enclosing-colon targets (stay on the caller colon).
+\ INCLUDE / FLOAD / INCLUDED / RESOLVE-KEY / BEGIN-LOAD-CWD / (SLURP) /
+\ (INCLUDED-BODY) are *not* skipped — stepping those needs a real VIEW.
+\ Peek-name highlight uses DBG-HL-SKIP? (narrower), not this list.
+: DBG-SYNC-SKIP?  ( c-addr u -- flag )
+   2DUP S" CATCH"           COMPARE 0= IF  2DROP TRUE  EXIT  THEN
+   2DUP S" EVALUATE"        COMPARE 0= IF  2DROP TRUE  EXIT  THEN
+   2DUP S" EXECUTE"         COMPARE 0= IF  2DROP TRUE  EXIT  THEN
+   2DUP S" (CATCH-OK)"      COMPARE 0= IF  2DROP TRUE  EXIT  THEN
+   2DUP S" INTERPRET"       COMPARE 0= IF  2DROP TRUE  EXIT  THEN
+   2DUP S" QUIT"            COMPARE 0= IF  2DROP TRUE  EXIT  THEN
+   2DROP FALSE ;
+
+\ Peek names that are not useful to name-search in source (keep prior HL).
+\ Do *not* put RESOLVE-KEY / BEGIN-LOAD-CWD / CATCH / (SLURP) here — skipping
+\ them left stale highlights (e.g. INCLUDED call site, sticky 2DUP).
+: DBG-HL-SKIP?  ( c-addr u -- flag )
+   2DUP S" (CATCH-OK)"      COMPARE 0= IF  2DROP TRUE  EXIT  THEN
+   2DUP S" INTERPRET"       COMPARE 0= IF  2DROP TRUE  EXIT  THEN
+   2DUP S" QUIT"            COMPARE 0= IF  2DROP TRUE  EXIT  THEN
+   2DROP FALSE ;
+
+\ Commit view CFA only when the kernel provides DBG-SYNC-OK (new boot word).
+: DBG-SYNC-COMMIT  ( -- )
+   [DEFINED] DBG-SYNC-OK [IF]
+      1 DBG-SYNC-OK !
+   [THEN]
+;
 
 \ Show colon source for the word whose body contains the debug IP.
+\ Kernel already prefers the CATCH'd colon when IP is the catch trampoline.
+\ On success DBG-SYNC-COMMIT so the kernel commits debug_view_cfa.
 : DBG-SYNC-VIEW  ( c-addr u -- )
    HYPER-EDITOR-ACTIVE? 0= IF  2DROP EXIT  THEN
+   2DUP DBG-SYNC-SKIP? IF  2DROP EXIT  THEN
    HYPER-VIEW-NAME
+   HYPER-HN 0= IF  EXIT  THEN          \ VIEW miss — do not commit CFA
+   \ New colon → drop same-name hist so HL starts at CUR (def window), not
+   \ an earlier hit in the same file (e.g. INCLUDED call site in INCLUDE).
+   HYPER-HL-CLR-XT IF  HYPER-HL-CLR-XT EXECUTE  THEN
+   DBG-SYNC-COMMIT
 ;
 ' DBG-SYNC-VIEW DBG-SHOW-XT !
 
@@ -991,6 +1044,7 @@ ALSO SYSVOC ALSO EDITOR
 \ order is hostile; ANEW Editor is fixed by rebind at end of SZ-EDITOR load).
 : DBG-HIGHLIGHT-NAME  ( c-addr u -- )
    HYPER-EDITOR-ACTIVE? 0= IF  2DROP EXIT  THEN
+   2DUP DBG-HL-SKIP? IF  2DROP EXIT  THEN
    HYPER-HL-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
    HYPER-HL-XT IF  HYPER-HL-XT EXECUTE  ELSE  2DROP  THEN
    HYPER-REDRAW-XT IF  HYPER-REDRAW-XT EXECUTE  THEN
@@ -1085,6 +1139,19 @@ PREVIOUS
    ." Cmd-E / Cmd-click VIEW word; side list = visits (line# + [X] close)" CR
    ." HYPER-REINDEX     rebuild Config/HYPER.NDX, reload" CR
    ." HYPER-RELOAD  .HYPER   |  ALSO HYPER-VOC WORDS  |  ORDER" CR ;
+
+\ Debug-time token maps (autoload-on-top; later may move into blobs).
+\ dbg-map needs SYSVOC (DBG-CFA@, (LOOP), …) + EDITOR (SZ-*).
+ONLY FORTH ALSO SYSVOC ALSO EDITOR
+[DEFINED] SZ-TBUF [IF]
+  FROMLIB FLOAD Hyper/dbg-map.fth
+  ALSO HYPER-VOC
+  [DEFINED] DBG-MAP-BIND [IF]  DBG-MAP-BIND DROP  [THEN]
+  PREVIOUS
+[ELSE]
+  .( HYPER: dbg-map skipped — load Editor/SZ-EDITOR.fth first) CR
+[THEN]
+ONLY FORTH ALSO HYPER-VOC
 
 \ Session order: FORTH then HYPER-VOC.
 ONLY FORTH ALSO HYPER-VOC
