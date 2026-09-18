@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-09-17 — **v1.3.9** (build 38) — high-level FLOAD/INCLUDED load-cwd, quoted paths, THROW/CATCH polish; prior **1.3.8** SZ-EDITOR own window; **1.3.7** ANEW/MARKER + BREAK/BPGO; **1.3.6** Emitter **0.7** SA locals/BI + window I/O remap; app-kit freeze still `Docs/APPKIT.md` (GRAPHICS 80×25 / 640×400; `\ANS`/`\TCOM`/`\EMITTER`; tetra + PIMAIN).
+**Updated:** 2026-09-18 — **v1.4.0** (build 39) — DEBUG token maps, comment-safe highlight, pause UI (`I>>`, LIT xt names, DOCOL-only step-over); prior **1.3.9** FLOAD/INCLUDED load-cwd + THROW/CATCH polish; **1.3.8** SZ-EDITOR own window; **1.3.7** ANEW/MARKER + BREAK/BPGO; **1.3.6** Emitter **0.7** SA locals/BI + window I/O remap; app-kit freeze still `Docs/APPKIT.md` (GRAPHICS 80×25 / 640×400; `\ANS`/`\TCOM`/`\EMITTER`; tetra + PIMAIN).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 

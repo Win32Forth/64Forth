@@ -1,10 +1,33 @@
 # 64Forth development status
 
-**Current:** **1.3.9** (build **38**; DMG + GitHub `v1.3.9`)  
-**Last updated:** 2026-09-17 (v1.3.9: FLOAD/INCLUDED load-cwd, quoted paths, THROW/CATCH)
+**Current:** **1.4.0** (build **39**; DMG + GitHub `v1.4.0`)  
+**Last updated:** 2026-09-18 (v1.4.0: DEBUG token maps, comment-safe highlight, pause UI)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.4.0 — DEBUG token maps, comment-safe highlight, pause UI
+
+**Version strings:** marketing **1.4.0**, build **39** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner).
+
+**Console header stamp** (`ConsoleView.swift` `banner` — refresh date/time just before DMG):
+
+```text
+=== 64Forth 1.4.0 === Sep 18, 2026 3:27 PM ===
+```
+
+### Highlights (vs 1.3.9)
+
+- **Debug-time token maps:** `Hyper/dbg-map.fth` builds per-colon body↔source tables (`ALLOCATE`; prune on `ANEW-HOOK`); `DBG-MAP-HL` prefers map spans, falls back to name search. Kernel: `DBG-IP@` / `DBG-CFA@` / `DBG-BODY#` / `DBG-XT@` / `DBG-TOS@` / `DBG-SYNC-OK`.
+- **Comment-safe highlight:** editor `SZ-SKIP-COMMENT` / `SZ-SEARCH-FWD-CODE` and dbg-map search treat only whitespace-delimited `\` / `(` as comments (never `[CHAR] \`; `(SLURP)` is a name). Taken-`IF` dest + def-window clamp keep post-`THEN` tokens (e.g. `R>`) correct.
+- **Pause UI:** `I>>` for nestable xts; LIT prints xt names when payload looks like a CFA; DOCOL-only F6/Space step-over; data/return stack column layout; console BS erases the DEBUG block cursor; host delivers `h` for help.
+- **Hyper sync:** narrower `DBG-SYNC-SKIP?` / `DBG-HL-SKIP?`; commit view CFA only after a real VIEW (`DBG-SYNC-OK`).
+- **Always report undefined** before `THROW -13`; **FILE-ECHO** for `SOURCE-ID == -1` (INCLUDED/`EVALUATE` buffers).
+- Drop duplicate `AutoLoad/vocsys.fth`; Hyper reindex; Pascal `PASY` / `pasx-test` WIP in tree.
+
+**Release:** `64Forth/releases/64Forth-1.4.0-macOS.dmg` + GitHub `v1.4.0`
 
 ---
 

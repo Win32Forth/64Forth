@@ -4,11 +4,11 @@
 Canonical plan: session `plan.md` (Phase 4.0).  
 Shared roadmap blurb: [`STATUS.md`](STATUS.md) § Debugger.
 
-**Last updated:** 2026-08-31  
+**Last updated:** 2026-09-18  
 **Pack release:** 64TCOM ARM64 **Version 0.9**  
 **Phase:** 64TCOM **4.0** utilities (slice 1 **shipped** in 0.9; editor next)  
 **Backend:** **SIMARM64 first** (native traps later)  
-**64Forth ITC `DEBUG` / `DBG`:** **1.3.0+** (current **1.3.9**) — help column, LIT/branch ±CELLS inline, pause spacing, ok> focus; **1.3.8** SZ-EDITOR own window (DEBUG redraws editor host); **1.3.7** `BREAK` / `BPGO` (8 breakpoints); **1.2.0** source-alias highlight + F8/Esc/⌘Q. Interactive `CODE`/`END-CODE`: see `Assembler/ASSEMBLER.fth` / `STATUSASM64.md`. Emitter **0.7**: `Library/Emitter/`. SYSVOC holds `DBG-SHOW-XT` / Hyper debug hooks.
+**64Forth ITC `DEBUG` / `DBG`:** **1.3.0+** (current **1.4.0**) — debug-time token maps (`dbg-map.fth`), comment-safe highlight, taken-IF dest, `I>>`, LIT xt names, DOCOL-only step-over; **1.3.9** FLOAD/INCLUDED polish; **1.3.8** SZ-EDITOR own window; **1.3.7** `BREAK` / `BPGO`; **1.2.0** source-alias highlight + F8/Esc/⌘Q. Interactive `CODE`/`END-CODE`: see `Assembler/ASSEMBLER.fth` / `STATUSASM64.md`. Emitter **0.7**: `Library/Emitter/`. SYSVOC holds `DBG-SHOW-XT` / Hyper debug hooks.
 
 **Debug-time token maps (WIP, autoload-on-top):** `Hyper/dbg-map.fth` — per-colon body↔source table in `ALLOCATE` (file sections; prune on `ANEW-HOOK`); kernel `DBG-IP@`/`DBG-CFA@`/`DBG-BODY#`/`DBG-XT@`; editor `SZ-HIGHLIGHT-SPAN`; highlight prefers map, falls back to name search. Not Emitter-linked; may later move into blobs / `Config/64Forth.symbols`.
 
