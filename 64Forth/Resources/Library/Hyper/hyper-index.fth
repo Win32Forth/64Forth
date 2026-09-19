@@ -625,6 +625,7 @@ CREATE HX-LTAB  HX-LMAX HX-ESIZE * ALLOT
    HYPER-LOAD IF
       ." HYPER: " HYPER-NDX-NAME COUNT TYPE
       ."  " HYPER-LEN . ." bytes" CR
+      HYPER-STAMP-COLD
    ELSE  ." HYPER: cannot open index" CR  THEN ;
 
 \ Public entry in FORTH — no ALSO needed at the call site.

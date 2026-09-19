@@ -338,6 +338,48 @@ VARIABLE HYPER-LEAF-U
       THEN THEN
    REPEAT ;
 
+\ --- Cold / Sources VIEW restamp from HYPER.NDX --------------------------------
+\ Cold .incbin blobs boot with SOURCE-ID 0, so CREATE never stamped VIEW-FILE#.
+\ Walk @ Library/Sources/… NDX sections and VIEW-STAMP matching dictionary
+\ words. Runs after HYPER-LOAD / HYPER-REINDEX (Editor already loaded by then).
+
+: HYPER-SOURCES-PATH?  ( ca u -- flag )
+   DUP 16 < IF  2DROP FALSE EXIT  THEN
+   DROP 16 S" Library/Sources/" COMPARE 0= ;
+
+\ One NDX body line under current HYPER-CUR path: "NAME line"
+: (HYPER-STAMP-LINE)  ( a u -- )
+   HYPER-CUR C@ 0= IF  2DROP EXIT  THEN
+   HYPER-CUR COUNT HYPER-SOURCES-PATH? 0= IF  2DROP EXIT  THEN
+   HYPER-FIRST-WORD                          \ wa wu ra ru
+   2SWAP                                     \ ra ru wa wu
+   DUP 0= IF  2DROP 2DROP EXIT  THEN
+   HYPER-SEEK HYPER-PLACE                    \ ra ru
+   HYPER->LINE 0= IF  EXIT  THEN             \ line
+   >R
+   HYPER-SEEK FIND
+   DUP 0= IF  2DROP R> DROP EXIT  THEN       \ miss
+   DROP                                      \ xt
+   0 HYPER-CUR COUNT VIEW-REG                \ xt id  (0 under avoids underflow)
+   DUP 0= IF  2DROP R> DROP EXIT  THEN
+   R> VIEW-STAMP ;
+
+: HYPER-STAMP-COLD  ( -- )
+   HYPER-ENSURE 0= IF  EXIT  THEN
+   0 TO HYPER-POS
+   0 HYPER-CUR C!
+   BEGIN  HYPER-EOF? 0= WHILE
+      HYPER-READ-LINE
+      DUP 0= IF  2DROP
+      ELSE  OVER C@ 64 = IF
+         DUP 1 < IF  2DROP
+         ELSE  HYPER-SKIP1 HYPER-SKIP-BL
+            DUP 0= IF  2DROP  ELSE  HYPER-SET-CUR  THEN
+         THEN
+      ELSE  (HYPER-STAMP-LINE)
+      THEN THEN
+   REPEAT ;
+
 \ --- Dictionary VIEW hits (header file-id + line) ----------------------------
 \ NOTE: TRAVERSE-WORDLIST keeps state on the return stack — do NOT use {: :}
 \ locals inside visitors (corrupts traverse / leaves garbage for VIEW-REG).
@@ -883,6 +925,7 @@ FLOAD hyper-index.fth
 \ Init with HYPER-VOC visible.
 ONLY FORTH ALSO HYPER-VOC
 HYPER-LOAD DROP
+HYPER-STAMP-COLD
 HYPER-BIND-EDITOR DROP
 
 \ Public API once, in FORTH. CURRENT=FORTH; search order includes HYPER-VOC
