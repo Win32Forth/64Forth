@@ -678,9 +678,16 @@ CREATE DBG-MAP-NAME  64 ALLOT
         THEN
      THEN
   THEN
+  \ Name-search fallback only when the colon has a stamped source file.
+  \ Console-defined CFA (VIEW-FILE#=0) must not paint NDX/buffer namesakes
+  \ (e.g. highlight DUP inside PASX-SAMPLE while debugging a prompt : test).
   used 0= IF
-     DBG-HL-NAME-XT IF
-        a u DBG-HL-NAME-XT EXECUTE
+     cfa IF
+        cfa VIEW-FILE# IF
+           DBG-HL-NAME-XT IF
+              a u DBG-HL-NAME-XT EXECUTE
+           THEN
+        THEN
      THEN
   THEN ;
 : DBG-MAP-BIND  ( -- flag )

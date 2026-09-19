@@ -49,6 +49,9 @@
 // Debug pause: max data-stack cells saved around nested SYNC/HIGHLIGHT.
 .equ DBG_DSAVE_MAX, 64
 .equ DBG_STACK_MAX, 16
+// Return stack (grows down). Match data-stack headroom for Forth DBG-PAUSE nesting.
+.equ RETURN_STACK_SIZE, 4096          // bytes (= 512 cells)
+.equ RETURN_STACK_CELLS, 512
 //
 // ----------------------------------------------------------------------------
 // ANS Forth 2012 compatibility
@@ -337,7 +340,7 @@ _kernel_cold_common:
     add  x22, x22, #4096      // DSP starts at TOP of stack (grows down)
     adrp x23, return_stack@page
     add  x23, x23, return_stack@pageoff
-    add  x23, x23, #2048      // RSP starts at TOP of stack (grows down)
+    add  x23, x23, #RETURN_STACK_SIZE  // RSP starts at TOP of stack (grows down)
 
     // x24 = address of FORTH wordlist head array (latest_var[DICT_THREADS])
     adrp x24, latest_var@page
@@ -1344,7 +1347,7 @@ _vm_reset_stacks:
     mov  x20, #0
     adrp x23, return_stack@page
     add  x23, x23, return_stack@pageoff
-    add  x23, x23, #2048
+    add  x23, x23, #RETURN_STACK_SIZE
     adrp x24, latest_var@page
     add  x24, x24, latest_var@pageoff
     adrp x0, throw_handler@page
@@ -2592,6 +2595,22 @@ XDBGWHEELXT:
     add x20, x20, debug_wheel_xt@pageoff
     NEXT
 
+    // Nonzero → _debug_pause calls this Forth xt for UI; 0 → asm _debug_pause UI.
+    BOOT_WORD "DBG-PAUSE-XT", "DBG-PAUSE-XT ( -- addr ) Forth pause UI xt or 0 (asm fallback)", 0, XDBGPAUSEXT
+XDBGPAUSEXT:
+    str x20, [x22, #-8]!
+    adrp x20, debug_pause_xt@page
+    add x20, x20, debug_pause_xt@pageoff
+    NEXT
+
+    // Phase 3: nonzero → asm pause getchar uses Forth ( u -- mode ) key policy.
+    BOOT_WORD "DBG-KEY-XT", "DBG-KEY-XT ( -- addr ) Forth key-decode xt (u -- mode) or 0", 0, XDBGKEYXT
+XDBGKEYXT:
+    str x20, [x22, #-8]!
+    adrp x20, debug_key_xt@page
+    add x20, x20, debug_key_xt@pageoff
+    NEXT
+
     // Cell after paused IP (LIT payload when upcoming xt is LIT).
     BOOT_WORD "DBG-INLINE", "DBG-INLINE ( -- x ) cell after paused IP (LIT value)", 0, XDBGINLINE
 XDBGINLINE:
@@ -2650,6 +2669,288 @@ XDBGBODYN:
     adrp x20, debug_body_cells@page
     add x20, x20, debug_body_cells@pageoff
     ldr x20, [x20]
+    NEXT
+
+    // --- Thin pause-UI helpers for Forth DBG-PAUSE (phase 2) -----------------
+    BOOT_WORD "DBG-NEED-INTRO", "DBG-NEED-INTRO ( -- addr )", 0, XDBGNEEDINTRO
+XDBGNEEDINTRO:
+    str x20, [x22, #-8]!
+    adrp x20, debug_need_intro@page
+    add x20, x20, debug_need_intro@pageoff
+    NEXT
+
+    BOOT_WORD "DBG-NEED-STACKS", "DBG-NEED-STACKS ( -- addr )", 0, XDBGNEEDSTACKS
+XDBGNEEDSTACKS:
+    str x20, [x22, #-8]!
+    adrp x20, debug_need_stacks@page
+    add x20, x20, debug_need_stacks@pageoff
+    NEXT
+
+    BOOT_WORD "DBG-HELP-SHOWN", "DBG-HELP-SHOWN ( -- addr )", 0, XDBGHELPSHOWN
+XDBGHELPSHOWN:
+    str x20, [x22, #-8]!
+    adrp x20, debug_help_shown@page
+    add x20, x20, debug_help_shown@pageoff
+    NEXT
+
+    BOOT_WORD "DBG-SKIP-NL", "DBG-SKIP-NL ( -- addr )", 0, XDBGSKIPNL
+XDBGSKIPNL:
+    str x20, [x22, #-8]!
+    adrp x20, debug_skip_nl@page
+    add x20, x20, debug_skip_nl@pageoff
+    NEXT
+
+    BOOT_WORD "DBG-MIDLINE", "DBG-MIDLINE ( -- addr )", 0, XDBGMIDLINE
+XDBGMIDLINE:
+    str x20, [x22, #-8]!
+    adrp x20, debug_midline@page
+    add x20, x20, debug_midline@pageoff
+    NEXT
+
+    BOOT_WORD "DBG-LINE-COL", "DBG-LINE-COL ( -- addr )", 0, XDBGLINECOL
+XDBGLINECOL:
+    str x20, [x22, #-8]!
+    adrp x20, debug_line_col@page
+    add x20, x20, debug_line_col@pageoff
+    NEXT
+
+    BOOT_WORD "DBG-.SR", "DBG-.SR ( -- ) pad to stack col then print S/R", 0, XDBGDOTSR
+XDBGDOTSR:
+    SAVE_VM
+    // During _debug_call_xt, x23 is nest RP0 — show debuggee R from pause RSP.
+    adrp x0, debug_busy@page
+    add x0, x0, debug_busy@pageoff
+    ldr x0, [x0]
+    cbz x0, 1f
+    adrp x0, debug_pause_rsp@page
+    add x0, x0, debug_pause_rsp@pageoff
+    ldr x0, [x0]
+    cbz x0, 1f
+    mov x23, x0
+1:
+    bl _debug_pad_to_stack_col
+    bl _debug_print_SR
+    RESTORE_VM
+    NEXT
+
+    BOOT_WORD "DBG-CURSOR-ON", "DBG-CURSOR-ON ( -- )", 0, XDBGCURON
+XDBGCURON:
+    SAVE_VM
+    bl _debug_cursor_on
+    RESTORE_VM
+    NEXT
+
+    BOOT_WORD "DBG-CURSOR-OFF", "DBG-CURSOR-OFF ( -- )", 0, XDBGCUROFF
+XDBGCUROFF:
+    SAVE_VM
+    bl _debug_cursor_off
+    RESTORE_VM
+    NEXT
+
+    BOOT_WORD "DBG-PRINT-INLINE", "DBG-PRINT-INLINE ( -- ) LIT/branch suffix after name", 0, XDBGPRINTINL
+XDBGPRINTINL:
+    SAVE_VM
+    bl _debug_print_inline_suffix
+    RESTORE_VM
+    NEXT
+
+    BOOT_WORD "DBG-PRINT-NAME", "DBG-PRINT-NAME ( -- ) print DBG-XT@ name (asm)", 0, XDBGPRINTNAME
+XDBGPRINTNAME:
+    SAVE_VM
+    adrp x0, debug_xt@page
+    add x0, x0, debug_xt@pageoff
+    ldr x0, [x0]
+    bl _print_xt_name
+    RESTORE_VM
+    NEXT
+
+    BOOT_WORD "DBG-XT-INTOABLE?", "DBG-XT-INTOABLE? ( -- flag ) nestable upcoming xt?", 0, XDBGINTOABLE
+XDBGINTOABLE:
+    SAVE_VM
+    adrp x0, debug_xt@page
+    add x0, x0, debug_xt@pageoff
+    ldr x0, [x0]
+    bl _debug_xt_intoable
+    RESTORE_VM
+    str x20, [x22, #-8]!
+    mov x20, x0
+    NEXT
+
+    BOOT_WORD "DBG-HOST-PAINT", "DBG-HOST-PAINT ( -- ) refresh editor debug pane", 0, XDBGHOSTPAINT
+XDBGHOSTPAINT:
+    SAVE_VM
+    bl _host_debug_paint
+    RESTORE_VM
+    NEXT
+
+    BOOT_WORD "DBG-WHEEL-DO", "DBG-WHEEL-DO ( u -- ) wheel/resize while paused", 0, XDBGWHEELDO
+XDBGWHEELDO:
+    DPOP
+    SAVE_VM
+    bl _debug_wheel
+    RESTORE_VM
+    NEXT
+
+    BOOT_WORD "DBG-STEP-OVER", "DBG-STEP-OVER ( -- ) F6/Space/o — DOCOL nest-skip", 0, XDBGSTEPOVER
+XDBGSTEPOVER:
+    SAVE_VM
+    bl _debug_cursor_off
+    mov x1, #1
+    adrp x0, debug_need_stacks@page
+    add x0, x0, debug_need_stacks@pageoff
+    str x1, [x0]
+    adrp x1, debug_out@page
+    add x1, x1, debug_out@pageoff
+    str xzr, [x1]
+    adrp x1, debug_over@page
+    add x1, x1, debug_over@pageoff
+    str xzr, [x1]
+    adrp x0, debug_xt@page
+    add x0, x0, debug_xt@pageoff
+    ldr x0, [x0]
+    cbz x0, 1f
+    ldr x0, [x0]
+    adrp x2, DOCOL@page
+    add x2, x2, DOCOL@pageoff
+    cmp x0, x2
+    b.ne 1f
+    adrp x0, debug_pause_rsp@page
+    add x0, x0, debug_pause_rsp@pageoff
+    ldr x0, [x0]
+    str x0, [x1]
+1:
+    RESTORE_VM
+    NEXT
+
+    BOOT_WORD "DBG-STEP-INTO", "DBG-STEP-INTO ( -- ) F7/i", 0, XDBGSTEPINTO
+XDBGSTEPINTO:
+    SAVE_VM
+    bl _debug_cursor_off
+    mov x1, #1
+    adrp x0, debug_need_stacks@page
+    add x0, x0, debug_need_stacks@pageoff
+    str x1, [x0]
+    adrp x1, debug_out@page
+    add x1, x1, debug_out@pageoff
+    str xzr, [x1]
+    adrp x1, debug_over@page
+    add x1, x1, debug_over@pageoff
+    str xzr, [x1]
+    RESTORE_VM
+    NEXT
+
+    BOOT_WORD "DBG-STEP-OUT", "DBG-STEP-OUT ( -- ) F8", 0, XDBGSTEPOUT
+XDBGSTEPOUT:
+    SAVE_VM
+    bl _debug_cursor_off
+    mov x1, #1
+    adrp x0, debug_need_stacks@page
+    add x0, x0, debug_need_stacks@pageoff
+    str x1, [x0]
+    adrp x1, debug_over@page
+    add x1, x1, debug_over@pageoff
+    str xzr, [x1]
+    adrp x1, debug_out@page
+    add x1, x1, debug_out@pageoff
+    adrp x0, debug_pause_rsp@page
+    add x0, x0, debug_pause_rsp@pageoff
+    ldr x0, [x0]
+    str x0, [x1]
+    RESTORE_VM
+    NEXT
+
+    BOOT_WORD "DBG-GO", "DBG-GO ( -- ) Cmd-Shift-Y/g — disarm, run rest", 0, XDBGGO
+XDBGGO:
+    SAVE_VM
+    bl _debug_cursor_off
+    adrp x0, debug_need_stacks@page
+    add x0, x0, debug_need_stacks@pageoff
+    str xzr, [x0]
+    adrp x0, debug_need_intro@page
+    add x0, x0, debug_need_intro@pageoff
+    str xzr, [x0]
+    adrp x1, debug_midline@page
+    add x1, x1, debug_midline@pageoff
+    ldr x0, [x1]
+    cbz x0, 1f
+    str xzr, [x1]
+    mov x0, #10
+    bl _putchar
+1:
+    adrp x0, debug_help_shown@page
+    add x0, x0, debug_help_shown@pageoff
+    str xzr, [x0]
+    mov x28, #0
+    adrp x1, debug_armed@page
+    add x1, x1, debug_armed@pageoff
+    str xzr, [x1]
+    adrp x1, debug_bp_go@page
+    add x1, x1, debug_bp_go@pageoff
+    str xzr, [x1]
+    adrp x1, debug_midline@page
+    add x1, x1, debug_midline@pageoff
+    str xzr, [x1]
+    adrp x1, debug_over@page
+    add x1, x1, debug_over@pageoff
+    str xzr, [x1]
+    adrp x1, debug_out@page
+    add x1, x1, debug_out@pageoff
+    str xzr, [x1]
+    bl _host_debug_paint
+    RESTORE_VM
+    NEXT
+
+    BOOT_WORD "DBG-ABORT-SESSION", "DBG-ABORT-SESSION ( -- ) Esc/q — disarm + THROW -1", 0, XDBGABORT
+XDBGABORT:
+    SAVE_VM
+    bl _debug_cursor_off
+    adrp x0, debug_need_stacks@page
+    add x0, x0, debug_need_stacks@pageoff
+    str xzr, [x0]
+    adrp x0, debug_need_intro@page
+    add x0, x0, debug_need_intro@pageoff
+    str xzr, [x0]
+    adrp x1, debug_midline@page
+    add x1, x1, debug_midline@pageoff
+    ldr x0, [x1]
+    cbz x0, 1f
+    str xzr, [x1]
+    mov x0, #10
+    bl _putchar
+1:
+    adrp x0, debug_help_shown@page
+    add x0, x0, debug_help_shown@pageoff
+    str xzr, [x0]
+    adrp x0, str_dbg_abort@page
+    add x0, x0, str_dbg_abort@pageoff
+2:
+    ldrb w1, [x0], #1
+    cbz w1, 3f
+    stp x0, xzr, [sp, #-16]!
+    mov w0, w1
+    bl _putchar
+    ldp x0, xzr, [sp], #16
+    b 2b
+3:
+    mov x2, #-1
+    adrp x1, debug_abort@page
+    add x1, x1, debug_abort@pageoff
+    str x2, [x1]
+    mov x28, #0
+    adrp x1, debug_armed@page
+    add x1, x1, debug_armed@pageoff
+    str xzr, [x1]
+    adrp x1, debug_midline@page
+    add x1, x1, debug_midline@pageoff
+    str xzr, [x1]
+    adrp x1, debug_over@page
+    add x1, x1, debug_over@pageoff
+    str xzr, [x1]
+    adrp x1, debug_out@page
+    add x1, x1, debug_out@pageoff
+    str xzr, [x1]
+    bl _host_debug_paint
+    RESTORE_VM
     NEXT
 
     BOOT_WORD ".", ". ( n -- ) print number (with space)", 0, XDOT, XDOT_END
@@ -9261,7 +9562,7 @@ _throw_soft_abandon:
     mov  x20, #0
     adrp x23, return_stack@page
     add  x23, x23, return_stack@pageoff
-    add  x23, x23, #2048
+    add  x23, x23, #RETURN_STACK_SIZE
     adrp x0, throw_handler@page
     add  x0, x0, throw_handler@pageoff
     str  xzr, [x0]
@@ -10665,7 +10966,7 @@ _do_quit:
     // Empty return stack; clear CATCH nesting
     adrp x23, return_stack@page
     add  x23, x23, return_stack@pageoff
-    add  x23, x23, #2048
+    add  x23, x23, #RETURN_STACK_SIZE
     adrp x0, throw_handler@page
     add  x0, x0, throw_handler@pageoff
     str  xzr, [x0]
@@ -10723,7 +11024,7 @@ _quit_loop:
     mov x20, #0
     adrp x23, return_stack@page
     add x23, x23, return_stack@pageoff
-    add x23, x23, #2048
+    add x23, x23, #RETURN_STACK_SIZE
     adrp x0, throw_handler@page
     add x0, x0, throw_handler@pageoff
     str xzr, [x0]
@@ -14269,7 +14570,7 @@ _print_rstack:
     stp x21, x22, [sp, #-16]!
     adrp x19, return_stack@page
     add x19, x19, return_stack@pageoff
-    add x19, x19, #2048            // RP0
+    add x19, x19, #RETURN_STACK_SIZE  // RP0
     adrp x0, debug_floor@page
     add x0, x0, debug_floor@pageoff
     ldr x0, [x0]
@@ -14441,7 +14742,7 @@ _debug_print_rstack:
     sub sp, sp, #64                // buf[6] visible cell values (nearest first)
     adrp x19, return_stack@page
     add x19, x19, return_stack@pageoff
-    add x19, x19, #2048            // RP0
+    add x19, x19, #RETURN_STACK_SIZE  // RP0
     adrp x0, debug_floor@page
     add x0, x0, debug_floor@pageoff
     ldr x0, [x0]
@@ -15232,6 +15533,9 @@ _debug_pause:
     stp x19, x20, [sp, #16]
     stp x21, x22, [sp, #32]
     stp x23, x24, [sp, #-16]!
+    adrp x0, debug_pause_rsp@page
+    add x0, x0, debug_pause_rsp@pageoff
+    str x23, [x0]                     // for Forth DBG-STEP-OVER/OUT (vmsave RSP differs)
     adrp x0, debug_xt@page
     add x0, x0, debug_xt@pageoff
     str x21, [x0]
@@ -15254,6 +15558,23 @@ _debug_pause:
     adrp x2, debug_body_cells@page
     add x2, x2, debug_body_cells@pageoff
     str x1, [x2]
+    // Phase 2: Forth pause UI when DBG-PAUSE-XT set; else asm UI below.
+    adrp x0, debug_pause_xt@page
+    add x0, x0, debug_pause_xt@pageoff
+    ldr x0, [x0]
+    cbz x0, 50f
+    bl _debug_capture
+    bl _debug_sync_view
+    bl _debug_highlight
+    bl _host_debug_paint
+    // No DS isolate here: pause UI must see live S for DBG-.SR; it keeps the
+    // stack balanced. RSP is isolated inside _debug_call_xt (debug_nest_rstack).
+    adrp x0, debug_pause_xt@page
+    add x0, x0, debug_pause_xt@pageoff
+    ldr x0, [x0]
+    bl _debug_call_xt
+    b 4f
+50:
     // --- Session intro: help, then entry stacks, then first word ---
     adrp x0, debug_need_intro@page
     add x0, x0, debug_need_intro@pageoff
@@ -15343,6 +15664,62 @@ _debug_pause:
     bl _host_debug_paint
 1:
     bl _getchar
+    // Phase 3: Forth key policy (u -- mode) when DBG-KEY-XT set.
+    adrp x2, debug_key_xt@page
+    add x2, x2, debug_key_xt@pageoff
+    ldr x2, [x2]
+    cbz x2, 60f
+    adrp x1, debug_key_raw@page
+    add x1, x1, debug_key_raw@pageoff
+    str x0, [x1]                       // raw EKEY event for wheel
+    bl _debug_ds_isolate
+    adrp x1, debug_key_raw@page
+    add x1, x1, debug_key_raw@pageoff
+    ldr x20, [x1]                       // TOS = u (isolated stack empty)
+    adrp x0, debug_key_xt@page
+    add x0, x0, debug_key_xt@pageoff
+    ldr x0, [x0]
+    bl _debug_call_xt
+    // Mode is in debug_call_tos (XDBG_CALL_DONE); x20 was restored to pre-call.
+    adrp x1, debug_call_tos@page
+    add x1, x1, debug_call_tos@pageoff
+    ldr x1, [x1]
+    adrp x0, debug_key_mode@page
+    add x0, x0, debug_key_mode@pageoff
+    str x1, [x0]
+    bl _debug_ds_restore
+    adrp x0, debug_key_mode@page
+    add x0, x0, debug_key_mode@pageoff
+    ldr x0, [x0]
+    cmp x0, #0                          // IGNORE
+    b.eq 1b
+    cmp x0, #1                          // OVER
+    b.eq 9f
+    cmp x0, #2                          // INTO
+    b.eq 10f
+    cmp x0, #3                          // OUT
+    b.eq 12f
+    cmp x0, #4                          // GO
+    b.eq 3f
+    cmp x0, #5                          // ABORT
+    b.eq 13f
+    cmp x0, #6                          // WHEEL
+    b.eq 61f
+    cmp x0, #7                          // HELP
+    b.eq 16f
+    // Mode not in 0..7 (e.g. nest TOS was the raw key before debug_call_tos
+    // existed): fall back to asm policy on the saved event.
+    adrp x0, debug_key_raw@page
+    add x0, x0, debug_key_raw@pageoff
+    ldr x0, [x0]
+    b 60f
+61:
+    adrp x0, debug_key_raw@page
+    add x0, x0, debug_key_raw@pageoff
+    ldr x0, [x0]
+    b 11f
+60:
+    // Asm key policy (DBG-KEY-XT = 0, or Forth mode out of range)
     lsr x1, x0, #24
     and x1, x1, #0xFF
     cmp x1, #2                     // (2<<24)|K-*  F6=16 F7=17 F8=18
@@ -15585,7 +15962,11 @@ _debug_pause:
     ldp x29, x30, [sp], #48
     ret
 
-// Run Forth xt (x0) then return here. VM x19–x23 restored from debug_vmsave.
+// Run Forth xt (x0) then return here. VM x19–x23 + x28 restored from debug_vmsave.
+// Nested Forth uses a dedicated return stack (debug_nest_rstack) so deep
+// DBG-PAUSE / SYNC / HL cannot grow the debuggee RSP down into data_stack
+// (BSS layout: data_stack then return_stack — overflow → smash → udf).
+// x28 is cleared for the nest so NEXT takes the fast path (not next_debug).
 _debug_call_xt:
     cbz x0, 1f
     adrp x1, debug_vmsave@page
@@ -15594,6 +15975,11 @@ _debug_call_xt:
     stp x21, x22, [x1, #16]
     stp x23, x24, [x1, #32]
     stp x29, x30, [x1, #48]
+    str x28, [x1, #64]                 // save DBG mirror
+    adrp x23, debug_nest_rstack@page
+    add x23, x23, debug_nest_rstack@pageoff
+    add x23, x23, #RETURN_STACK_SIZE   // empty nest RP0
+    mov x28, #0                        // nest must not enter next_debug
     adrp x19, debug_ret_ipcell@page
     add x19, x19, debug_ret_ipcell@pageoff
     mov x21, x0
@@ -15604,12 +15990,18 @@ _debug_call_xt:
 
 .align 4
 XDBG_CALL_DONE:
+    // Nest TOS (x20) is the Forth result — save before vmsave restore
+    // clobbers it (key decode needs mode; SYNC/HL ignore this cell).
+    adrp x1, debug_call_tos@page
+    add x1, x1, debug_call_tos@pageoff
+    str x20, [x1]
     adrp x1, debug_vmsave@page
     add x1, x1, debug_vmsave@pageoff
     ldp x19, x20, [x1]
     ldp x21, x22, [x1, #16]
     ldp x23, x24, [x1, #32]
     ldp x29, x30, [x1, #48]
+    ldr x28, [x1, #64]
     ret
 
 // Save user data stack (TOS + under cells) to debug_dsave, then empty it.
@@ -15862,7 +16254,7 @@ _debug_capture:
     // return IPs below debug_floor; skip CATCH frame
     adrp x19, return_stack@page
     add x19, x19, return_stack@pageoff
-    add x19, x19, #2048
+    add x19, x19, #RETURN_STACK_SIZE
     adrp x10, debug_floor@page
     add x10, x10, debug_floor@pageoff
     ldr x10, [x10]
@@ -16066,7 +16458,7 @@ XRESTART:
 .align 8
 
 data_stack:     .skip 4096
-return_stack:   .skip 2048
+return_stack:   .skip RETURN_STACK_SIZE
 input_buffer:   .skip 1024
 // INCLUDE/FLOAD whole-file buffer. Must hold largest library test (paranoia.4th ~70K).
 .equ FILE_BUFFER_MAX, 262144       // 256 KiB
@@ -16192,7 +16584,7 @@ env_values:
     .quad 255                      // MAX-CHAR
     .quad 0x7FFFFFFFFFFFFFFF       // MAX-N
     .quad 0xFFFFFFFFFFFFFFFF       // MAX-U
-    .quad 256                      // RETURN-STACK-CELLS (2048/8)
+    .quad RETURN_STACK_CELLS       // RETURN-STACK-CELLS (4096/8)
     .quad 512                      // STACK-CELLS (4096/8)
     .quad -1                       // FLOATING
     .quad -1                       // FLOAT-EXT
@@ -16312,9 +16704,15 @@ debug_show_xt:  .quad 0            // DBG-SYNC-VIEW xt (set by Hyper)
 debug_sync_ok:  .quad 0            // 1 if last DBG-SYNC-VIEW did HYPER-VIEW
 debug_hl_xt:    .quad 0            // DBG-HIGHLIGHT-NAME xt (set by Hyper/editor)
 debug_wheel_xt: .quad 0            // DBG-WHEEL xt (set by editor)
+debug_pause_xt: .quad 0            // Forth DBG-PAUSE xt (0 → asm pause UI)
+debug_pause_rsp: .quad 0           // RSP at pause entry (Forth step-over/out)
+debug_key_xt:   .quad 0            // Forth ( u -- mode ) key policy; 0 → asm keys
+debug_key_raw:  .quad 0            // last getchar event (wheel)
+debug_key_mode: .quad 0            // last Forth key mode
+debug_call_tos: .quad 0            // TOS after _debug_call_xt (before vmsave restore)
 debug_view_cfa: .quad 0            // last colon shown in SZ-EDITOR
 debug_view_name: .skip 32
-debug_vmsave:   .skip 64
+debug_vmsave:   .skip 72           // x19-x24, x29-x30, x28
 .align 8
 debug_ret_cfa:  .quad XDBG_CALL_DONE
 debug_ret_ipcell: .quad debug_ret_cfa
@@ -16334,6 +16732,9 @@ debug_dsave_n:  .quad 0
 debug_dsave_tos: .quad 0
 debug_dsave_dsp: .quad 0
 debug_dsave_buf: .skip DBG_DSAVE_MAX * 8
+// Dedicated RSP for Forth called from _debug_call_xt (pause UI / SYNC / HL).
+.align 8
+debug_nest_rstack: .skip RETURN_STACK_SIZE
 
 key_hook:       .quad 0            // int (*)(void) — KEY (blocking)
 key_q_hook:     .quad 0            // int (*)(void) — KEY? (non-zero if ready)
@@ -16408,7 +16809,6 @@ forth_init_str:
     .incbin "vocsys.fth"
     .byte 0
 forth_init_end:
-
 // REPL trampoline: restart_cell holds address of restart_cfa; that cell is XRESTART.
 .align 8
 restart_cfa:    .quad 0            // filled at boot: address of XRESTART code

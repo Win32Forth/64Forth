@@ -14,6 +14,8 @@
 \   FROMLIB FLOAD Emitter/emitter.fth
 \   ALSO EMITTER          \ if a prior ONLY cleared it
 
+ANEW EMITTER_MODULE
+
 \ SYSVOC holds (LOOP)/(+LOOP)/(?DO)/(DO) etc. used by the slicer sources.
 \ Do not ALSO GRAPHICS here — it shadows TYPE/EMIT/CR and breaks the slicer.
 \ Phase 2a finds (APP-*) via SEARCH-WORDLIST on the GRAPHICS wid (reloc.fth).
@@ -27,4 +29,4 @@ FROMLIB FLOAD Emitter/save.fth
 FROMLIB FLOAD Emitter/app.fth
 
 \ app.fth leaves FORTH as CURRENT with EMITTER on the search order.
-.( emitter loaded — EMITTER slicer + FORTH EMIT-APP.) CR
+\ .( emitter loaded — EMITTER slicer + FORTH EMIT-APP.) CR

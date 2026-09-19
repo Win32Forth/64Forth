@@ -62,11 +62,23 @@ ONLY FORTH ALSO EDITOR
 
 \ While SZ-EDITOR is loaded: DEBUG also toggles the editor's debug help strip
 \ (5th column right of find) when the facility editor is active.
-: DEBUG-SZ  ( 'name' -- )
-   ALSO EDITOR  SZ-DBG-KEYS-ON  PREVIOUS
+: DEBUG-SZ  ( -- )  \ DEBUG name — DBG-ON parses the name
+   ALSO EDITOR
+   SZ-DBG-BUSY @ IF
+      PREVIOUS
+      ." DBG: already in a debug session (nested DEBUG ignored)" CR
+      EXIT
+   THEN
+   SZ-DBG-KEYS-ON
+   -1 SZ-DBG-BUSY !
+   PREVIOUS
    ' DBG-ON CATCH
    DBG-OFF
-   ALSO EDITOR  SZ-DBG-KEYS-OFF  PREVIOUS
+   ALSO EDITOR
+   0 SZ-DBG-BUSY !
+   SZ-DBG-KEYS-OFF
+   SZ-DBG-FACILITY-CLOSE              \ mid-step VIEW from console DEBUG
+   PREVIOUS
    DUP -1 = IF  DROP ELSE  THROW  THEN
 ;
 ' DEBUG-SZ IS DEBUG

@@ -430,6 +430,7 @@ CREATE HYPER-ORDER-TMP  16 CELLS ALLOT
 0 VALUE HYPER-HL-XT                  \ SZ-HIGHLIGHT-NAME ( c-addr u -- )
 0 VALUE HYPER-HL-CLR-XT              \ SZ-HL-HIST-CLEAR ( -- )
 0 VALUE HYPER-REDRAW-XT              \ SZ-REDRAW ( -- )
+0 VALUE HYPER-DBG-SHOW-XT            \ SZ-DBG-SHOW-AT ( c-addr u line -- flag )
 FALSE VALUE HYPER-SKIP-NOTE?         \ true → next VIEW-NAME skips HIST-NOTE
 
 \ -----------------------------------------------------------------------------
@@ -515,6 +516,8 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    HYPER-CMD FIND IF  TO HYPER-HL-CLR-XT  ELSE  DROP 0 TO HYPER-HL-CLR-XT  THEN
    S" SZ-REDRAW" HYPER-CMD HYPER-PLACE
    HYPER-CMD FIND IF  TO HYPER-REDRAW-XT  ELSE  DROP 0 TO HYPER-REDRAW-XT  THEN
+   S" SZ-DBG-SHOW-AT" HYPER-CMD HYPER-PLACE
+   HYPER-CMD FIND IF  TO HYPER-DBG-SHOW-XT  ELSE  DROP 0 TO HYPER-DBG-SHOW-XT  THEN
    ONLY FORTH
    \ Prefer debug-time token map when dbg-map.fth is loaded.
    [DEFINED] DBG-MAP-BIND [IF]
@@ -972,10 +975,13 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC
    DUP 0= IF  2DROP ." VIEW needs a name" CR EXIT  THEN
    (VIEW) ;
 
-\ DBG name — VIEW source if indexed, else untitled editor, then DEBUG name.
-\ From the idle console this must enter SZ-EDIT-LOOP (SZ-EDIT-NEW / VIEW)
-\ so the stepper runs on the first frame. Already in the editor: switch
-\ buffer and DEBUG in this EVALUATE (command pane).
+\ DBG name — VIEW stamped source if the live xt has VIEW-FILE#, else console
+\ DEBUG only (no empty untitled). Mid-step Into a stamped colon opens the
+\ facility via SZ-DBG-SHOW-AT without nesting SZ-EDIT-LOOP.
+\ Never open an HYPER.NDX namesake for a console-defined word
+\ (e.g. : test … ; DBG test must not open Pascal PASX-SAMPLE's VARIABLE test).
+\ Stamped words from the idle console still enter SZ-EDIT-LOOP via (VIEW).
+\ Already in the editor: switch buffer and DEBUG in this EVALUATE (command pane).
 \ Pin order for Hyper/SYSVOC names while compiling this block.
 \ Runtime SZ-* lookup uses ONLY FORTH ALSO EDITOR (idle order has no EDITOR).
 ONLY FORTH DEFINITIONS ALSO HYPER-VOC ALSO SYSVOC ALSO EDITOR
@@ -1025,13 +1031,21 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC ALSO SYSVOC ALSO EDITOR
 ;
 
 \ Show colon source for the word whose body contains the debug IP.
-\ Kernel already prefers the CATCH'd colon when IP is the catch trampoline.
-\ On success DBG-SYNC-COMMIT so the kernel commits debug_view_cfa.
+\ Uses the enclosing CFA's VIEW stamp (not the name → NDX), so console
+\ : test does not open Pascal's VARIABLE test. Unstamped CFA → no-op.
+\ If the facility is not up yet, SZ-DBG-SHOW-AT opens it without nesting
+\ the edit loop (console DBG → Into a library word).
 : DBG-SYNC-VIEW  ( c-addr u -- )
-   HYPER-EDITOR-ACTIVE? 0= IF  2DROP EXIT  THEN
    2DUP DBG-SYNC-SKIP? IF  2DROP EXIT  THEN
-   HYPER-VIEW-NAME
-   HYPER-HN 0= IF  EXIT  THEN          \ VIEW miss — do not commit CFA
+   DBG-CFA@ ?DUP 0= IF  2DROP EXIT  THEN       \ c-addr u cfa
+   DUP VIEW-FILE# 0= IF  DROP 2DROP EXIT  THEN
+   NIP NIP                                       \ cfa
+   DUP VIEW-FILE# VIEW-PATH                      \ cfa ca u | cfa 0 0
+   DUP 0= IF  2DROP DROP EXIT  THEN
+   ROT VIEW-LINE                                 \ ca u line
+   HYPER-DBG-SHOW-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
+   HYPER-DBG-SHOW-XT 0= IF  DROP 2DROP EXIT  THEN
+   HYPER-DBG-SHOW-XT EXECUTE 0= IF  EXIT  THEN   \ open failed
    \ New colon → drop same-name hist so HL starts at CUR (def window), not
    \ an earlier hit in the same file (e.g. INCLUDED call site in INCLUDE).
    HYPER-HL-CLR-XT IF  HYPER-HL-CLR-XT EXECUTE  THEN
@@ -1052,6 +1066,11 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC ALSO SYSVOC ALSO EDITOR
 ' DBG-HIGHLIGHT-NAME DBG-HL-XT !
 
 : DBG  ( "name" -- )
+   \ Refuse while a stepper is already live (colon body that calls DBG, etc.).
+   SZ-DBG-BUSY @ IF
+      ." DBG: already in a debug session (nested DBG ignored)" CR
+      PARSE-NAME 2DROP EXIT
+   THEN
    PARSE-NAME
    DUP 0= IF  2DROP ." DBG needs a name" CR EXIT  THEN
    2DUP PAD PLACE  PAD FIND
@@ -1059,13 +1078,20 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC ALSO SYSVOC ALSO EDITOR
       DROP PAD COUNT TYPE ."  ?" CR
       2DROP EXIT
    THEN
-   DROP
-   SZ-DBG-ARM
-   2DUP (HYPER-FIND) IF
-      (VIEW)
+   DROP                                 \ c-addr u xt
+   DUP SZ-DBG-ARM
+   \ Stamped source → VIEW (dict hit sorts first in (HYPER-FIND)).
+   \ Unstamped (console) → console stepper only; Into a stamped word opens
+   \ the facility mid-step via DBG-SYNC-VIEW / SZ-DBG-SHOW-AT.
+   DUP VIEW-FILE# IF
+      DROP
+      2DUP (HYPER-FIND) IF
+         (VIEW)
+      ELSE
+         2DROP
+      THEN
    ELSE
-      2DROP
-      DBG-UNTITLED
+      DROP 2DROP
    THEN
    SZ-DBG-RUN ;
 PREVIOUS
@@ -1133,7 +1159,7 @@ PREVIOUS
    ." SEE <name>        decompile to console (kernel SEE; no editor)" CR
    ." SEE-SOURCE        alias of VIEW" CR
    ." SEE-HYPER         VIEW if indexed+editor, else decompile (optional)" CR
-   ." DBG <name>        VIEW or untitled, then DEBUG (F6/F7/F8; Esc abort; Cmd-Shift-Y go)" CR
+   ." DBG <name>        VIEW stamped source or console DEBUG; Into opens sourced words" CR
    ." Cmd-PgUp/PgDn     visit history (back/forward); else multi-hit n/m" CR
    ." Cmd-Left/Right    prev/next occurrence in current editor file" CR
    ." Cmd-E / Cmd-click VIEW word; side list = visits (line# + [X] close)" CR

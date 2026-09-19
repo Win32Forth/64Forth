@@ -647,15 +647,42 @@ VARIABLE SZ-DBG-XT
 VARIABLE SZ-DBG-DID-OK
 0 SZ-DBG-DID-OK !
 
+\ True when DBG opened the facility window mid-step (not via SZ-EDIT-LOOP).
+\ Cleared and closed when SZ-DBG-RUN finishes so the console session stays clean.
+VARIABLE SZ-DBG-FACILITY-OWNED
+0 SZ-DBG-FACILITY-OWNED !
+
+\ True while SZ-DBG-RUN / DEBUG-SZ holds DBG-ON. Nested DBG (e.g. a colon
+\ that calls DBG while already being stepped) must not start a second session.
+VARIABLE SZ-DBG-BUSY
+0 SZ-DBG-BUSY !
+
+\ Close facility opened by SZ-DBG-SHOW-AT during a console debug session.
+: SZ-DBG-FACILITY-CLOSE  ( -- )
+   SZ-DBG-FACILITY-OWNED @ IF
+      0 SZ-DBG-FACILITY-OWNED !
+      SZ-EDITOR-LEAVE
+      FACILITY-OFF
+   THEN
+;
+
 : SZ-DBG-RUN  ( -- )
    SZ-DBG-XT @ DUP 0= IF  DROP EXIT  THEN
+   SZ-DBG-BUSY @ IF
+      DROP 0 SZ-DBG-XT !
+      ." DBG: already in a debug session (nested DBG ignored)" CR
+      EXIT
+   THEN
    0 SZ-DBG-XT !
    \ Idle-console DBG has no command-pane emit; keep >> lines off the grid.
    -1 (SZ-CONSOLE-EMIT)
    SZ-DBG-KEYS-ON                 \ 5th help column: step / abort / go
+   -1 SZ-DBG-BUSY !
    DBG-ON CATCH               ( ior )
    DBG-OFF
+   0 SZ-DBG-BUSY !
    SZ-DBG-KEYS-OFF
+   SZ-DBG-FACILITY-CLOSE
    0 (SZ-CONSOLE-EMIT)
    \ Esc/q abort uses THROW -1; drop it so the editor stays up at the prompt.
    DUP -1 = IF  DROP ELSE  THROW  THEN
@@ -779,6 +806,38 @@ VARIABLE SZ-TDBG-XT
    SZ-VIEW-RELEASE
    SZ-GOTO-LINE-RAW
    SZ-REVEAL-NEAR-TOP
+;
+
+\ Non-blocking load+show for DBG-SYNC mid-step. Does not enter SZ-EDIT-LOOP.
+\ Defined after SZ-GOTO-LINE. ( c-addr u line -- flag )
+: SZ-DBG-SHOW-AT  ( c-addr u line -- flag )
+   >R                                 \ R: line
+   255 MIN SZ-PATH-TMP SZ-PLACE
+   SZ-PATH-TMP COUNT SZ-ENSURE-FTH    \ a u
+   SZ-HAS-NAME? IF
+      2DUP SZ-GET-NAME COMPARE 0= IF
+         2DROP R> SZ-GOTO-LINE
+         SZ-EDITOR-ACTIVE @ 0= IF  -1 SZ-DBG-FACILITY-OWNED !  THEN
+         SZ-EDITOR-ENTER
+         SZ-DBG-KEYS-ON
+         SZ-REDRAW
+         TRUE EXIT
+      THEN
+   THEN
+   \ Different file: refuse to clobber a dirty buffer mid-debug.
+   SZ-EDITOR-ACTIVE @ SZ-MODIFIED @ AND IF
+      R> DROP 2DROP FALSE EXIT
+   THEN
+   2DUP SZ-LOAD IF
+      R> DROP 2DROP FALSE EXIT
+   THEN
+   2DROP
+   R> SZ-GOTO-LINE
+   SZ-EDITOR-ACTIVE @ 0= IF  -1 SZ-DBG-FACILITY-OWNED !  THEN
+   SZ-EDITOR-ENTER
+   SZ-DBG-KEYS-ON
+   SZ-REDRAW
+   TRUE
 ;
 
 \ -----------------------------------------------------------------------------

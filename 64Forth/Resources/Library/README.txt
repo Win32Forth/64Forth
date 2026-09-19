@@ -14,7 +14,7 @@ Examples
   FROMLIB FLOAD BigInteger/big-int.fth
   FROMLIB FLOAD PI/pi-test.fth
   FROMLIB FLOAD xchar-smoke.fth
-  FROMLIB FLOAD Debugger/debug-bp.fth   \ BREAK / BPGO (also AutoLoad-first)
+  FROMLIB FLOAD Debugger/debugger.fth  \ DEBUG hub + loads Debugger/* (AutoLoad)
   FROMLIB FLOAD Editor/SZ-EDITOR.fth
   FROMLIB SZEDIT Editor/SZ-EDITOR-README.txt
   FROMLIB FLOAD Assembler/asmarm64.fth     \ AArch64 host toolkit (not used by TCOM)

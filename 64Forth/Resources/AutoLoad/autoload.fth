@@ -16,8 +16,8 @@
 \ application builder and the hyper text system as part of what the user has
 \ available when they start using 64Forth
 \ FILE-ECHO ON
-    \ ITC BREAK/BPGO — before Editor (does not need SZ-*)
-    FROMLIB REQUIRE Debugger/debug-bp.fth
+    \ ITC DEBUG (hub loads Debugger/*; leaves ALSO DEBUGGER on the order)
+    FROMLIB REQUIRE Debugger/debugger.fth
     FROMLIB REQUIRE EDITOR/SZ-EDITOR.fth
     \ Size follows the graphic window on each SZ-REDRAW (SZ-SYNC-SIZE).
     EDITOR 80 20 SET-EDIT-WINDOW FORTH
@@ -27,7 +27,8 @@
     HYPER-VOC MIN-HYPER-NOISE ON FORTH
     HYPER-REINDEX
 
-ONLY FORTH DEFINITIONS
+\ Keep DEBUGGER on the search order (BREAK / BPGO / hub DEFERs).
+ONLY FORTH ALSO DEBUGGER DEFINITIONS
 
 \ --- Required boot word ------------------------------------------------------
 \ Host executes MAIN once after autoload. Wrap the body in CATCH so faults
