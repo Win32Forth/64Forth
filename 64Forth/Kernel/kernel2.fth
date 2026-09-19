@@ -253,6 +253,9 @@ DOC" (INCLUDED-BODY) ( c-addr u -- ) slurp + EVALUATE + FREE (no load-cwd)"
     R> FREE DROP                     \ drop FREE ior
     THROW ;
 
+CREATE INC-KEY  256 ALLOT
+VARIABLE INC-LEN
+
 DOC" INCLUDED ( c-addr u -- ) resolve (FROMLIB), load-cwd, slurp, EVALUATE, FREE"
 \ BEGIN/END-LOAD-CWD so nested relative FLOAD/OPEN-FILE match CODE (INCLUDED).
 \ On THROW from the body, CATCH restores the path (c-addr u) under ior — drop
@@ -260,10 +263,12 @@ DOC" INCLUDED ( c-addr u -- ) resolve (FROMLIB), load-cwd, slurp, EVALUATE, FREE
 : INCLUDED  ( c-addr u -- )
     RESOLVE-KEY                      \ c-addr' u' in include_name_pending
     DUP 0= IF 2DROP EXIT THEN
+    2DUP  255 MIN  INC-KEY SWAP  DUP INC-LEN ! MOVE
     2DUP BEGIN-LOAD-CWD
     ['] (INCLUDED-BODY) CATCH        \ 0 | c-addr u ior
     END-LOAD-CWD
-    ?DUP IF  >R 2DROP R> THROW  THEN ;
+    ?DUP IF  >R 2DROP R> THROW  THEN
+    INC-KEY INC-LEN @ REGISTER-INCLUDED-STR ;
 
 DOC" INCLUDE ( name|bare|quoted-path -- ) named INCLUDED; bare opens dialog"
 \ PARSE-FILESPEC supports quoted paths with spaces (unlike BL WORD).

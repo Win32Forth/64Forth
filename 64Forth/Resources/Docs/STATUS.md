@@ -126,7 +126,7 @@ Append new design sections as we go; mark items done when implemented.
 - Related cold-load / vocabulary cleanup: AutoLoad `vocsys.fth`, quieter EMITTER native-helper rechain, Assembler touch-ups, HYPER.NDX refresh
 
 *Debugger*
-- **8 breakpoints** via **`BREAK`** / **`BPGO`** (topword) — `debug-bp.fth` + kernel support
+- **8 breakpoints** via **`BREAK`** / **`BPGO`** (topword) — `Library/Debugger/debug-bp.fth` (AutoLoad) + kernel `BREAK-TABLE` / `(BP-GO)`
 
 **Release:** `64Forth/releases/64Forth-1.3.7-macOS.dmg` + GitHub `v1.3.7`
 

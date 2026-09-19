@@ -64,8 +64,8 @@ Keys while editing (SZ-KEY)
 Debug help (DBG / DEBUG / TDBG — only while a session is armed)
 ----------------------------------------------------------------
   A 5th help column appears to the right of "find Cmd-F/G":
-    Step:  F6=over  F7=in  F8=out
-    Escape/q=abort Cmd-Shift-Y=go
+    Step: F6/spc/o=over F7/i=in F8=out
+    Esc/q=abort Cmd-Shift-Y/g=go
 
 Display
 -------

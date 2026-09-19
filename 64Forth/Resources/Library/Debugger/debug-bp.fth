@@ -1,3 +1,7 @@
+\ debug-bp.fth — BREAK / UNBREAK / BPGO (ITC DEBUG breakpoints)
+\ Loaded from AutoLoad (first) via FROMLIB REQUIRE Debugger/debug-bp.fth.
+\ Kernel provides BREAK-TABLE and (BP-GO); this file is the Forth UI.
+
 8 CONSTANT #BREAKS
 
 : NOBREAKS  ( -- )

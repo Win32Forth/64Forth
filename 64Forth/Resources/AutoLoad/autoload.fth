@@ -12,10 +12,12 @@
 \
 \ After this file loads, the host runs MAIN once (if defined), then the REPL.
 
-\ by default, we are loading the editor, the Emitter application builder and
-\ the hyper text system as part of what the user has available when they
-\ start using 64Forth
+\ by default, we are loading the debugger helpers, the editor, the Emitter
+\ application builder and the hyper text system as part of what the user has
+\ available when they start using 64Forth
 \ FILE-ECHO ON
+    \ ITC BREAK/BPGO — before Editor (does not need SZ-*)
+    FROMLIB REQUIRE Debugger/debug-bp.fth
     FROMLIB REQUIRE EDITOR/SZ-EDITOR.fth
     \ Size follows the graphic window on each SZ-REDRAW (SZ-SYNC-SIZE).
     EDITOR 80 20 SET-EDIT-WINDOW FORTH

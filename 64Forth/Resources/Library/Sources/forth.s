@@ -3990,6 +3990,16 @@ XPINCLUDED:
     bl   _copy_to_word_scratch
     b    _include_with_len
 
+BOOT_WORD "REGISTER-INCLUDED-STR", "REGISTER-INCLUDED-STR ( c-addr u -- ) add path to included registry", 0, XREG_INC_STR
+XREG_INC_STR:
+    mov  x1, x20
+    ldr  x0, [x22], #8
+    ldr  x20, [x22], #8
+    bl   _copy_to_word_scratch     // x0=addr, x1=len → word_scratch; x25=len
+    bl   _include_save_name
+    bl   _included_register_pending
+    NEXT
+
 // REQUIRED ( c-addr u -- )  load once
 
     BOOT_WORD "REQUIRED", "REQUIRED ( c-addr u -- ) INCLUDED if file-spec not yet loaded", 0, XREQUIRED
@@ -11411,8 +11421,8 @@ _file_echo_upto_cursor:
     adrp x4, file_echo_pos@page
     add x4, x4, file_echo_pos@pageoff
     str x1, [x4]
-    mov x0, #10
-    bl _putchar
+//    mov x0, #10
+//    bl _putchar
 _fe_done:
     ldp x29, x30, [sp], #16
     ret
@@ -16391,7 +16401,7 @@ eval_arg_len:   .quad 0
 forth_init_str:
     .incbin "kernel1.fth"
     .incbin "kernel2.fth"
-    .incbin "debug-bp.fth"
+    // BREAK/BPGO Forth UI: Library/Debugger/debug-bp.fth (AutoLoad, before Editor)
     .incbin "vocemit.fth"
     .incbin "app-output.fth"
     .incbin "app-points.fth"

@@ -861,7 +861,7 @@ VARIABLE SZ-NUMN
  18 CONSTANT SZ-HELP-W1          \ " Cmd-E/click VIEW " / " drag/Shift-click "
  20 CONSTANT SZ-HELP-W2          \ " Cmd-PgUp/Dn visits " / " dbl-word tri-line "
  17 CONSTANT SZ-HELP-W3          \ " side: line# [X] " / " Cmd-click VIEW "
- 32 CONSTANT SZ-HELP-W5          \ debug only: step/abort lines (~30 chars + pads)
+ 36 CONSTANT SZ-HELP-W5          \ debug only: step/abort lines (pad + ~34 chars)
 \ W4 = remaining inner width after W1+W2+W3 [+W5] + separators
 
 \ Nonzero while an ITC/TCOM debug session is armed — shows the 5th help column.
@@ -964,14 +964,15 @@ VARIABLE SZ-HELP-A5  VARIABLE SZ-HELP-U5
 \ Optional 5th column (debug keys) when SZ-DBG-KEYS is set — right of find.
 : SZ-SHOW-HELP  ( -- )
    SZ-DBG-KEYS @ IF
-      S" Step:  F6=over  F7=in  F8=out" SZ-HELP-U5 ! SZ-HELP-A5 !
+      \ Aliases: Space/o=over, i=into; F8=out (o is over, not out)
+      S" Step: F6/spc/o=over F7/i=in F8=out" SZ-HELP-U5 ! SZ-HELP-A5 !
    THEN
    \ Row1 — W1 matches "Cmd-E/click VIEW" (16); row2 pads to same width
    S" Cmd-E/click VIEW" S" Cmd-PgUp/Dn visits"
    S" side: line# [X]" S" find Cmd-F/G"
    SZ-HELP1 @ SZ-HELP-LINE
    SZ-DBG-KEYS @ IF
-      S" Escape/q=abort Cmd-Shift-Y=go" SZ-HELP-U5 ! SZ-HELP-A5 !
+      S" Esc/q=abort Cmd-Shift-Y/g=go" SZ-HELP-U5 ! SZ-HELP-A5 !
    THEN
    \ Row2 — "drag/Shift-click" (15) padded to W1=16 so │ lines up under row1
    S" drag/Shift-click" S" dbl-word tri-line"
