@@ -1762,6 +1762,11 @@ final class KernelBridge {
         }
     }
 
+    /// Text emitted during `kernel_init` (cold `.incbin` blobs) and immediate
+    /// post-init host diagnostics, before any console/agent sink was attached.
+    /// Retained for Help → Show Boot Messages and console auto-insert; survives CLS.
+    private(set) var bootTranscript: String = ""
+
     /// Coalesced emit buffer. Kernel TYPE/EMIT fires per character; without
     /// batching, each char schedules a main-queue NSTextView update and the UI
     /// freezes (spinning beach ball) during Hayes / long INCLUDE.
@@ -1863,10 +1868,6 @@ final class KernelBridge {
         isKernelLive = (rc == 0)
         // Re-install after init in case anything reset dispositions.
         Self.installMemoryFaultHandlers()
-        lock.lock()
-        pendingEmit = ""
-        pendingEmitBytes = []
-        lock.unlock()
         FileHost.shared.releaseIncludeBuffers()
         FileHost.shared.endAllLoadCwds()
         FileHost.shared.endAllFromLibraryLoads()
@@ -1876,6 +1877,16 @@ final class KernelBridge {
         if let err = BigIntHost.selfTest() {
             handleEmitString("[64Forth] BigIntHost self-test FAILED: \(err)\n")
         }
+        // Retain cold-bootstrap emit for the console / Help menu. Do not discard:
+        // previously this wipe hid undefined/ABORT" from `.incbin` blobs because
+        // onEmit was still nil during kernel_init. Snapshot then clear pending so
+        // the GUI can present a headed section once (agent reads bootTranscript).
+        lock.lock()
+        absorbEmitBytesLocked()
+        bootTranscript = pendingEmit
+        pendingEmit = ""
+        pendingEmitBytes = []
+        lock.unlock()
     }
 
     /// Expected UTF-8 sequence length from a leading byte (1…4). Continuation/invalid → 1.

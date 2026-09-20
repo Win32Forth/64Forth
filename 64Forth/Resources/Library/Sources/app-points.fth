@@ -31,7 +31,7 @@
 \ Smoke test:  GRAPHICS-PSMOKE
 \
 \ Public domain.
-
+.( Loading: app-point.fth) CR
 ONLY FORTH ALSO GRAPHICS DEFINITIONS
 
 DOC" G-CELLW ( -- n ) pixel width of one character cell"

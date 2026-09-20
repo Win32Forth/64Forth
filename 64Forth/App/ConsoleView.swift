@@ -47,13 +47,15 @@ extension Notification.Name {
     /// SZ-EDITOR / idle: ⌘PgUp / ⌘PgDn — Hyper prev/next hit.
     static let hyperPrev = Notification.Name("SixtyFourForthHyperPrev")
     static let hyperNext = Notification.Name("SixtyFourForthHyperNext")
+    /// Help → Show Boot Messages — re-append retained cold-bootstrap emit.
+    static let showBootMessages = Notification.Name("SixtyFourForthShowBootMessages")
 }
 
 // Console header. Update version when bumping MARKETING_VERSION.
 // Update the date/time stamp only when finishing a change set for a version —
 // just before DMG + commit/push (not on every intermediate build).
 // Format: === 64Forth M.N.P === Mon D, YYYY H:MM AM/PM ===
-private let banner = "=== 64Forth 1.4.1 === Sep 19, 2026 9:40 PM ===\n"
+private let banner = "=== 64Forth 1.4.1 === Sep 19, 2026 10:50 PM ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner
@@ -239,7 +241,9 @@ struct ConsoleView: View {
         kernel.onHostClearConsole = {
             self.clearConsole()
         }
-        // Startup: banner → cwd + blank line → AutoLoad → host prompt.
+        // Startup: banner → cwd → AutoLoad → prompt.
+        // Cold-blob Loading/Finished chatter is retained in bootTranscript but not
+        // auto-inserted (Help → Show Boot Messages). Autoload TYPE goes through onEmit.
         isProgrammaticConsoleAppend = true
         appendEngineOutput("Working folder: \(host.logicalCurrentDirectory)\n\n")
         markProtectedThroughEndOfText()
@@ -255,6 +259,24 @@ struct ConsoleView: View {
             isProgrammaticConsoleAppend = false
             keepCursorVisible(followPrompt: true)
         }
+    }
+
+    /// Help → Show Boot Messages: append retained cold-bootstrap emit (Loading markers,
+    /// undefined, etc.). Survives CLS; not auto-inserted at startup.
+    private func appendBootMessagesIfPresent(force: Bool) {
+        let text = kernel.bootTranscript
+        if text.isEmpty {
+            if force {
+                appendEngineOutput("No cold-bootstrap messages.\n")
+            }
+            return
+        }
+        var block = "=== Cold bootstrap messages ===\n"
+        block += text
+        if !text.hasSuffix("\n") {
+            block += "\n"
+        }
+        appendEngineOutput(block)
     }
 
     private func handleConsoleTextChange(oldValue: String, newValue: String) {
@@ -284,6 +306,9 @@ struct ConsoleView: View {
         content
             .onReceive(NotificationCenter.default.publisher(for: .clearConsole)) { _ in
                 clearConsole()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showBootMessages)) { _ in
+                showBootMessages()
             }
             .onReceive(NotificationCenter.default.publisher(for: .fileSave)) { _ in
                 handleFileSave()
@@ -711,6 +736,19 @@ struct ConsoleView: View {
         consoleText = banner
         markProtectedThroughEndOfText()
         appendEngineOutput("Working folder: \(host.logicalCurrentDirectory)\n\n")
+        appendPrompt()
+        isProgrammaticConsoleAppend = false
+        keepCursorVisible(followPrompt: true)
+    }
+
+    /// Help → Show Boot Messages: re-append retained cold-bootstrap emit (survives CLS).
+    private func showBootMessages() {
+        isProgrammaticConsoleAppend = true
+        if !consoleText.hasSuffix("\n") {
+            appendEngineOutput("\n")
+        }
+        appendBootMessagesIfPresent(force: true)
+        markProtectedThroughEndOfText()
         appendPrompt()
         isProgrammaticConsoleAppend = false
         keepCursorVisible(followPrompt: true)

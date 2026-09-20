@@ -4,12 +4,12 @@
 \   >FLAGS ( xt -- a-addr )  FLAGS at CFA-8
 \   >CODE  ( xt -- a-addr )  CFA itself
 \   >BODY  ( xt -- a-addr )  CFA+8
-
+.( Loading: kernel1.fth) CR
 \ DOC" needs SETDOC (CODE). Define DOC" first, then document HERE via redefine.
 : DOC" 34 PARSE SETDOC ;
 DOC" HERE ( -- addr ) current dictionary pointer (DP @)"
 : HERE DP @ ;
-  
+
 \ --- 1. Simple ANS helpers ---
 DOC" CHAR+ ( addr -- addr' ) add size of one char"
 : CHAR+ 1+ ;

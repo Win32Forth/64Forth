@@ -1,3 +1,5 @@
+\ kernel2.fth
+.( Loading: kernel2.fth) CR
 \ --- 4b. Pictured numeric output ---
 DOC" HLD ( -- addr ) pictured output pointer variable"
 VARIABLE HLD

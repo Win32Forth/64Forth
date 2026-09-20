@@ -5,7 +5,7 @@
 \ move emitter-only boot words out of FORTH so they never appear there,
 \ then leave ONLY FORTH DEFINITIONS. Slicer sources FLOAD later under
 \ ALSO EMITTER DEFINITIONS (see Emitter/emitter.fth).
-
+.( Loading: vocemit.fth) CR
 ONLY FORTH DEFINITIONS
 DECIMAL
 

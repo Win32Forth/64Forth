@@ -29,8 +29,11 @@
     \ Maps already loaded with Debugger; bind Editor/Hyper links now.
     ALSO DEBUGGER  DBG-ED-INSTALL DROP  PREVIOUS
 
-\ Keep DEBUGGER on the search order (BREAK / BPGO / hub DEFERs).
-ONLY FORTH ALSO DEBUGGER DEFINITIONS
+\ Boot: ONLY FORTH ALSO DEFINITIONS (FORTH FORTH, CURRENT=FORTH).
+\ ALSO leaves a spare FORTH slot for vocabulary context; DEFINITIONS → FORTH.
+\ BREAK/BPGO live in FORTH (debugger.fth rechains them). Type DEBUGGER to
+\ PUSH-ORDER hub words when needed.
+ONLY FORTH ALSO DEFINITIONS
 
 \ --- Required boot word ------------------------------------------------------
 \ Host executes MAIN once after autoload. Wrap the body in CATCH so faults

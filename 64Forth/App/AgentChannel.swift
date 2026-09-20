@@ -94,6 +94,14 @@ enum AgentChannel {
         }
         // Flush anything buffered during KernelBridge.init before onEmit was set.
         kernel.forceFlushEmitSync()
+        // Cold-blob / post-init diagnostics are snapshotted into bootTranscript
+        // (pendingEmit is cleared after the snapshot so the GUI can format them).
+        if !kernel.bootTranscript.isEmpty {
+            appendOut(kernel.bootTranscript)
+            if !kernel.bootTranscript.hasSuffix("\n") {
+                appendOut("\n")
+            }
+        }
 
         appendOut("[64Forth agent] start\n")
         if !kernel.isKernelLive {

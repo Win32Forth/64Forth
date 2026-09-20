@@ -6,6 +6,7 @@
 \ then leaves ONLY FORTH DEFINITIONS.
 \
 \ EMITTER rechain stays in vocemit.fth (earlier in the cold blob).
+.( Loading: vocsys.fth) CR
 ONLY FORTH DEFINITIONS
 DECIMAL
 
@@ -215,3 +216,4 @@ ALSO SYSVOC
 ' (SLURP)        >SYSVOC
 
 ONLY FORTH DEFINITIONS
+.( Finished Loading: vocsys.fth) CR

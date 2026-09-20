@@ -159,6 +159,11 @@ struct SixtyFourForthApp: App {
                     FileHost.shared.revealInFinder(FileHost.shared.configURL)
                 }
             }
+            CommandGroup(after: .help) {
+                Button("Show Boot Messages") {
+                    NotificationCenter.default.post(name: .showBootMessages, object: nil)
+                }
+            }
         }
     }
 }

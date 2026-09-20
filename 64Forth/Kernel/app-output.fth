@@ -19,7 +19,7 @@
 \   ALSO GRAPHICS  GRAPHICS-SMOKE
 \
 \ Public domain.
-
+.( Loading: app-output.fth) CR
 FORTH DEFINITIONS
 DECIMAL
 

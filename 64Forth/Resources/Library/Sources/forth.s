@@ -4995,23 +4995,46 @@ _wordlist_register:
 // VIEW source tracking (file-id + line in FLAGS)
 // ---------------------------------------------------------------------------
 
-// _view_line_now: → x0 = 1-based line in current SOURCE, or 0 if none.
-// Counts newlines in [source_addr, source_addr + >IN).
-_view_line_now:
-    adrp x0, view_src_id@page
-    add  x0, x0, view_src_id@pageoff
-    ldr  x0, [x0]
-    cbz  x0, 9f                    // no registered file
-    adrp x0, source_id_var@page
-    add  x0, x0, source_id_var@pageoff
-    ldr  x0, [x0]
-    cbz  x0, 9f                    // console SOURCE
+// _source_line_now: → x0 = 1-based line in current SOURCE (always).
+// Counts LF (10) in [source_addr, source_addr + >IN). No VIEW / SOURCE-ID gates.
+_source_line_now:
     adrp x1, source_addr@page
     add  x1, x1, source_addr@pageoff
     ldr  x1, [x1]
     adrp x2, to_in_var@page
     add  x2, x2, to_in_var@pageoff
     ldr  x2, [x2]                  // >IN
+    b    _source_line_at
+
+// _source_line_at_token: like _source_line_now, but backs >IN over trailing
+// whitespace (SPACE/TAB/CR/LF) first so an undefined token reports the line it
+// was on, not the following line after WORD advanced past it.
+_source_line_at_token:
+    adrp x1, source_addr@page
+    add  x1, x1, source_addr@pageoff
+    ldr  x1, [x1]
+    adrp x2, to_in_var@page
+    add  x2, x2, to_in_var@pageoff
+    ldr  x2, [x2]                  // >IN
+1:
+    cbz  x2, _source_line_at
+    sub  x3, x2, #1
+    ldrb w4, [x1, x3]
+    cmp  w4, #32                   // BL
+    b.eq 2f
+    cmp  w4, #9                    // TAB
+    b.eq 2f
+    cmp  w4, #10                   // LF
+    b.eq 2f
+    cmp  w4, #13                   // CR
+    b.eq 2f
+    b    _source_line_at           // landed on token char
+2:
+    mov  x2, x3
+    b    1b
+
+// _source_line_at: x1=source base, x2=offset → x0 = 1-based line.
+_source_line_at:
     mov  x0, #1                    // line
     mov  x3, #0                    // i
 1:
@@ -5026,6 +5049,19 @@ _view_line_now:
     b    1b
 8:
     ret
+
+// _view_line_now: → x0 = 1-based line in current SOURCE, or 0 if none.
+// VIEW stamping only: needs a registered file and non-console SOURCE.
+_view_line_now:
+    adrp x0, view_src_id@page
+    add  x0, x0, view_src_id@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 9f                    // no registered file
+    adrp x0, source_id_var@page
+    add  x0, x0, source_id_var@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 9f                    // console SOURCE
+    b    _source_line_now
 9:
     mov  x0, #0
     ret
@@ -11406,6 +11442,9 @@ _capture_undef_name:
     ret
 
 // _report_undefined: print "undefined: <name>\n" via host emit (length-accurate).
+// When interpreting a file load (CODE INCLUDE, or high-level INCLUDED/FLOAD/
+// Autoload with a pending include name), append "  (path:line)" using the same
+// predicate as FILE-ECHO. Console / cold-blob SOURCE stays bare.
 _report_undefined:
     stp  x29, x30, [sp, #-16]!
     adrp x0, str_undefined@page
@@ -11426,8 +11465,52 @@ _report_undefined:
     add  x0, x0, word_scratch@pageoff
     bl   _print_string_svc
 2:
+    bl   _report_undef_loc
     mov  x0, #10
     bl   _putchar
+    ldp  x29, x30, [sp], #16
+    ret
+
+// _report_undef_loc: if current SOURCE is a file load, emit "  (path:line)".
+_report_undef_loc:
+    stp  x29, x30, [sp, #-16]!
+    // SOURCE-ID > 0 → CODE INCLUDE
+    adrp x0, source_id_var@page
+    add  x0, x0, source_id_var@pageoff
+    ldr  x0, [x0]
+    cmp  x0, #0
+    b.gt 1f
+    // SOURCE-ID == -1 and include_name_len != 0 → high-level INCLUDED/FLOAD
+    cmn  x0, #1
+    b.ne 9f
+    adrp x0, include_name_len@page
+    add  x0, x0, include_name_len@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 9f
+1:
+    adrp x1, include_name_len@page
+    add  x1, x1, include_name_len@pageoff
+    ldr  x1, [x1]
+    cbz  x1, 9f                    // no path to print
+    mov  x0, #32                   // ' '
+    bl   _putchar
+    mov  x0, #32
+    bl   _putchar
+    mov  x0, #40                   // '('
+    bl   _putchar
+    adrp x0, include_name_pending@page
+    add  x0, x0, include_name_pending@pageoff
+    adrp x1, include_name_len@page
+    add  x1, x1, include_name_len@pageoff
+    ldr  x1, [x1]
+    bl   _write_stdout
+    mov  x0, #58                   // ':'
+    bl   _putchar
+    bl   _source_line_at_token
+    bl   _print_unsigned
+    mov  x0, #41                   // ')'
+    bl   _putchar
+9:
     ldp  x29, x30, [sp], #16
     ret
 

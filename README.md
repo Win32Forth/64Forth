@@ -69,7 +69,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ## Status (v1.4.1)
 
-- [x] **v1.4.1:** TRAVERSE trampoline DBG resolve/HL; `_ip_find_colon` over `WORDLISTS`; `HYPER-STAMP-COLD` ALSO SYSVOC/EDITOR/GRAPHICS; Debugger `dbg-map`/`dbg-ed` hub; R-stack display ≤4 — **repo checkpoint** (no DMG tonight)
+- [x] **v1.4.1:** TRAVERSE trampoline DBG resolve/HL; `_ip_find_colon` over `WORDLISTS`; `HYPER-STAMP-COLD` ALSO SYSVOC/EDITOR/GRAPHICS; Debugger `dbg-map`/`dbg-ed` hub; R-stack display ≤4; cold boot transcript + Help → Show Boot Messages; INCLUDE/FLOAD undefined `file:line`; cold `.( Loading: … )` markers — DMG + GitHub release
 - [x] **v1.4.0:** DEBUG token maps (`dbg-map.fth`); comment-safe highlight; taken-IF dest; `I>>` / LIT xt names / DOCOL-only step-over; pause stack columns; BS cursor erase; undefined report + FILE-ECHO polish; DMG + GitHub release
 - [x] **v1.3.9:** High-level `INCLUDED` load-cwd; quoted `FLOAD` paths; `can't open:` + `THROW -38`; CATCH/`EVALUATE` `source_sp`; signed THROW; agent `INCLUDED`; Bubble Sort stack fix; DMG + GitHub release
 - [x] **v1.3.8:** **SZ-EDITOR** in its own window (three-window model: Console / SZ-EDITOR / App Output); live Console REPL while editor KEY waits; `SEE` decompile vs `VIEW` editor; DMG + GitHub release
@@ -93,7 +93,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 - [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Agent-channel.md`
 - [ ] **Later (optional):** DMG `/Volumes/…` open noise — see STATUS
 
-**Console header** (GUI): `=== 64Forth 1.4.1 === Sep 19, 2026 9:40 PM ===`  
+**Console header** (GUI): `=== 64Forth 1.4.1 === Sep 19, 2026 10:50 PM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
 
 **Windows (macOS):** **Console** (Forth REPL) · **SZ-EDITOR** (`FacilityEditorHost`, facility grid) · **App Output** (GRAPHICS / Emitter only). Do not merge the editor into App Output. iOS: Console only (no SZ-EDITOR host).

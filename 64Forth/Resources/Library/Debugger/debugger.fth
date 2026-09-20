@@ -63,6 +63,19 @@ FROMLIB REQUIRE Debugger/dbg-map.fth
 DBG-PAUSE-INSTALL
 DBG-KEY-INSTALL
 
-\ Session: FORTH + DEBUGGER; define into FORTH by default after load.
-ONLY FORTH ALSO DEBUGGER
-FORTH-WORDLIST SET-CURRENT
+\ User entry points into FORTH so ONLY FORTH (Autoload / Hayes) still finds them.
+\ DEBUGGER vocabulary remains for hub helpers; type DEBUGGER to PUSH-ORDER it.
+ALSO SYSVOC
+: (DBG>FORTH)  ( xt -- )  ['] DEBUGGER VOC-WID FORTH-WORDLIST XT>WL-FROM ;
+' NOBREAKS   (DBG>FORTH)
+' BREAK-XT   (DBG>FORTH)
+' UNBREAK-XT (DBG>FORTH)
+' BREAK      (DBG>FORTH)
+' UNBREAK    (DBG>FORTH)
+' .BREAKS    (DBG>FORTH)
+' BPGO-XT    (DBG>FORTH)
+' BPGO       (DBG>FORTH)
+PREVIOUS
+
+\ Leave ANS-style order for Autoload to finalize (ONLY FORTH ALSO DEFINITIONS).
+ONLY FORTH ALSO DEFINITIONS
