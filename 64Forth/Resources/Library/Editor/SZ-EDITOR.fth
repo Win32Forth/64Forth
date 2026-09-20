@@ -94,9 +94,9 @@ ONLY FORTH DEFINITIONS
   [DEFINED] HYPER-BIND-EDITOR [IF]
     HYPER-BIND-EDITOR DROP
   [THEN]
-  [DEFINED] DBG-MAP-BIND [IF]
-    DBG-MAP-BIND DROP
-  [THEN]
   PREVIOUS
 [THEN]
+\ DBG-ED-INSTALL is called from Autoload after Hyper (and from
+\ HYPER-BIND-EDITOR). Do not call it here — search-order during
+\ SZ-EDITOR load is hostile and INSTALL must see a stable EDITOR.
 

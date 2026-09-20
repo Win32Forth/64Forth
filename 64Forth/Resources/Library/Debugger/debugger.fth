@@ -3,8 +3,8 @@
 \ Sole Autoload entry for Library/Debugger/. Loads sibling files in order and
 \ owns the DEBUGGER vocabulary.
 \
-\ Phase 3: Forth key policy (DBG-KEY-XT) — short call_xt; asm prints/waits/applies.
-\ Phase 2 full pause UI remains opt-in only (DBG-PAUSE-INSTALL; known crash).
+\ Phase 2: full Forth pause UI via DBG-PAUSE-INSTALL (default after Autoload).
+\ Phase 3: Forth key policy (DBG-KEY-XT) — used when DBG-PAUSE-XT is 0 (asm UI).
 \
 \ Kernel: DBG-SHOW-XT, DBG-HL-XT, DBG-WHEEL-XT, DBG-PAUSE-XT, DBG-KEY-XT,
 \ DBG-SYNC-OK, BREAK-TABLE, (BP-GO), DBG-*@, DBG-STEP-*, DBG-.SR, …
@@ -54,10 +54,14 @@ DEFER DBG-PAUSE         \ ( -- )  full pause UI: print, wait key, set step mode
 
 FROMLIB REQUIRE Debugger/debug-bp.fth
 FROMLIB REQUIRE Debugger/dbg-pause.fth
+\ Editor/Hyper links (DEFERs) then token maps — no Editor required at load.
+FROMLIB REQUIRE Debugger/dbg-ed.fth
+FROMLIB REQUIRE Debugger/dbg-map.fth
 
-\ Phase 3 — Forth maps keys; asm pause UI applies modes.
+\ Phase 2 — full Forth pause UI (print / EKEY / step). Revert: 0 DBG-PAUSE-XT !
+\ Phase 3 — also arm key decode for asm fallback when PAUSE-XT is cleared.
+DBG-PAUSE-INSTALL
 DBG-KEY-INSTALL
-\ Phase 2 full UI — not armed (DBG-PAUSE-INSTALL still unsafe).
 
 \ Session: FORTH + DEBUGGER; define into FORTH by default after load.
 ONLY FORTH ALSO DEBUGGER

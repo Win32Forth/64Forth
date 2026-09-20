@@ -1,23 +1,19 @@
-\ dbg-map.fth — debug-time colon token maps (autoload-on-top)
+\ dbg-map.fth — debug-time colon token maps (Library/Debugger)
 \
 \ Own body-walk (Emitter-style rules; no Emitter FLOAD).
 \ ALLOCATE arena persists for the process; prune on ANEW-HOOK.
 \ Prefer IF/ELSE/THEN over EXIT inside {: … :} (locals frame safety).
 \
-\ Search order must include SYSVOC: DBG-CFA@ / (LOOP) / … live there.
-\ Prereqs: SZ-EDITOR loaded (SZ-TBUF / SZ-HIGHLIGHT-SPAN).
-\ Load: Hyper/hyper.fth does FROMLIB FLOAD Hyper/dbg-map.fth
+\ Loaded from debugger.fth after dbg-ed.fth. Uses DBG-ED-* DEFERs only —
+\ Editor/Hyper are not required at load; DBG-ED-INSTALL / DBG-MAP-BIND
+\ fill the links later.
+\
+\ Search order: SYSVOC (DBG-CFA@ / (LOOP) / …) + DEBUGGER (DBG-ED-*).
 
-ONLY FORTH ALSO SYSVOC ALSO EDITOR
+ONLY FORTH ALSO SYSVOC ALSO DEBUGGER DEFINITIONS
 
-[UNDEFINED] SZ-TBUF [IF]
-  .( dbg-map: need Editor first — FROMLIB FLOAD Editor/SZ-EDITOR.fth ) CR
-[ELSE]
-[UNDEFINED] SZ-HIGHLIGHT-SPAN [IF]
-  .( dbg-map: need SZ-HIGHLIGHT-SPAN — reload updated Editor/sz-edit.fth ) CR
-[ELSE]
-[UNDEFINED] SZ-SKIP-COMMENT [IF]
-  .( dbg-map: need SZ-SKIP-COMMENT — reload updated Editor/sz-edit.fth ) CR
+[UNDEFINED] DBG-ED-TBUF [IF]
+  .( dbg-map: need dbg-ed.fth first — load via Debugger/debugger.fth ) CR
 [ELSE]
 
 [UNDEFINED] ANEW-HOOK [IF]
@@ -26,6 +22,7 @@ ONLY FORTH ALSO SYSVOC ALSO EDITOR
   : ANEW-HOOK-NOP  ( -- )  ;
   ' ANEW-HOOK-NOP IS ANEW-HOOK
   .( dbg-map: note — kernel ANEW-HOOK missing; local DEFER until rebuild) CR
+  ONLY FORTH ALSO SYSVOC ALSO DEBUGGER DEFINITIONS
 [THEN]
 
 [UNDEFINED] DBG-CFA@ [IF]
@@ -35,11 +32,8 @@ ONLY FORTH ALSO SYSVOC ALSO EDITOR
   : DBG-IP@    ( -- ip )     0 ;
   : DBG-XT@    ( -- xt )     0 ;
   .( dbg-map: note — DBG-CFA@/BODY# stubs; rebuild kernel for real maps) CR
+  ONLY FORTH ALSO SYSVOC ALSO DEBUGGER DEFINITIONS
 [THEN]
-
-\ Define maps into HYPER-VOC; keep SYSVOC+EDITOR visible for compile.
-ONLY FORTH ALSO SYSVOC ALSO HYPER-VOC DEFINITIONS
-ALSO EDITOR
 
 0 CONSTANT DBG-K-EMPTY
 1 CONSTANT DBG-K-CALL
@@ -54,9 +48,6 @@ ALSO EDITOR
 5 CONSTANT DBG-CMAP-HDR
 
 0 VALUE DBG-MAP-ROOT
-0 VALUE DBG-HL-NAME-XT
-0 VALUE DBG-HL-SPAN-XT
-0 VALUE DBG-HL-HIST-CLR-XT
 
 CREATE DBG-MAP-NAME  64 ALLOT
 
@@ -324,19 +315,19 @@ CREATE DBG-MAP-NAME  64 ALLOT
   u DBG-MAP-NAME C!
   a DBG-MAP-NAME CHAR+ u CMOVE ;
 
-\ Whole-word search for SZ-TOKEN in [from, limit).
+\ Whole-word search for DBG-ED-TOKEN in [from, limit).
 \ Skips \…EOL / ( … ) so names inside comments are not hits
 \ (e.g. "(SLURP)" in "\ empty file: (SLURP) …").
-\ No {: :} locals — SZ-SKIP-COMMENT uses >R; EXIT-in-locals hangs the app.
+\ No {: :} locals — DBG-ED-SKIP-COMMENT uses >R; EXIT-in-locals hangs the app.
 : DBG-SEARCH-TO  ( from limit -- addr|0 )
   >R                                    \ R: limit
   BEGIN
      DUP R@ U< 0= IF  R> 2DROP 0 EXIT  THEN
-     DUP R@ SZ-SKIP-COMMENT
+     DUP R@ DBG-ED-SKIP-COMMENT
      2DUP = IF
         DROP
-        DUP SZ-TOKEN C@ + R@ U> IF  R> 2DROP 0 EXIT  THEN
-        DUP SZ-WORD-HIT? IF  R> DROP EXIT  THEN
+        DUP DBG-ED-TOKEN C@ + R@ U> IF  R> 2DROP 0 EXIT  THEN
+        DUP DBG-ED-WORD-HIT? IF  R> DROP EXIT  THEN
         1+
      ELSE
         NIP
@@ -358,18 +349,18 @@ CREATE DBG-MAP-NAME  64 ALLOT
   {: cfa | from nameu colon after beg end found blank -- :}
   0 TO beg
   0 TO end
-  SZ-TBUF IF
+  DBG-ED-TBUF IF
      cfa DBG-MAP-LOAD-NAME
      DBG-MAP-NAME C@ TO nameu
      nameu IF
-        SZ-CUR @ DUP SZ-TBUF U< IF  DROP SZ-TBUF  THEN TO from
-        1 SZ-TOKEN C!  [CHAR] : SZ-TOKEN 1+ C!
-        from SZ-TEND DBG-SEARCH-TO TO colon
-        colon 0= IF  SZ-TBUF SZ-TEND DBG-SEARCH-TO TO colon  THEN
+        DBG-ED-CUR @ DUP DBG-ED-TBUF U< IF  DROP DBG-ED-TBUF  THEN TO from
+        1 DBG-ED-TOKEN C!  [CHAR] : DBG-ED-TOKEN 1+ C!
+        from DBG-ED-TEND DBG-SEARCH-TO TO colon
+        colon 0= IF  DBG-ED-TBUF DBG-ED-TEND DBG-SEARCH-TO TO colon  THEN
         colon IF
            colon 1+ TO after
            BEGIN
-              after SZ-TEND U< IF
+              after DBG-ED-TEND U< IF
                  after C@ DBG-BLANK? TO blank
                  blank
               ELSE
@@ -378,20 +369,20 @@ CREATE DBG-MAP-NAME  64 ALLOT
            WHILE
               after 1+ TO after
            REPEAT
-           DBG-MAP-NAME C@ SZ-TOKEN C!
-           DBG-MAP-NAME CHAR+ SZ-TOKEN CHAR+ DBG-MAP-NAME C@ CMOVE
-           after SZ-WORD-HIT? IF
+           DBG-MAP-NAME C@ DBG-ED-TOKEN C!
+           DBG-MAP-NAME CHAR+ DBG-ED-TOKEN CHAR+ DBG-MAP-NAME C@ CMOVE
+           after DBG-ED-WORD-HIT? IF
               after nameu + TO beg
-              1 SZ-TOKEN C!  [CHAR] ; SZ-TOKEN 1+ C!
-              beg SZ-TEND DBG-SEARCH-TO TO found
-              found IF  found TO end  ELSE  SZ-TEND TO end  THEN
+              1 DBG-ED-TOKEN C!  [CHAR] ; DBG-ED-TOKEN 1+ C!
+              beg DBG-ED-TEND DBG-SEARCH-TO TO found
+              found IF  found TO end  ELSE  DBG-ED-TEND TO end  THEN
            THEN
         THEN
      THEN
   THEN
   beg end ;
 \ Skip blanks and Forth comments; leave a at next code token.
-\ Must use SZ-SKIP-COMMENT (1-char-word "\" / "(" only) — never treat
+\ Must use DBG-ED-SKIP-COMMENT (1-char-word "\" / "(" only) — never treat
 \ "(SLURP)" as a paren comment, and never write [CHAR] \.
 \ No {: :} locals / no EXIT-in-locals (that locked up the DBG key loop).
 : DBG-SKIP-NOISE  ( a end -- a' )
@@ -401,7 +392,7 @@ CREATE DBG-MAP-NAME  64 ALLOT
      DUP C@ DBG-BLANK? IF
         1+
      ELSE
-        DUP R@ SZ-SKIP-COMMENT
+        DUP R@ DBG-ED-SKIP-COMMENT
         2DUP = IF  DROP R> DROP EXIT  THEN
         NIP
      THEN
@@ -411,8 +402,8 @@ CREATE DBG-MAP-NAME  64 ALLOT
 : DBG-SET-TOKEN  ( c-addr u -- )
   {: a u -- :}
   u 63 MIN TO u
-  u SZ-TOKEN C!
-  a SZ-TOKEN CHAR+ u CMOVE ;
+  u DBG-ED-TOKEN C!
+  a DBG-ED-TOKEN CHAR+ u CMOVE ;
 
 : DBG-ALIAS-SETUP  ( kind xt -- )
   {: kind xt -- :}
@@ -429,7 +420,7 @@ CREATE DBG-MAP-NAME  64 ALLOT
         ELSE  S" BRANCH" DBG-SET-TOKEN
         THEN THEN THEN THEN THEN THEN
      ELSE
-        0 SZ-TOKEN C!
+        0 DBG-ED-TOKEN C!
      THEN
   THEN ;
 \ Match one slot; update scan; write src-off/len into slot.
@@ -451,30 +442,15 @@ CREATE DBG-MAP-NAME  64 ALLOT
         ha IF  TRUE TO ok  THEN
      ELSE
         kind DBG-K-LIT = IF
-           \ ['] word → match xt name / ['] ; else decimal digits of pay
-           pay IF
-              pay 7 AND 0= IF
-                 pay 8 - @ 65535 AND DUP IF
-                    DUP 4096 U< IF
-                       pay SWAP - C@ DUP IF
-                          64 U< IF
-                             pay NAME>STRING DBG-SET-TOKEN
-                             scan end DBG-SEARCH-TO TO ha
-                             ha IF  TRUE TO ok  THEN
-                          THEN
-                       ELSE  DROP  THEN
-                    ELSE  DROP  THEN
-                 ELSE  DROP  THEN
-              THEN
-           THEN
-           ok 0= IF
-              3 SZ-TOKEN C!
-              [CHAR] [ SZ-TOKEN 1+ C!
-              [CHAR] ' SZ-TOKEN 2 + C!
-              [CHAR] ] SZ-TOKEN 3 + C!
-              scan end DBG-SEARCH-TO TO ha
-              ha IF  TRUE TO ok  THEN
-           THEN
+           \ Match ['] in source, else decimal digits of pay.
+           \ Do not probe [pay-8] / NAME>STRING on pay: LIT immediates like 16
+           \ are cell-aligned and pay 8 - @ XFETCHes address 8 (EXC_BAD_ACCESS).
+           3 DBG-ED-TOKEN C!
+           [CHAR] [ DBG-ED-TOKEN 1+ C!
+           [CHAR] ' DBG-ED-TOKEN 2 + C!
+           [CHAR] ] DBG-ED-TOKEN 3 + C!
+           scan end DBG-SEARCH-TO TO ha
+           ha IF  TRUE TO ok  THEN
            ok 0= IF
               pay 0 <# #S #> DBG-SET-TOKEN
               scan end DBG-SEARCH-TO TO ha
@@ -483,21 +459,21 @@ CREATE DBG-MAP-NAME  64 ALLOT
         ELSE
            kind DBG-K-SLIT = IF
               \ match opening S" or ."
-              2 SZ-TOKEN C!
-              [CHAR] S SZ-TOKEN 1+ C!
-              [CHAR] " SZ-TOKEN 2 + C!
+              2 DBG-ED-TOKEN C!
+              [CHAR] S DBG-ED-TOKEN 1+ C!
+              [CHAR] " DBG-ED-TOKEN 2 + C!
               scan end DBG-SEARCH-TO TO ha
               ha 0= IF
-                 2 SZ-TOKEN C!
-                 [CHAR] . SZ-TOKEN 1+ C!
-                 [CHAR] " SZ-TOKEN 2 + C!
+                 2 DBG-ED-TOKEN C!
+                 [CHAR] . DBG-ED-TOKEN 1+ C!
+                 [CHAR] " DBG-ED-TOKEN 2 + C!
                  scan end DBG-SEARCH-TO TO ha
               THEN
               ha IF  TRUE TO ok  THEN
            ELSE
               kind DBG-K-BR = kind DBG-K-EXIT = OR IF
                  kind xt DBG-ALIAS-SETUP
-                 SZ-TOKEN C@ IF
+                 DBG-ED-TOKEN C@ IF
                     scan end DBG-SEARCH-TO TO ha
                     ha IF  TRUE TO ok  THEN
                  THEN
@@ -533,8 +509,8 @@ CREATE DBG-MAP-NAME  64 ALLOT
      THEN
      ok IF
         ha tbuf - cmap cell# DBG-SLOT-OFF!
-        SZ-TOKEN C@ cmap cell# DBG-SLOT-LEN!
-        ha SZ-TOKEN C@ + TO scan
+        DBG-ED-TOKEN C@ cmap cell# DBG-SLOT-LEN!
+        ha DBG-ED-TOKEN C@ + TO scan
      ELSE
         0 cmap cell# DBG-SLOT-OFF!
         0 cmap cell# DBG-SLOT-LEN!
@@ -563,7 +539,7 @@ CREATE DBG-MAP-NAME  64 ALLOT
      fsec 2 CELLS + @ cmap !          \ link after section's first
      cfa cmap CELL+ !
      ncells cmap 2 CELLS + !
-     SZ-TBUF cmap 3 CELLS + !
+     DBG-ED-TBUF cmap 3 CELLS + !
      fsec cmap 4 CELLS + !
      cmap fsec 2 CELLS + !            \ new head of section list
      0 TO ior
@@ -602,7 +578,7 @@ CREATE DBG-MAP-NAME  64 ALLOT
      cfa DOCOL? IF
         cfa DBG-MAP-FIND-CFA TO cmap
         cmap IF
-           cmap DBG-CMAP-TBUF@ SZ-TBUF <> IF
+           cmap DBG-CMAP-TBUF@ DBG-ED-TBUF <> IF
               cfa DBG-MAP-DROP-CFA
               0 TO cmap
            THEN
@@ -618,7 +594,7 @@ CREATE DBG-MAP-NAME  64 ALLOT
                  cfa ncells fsec DBG-MAP-NEW-CMAP TO cmap
                  cmap IF
                     cmap DBG-MAP-FILL-BODY
-                    DBG-HL-HIST-CLR-XT IF  DBG-HL-HIST-CLR-XT EXECUTE  THEN
+                    DBG-ED-HL-HIST-CLR
                     cfa DBG-MAP-SRC-WINDOW TO end TO beg
                     beg 0<> end 0<> AND IF
                        cmap beg end DBG-MAP-ALIGN
@@ -637,7 +613,7 @@ CREATE DBG-MAP-NAME  64 ALLOT
         cmap cell# DBG-SLOT-OFF@ TO off
         cmap cell# DBG-SLOT-LEN@ TO u
         cmap DBG-CMAP-TBUF@ TO tbuf
-        tbuf SZ-TBUF = u AND IF
+        tbuf DBG-ED-TBUF = u AND IF
            tbuf off + u
         ELSE
            0 0
@@ -654,6 +630,7 @@ CREATE DBG-MAP-NAME  64 ALLOT
   {: a u | cfa cell# cmap addr len used -- :}
   FALSE TO used
   0 TO cmap
+  DBG-ED-TBUF 0= IF  EXIT  THEN
   DBG-CFA@ TO cfa
   cfa IF
      cfa DBG-MAP-FIND-CFA TO cmap
@@ -662,7 +639,7 @@ CREATE DBG-MAP-NAME  64 ALLOT
         cfa DBG-MAP-FIND-CFA TO cmap
      THEN
      cmap IF
-        cmap DBG-CMAP-TBUF@ SZ-TBUF <> IF
+        cmap DBG-CMAP-TBUF@ DBG-ED-TBUF <> IF
            cfa DBG-MAP-BUILD
            cfa DBG-MAP-FIND-CFA TO cmap
         THEN
@@ -672,10 +649,8 @@ CREATE DBG-MAP-NAME  64 ALLOT
      DBG-BODY# TO cell#
      cmap cell# DBG-MAP-SPAN@ TO len TO addr
      len IF
-        DBG-HL-SPAN-XT IF
-           addr len DBG-HL-SPAN-XT EXECUTE
-           TRUE TO used
-        THEN
+        addr len DBG-ED-HL-SPAN
+        TRUE TO used
      THEN
   THEN
   \ Name-search fallback only when the colon has a stamped source file.
@@ -684,32 +659,13 @@ CREATE DBG-MAP-NAME  64 ALLOT
   used 0= IF
      cfa IF
         cfa VIEW-FILE# IF
-           DBG-HL-NAME-XT IF
-              a u DBG-HL-NAME-XT EXECUTE
-           THEN
+           a u DBG-ED-HL-NAME
         THEN
      THEN
   THEN ;
-: DBG-MAP-BIND  ( -- flag )
-  {: | ok -- :}
-  FALSE TO ok
-  ONLY FORTH ALSO EDITOR
-  S" SZ-HIGHLIGHT-NAME" HYPER-CMD HYPER-PLACE
-  HYPER-CMD FIND IF  TO DBG-HL-NAME-XT  ELSE  DROP 0 TO DBG-HL-NAME-XT  THEN
-  S" SZ-HIGHLIGHT-SPAN" HYPER-CMD HYPER-PLACE
-  HYPER-CMD FIND IF  TO DBG-HL-SPAN-XT  ELSE  DROP 0 TO DBG-HL-SPAN-XT  THEN
-  S" SZ-HL-HIST-CLEAR" HYPER-CMD HYPER-PLACE
-  HYPER-CMD FIND IF  TO DBG-HL-HIST-CLR-XT  ELSE  DROP 0 TO DBG-HL-HIST-CLR-XT  THEN
-  ONLY FORTH ALSO HYPER-VOC
-  DBG-HL-NAME-XT 0<> DBG-HL-SPAN-XT 0<> AND TO ok
-  ok IF
-     ['] DBG-MAP-HL TO HYPER-HL-XT
-  THEN
-  ok ;
 
-PREVIOUS PREVIOUS
-ONLY FORTH ALSO HYPER-VOC
+: DBG-MAP-BIND  ( -- flag )  DBG-ED-INSTALL ;
 
-[THEN]  \ SZ-SKIP-COMMENT
-[THEN]  \ SZ-HIGHLIGHT-SPAN
-[THEN]  \ SZ-TBUF
+ONLY FORTH ALSO DEBUGGER
+
+[THEN]  \ DBG-ED-TBUF

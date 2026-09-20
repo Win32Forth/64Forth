@@ -1,7 +1,7 @@
 \ dbg-pause.fth — Forth ITC DEBUG pause UI (phase 2)
 \ Loaded from debugger.fth into DEBUGGER (ALSO SYSVOC for kernel helpers).
-\ Not armed by default (see debugger.fth). Kernel calls DBG-PAUSE-XT when
-\ set; 0 keeps asm _debug_pause UI. DBG-PAUSE-INSTALL still under repair.
+\ Autoload arms DBG-PAUSE-INSTALL. Kernel calls DBG-PAUSE-XT when set;
+\ 0 keeps asm _debug_pause UI. Revert: 0 DBG-PAUSE-XT !  or DBG-CLEAR-HOOKS.
 
 \ Help line (ASCII; matches asm str_dbg_keys intent).
 : DBG-TYPE-HELP  ( -- )
@@ -112,8 +112,11 @@ VARIABLE DBG-PAUSE-KEY
 ;
 
 : DBG-PAUSE-UI  ( -- )
+  \ Match asm order: post-step S/R (pad to col 23) + >> word + cursor,
+  \ then editor sync/HL. Sync before print poisoned DBG-LINE-COL / pad.
   DBG-PAUSE-PREAMBLE
   DBG-PRINT-TOKEN-UI
+  [DEFINED] DBG-VIEW-UPDATE [IF]  DBG-VIEW-UPDATE  [THEN]
   BEGIN
     EKEY DBG-PAUSE-DECODE
     CASE
@@ -139,7 +142,7 @@ VARIABLE DBG-PAUSE-KEY
   0 DBG-KEY-XT !
 ;
 
-\ Phase 2 full UI — opt-in only; still crashes on step (do not Autoload-arm).
+\ Phase 2 full UI — Autoload default (asm fallback: 0 DBG-PAUSE-XT !).
 : DBG-PAUSE-INSTALL  ( -- )
   ['] DBG-PAUSE-UI IS DBG-PAUSE
   ['] DBG-PRINT-TOKEN-UI IS DBG-PRINT-TOKEN

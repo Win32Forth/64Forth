@@ -2455,10 +2455,13 @@ VARIABLE SZ-HL-NEGF
    THEN
 ;
 
-\ True if x looks like a dictionary CFA (same guards as kernel _print_xt_name).
+\ True if x looks like a dictionary CFA (same idea as kernel _print_xt_name).
+\ Probe [x-8] only inside [USER-DICT, HERE) — LIT 16 is cell-aligned and
+\ nonzero; 16 8 - @ XFETCHes address 8 (EXC_BAD_ACCESS / X20=8).
 : SZ-HL-XT-LIKE?  ( x -- flag )
    DUP 0= IF  DROP FALSE EXIT  THEN
    DUP 7 AND IF  DROP FALSE EXIT  THEN
+   DUP USER-DICT HERE WITHIN 0= IF  DROP FALSE EXIT  THEN
    DUP 8 - @  65535 AND                  \ nfa byte offset (low 16 bits)
    DUP 0= IF  2DROP FALSE EXIT  THEN
    DUP 4096 SZ-U>= IF  2DROP FALSE EXIT  THEN

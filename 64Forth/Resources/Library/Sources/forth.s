@@ -52,6 +52,8 @@
 // Return stack (grows down). Match data-stack headroom for Forth DBG-PAUSE nesting.
 .equ RETURN_STACK_SIZE, 4096          // bytes (= 512 cells)
 .equ RETURN_STACK_CELLS, 512
+.equ DEBUG_CALL_MAX, 4                // reentrant _debug_call_xt depth
+.equ DEBUG_VMSAVE_SIZE, 72            // x19-x24, x29-x30, x28 per depth
 //
 // ----------------------------------------------------------------------------
 // ANS Forth 2012 compatibility
@@ -575,8 +577,8 @@ _kernel_set_facility_op:
     BOOT_WORD "BOOT-WORD-TABLE", "BOOT-WORD-TABLE ( -- addr ) boot catalog", 0, XBOOT_WORD_TABLE, XBOOT_WORD_TABLE_END
 XBOOT_WORD_TABLE:
     str  x20, [x22, #-8]!
-    adrp x20, boot_word_table@page
-    add  x20, x20, boot_word_table@pageoff
+    adrp x20, section$start$__DATA$__bootptr@page
+    add  x20, x20, section$start$__DATA$__bootptr@pageoff
     NEXT
 XBOOT_WORD_TABLE_END:
 
@@ -1750,16 +1752,23 @@ _boot_kernel:
     stp x21, x22, [sp, #-16]!
     stp x23, x24, [sp, #-16]!
 
-    // boot_word_table rows: name*, help*, flags, code*, end*
-    adrp x19, boot_word_table@page
-    add x19, x19, boot_word_table@pageoff
+    // __DATA,__bootptr: packed array of pointers to 5-quad rows in __bootword.
+    // Walking __bootword by stride is unsafe (ld64 atom reorder/pad).
+    adrp x19, section$start$__DATA$__bootptr@page
+    add x19, x19, section$start$__DATA$__bootptr@pageoff
+    adrp x25, section$end$__DATA$__bootptr@page
+    add x25, x25, section$end$__DATA$__bootptr@pageoff
 _bk_loop:
-    ldr x20, [x19], #8             // name ptr
-    cbz x20, _bk_done
-    ldr x21, [x19], #8             // help ptr
-    ldr x22, [x19], #8             // flags (FLAG_*)
-    ldr x4, [x19], #8              // code (e.g. XDUP)
-    ldr x6,  [x19], #8             // end (may be 0)
+    cmp x19, x25
+    b.hs _bk_done
+    ldr x7, [x19], #8              // -> row {name,help,flags,code,end}
+    cbz x7, _bk_loop
+    ldr x20, [x7]                  // name ptr
+    ldr x21, [x7, #8]              // help ptr
+    ldr x22, [x7, #16]             // flags (FLAG_*)
+    ldr x4, [x7, #24]              // code (e.g. XDUP)
+    ldr x6, [x7, #32]              // end (may be 0)
+    cbz x20, _bk_loop
     // name len
     mov x0, x20
     bl _strlen
@@ -2552,6 +2561,14 @@ XEKEY:
     SAVE_VM
     bl   _getchar
     RESTORE_VM
+    // Host key_hook / _vm_load may restore armed x28 while blocked. During
+    // _debug_pause (debug_busy) keep nest on fast NEXT.
+    adrp x1, debug_busy@page
+    add  x1, x1, debug_busy@pageoff
+    ldr  x1, [x1]
+    cbz  x1, 1f
+    mov  x28, #0
+1:
     DPUSH
 XEKEY_END:
     NEXT
@@ -2779,6 +2796,17 @@ XDBGINTOABLE:
     BOOT_WORD "DBG-HOST-PAINT", "DBG-HOST-PAINT ( -- ) refresh editor debug pane", 0, XDBGHOSTPAINT
 XDBGHOSTPAINT:
     SAVE_VM
+    bl _host_debug_paint
+    RESTORE_VM
+    NEXT
+
+    // Forth pause UI calls this after >> word + cursor so pad-to-23 still
+    // sees the prior word line; sync/HL before print poisoned debug_line_col.
+    BOOT_WORD "DBG-VIEW-UPDATE", "DBG-VIEW-UPDATE ( -- ) sync VIEW, highlight, paint", 0, XDBGVIEWUPD
+XDBGVIEWUPD:
+    SAVE_VM
+    bl _debug_sync_view
+    bl _debug_highlight
     bl _host_debug_paint
     RESTORE_VM
     NEXT
@@ -3060,6 +3088,9 @@ XDBGON:
     adrp x0, debug_body_cells@page
     add  x0, x0, debug_body_cells@pageoff
     str  xzr, [x0]
+    adrp x0, debug_call_depth@page
+    add  x0, x0, debug_call_depth@pageoff
+    str  xzr, [x0]
     NEXT
 
     BOOT_WORD "DBG-OFF", "DBG-OFF ( -- ) disarm NEXT stepper", 0, XDBGOFF
@@ -3067,6 +3098,9 @@ XDBGOFF:
     mov  x28, #0                    // NEXT hot-path mirror
     adrp x0, debug_armed@page
     add  x0, x0, debug_armed@pageoff
+    str  xzr, [x0]
+    adrp x0, debug_call_depth@page
+    add  x0, x0, debug_call_depth@pageoff
     str  xzr, [x0]
     adrp x0, debug_midline@page
     add  x0, x0, debug_midline@pageoff
@@ -14730,16 +14764,16 @@ _dpd_done:
     ldp x29, x30, [sp], #16
     ret
 
-// DEBUG return stack: full visible depth; at most 6 nearest cells.
+// DEBUG return stack: full visible depth; at most 4 nearest cells.
 // Print nearest (top / x23) first → deeper to the right (unlike data stack).
-// Depth > 6 → those 6 then trailing "..." (omitted deeper cells on the right).
+// Depth > 4 → those 4 then trailing "..." (omitted deeper cells on the right).
 // Same CATCH 5-cell / debug_floor rules as _print_rstack. Does not change R.S.
 _debug_print_rstack:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
-    sub sp, sp, #64                // buf[6] visible cell values (nearest first)
+    sub sp, sp, #32                // buf[4] visible cell values (nearest first)
     adrp x19, return_stack@page
     add x19, x19, return_stack@pageoff
     add x19, x19, #RETURN_STACK_SIZE  // RP0
@@ -14761,7 +14795,7 @@ _debug_print_rstack:
     adrp x22, throw_handler@page
     add x22, x22, throw_handler@pageoff
     ldr x22, [x22]                 // handler == &saved_IP or 0
-    // count visible + collect up to 6 nearest into buf
+    // count visible + collect up to 4 nearest into buf
     mov x19, xzr                   // visible count
     mov x20, xzr                   // index
     mov x9, xzr                    // collected (temp; → x21 before print)
@@ -14775,7 +14809,7 @@ _debug_print_rstack:
     b 2b
 3:
     add x19, x19, #1
-    cmp x9, #6
+    cmp x9, #4
     b.hs 31f
     ldr x0, [x23, x20, lsl #3]
     str x0, [sp, x9, lsl #3]
@@ -14808,7 +14842,7 @@ _debug_print_rstack:
     add x20, x20, #1
     b 5b
 6:
-    cmp x19, #6
+    cmp x19, #4
     b.ls _dpr_done
     mov x0, #'.'
     bl _putchar
@@ -14829,7 +14863,7 @@ _dpr_empty:
     mov x0, #58                    // ':'
     bl _putchar
 _dpr_done:
-    add sp, sp, #64
+    add sp, sp, #32
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
@@ -14840,6 +14874,9 @@ _dpr_done:
 // Out: x0 = colon CFA or 0, x1 = byte offset from body.
 // CATCH sets IP to catch_ok_cell (not a colon body) then branches to the
 // caught xt; use that xt as the enclosing colon when it is DOCOL.
+// TRAVERSE-WORDLIST uses tw_continue_cell the same way; peek is the BSS
+// trampoline CFA (NFA heuristic would read .incbin vocsys source!). Use the
+// visitor xt still on R: next, xt, thread, wid, saved_IP.
 _debug_resolve_enclosing:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -14849,7 +14886,24 @@ _debug_resolve_enclosing:
     adrp x0, catch_ok_cell@page
     add x0, x0, catch_ok_cell@pageoff
     cmp x19, x0
+    b.eq 10f
+    // TRAVERSE-WORDLIST continuation trampoline
+    adrp x0, tw_continue_cell@page
+    add x0, x0, tw_continue_cell@pageoff
+    cmp x19, x0
     b.ne 1f
+    ldr x0, [x23, #8]              // visitor xt under "next"
+    cbz x0, 8f
+    tst x0, #7
+    b.ne 8f
+    ldr x1, [x0]
+    adrp x2, DOCOL@page
+    add x2, x2, DOCOL@pageoff
+    cmp x1, x2
+    b.ne 8f
+    mov x1, xzr                    // keep visitor source; body cell 0
+    b 9f
+10:
     mov x0, x20
     cbz x0, 8f
     tst x0, #7
@@ -14887,7 +14941,10 @@ _debug_resolve_enclosing:
     ret
 
 // x0 = IP (threaded return). Out: x0 = colon CFA or 0, x1 = byte offset from body.
-// Closest DOCOL body <= IP across the search order (then FORTH heads).
+// Closest DOCOL body <= IP across every registered wordlist (WORDLISTS).
+// Must not use search order alone: kernel helpers like (SHOW-VOCAB) live in
+// SYSVOC, and a FORTH neighbor (e.g. .THREADS) would otherwise win — DBG then
+// VIEWs/HLs the wrong colon (sticky (WID.THREADS) / ';' on .THREADS).
 _ip_find_colon:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -14896,24 +14953,19 @@ _ip_find_colon:
     mov x20, x0                    // ip
     mov x21, xzr                   // best cfa
     mov x22, xzr                   // best body
-    adrp x19, search_order_n@page
-    add x19, x19, search_order_n@pageoff
+    adrp x19, wordlist_reg_n@page
+    add x19, x19, wordlist_reg_n@pageoff
     ldr x19, [x19]
-    adrp x23, search_order@page
-    add x23, x23, search_order@pageoff
+    adrp x23, wordlist_reg@page
+    add x23, x23, wordlist_reg@pageoff
     mov x24, xzr
 1:
     cmp x24, x19
-    b.hs 3f
+    b.hs 4f
     ldr x0, [x23, x24, lsl #3]
     bl _ip_scan_wid
     add x24, x24, #1
     b 1b
-3:
-    cbnz x21, 4f
-    adrp x0, latest_var@page
-    add x0, x0, latest_var@pageoff
-    bl _ip_scan_wid
 4:
     mov x0, x21
     cbz x21, 5f
@@ -15022,7 +15074,7 @@ _fmt_ip_label:
     adrp x1, catch_ok_cell@page
     add x1, x1, catch_ok_cell@pageoff
     cmp x21, x1
-    b.ne 20f
+    b.ne 19f
     // write "(CATCH)" if it fits
     sub x2, x23, x19
     cmp x2, #7
@@ -15042,7 +15094,121 @@ _fmt_ip_label:
     mov w4, #')'
     strb w4, [x19], #1
     b 8f
+19:
+    // TRAVERSE-WORDLIST continuation cell
+    adrp x1, tw_continue_cell@page
+    add x1, x1, tw_continue_cell@pageoff
+    cmp x21, x1
+    b.ne 20f
+    sub x2, x23, x19
+    cmp x2, #10
+    b.lt 7f
+    mov w4, #'('
+    strb w4, [x19], #1
+    mov w4, #'T'
+    strb w4, [x19], #1
+    mov w4, #'R'
+    strb w4, [x19], #1
+    mov w4, #'A'
+    strb w4, [x19], #1
+    mov w4, #'V'
+    strb w4, [x19], #1
+    mov w4, #'E'
+    strb w4, [x19], #1
+    mov w4, #'R'
+    strb w4, [x19], #1
+    mov w4, #'S'
+    strb w4, [x19], #1
+    mov w4, #'E'
+    strb w4, [x19], #1
+    mov w4, #')'
+    strb w4, [x19], #1
+    b 8f
 20:
+    // Small ints first (thread #, flags). Never probe [n-8] — 0 is 8-byte
+    // aligned and ldr [x21, #-8] EXC_BAD_ACCESS'd on TRAVERSE's thread=0.
+    add x1, x21, #4096
+    cmp x1, #8192                  // -4096 .. 4095
+    b.hs 201f
+    sub x2, x23, x19
+    cmp x2, #2
+    b.lt 8f
+    mov x0, x21
+    tbz x0, #63, 251f
+    mov w4, #'-'
+    strb w4, [x19], #1
+    neg x0, x0
+251:
+    mov x1, x19
+    sub x2, x23, x19
+    bl _dec_u64_buf
+    mov x19, x1
+    b 8f
+201:
+    // CFA / xt on R (TRAVERSE leaves next-nt + visitor xt): print name only.
+    // Real return IPs point into a colon body; their own [addr-8] is not an NFA.
+    tst x21, #7
+    b.ne 26f
+    adrp x1, tw_continue_cfa@page
+    add x1, x1, tw_continue_cfa@pageoff
+    cmp x21, x1
+    b.eq 26f
+    // Must be in user dict [user_dict, HERE) or we skip the NFA peek (boot
+    // CFAs still format via _ip_find_colon / hex below).
+    adrp x1, user_dict_area@page
+    add x1, x1, user_dict_area@pageoff
+    cmp x21, x1
+    b.lo 26f
+    adrp x1, here_ptr@page
+    add x1, x1, here_ptr@pageoff
+    ldr x1, [x1]
+    cmp x21, x1
+    b.hs 26f
+    ldr x1, [x21, #-8]
+    and x1, x1, #0xFFFF
+    cbz x1, 26f
+    cmp x1, #4096
+    b.hs 26f
+    sub x0, x21, x1                // NFA
+    cmp x0, #0
+    b.eq 26f
+    adrp x2, user_dict_area@page
+    add x2, x2, user_dict_area@pageoff
+    cmp x0, x2
+    b.lo 26f
+    ldrb w1, [x0], #1
+    cbz w1, 26f
+    cmp w1, #31
+    b.hi 26f
+    mov x2, #0
+24:
+    cmp x2, x1
+    b.hs 23f
+    ldrb w4, [x0, x2]
+    cmp w4, #32
+    b.lo 26f
+    cmp w4, #126
+    b.hi 26f
+    add x2, x2, #1
+    b 24b
+23:
+    sub x2, x23, x19
+    cmp x1, x2
+    b.ls 231f
+    mov x1, x2
+231:
+    mov x3, xzr
+232:
+    cmp x3, x1
+    b.hs 233f
+    ldrb w4, [x0, x3]
+    strb w4, [x19, x3]
+    add x3, x3, #1
+    b 232b
+233:
+    add x19, x19, x1
+    b 8f
+26:
     mov x0, x21
     bl _ip_find_colon
     cbz x0, 7f
@@ -15058,6 +15224,7 @@ _fmt_ip_label:
 22:
     cmp x1, #512                   // >512 cells → hex fallback
     b.hi 7f
+    // Offset 0 with value==CFA already handled; body IP at cell 0 is fine.
     ldr x1, [x0, #-8]
     and x1, x1, #0xFFFF
     cbz x1, 7f
@@ -15191,6 +15358,8 @@ _debug_print_inline_suffix:
     add x0, x0, debug_inline@pageoff
     ldr x20, [x0]                  // inline cell
     // LIT?  Prefer xt name when payload is a CFA (['] word → CATCH).
+    // Only probe [cfa-8] when payload is inside [user_dict, HERE) — LIT 16
+    // is cell-aligned and nonzero; ldr from 8 would EXC_BAD_ACCESS.
     adrp x1, cfa_lit@page
     add x1, x1, cfa_lit@pageoff
     ldr x1, [x1]
@@ -15202,12 +15371,27 @@ _debug_print_inline_suffix:
     cbz x0, 11f
     tst x0, #7
     b.ne 11f
+    adrp x1, user_dict_area@page
+    add x1, x1, user_dict_area@pageoff
+    cmp x0, x1
+    b.lo 11f
+    adrp x1, here_ptr@page
+    add x1, x1, here_ptr@pageoff
+    ldr x1, [x1]
+    cmp x0, x1
+    b.hs 11f
     ldr x1, [x0, #-8]
     and x1, x1, #0xFFFF
     cbz x1, 11f
     cmp x1, #4096
     b.hs 11f
     sub x2, x0, x1                 // NFA
+    cmp x2, #0                     // NFA must stay in-dict too
+    b.eq 11f
+    adrp x3, user_dict_area@page
+    add x3, x3, user_dict_area@pageoff
+    cmp x2, x3
+    b.lo 11f
     ldrb w2, [x2]
     cbz w2, 11f
     cmp w2, #64
@@ -15302,11 +15486,40 @@ _debug_xt_intoable:
     ret
 
 // x0 = xt (CFA). Print counted NFA; "?" if it looks invalid.
+// Reject TRAVERSE trampoline CFA: it sits in BSS after .incbin vocsys.fth, so
+// the NFA heuristic would print embedded source (FORTH>SYSVOC / S" …).
 _print_xt_name:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
     stp x19, x20, [sp, #-16]!
     cbz x0, _pxn_q
+    adrp x1, tw_continue_cfa@page
+    add x1, x1, tw_continue_cfa@pageoff
+    cmp x0, x1
+    b.ne 0f
+    // "(TRAVERSE)"
+    mov x0, #'('
+    bl _putchar
+    mov x0, #'T'
+    bl _putchar
+    mov x0, #'R'
+    bl _putchar
+    mov x0, #'A'
+    bl _putchar
+    mov x0, #'V'
+    bl _putchar
+    mov x0, #'E'
+    bl _putchar
+    mov x0, #'R'
+    bl _putchar
+    mov x0, #'S'
+    bl _putchar
+    mov x0, #'E'
+    bl _putchar
+    mov x0, #')'
+    bl _putchar
+    b 2f
+0:
     tst x0, #7
     b.ne _pxn_q
     ldr x1, [x0, #-8]
@@ -15319,8 +15532,21 @@ _print_xt_name:
     cbz w20, _pxn_q
     cmp w20, #64
     b.hs _pxn_q
+    // Refuse control bytes in the name (guards other BSS/incbin false NFAs).
     mov x1, #0
+3:
+    cmp x1, x20
+    b.hs 1f
+    ldrb w0, [x19, x1]
+    cmp w0, #32
+    b.lo _pxn_q
+    cmp w0, #126
+    b.hi _pxn_q
+    add x1, x1, #1
+    b 3b
 1:
+    mov x1, #0
+4:
     cmp x1, x20
     b.hs 2f
     ldrb w0, [x19, x1]
@@ -15328,7 +15554,7 @@ _print_xt_name:
     bl _putchar
     ldp x1, x20, [sp], #16
     add x1, x1, #1
-    b 1b
+    b 4b
 2:
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
@@ -15474,7 +15700,7 @@ _debug_cursor_off:
     ldp x29, x30, [sp], #16
     ret
 
-// Print S≤6 then pad so R starts 45 cols after S (30 + 15), then R≤6.
+// Print S≤6 then pad so R starts 45 cols after S (30 + 15), then R≤4.
 _debug_print_SR:
     stp x29, x30, [sp, #-16]!
     stp x19, x20, [sp, #-16]!
@@ -15558,15 +15784,19 @@ _debug_pause:
     adrp x2, debug_body_cells@page
     add x2, x2, debug_body_cells@pageoff
     str x1, [x2]
+    // Auto-skip TRAVERSE-WORDLIST continuation — no UI; execute trampoline.
+    adrp x0, tw_continue_cell@page
+    add x0, x0, tw_continue_cell@pageoff
+    cmp x19, x0
+    b.eq 4f
     // Phase 2: Forth pause UI when DBG-PAUSE-XT set; else asm UI below.
+    // Capture only here — Forth prints stacks/word (pad-to-23), then
+    // DBG-VIEW-UPDATE (sync/HL/paint). Sync before print broke column pad.
     adrp x0, debug_pause_xt@page
     add x0, x0, debug_pause_xt@pageoff
     ldr x0, [x0]
     cbz x0, 50f
     bl _debug_capture
-    bl _debug_sync_view
-    bl _debug_highlight
-    bl _host_debug_paint
     // No DS isolate here: pause UI must see live S for DBG-.SR; it keeps the
     // stack balanced. RSP is isolated inside _debug_call_xt (debug_nest_rstack).
     adrp x0, debug_pause_xt@page
@@ -15962,23 +16192,39 @@ _debug_pause:
     ldp x29, x30, [sp], #48
     ret
 
-// Run Forth xt (x0) then return here. VM x19–x23 + x28 restored from debug_vmsave.
+// Run Forth xt (x0) then return here. VM x19–x23 + x28 restored from a
+// per-depth slot on debug_vmsave_stack (reentrant: wheel/SYNC from Forth
+// pause UI must not clobber the outer pause frame).
 // Nested Forth uses a dedicated return stack (debug_nest_rstack) so deep
 // DBG-PAUSE / SYNC / HL cannot grow the debuggee RSP down into data_stack
 // (BSS layout: data_stack then return_stack — overflow → smash → udf).
 // x28 is cleared for the nest so NEXT takes the fast path (not next_debug).
 _debug_call_xt:
     cbz x0, 1f
-    adrp x1, debug_vmsave@page
-    add x1, x1, debug_vmsave@pageoff
+    adrp x2, debug_call_depth@page
+    add x2, x2, debug_call_depth@pageoff
+    ldr x3, [x2]
+    cmp x3, #DEBUG_CALL_MAX
+    b.hs 1f                            // refuse nested call if full
+    adrp x1, debug_vmsave_stack@page
+    add x1, x1, debug_vmsave_stack@pageoff
+    mov x4, #DEBUG_VMSAVE_SIZE
+    madd x1, x3, x4, x1                // slot = stack + depth*72
+    add x3, x3, #1
+    str x3, [x2]                       // depth++
     stp x19, x20, [x1]
     stp x21, x22, [x1, #16]
     stp x23, x24, [x1, #32]
     stp x29, x30, [x1, #48]
     str x28, [x1, #64]                 // save DBG mirror
+    // Per-depth nest RSP so wheel/SYNC from pause UI cannot smash outer frames.
+    // x3 is depth after increment (1..MAX); bank index = depth-1.
+    sub x4, x3, #1
+    mov x5, #RETURN_STACK_SIZE
     adrp x23, debug_nest_rstack@page
     add x23, x23, debug_nest_rstack@pageoff
-    add x23, x23, #RETURN_STACK_SIZE   // empty nest RP0
+    madd x23, x4, x5, x23
+    add x23, x23, #RETURN_STACK_SIZE   // empty nest RP0 for this bank
     mov x28, #0                        // nest must not enter next_debug
     adrp x19, debug_ret_ipcell@page
     add x19, x19, debug_ret_ipcell@pageoff
@@ -15995,13 +16241,22 @@ XDBG_CALL_DONE:
     adrp x1, debug_call_tos@page
     add x1, x1, debug_call_tos@pageoff
     str x20, [x1]
-    adrp x1, debug_vmsave@page
-    add x1, x1, debug_vmsave@pageoff
+    adrp x2, debug_call_depth@page
+    add x2, x2, debug_call_depth@pageoff
+    ldr x3, [x2]
+    cbz x3, 2f                         // should not happen
+    sub x3, x3, #1
+    str x3, [x2]                       // depth--
+    adrp x1, debug_vmsave_stack@page
+    add x1, x1, debug_vmsave_stack@pageoff
+    mov x4, #DEBUG_VMSAVE_SIZE
+    madd x1, x3, x4, x1                // slot we just finished
     ldp x19, x20, [x1]
     ldp x21, x22, [x1, #16]
     ldp x23, x24, [x1, #32]
     ldp x29, x30, [x1, #48]
     ldr x28, [x1, #64]
+2:
     ret
 
 // Save user data stack (TOS + under cells) to debug_dsave, then empty it.
@@ -16185,6 +16440,14 @@ _debug_wheel:
 // Uses counted debug_name filled by _debug_capture.
 _debug_highlight:
     stp x29, x30, [sp, #-16]!
+    // Skip TRAVERSE trampoline pauses — keep prior HL / VIEW.
+    adrp x0, debug_ip@page
+    add x0, x0, debug_ip@pageoff
+    ldr x0, [x0]
+    adrp x1, tw_continue_cell@page
+    add x1, x1, tw_continue_cell@pageoff
+    cmp x0, x1
+    b.eq 9f
     adrp x0, debug_hl_xt@page
     add x0, x0, debug_hl_xt@pageoff
     ldr x0, [x0]
@@ -16320,6 +16583,11 @@ _debug_capture:
     add x19, x19, debug_name@pageoff
     strb wzr, [x19]
     cbz x0, 9f
+    // TRAVERSE trampoline CFA — leave empty name so HL keeps prior span
+    adrp x1, tw_continue_cfa@page
+    add x1, x1, tw_continue_cfa@pageoff
+    cmp x0, x1
+    b.eq 9f
     tst x0, #7
     b.ne 9f
     ldr x1, [x0, #-8]
@@ -16334,6 +16602,19 @@ _debug_capture:
     b.ls 10f
     mov w1, #31
 10:
+    // Refuse control bytes (same guard as _print_xt_name)
+    mov x2, #0
+12:
+    cmp x2, x1
+    b.hs 13f
+    ldrb w3, [x0, x2]
+    cmp w3, #32
+    b.lo 9f
+    cmp w3, #126
+    b.hi 9f
+    add x2, x2, #1
+    b 12b
+13:
     strb w1, [x19], #1
     mov x2, #0
 11:
@@ -16712,7 +16993,9 @@ debug_key_mode: .quad 0            // last Forth key mode
 debug_call_tos: .quad 0            // TOS after _debug_call_xt (before vmsave restore)
 debug_view_cfa: .quad 0            // last colon shown in SZ-EDITOR
 debug_view_name: .skip 32
-debug_vmsave:   .skip 72           // x19-x24, x29-x30, x28
+debug_call_depth: .quad 0          // _debug_call_xt nest depth (0..DEBUG_CALL_MAX)
+.align 8
+debug_vmsave_stack: .skip DEBUG_CALL_MAX * DEBUG_VMSAVE_SIZE
 .align 8
 debug_ret_cfa:  .quad XDBG_CALL_DONE
 debug_ret_ipcell: .quad debug_ret_cfa
@@ -16732,9 +17015,9 @@ debug_dsave_n:  .quad 0
 debug_dsave_tos: .quad 0
 debug_dsave_dsp: .quad 0
 debug_dsave_buf: .skip DBG_DSAVE_MAX * 8
-// Dedicated RSP for Forth called from _debug_call_xt (pause UI / SYNC / HL).
+// Per-depth RSP banks for Forth called from _debug_call_xt (pause / SYNC / HL).
 .align 8
-debug_nest_rstack: .skip RETURN_STACK_SIZE
+debug_nest_rstack: .skip DEBUG_CALL_MAX * RETURN_STACK_SIZE
 
 key_hook:       .quad 0            // int (*)(void) — KEY (blocking)
 key_q_hook:     .quad 0            // int (*)(void) — KEY? (non-zero if ready)

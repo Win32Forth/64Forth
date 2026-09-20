@@ -1,13 +1,12 @@
 // ============================================================================
-// Boot word table end (sentinel) + boot helper C strings
+// Boot word table end + boot helper C strings
 // ============================================================================
+// _boot_kernel walks section$start$__DATA$__bootptr .. section$end$
+// (packed array of pointers to 5-quad rows in __bootword).
+// BOOT_WORD_COUNT is documentation / sanity only.
 
-// Null name* ends _boot_kernel walk of __DATA,__bootword
-.section __DATA,__bootword,regular
-.quad 0, 0, 0, 0, 0
-
-// Must equal the number of BOOT_WORD rows in forth.s (null sentinel not counted).
-.equ BOOT_WORD_COUNT, 348
+// Must equal the number of BOOT_WORD rows in forth.s.
+.equ BOOT_WORD_COUNT, 382
 
 // Empty help used by : / CREATE / :NONAME
 .section __TEXT,__cstring,cstring_literals

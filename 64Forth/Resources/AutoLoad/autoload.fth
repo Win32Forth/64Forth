@@ -26,6 +26,8 @@
     FROMLIB REQUIRE HYPER/HYPER.fth
     HYPER-VOC MIN-HYPER-NOISE ON FORTH
     HYPER-REINDEX
+    \ Maps already loaded with Debugger; bind Editor/Hyper links now.
+    ALSO DEBUGGER  DBG-ED-INSTALL DROP  PREVIOUS
 
 \ Keep DEBUGGER on the search order (BREAK / BPGO / hub DEFERs).
 ONLY FORTH ALSO DEBUGGER DEFINITIONS

@@ -4,28 +4,34 @@
 High-level ITC DEBUG support that does not belong in the kernel cold blob
 or under Hyper.
 
-  debugger.fth   Sole entry: VOCABULARY DEBUGGER, hub DEFERs / DBG-SET-*,
-                 REQUIREs siblings; arms phase-3 key policy.
+  debugger.fth   Sole Autoload entry: VOCABULARY DEBUGGER, hub DEFERs /
+                 DBG-SET-*, REQUIREs siblings; arms phase-2/3.
   debug-bp.fth   BREAK / UNBREAK / .BREAKS / BPGO
-  dbg-pause.fth  Key decode (DBG-PAUSE-DECODE) + optional full pause UI
+  dbg-pause.fth  Key decode (DBG-PAUSE-DECODE) + full Forth pause UI
+  dbg-ed.fth     Shared DBG-CMD/DBG-PLACE + DBG-HL-RUN; deferred DBG-ED-*
+                 to Editor SZ-*; DBG-ED-INSTALL binds when Editor exists
+  dbg-map.fth    Debug-time colon token maps; uses DBG-ED-* only
+                 (loaded inside debugger.fth — not after Hyper)
+                 (no Editor/Hyper required at load)
 
-AutoLoad (before Editor) — one line only:
+AutoLoad:
 
-  FROMLIB REQUIRE Debugger/debugger.fth
+  FROMLIB REQUIRE Debugger/debugger.fth   \ loads bp, pause, ed links, maps
+  … Editor, Emitter, Hyper …
+  ALSO DEBUGGER  DBG-ED-INSTALL DROP      \ fill SZ-* / Hyper HL (autoload.fth)
 
-Kernel owns when to pause, print/cursor/wait (asm), and thin helpers.
-Forth owns key→mode mapping when DBG-KEY-XT is set (phase 3 default).
+Kernel owns when to pause and thin helpers (_debug_call_xt nest RSP).
+Forth owns pause print/EKEY/step (DBG-PAUSE-XT) and key→mode (DBG-KEY-XT).
 
-  DBG-KEY-XT = DBG-PAUSE-DECODE   (default after Autoload)
-  DBG-PAUSE-XT = 0                (asm print/wait; full Forth UI not armed)
+  DBG-PAUSE-XT = DBG-PAUSE-UI     (default after Autoload)
+  DBG-KEY-XT   = DBG-PAUSE-DECODE (asm fallback when PAUSE-XT is 0)
 
-Modes from DBG-PAUSE-DECODE (u -- mode):
-  0 ignore  1 over  2 into  3 out  4 go  5 abort  6 wheel  7 help
+Shared HL: DBG-HL-RUN (Debugger DEFER). DBG-ED-INSTALL sets it to
+DBG-MAP-HL when maps+editor are live, else SZ-HIGHLIGHT-NAME, and
+mirrors that xt into Hyper's HYPER-HL-XT for DBG-HIGHLIGHT-NAME.
 
-Opt-in / out:
-  DBG-KEY-INSTALL / DBG-KEY-UNINSTALL
-  DBG-PAUSE-INSTALL   \ full Forth UI — known crash; do not use yet
-  0 DBG-PAUSE-XT !    \ ensure asm pause UI
-
-Hyper still installs DBG-SHOW-XT / DBG-HL-XT for VIEW + highlight.
-Later: move dbg-map.fth here; fix full DBG-PAUSE-UI.
+Install / revert:
+  DBG-PAUSE-INSTALL / DBG-KEY-INSTALL
+  DBG-KEY-UNINSTALL
+  0 DBG-PAUSE-XT !    \ back to asm pause UI (phase-3 keys still apply)
+  DBG-ED-INSTALL      \ (re)bind Editor after SZ-EDITOR / Hyper load

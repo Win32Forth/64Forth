@@ -364,8 +364,16 @@ VARIABLE HYPER-LEAF-U
    DUP 0= IF  2DROP R> DROP EXIT  THEN
    R> VIEW-STAMP ;
 
+\ FIND only sees the search order. vocsys FORTH>SYSVOC (and EDITOR/GRAPHICS)
+\ moves cold helpers out of FORTH, so stamp must ALSO those vocabs or
+\ (SHOW-VOCAB)/(WID.THREADS)/… stay VIEW-FILE#=0 and DBG sync/HL no-ops
+\ (sticky TRAVERSE-WORDLIST highlight while stepping the visitor).
 : HYPER-STAMP-COLD  ( -- )
    HYPER-ENSURE 0= IF  EXIT  THEN
+   GET-ORDER
+   ALSO SYSVOC
+   ALSO EDITOR
+   ALSO GRAPHICS
    0 TO HYPER-POS
    0 HYPER-CUR C!
    BEGIN  HYPER-EOF? 0= WHILE
@@ -378,7 +386,8 @@ VARIABLE HYPER-LEAF-U
          THEN
       ELSE  (HYPER-STAMP-LINE)
       THEN THEN
-   REPEAT ;
+   REPEAT
+   SET-ORDER ;
 
 \ --- Dictionary VIEW hits (header file-id + line) ----------------------------
 \ NOTE: TRAVERSE-WORDLIST keeps state on the return stack — do NOT use {: :}
@@ -561,9 +570,14 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
    S" SZ-DBG-SHOW-AT" HYPER-CMD HYPER-PLACE
    HYPER-CMD FIND IF  TO HYPER-DBG-SHOW-XT  ELSE  DROP 0 TO HYPER-DBG-SHOW-XT  THEN
    ONLY FORTH
-   \ Prefer debug-time token map when dbg-map.fth is loaded.
-   [DEFINED] DBG-MAP-BIND [IF]
-      ALSO HYPER-VOC  DBG-MAP-BIND DROP  PREVIOUS
+   \ Debugger owns maps/HL links — install SZ-* → DBG-ED-*, then mirror HL xt.
+   [DEFINED] DEBUGGER [IF]
+      ALSO DEBUGGER
+      S" DBG-ED-INSTALL" HYPER-CMD HYPER-PLACE
+      HYPER-CMD FIND IF  EXECUTE DROP  ELSE  DROP  THEN
+      S" DBG-ED-HL-XT" HYPER-CMD HYPER-PLACE
+      HYPER-CMD FIND IF  EXECUTE TO HYPER-HL-XT  ELSE  DROP  THEN
+      PREVIOUS
    [THEN]
    HYPER-EDIT-XT 0<> ;
 \ Editor Cmd-click already noted origin — skip one HIST-NOTE in VIEW-NAME.
@@ -1103,6 +1117,7 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC ALSO SYSVOC ALSO EDITOR
    HYPER-EDITOR-ACTIVE? 0= IF  2DROP EXIT  THEN
    2DUP DBG-HL-SKIP? IF  2DROP EXIT  THEN
    HYPER-HL-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
+   \ HYPER-HL-XT is filled by Debugger DBG-ED-INSTALL (map or SZ-HIGHLIGHT-NAME).
    HYPER-HL-XT IF  HYPER-HL-XT EXECUTE  ELSE  2DROP  THEN
    HYPER-REDRAW-XT IF  HYPER-REDRAW-XT EXECUTE  THEN
 ;
@@ -1209,18 +1224,7 @@ PREVIOUS
    ." HYPER-REINDEX     rebuild Config/HYPER.NDX, reload" CR
    ." HYPER-RELOAD  .HYPER   |  ALSO HYPER-VOC WORDS  |  ORDER" CR ;
 
-\ Debug-time token maps (autoload-on-top; later may move into blobs).
-\ dbg-map needs SYSVOC (DBG-CFA@, (LOOP), …) + EDITOR (SZ-*).
-ONLY FORTH ALSO SYSVOC ALSO EDITOR
-[DEFINED] SZ-TBUF [IF]
-  FROMLIB FLOAD Hyper/dbg-map.fth
-  ALSO HYPER-VOC
-  [DEFINED] DBG-MAP-BIND [IF]  DBG-MAP-BIND DROP  [THEN]
-  PREVIOUS
-[ELSE]
-  .( HYPER: dbg-map skipped — load Editor/SZ-EDITOR.fth first) CR
-[THEN]
-ONLY FORTH ALSO HYPER-VOC
+\ Token maps live in Debugger/dbg-map.fth (Autoload after this file).
 
 \ Session order: FORTH then HYPER-VOC.
 ONLY FORTH ALSO HYPER-VOC

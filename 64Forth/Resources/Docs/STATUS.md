@@ -1,10 +1,32 @@
 # 64Forth development status
 
-**Current:** **1.4.0** (build **39**; DMG + GitHub `v1.4.0`)  
-**Last updated:** 2026-09-18 (v1.4.0: DEBUG token maps, comment-safe highlight, pause UI)
+**Current:** **1.4.1** (build **40**; repo checkpoint — no DMG tonight)  
+**Last updated:** 2026-09-19 (v1.4.1: TRAVERSE/DBG VIEW+HL, Debugger maps hub)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.4.1 — TRAVERSE DBG VIEW/HL, Debugger maps hub
+
+**Version strings:** marketing **1.4.1**, build **40** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner).
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.4.1 === Sep 19, 2026 9:40 PM ===
+```
+
+### Highlights (vs 1.4.0)
+
+- **TRAVERSE-WORDLIST trampoline:** pause resolve/print treat `tw_continue_cell` like CATCH — visitor xt from R, label `(TRAVERSE)`, auto-skip trampoline UI; empty `debug_name` keeps prior HL.
+- **Enclosing colon:** `_ip_find_colon` scans every registered wordlist (`WORDLISTS`), not search order + FORTH only — SYSVOC helpers such as `(SHOW-VOCAB)` win over a FORTH neighbor (e.g. `.THREADS`).
+- **Cold VIEW stamps:** `HYPER-STAMP-COLD` temporarily `ALSO SYSVOC EDITOR GRAPHICS` so `FORTH>SYSVOC` (etc.) words get `VIEW-FILE#` / `VIEW-LINE`; DBG sync/map-HL no longer stick on `TRAVERSE-WORDLIST` while stepping the visitor.
+- **R-stack DEBUG display:** nearest **4** cells + `...`; CFA/small-int labeling hardened (no NFA probe on aligned `0`).
+- **Debugger library:** `dbg-map.fth` / `dbg-ed.fth` under `Library/Debugger` (moved off Hyper); deferred Editor/Hyper links via `DBG-ED-INSTALL` after Autoload.
+
+**Release:** repo push only (no `64Forth-1.4.1-macOS.dmg` / GitHub release tonight). Prior DMG remains **1.4.0**.
 
 ---
 
@@ -20,7 +42,7 @@ Append new design sections as we go; mark items done when implemented.
 
 ### Highlights (vs 1.3.9)
 
-- **Debug-time token maps:** `Hyper/dbg-map.fth` builds per-colon body↔source tables (`ALLOCATE`; prune on `ANEW-HOOK`); `DBG-MAP-HL` prefers map spans, falls back to name search. Kernel: `DBG-IP@` / `DBG-CFA@` / `DBG-BODY#` / `DBG-XT@` / `DBG-TOS@` / `DBG-SYNC-OK`.
+- **Debug-time token maps:** `Debugger/dbg-map.fth` builds per-colon body↔source tables (`ALLOCATE`; prune on `ANEW-HOOK`); `DBG-MAP-HL` prefers map spans, falls back to name search. Autoload after Hyper. Kernel: `DBG-IP@` / `DBG-CFA@` / `DBG-BODY#` / `DBG-XT@` / `DBG-TOS@` / `DBG-SYNC-OK`.
 - **Comment-safe highlight:** editor `SZ-SKIP-COMMENT` / `SZ-SEARCH-FWD-CODE` and dbg-map search treat only whitespace-delimited `\` / `(` as comments (never `[CHAR] \`; `(SLURP)` is a name). Taken-`IF` dest + def-window clamp keep post-`THEN` tokens (e.g. `R>`) correct.
 - **Pause UI:** `I>>` for nestable xts; LIT prints xt names when payload looks like a CFA; DOCOL-only F6/Space step-over; data/return stack column layout; console BS erases the DEBUG block cursor; host delivers `h` for help.
 - **Hyper sync:** narrower `DBG-SYNC-SKIP?` / `DBG-HL-SKIP?`; commit view CFA only after a real VIEW (`DBG-SYNC-OK`).
