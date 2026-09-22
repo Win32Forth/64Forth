@@ -55,10 +55,11 @@ $D61F0200 CONSTANT ARM-BR-X16
 \ 6 name 7 tone 8 pump 9 MS@/gettimeofday 10 malloc 11 free
 \ 12 BI-MUL 13 BI-DIVMOD 14 BI-ISQRT (blr x9 hooks → HOST-APP veneers)
 \ 15 (APP-MOUSE)/host_app_mouse.
+\ 16 (APP-CBLIT)/host_app_cblit (depth 1/8/32).
 \ .quad = HOST-CALL-MAGIC|slot until HOST-BIND.
 
 $C0DE000000000000 CONSTANT HOST-CALL-MAGIC
-16 CONSTANT #HOST-APP
+17 CONSTANT #HOST-APP
 128 CONSTANT #HOST-RELOC
 
 CREATE HOST-APP-VA     #HOST-APP CELLS ALLOT
@@ -572,7 +573,9 @@ S" KEY?"  (GFX-IO-XT) CONSTANT GFX-KEY?
   \ Slots 12–14 (BI-*) are wired by SA-FIX-BI-HOOKS (blr x9, not bl host).
   \ (APP-MOUSE) bl _host_app_mouse — without a slot, SA NOP'd the BL (zeros)
   \ or left a bad abs veneer; DOODLE.app flashed/crashed on first G-MOUSE.
-  S" (APP-MOUSE)" HOST-APP-XT 15 HOST-APP-SET ;
+  S" (APP-MOUSE)" HOST-APP-XT 15 HOST-APP-SET
+  \ (APP-CBLIT) color/depth blit — without a slot, COLOR8/TRUECOLOR stay mono.
+  S" (APP-CBLIT)" HOST-APP-XT 16 HOST-APP-SET ;
 
 \ --- re-encode from new pc to same tgt --------------------------------
 

@@ -127,6 +127,10 @@ void host_facility_xy(int64_t *col_out, int64_t *row_out);
 int64_t host_app_open(int64_t cols, int64_t rows);
 void host_app_close(void);
 void host_app_blit(const void *addr, int64_t nbytes);
+/// 1-bit pixel blit (legacy SA). Prefer host_app_cblit for depth 1/8/32.
+void host_app_pblit(const void *addr, int64_t nbytes);
+/// Pixel blit with depth: 1=packed bits, 8=index, 32=BGRA. Size implied 640×400.
+void host_app_cblit(const void *addr, int64_t nbytes, int64_t depth);
 int64_t host_app_keyq(void);
 int64_t host_app_key(void);
 void host_app_name(const void *addr, int64_t nbytes);

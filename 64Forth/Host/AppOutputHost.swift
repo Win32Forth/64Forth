@@ -23,8 +23,11 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
     private var pix: [UInt8] = []
     private var pixW = 640
     private var pixH = 400
-    private var pixStride = 80          // (pixW+7)/8
+    private var pixStride = 80          // bytes/row (depth-dependent)
+    private var pixDepth = 1            // 1 | 8 | 32
     private var hasPixels = false
+    /// Scratch BGRA for CGImage (rebuilt each blit/draw as needed).
+    private var drawBGRA: [UInt8] = []
 
     /// Snapshot blitted from Forth (host-owned copy for drawRect).
     private var cells: [UInt8] = []
@@ -201,23 +204,49 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
     }
 
     /// Packed 1-bit, LSB = leftmost pixel in the byte, row-major, top row first.
+    /// Kept for Emitter SA images that still call `(APP-PBLIT)`.
     func pblit(from addr: UnsafeRawPointer?, count: Int, width: Int = 640, height: Int = 400) {
+        cblit(from: addr, count: count, depth: 1, width: width, height: height)
+    }
+
+    /// Color / depth blit: `depth` is 1 (packed bits), 8 (index), or 32 (BGRA).
+    func cblit(
+        from addr: UnsafeRawPointer?,
+        count: Int,
+        depth: Int,
+        width: Int = 640,
+        height: Int = 400
+    ) {
         guard opened, let addr, count > 0 else { return }
         let w = max(1, width)
         let h = max(1, height)
-        let stride = (w + 7) / 8
-        let n = min(count, stride * h)
+        let d: Int
+        let stride: Int
+        let need: Int
+        switch depth {
+        case 8:
+            d = 8; stride = w; need = w * h
+        case 32:
+            d = 32; stride = w * 4; need = w * h * 4
+        default:
+            d = 1; stride = (w + 7) / 8; need = stride * h
+        }
+        let n = min(count, need)
         let work = { [weak self] in
             guard let self else { return }
             self.pixW = w
             self.pixH = h
+            self.pixDepth = d
             self.pixStride = stride
-            if self.pix.count != stride * h {
-                self.pix = [UInt8](repeating: 0, count: stride * h)
+            if self.pix.count != need {
+                self.pix = [UInt8](repeating: 0, count: need)
             }
             self.pix.withUnsafeMutableBytes { dest in
                 guard let base = dest.baseAddress else { return }
                 memcpy(base, addr, n)
+                if n < need {
+                    memset(base.advanced(by: n), 0, need - n)
+                }
             }
             self.hasPixels = true
             self.gridView?.needsDisplay = true
@@ -226,11 +255,104 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
         if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
     }
 
-    fileprivate var pixelBytes: [UInt8] { pix }
     fileprivate var pixelW: Int { pixW }
     fileprivate var pixelH: Int { pixH }
-    fileprivate var pixelStride: Int { pixStride }
     fileprivate var showingPixels: Bool { hasPixels }
+
+    /// Default 256-color palette as BGRA UInt32 (low byte = B). Indices 0–15 = classic TCOLOR.
+    fileprivate static let defaultPaletteBGRA: [UInt32] = {
+        var pal = [UInt32](repeating: 0, count: 256)
+        let rgb16: [(UInt8, UInt8, UInt8)] = [
+            (0, 0, 0), (0, 0, 170), (0, 170, 0), (0, 170, 170),
+            (170, 0, 0), (170, 0, 170), (170, 85, 0), (170, 170, 170),
+            (85, 85, 85), (85, 85, 255), (85, 255, 85), (85, 255, 255),
+            (255, 85, 85), (255, 85, 255), (255, 255, 85), (255, 255, 255)
+        ]
+        for (i, c) in rgb16.enumerated() {
+            pal[i] = UInt32(c.2) | (UInt32(c.1) << 8) | (UInt32(c.0) << 16) | 0xFF00_0000
+        }
+        // 16..231: 6×6×6 color cube (VGA-style)
+        var idx = 16
+        for r in 0..<6 {
+            for g in 0..<6 {
+                for b in 0..<6 {
+                    let R = UInt8(r * 51), G = UInt8(g * 51), B = UInt8(b * 51)
+                    pal[idx] = UInt32(B) | (UInt32(G) << 8) | (UInt32(R) << 16) | 0xFF00_0000
+                    idx += 1
+                }
+            }
+        }
+        // 232..255: grayscale ramp
+        for i in 0..<24 {
+            let v = UInt8(min(255, 8 + i * 10))
+            pal[232 + i] = UInt32(v) | (UInt32(v) << 8) | (UInt32(v) << 16) | 0xFF00_0000
+        }
+        return pal
+    }()
+
+    /// Build a CGImage from the current pixel buffer (top row first → correct in flipped NSView).
+    fileprivate func makePixelCGImage() -> CGImage? {
+        guard hasPixels, pixW > 0, pixH > 0 else { return nil }
+        let need = pixW * pixH * 4
+        if drawBGRA.count != need {
+            drawBGRA = [UInt8](repeating: 0, count: need)
+        }
+        switch pixDepth {
+        case 8:
+            let pal = Self.defaultPaletteBGRA
+            let n = min(pix.count, pixW * pixH)
+            for i in 0..<n {
+                let c = pal[Int(pix[i])]
+                let o = i * 4
+                drawBGRA[o] = UInt8(c & 0xFF)
+                drawBGRA[o + 1] = UInt8((c >> 8) & 0xFF)
+                drawBGRA[o + 2] = UInt8((c >> 16) & 0xFF)
+                drawBGRA[o + 3] = 0xFF
+            }
+        case 32:
+            let n = min(pix.count, need)
+            for i in 0..<n { drawBGRA[i] = pix[i] }
+            // Ensure opaque alpha if Forth left 0.
+            var i = 3
+            while i < n {
+                if drawBGRA[i] == 0 { drawBGRA[i] = 0xFF }
+                i += 4
+            }
+        default:
+            // 1-bit → green-on-black (legacy look)
+            let gR: UInt8 = 178, gG: UInt8 = 255, gB: UInt8 = 178
+            for y in 0..<pixH {
+                let row = y * pixStride
+                for x in 0..<pixW {
+                    let on = (pix[row + (x >> 3)] & (1 << (x & 7))) != 0
+                    let o = (y * pixW + x) * 4
+                    if on {
+                        drawBGRA[o] = gB; drawBGRA[o + 1] = gG; drawBGRA[o + 2] = gR; drawBGRA[o + 3] = 0xFF
+                    } else {
+                        drawBGRA[o] = 0; drawBGRA[o + 1] = 0; drawBGRA[o + 2] = 0; drawBGRA[o + 3] = 0xFF
+                    }
+                }
+            }
+        }
+        let cs = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo.byteOrder32Little.union(
+            CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)
+        )
+        guard let provider = CGDataProvider(data: Data(drawBGRA) as CFData) else { return nil }
+        return CGImage(
+            width: pixW,
+            height: pixH,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: pixW * 4,
+            space: cs,
+            bitmapInfo: bitmapInfo,
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )
+    }
     
     /// Set window title (and remembered name for next open).
     func setAppName(from addr: UnsafeRawPointer?, count: Int) {
@@ -460,31 +582,11 @@ final class AppGridView: NSView {
         NSColor.black.setFill()
         bounds.fill()
 
-        if host.showingPixels {
-            let fg = NSColor(calibratedRed: 0.7, green: 1.0, blue: 0.7, alpha: 1)
-            fg.setFill()
-            let pw = host.pixelW
-            let ph = host.pixelH
-            let stride = host.pixelStride
-            let bits = host.pixelBytes
-            let dw = bounds.width - 8
-            let dh = bounds.height - 8
-            let sx = dw / CGFloat(pw)
-            let sy = dh / CGFloat(ph)
-            for y in 0..<ph {
-                let row = y * stride
-                for x in 0..<pw {
-                    let byte = bits[row + (x >> 3)]
-                    if (byte & (1 << (x & 7))) != 0 {
-                        let r = NSRect(
-                            x: 4 + CGFloat(x) * sx,
-                            y: 4 + CGFloat(ph - 1 - y) * sy,
-                            width: max(1, sx),
-                            height: max(1, sy)
-                        )
-                        r.fill()
-                    }
-                }
+        if host.showingPixels, let img = host.makePixelCGImage() {
+            let rect = CGRect(x: 4, y: 4, width: bounds.width - 8, height: bounds.height - 8)
+            if let ctx = NSGraphicsContext.current?.cgContext {
+                ctx.interpolationQuality = .none
+                ctx.draw(img, in: rect)
             }
         }
 
@@ -603,6 +705,11 @@ public func host_app_blit(_ addr: UnsafeRawPointer?, _ nbytes: Int64) {
 @_cdecl("host_app_pblit")
 public func host_app_pblit(_ addr: UnsafeRawPointer?, _ nbytes: Int64) {
     AppOutputHost.shared.pblit(from: addr, count: Int(nbytes))
+}
+
+@_cdecl("host_app_cblit")
+public func host_app_cblit(_ addr: UnsafeRawPointer?, _ nbytes: Int64, _ depth: Int64) {
+    AppOutputHost.shared.cblit(from: addr, count: Int(nbytes), depth: Int(depth))
 }
 
 @_cdecl("host_app_keyq")

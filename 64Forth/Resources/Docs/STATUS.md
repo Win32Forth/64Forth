@@ -1,7 +1,7 @@
 # 64Forth development status
 
-**Current:** **1.4.2** (build **41**)  
-**Last updated:** 2026-09-21 (v1.4.2: ANS SMUDGE, FILE-ECHO, GRAPHICS mouse, Emitter SA DOODLE)
+**Current:** **1.4.2** (build **41**) + post-release GRAPHICS color (selectable 1/8/32) in tree  
+**Last updated:** 2026-09-22 (GRAPHICS `1BIT`/`COLOR8`/`TRUECOLOR`; `(APP-CBLIT)` slot 16)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
@@ -29,6 +29,10 @@ Append new design sections as we go; mark items done when implemented.
 - **CODE-BOUNDS / Emitter:** walk `__bootptr` as an array of row pointers (plus `BOOT-WORD-TABLE-END`); restores non-zero ends for `(S")` and other labeled prims so Emitter `PRIM-SPAN` works again. Same fix in Emitter `BOOT-SPAN-NAMED` / `EMM-SPAN-OF` (`reloc.fth`) so `sa-block missing (SA-PRINT)` no longer fires after a good rebuild.
 
 **Release:** `64Forth/releases/64Forth-1.4.2-macOS.dmg` + GitHub `v1.4.2`.
+
+### After 1.4.2 (in tree, not yet a numbered release)
+
+- **GRAPHICS color depths:** `1BIT` (default) / `COLOR8` / `TRUECOLOR` on the same 640×400 surface; `G-PIX` sized for BGRA; `COLOR` + `RGB` + `CBLACK`…`CWHITE`; host CGImage blit; `(APP-CBLIT)` slot **16** (keep `(APP-PBLIT)` for 1-bit SA). Smoke: `GRAPHICS-CSMOKE`. See `APPKIT.md`. JPEG load still deferred.
 
 ---
 

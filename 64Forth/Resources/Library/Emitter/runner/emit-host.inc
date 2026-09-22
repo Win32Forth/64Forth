@@ -1,7 +1,8 @@
 /* emit-host.inc — thin GRAPHICS host for Emitter stand-alone runner.
  * Implements host_app_* slots 0–8 (AppOutputHost ABI), slot 9 (MS@ /
  * gettimeofday), slots 10–11 (malloc / free), slots 12–14 (BI-MUL /
- * BI-DIVMOD / BI-ISQRT), slot 15 (host_app_mouse). Public domain.
+ * BI-DIVMOD / BI-ISQRT), slot 15 (host_app_mouse), slot 16 (cblit).
+ * Public domain.
  */
 #import <Cocoa/Cocoa.h>
 #include <stdlib.h>
@@ -23,7 +24,40 @@ static uint8_t *emit_cells = NULL;
 static int emit_cell_n = 0;
 static uint8_t *emit_pix = NULL;
 static int emit_pix_n = 0, emit_pix_w = 640, emit_pix_h = 400, emit_pix_stride = 80;
+static int emit_pix_depth = 1; /* 1 | 8 | 32 */
 static int emit_has_pix = 0;
+static uint8_t *emit_bgra = NULL;
+static int emit_bgra_n = 0;
+static uint32_t emit_palette[256];
+static int emit_palette_ready = 0;
+
+static void emit_init_palette(void) {
+  static const uint8_t rgb16[16][3] = {
+    {0,0,0},{0,0,170},{0,170,0},{0,170,170},
+    {170,0,0},{170,0,170},{170,85,0},{170,170,170},
+    {85,85,85},{85,85,255},{85,255,85},{85,255,255},
+    {255,85,85},{255,85,255},{255,255,85},{255,255,255}
+  };
+  int i, r, g, b, idx;
+  if (emit_palette_ready) return;
+  for (i = 0; i < 16; i++) {
+    emit_palette[i] = (uint32_t)rgb16[i][2] | ((uint32_t)rgb16[i][1] << 8) |
+                      ((uint32_t)rgb16[i][0] << 16) | 0xFF000000u;
+  }
+  idx = 16;
+  for (r = 0; r < 6; r++)
+    for (g = 0; g < 6; g++)
+      for (b = 0; b < 6; b++) {
+        uint8_t R = (uint8_t)(r * 51), G = (uint8_t)(g * 51), B = (uint8_t)(b * 51);
+        emit_palette[idx++] = (uint32_t)B | ((uint32_t)G << 8) | ((uint32_t)R << 16) | 0xFF000000u;
+      }
+  for (i = 0; i < 24; i++) {
+    uint8_t v = (uint8_t)(8 + i * 10);
+    if (v > 255) v = 255;
+    emit_palette[232 + i] = (uint32_t)v | ((uint32_t)v << 8) | ((uint32_t)v << 16) | 0xFF000000u;
+  }
+  emit_palette_ready = 1;
+}
 static int64_t emit_keys[EMIT_KEYCAP];
 static int emit_kr = 0, emit_kw = 0;
 static int64_t emit_mouse_x = 0, emit_mouse_y = 0, emit_mouse_buttons = 0;
@@ -110,21 +144,62 @@ static int64_t emit_map_key(NSEvent *ev) {
   [[NSColor blackColor] setFill];
   NSRectFill(self.bounds);
   if (emit_has_pix && emit_pix) {
-    [[NSColor colorWithCalibratedRed:0.7 green:1.0 blue:0.7 alpha:1] setFill];
-    CGFloat dw = self.bounds.size.width - 8;
-    CGFloat dh = self.bounds.size.height - 8;
-    CGFloat sx = dw / (CGFloat)emit_pix_w;
-    CGFloat sy = dh / (CGFloat)emit_pix_h;
-    for (int y = 0; y < emit_pix_h; y++) {
-      int row = y * emit_pix_stride;
-      for (int x = 0; x < emit_pix_w; x++) {
-        uint8_t b = emit_pix[row + (x >> 3)];
-        if (b & (1u << (x & 7))) {
-          NSRectFill(NSMakeRect(4 + x * sx, 4 + (emit_pix_h - 1 - y) * sy,
-                                fmax(1, sx), fmax(1, sy)));
+    int need = emit_pix_w * emit_pix_h * 4;
+    int x, y, i, n;
+    uint8_t *d;
+    CGColorSpaceRef cs;
+    CGDataProviderRef prov;
+    CGImageRef img;
+    CGContextRef ctx;
+    emit_init_palette();
+    if (!emit_bgra || emit_bgra_n < need) {
+      free(emit_bgra);
+      emit_bgra = (uint8_t *)malloc((size_t)need);
+      emit_bgra_n = need;
+    }
+    d = emit_bgra;
+    if (emit_pix_depth == 8) {
+      n = emit_pix_w * emit_pix_h;
+      if (n > emit_pix_n) n = emit_pix_n;
+      for (i = 0; i < n; i++) {
+        uint32_t c = emit_palette[emit_pix[i]];
+        d[i * 4] = (uint8_t)(c & 0xFF);
+        d[i * 4 + 1] = (uint8_t)((c >> 8) & 0xFF);
+        d[i * 4 + 2] = (uint8_t)((c >> 16) & 0xFF);
+        d[i * 4 + 3] = 0xFF;
+      }
+    } else if (emit_pix_depth == 32) {
+      n = need;
+      if (n > emit_pix_n) n = emit_pix_n;
+      memcpy(d, emit_pix, (size_t)n);
+      for (i = 3; i < n; i += 4) if (d[i] == 0) d[i] = 0xFF;
+    } else {
+      for (y = 0; y < emit_pix_h; y++) {
+        int row = y * emit_pix_stride;
+        for (x = 0; x < emit_pix_w; x++) {
+          int o = (y * emit_pix_w + x) * 4;
+          if (emit_pix[row + (x >> 3)] & (1u << (x & 7))) {
+            d[o] = 178; d[o + 1] = 255; d[o + 2] = 178; d[o + 3] = 255;
+          } else {
+            d[o] = 0; d[o + 1] = 0; d[o + 2] = 0; d[o + 3] = 255;
+          }
         }
       }
     }
+    cs = CGColorSpaceCreateDeviceRGB();
+    prov = CGDataProviderCreateWithData(NULL, d, (size_t)need, NULL);
+    img = CGImageCreate(emit_pix_w, emit_pix_h, 8, 32, emit_pix_w * 4, cs,
+                        kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst,
+                        prov, NULL, false, kCGRenderingIntentDefault);
+    ctx = [[NSGraphicsContext currentContext] CGContext];
+    if (ctx && img) {
+      CGContextSetInterpolationQuality(ctx, kCGInterpolationNone);
+      CGContextDrawImage(ctx, CGRectMake(4, 4, self.bounds.size.width - 8,
+                                         self.bounds.size.height - 8), img);
+    }
+    if (img) CGImageRelease(img);
+    if (prov) CGDataProviderRelease(prov);
+    if (cs) CGColorSpaceRelease(cs);
   }
   if (!emit_cells) return;
   NSFont *font = [NSFont monospacedSystemFontOfSize:emit_ch - 2 weight:NSFontWeightRegular];
@@ -291,24 +366,45 @@ static int64_t host_app_blit(int64_t addr, int64_t nbytes) {
   return 0;
 }
 
-static int64_t host_app_pblit(int64_t addr, int64_t nbytes) {
+static int64_t host_app_cblit_depth(int64_t addr, int64_t nbytes, int64_t depth) {
+  int d, stride, need, n;
   if (!emit_opened || !addr || nbytes <= 0) return 0;
-  emit_pix_stride = (emit_pix_w + 7) / 8;
-  int need = emit_pix_stride * emit_pix_h;
+  if (depth == 8) {
+    d = 8; stride = emit_pix_w; need = emit_pix_w * emit_pix_h;
+  } else if (depth == 32) {
+    d = 32; stride = emit_pix_w * 4; need = emit_pix_w * emit_pix_h * 4;
+  } else {
+    d = 1; stride = (emit_pix_w + 7) / 8; need = stride * emit_pix_h;
+  }
   if (!emit_pix || emit_pix_n < need) {
     free(emit_pix);
     emit_pix = (uint8_t *)malloc((size_t)need);
     emit_pix_n = need;
   }
-  int n = (int)nbytes;
+  n = (int)nbytes;
   if (n > need) n = need;
   memcpy(emit_pix, (const void *)(uintptr_t)addr, (size_t)n);
+  if (n < need) memset(emit_pix + n, 0, (size_t)(need - n));
+  emit_pix_depth = d;
+  emit_pix_stride = stride;
   emit_has_pix = 1;
   dispatch_async(dispatch_get_main_queue(), ^{
     [emit_view setNeedsDisplay:YES];
     [emit_window displayIfNeeded];
   });
   return 0;
+}
+
+static int64_t host_app_pblit(int64_t addr, int64_t nbytes) {
+  return host_app_cblit_depth(addr, nbytes, 1);
+}
+
+/* Slot 16: (APP-CBLIT) bl _host_app_cblit — x0=addr, x1=nbytes, x2=depth. */
+__attribute__((noinline, optnone))
+static int64_t host_app_cblit_slot(int64_t addr, int64_t nbytes) {
+  int64_t depth;
+  __asm__ volatile("mov %0, x2" : "=r"(depth));
+  return host_app_cblit_depth(addr, nbytes, depth);
 }
 
 /* ITC owns the main thread before [NSApp run]; drain events so KEY works. */
@@ -451,8 +547,8 @@ static int64_t host_app_mouse_slot(int64_t x_ptr, int64_t y_ptr) {
   return 0;
 }
 
-/* Slot table — must match Emitter reloc.fth HOST-APP slots 0–15. */
-static emit_host_fn host_fn[16] = {
+/* Slot table — must match Emitter reloc.fth HOST-APP slots 0–16. */
+static emit_host_fn host_fn[17] = {
   host_app_open,
   host_app_close,
   host_app_blit,
@@ -468,5 +564,6 @@ static emit_host_fn host_fn[16] = {
   host_bi_mul_slot,
   host_bi_divmod_slot,
   host_bi_isqrt_slot,
-  host_app_mouse_slot
+  host_app_mouse_slot,
+  host_app_cblit_slot
 };

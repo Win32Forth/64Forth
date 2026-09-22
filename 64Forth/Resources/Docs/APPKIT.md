@@ -29,6 +29,22 @@ Entry pattern (unchanged): load sources, then `MAIN` (AutoLoad may call `APP-RUN
 | Pixels | **640 × 400** (`G-PX` / `G-PY` = 80×8 × 25×16) |
 | Cell | 8 × 16 px |
 
+### Pixel depth (selectable)
+
+| Mode word | `G-DEPTH` | Buffer | Notes |
+|-----------|-----------|--------|-------|
+| `1BIT` (default) | 1 | packed bits (~32 KB used) | Host paints set bits as green-on-black |
+| `COLOR8` | 8 | 1 byte/pixel (~256 KB) | Palette indices; 0–15 = classic TCOLOR |
+| `TRUECOLOR` | 32 | 4 bytes/pixel BGRA (~1 MiB) | Pen = `$00RRGGBB` via `RGB` / `COLOR !` |
+
+`G-PIX` is allotted for truecolor once so depth switches need no `RESIZE`. `G-PIXBYTES` is the used size at the current depth.
+
+**Ink** (`WHITE` `BLACK` `INVERT`) remain **modes** (set / clear / xor), not palette names. **Pen** is `COLOR` (index in `COLOR8`, `$00RRGGBB` in `TRUECOLOR`). Classic indices: `CBLACK`…`CWHITE`. Pack truecolor with `r g b RGB`.
+
+Host draw uses a CGImage stretch (not per-pixel rect fills). Char overlay stays green; spaces leave pixels visible.
+
+JPEG load into `TRUECOLOR` is deferred (buffer layout is ready).
+
 ### Forth words (GRAPHICS)
 
 Char / IO: `WINDOW` `WINDOW-OFF` `APP-NAME` `CLS` `AT` `EMIT` `TYPE` `SPACE` `CR` `.` `."` `GET-CHAR` `KEY` `KEY?` `REFRESH` `?REFRESH`
@@ -37,17 +53,20 @@ Time / sound: `TIME-RESET` `10TH-ELAPSED` `TENTHS` `TONE`
 
 Mouse: `G-MOUSE` / `GETMOUS` → `(APP-MOUSE)` — `( -- x y buttons )`, PLOT origin (bottom-left); buttons `1`=left `2`=right `4`=middle
 
-Points: `WHITE` `BLACK` `INVERT` `PLOT` `UNPLOT` `LINE` `PCLS` `PREFRESH` (plus helpers as needed)
+Points: `1BIT` `COLOR8` `TRUECOLOR` `WHITE` `BLACK` `INVERT` `COLOR` `RGB` `CBLACK`…`CWHITE` `PLOT` `UNPLOT` `LINE` `POINT@` `POINT-COLOR@` `PCLS` `PREFRESH`
 
-Smoke: `GRAPHICS-SMOKE` `GRAPHICS-PSMOKE`
+Smoke: `GRAPHICS-SMOKE` `GRAPHICS-PSMOKE` `GRAPHICS-CSMOKE`
 
-Sample: `Library/Sample/DOODLE64.fth` → `DOODLE` (mouse drawing demo)
+Sample: `Library/Sample/DOODLE64.fth` → `DOODLE` (mouse drawing demo; default 1-bit)
 
 ### Host CODE ABI (must remain imports for Emitter)
 
-`(APP-OPEN)` `(APP-CLOSE)` `(APP-BLIT)` `(APP-PBLIT)` `(APP-KEY?)` `(APP-KEY)` `(APP-NAME)` `(APP-TONE)` `(APP-PUMP)` `(APP-MOUSE)` plus `MS@` for timers.
+`(APP-OPEN)` `(APP-CLOSE)` `(APP-BLIT)` `(APP-PBLIT)` `(APP-CBLIT)` `(APP-KEY?)` `(APP-KEY)` `(APP-NAME)` `(APP-TONE)` `(APP-PUMP)` `(APP-MOUSE)` plus `MS@` for timers.
 
-Emitter `HOST-APP` slot table is append-only; `(APP-MOUSE)` is slot 15 (after BI 12–14) in `reloc.fth` / `emit-host.inc`.
+- `(APP-PBLIT) ( c-addr u -- )` — **1-bit only** (legacy SA).
+- `(APP-CBLIT) ( c-addr u depth -- )` — depth `1` / `8` / `32`.
+
+Emitter `HOST-APP` slot table is append-only; `(APP-MOUSE)` is slot **15**, `(APP-CBLIT)` is slot **16** in `reloc.fth` / `emit-host.inc`.
 
 Swift: `Host/AppOutputHost.swift`. Hooks live in the **GRAPHICS** vocabulary after cold `vocsys.fth` rechain.
 

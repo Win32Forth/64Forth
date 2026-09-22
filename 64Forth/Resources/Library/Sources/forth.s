@@ -836,6 +836,7 @@ XFACILITY_OP_GO_END:
 .extern _host_app_close
 .extern _host_app_blit
 .extern _host_app_pblit
+.extern _host_app_cblit
 .extern _host_app_keyq
 .extern _host_app_key
 .extern _host_app_name
@@ -897,6 +898,21 @@ XAPP_PBLIT:
     RESTORE_VM
     ldp  x29, x30, [sp], #16
 XAPP_PBLIT_END:
+    NEXT
+
+// (APP-CBLIT) ( c-addr u depth -- )  depth 1/8/32 pixel map → graphics window
+    BOOT_WORD "(APP-CBLIT)", "(APP-CBLIT) ( c-addr u depth -- ) blit pixels (1/8/32) to graphics window", 0, XAPP_CBLIT, XAPP_CBLIT_END
+XAPP_CBLIT:
+    mov  x2, x20                   // depth
+    ldr  x1, [x22], #8             // u
+    ldr  x0, [x22], #8             // c-addr
+    ldr  x20, [x22], #8
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_cblit
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+XAPP_CBLIT_END:
     NEXT
 
 // (APP-KEY?) ( -- flag )  -1 if key pending in graphics window
@@ -2528,6 +2544,21 @@ XCSTORE:
     strb w0, [x20]         // *addr = char
     ldr x20, [x22], #8
 XCSTORE_END:
+    NEXT
+
+// L@ / L! — 32-bit (long) LE fetch/store; ldr w / str w zero-extend on fetch.
+    BOOT_WORD "L@", "L@ ( addr -- u ) fetch 32-bit (zero-extended)", 0, XLFETCH, XLFETCH_END
+XLFETCH:
+    ldr w20, [x20]
+XLFETCH_END:
+    NEXT
+
+    BOOT_WORD "L!", "L! ( u addr -- ) store 32-bit", 0, XLSTORE, XLSTORE_END
+XLSTORE:
+    ldr x0, [x22], #8      // x0 = value
+    str w0, [x20]          // *addr = low 32 bits
+    ldr x20, [x22], #8
+XLSTORE_END:
     NEXT
 
     BOOT_WORD "+!", "+! ( n addr -- ) add to memory", 0, XPLUSSTORE, XPLUSSTORE_END
