@@ -33,6 +33,7 @@ Append new design sections as we go; mark items done when implemented.
 ### After 1.4.2 (in tree, not yet a numbered release)
 
 - **GRAPHICS color depths:** `1BIT` (default) / `COLOR8` / `TRUECOLOR` on the same 640×400 surface; `G-PIX` sized for BGRA; `COLOR` + `RGB` + `CBLACK`…`CWHITE`; host CGImage blit; `(APP-CBLIT)` slot **16** (keep `(APP-PBLIT)` for 1-bit SA). Smoke: `GRAPHICS-CSMOKE`. See `APPKIT.md`. JPEG load still deferred.
+- **Sample DOODLECOLOR64:** `Library/Sample/DOODLECOLOR64.fth` — COLOR8 sibling of DOODLE64 with a 16-color chrome bar (`FROMLIB FLOAD Sample/DOODLECOLOR64.fth` then `DOODLECOLOR`). Leaves `DOODLE64.fth` unchanged.
 
 ---
 

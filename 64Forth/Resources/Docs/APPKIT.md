@@ -57,7 +57,7 @@ Points: `1BIT` `COLOR8` `TRUECOLOR` `WHITE` `BLACK` `INVERT` `COLOR` `RGB` `CBLA
 
 Smoke: `GRAPHICS-SMOKE` `GRAPHICS-PSMOKE` `GRAPHICS-CSMOKE`
 
-Sample: `Library/Sample/DOODLE64.fth` → `DOODLE` (mouse drawing demo; default 1-bit)
+Samples: `Library/Sample/DOODLE64.fth` → `DOODLE` (1-bit); `Library/Sample/DOODLECOLOR64.fth` → `DOODLECOLOR` (COLOR8 + 16-color bar)
 
 ### Host CODE ABI (must remain imports for Emitter)
 
