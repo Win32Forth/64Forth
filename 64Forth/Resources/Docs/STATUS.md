@@ -28,7 +28,7 @@ Append new design sections as we go; mark items done when implemented.
 - **PLOT BLACK fix:** clear-ink path uses `-1 XOR` so GRAPHICS `INVERT` (ink) no longer shadows bitwise invert.
 - **CODE-BOUNDS / Emitter:** walk `__bootptr` as an array of row pointers (plus `BOOT-WORD-TABLE-END`); restores non-zero ends for `(S")` and other labeled prims so Emitter `PRIM-SPAN` works again. Same fix in Emitter `BOOT-SPAN-NAMED` / `EMM-SPAN-OF` (`reloc.fth`) so `sa-block missing (SA-PRINT)` no longer fires after a good rebuild.
 
-**Release:** `64Forth/releases/64Forth-1.4.2-macOS.dmg` + GitHub `v1.4.2` (DMG pending user build).
+**Release:** `64Forth/releases/64Forth-1.4.2-macOS.dmg` + GitHub `v1.4.2`.
 
 ---
 
