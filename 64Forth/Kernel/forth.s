@@ -843,6 +843,10 @@ XFACILITY_OP_GO_END:
 .extern _host_app_tone
 .extern _host_app_pump
 .extern _host_app_mouse
+.extern _host_app_img_choose
+.extern _host_app_img_load
+.extern _host_app_img_size
+.extern _host_app_img_render
 .extern _host_debug_paint
 
 // (APP-OPEN) ( cols rows -- ior )  0=ok
@@ -1006,6 +1010,79 @@ XAPP_MOUSE:
     str  x1, [x22, #-8]!           // y
     mov  x20, x2                   // buttons (TOS)
 XAPP_MOUSE_END:
+    NEXT
+
+// (APP-IMG-CHOOSE) ( -- ior )  NSOpenPanel; 0=ok -1=cancel -2=fail
+    BOOT_WORD "(APP-IMG-CHOOSE)", "(APP-IMG-CHOOSE) ( -- ior ) open image via file dialog", 0, XAPP_IMG_CHOOSE, XAPP_IMG_CHOOSE_END
+XAPP_IMG_CHOOSE:
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_img_choose
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    mov  x20, x0
+XAPP_IMG_CHOOSE_END:
+    NEXT
+
+// (APP-IMG-LOAD) ( c-addr u -- ior )  load image from path; 0=ok -2=fail
+    BOOT_WORD "(APP-IMG-LOAD)", "(APP-IMG-LOAD) ( c-addr u -- ior ) load image from path", 0, XAPP_IMG_LOAD, XAPP_IMG_LOAD_END
+XAPP_IMG_LOAD:
+    mov  x1, x20                   // u
+    ldr  x0, [x22], #8             // c-addr
+    ldr  x20, [x22], #8
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_img_load
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    mov  x20, x0
+XAPP_IMG_LOAD_END:
+    NEXT
+
+// (APP-IMG-SIZE) ( -- w h )  natural pixels of loaded image (0 0 if none)
+    BOOT_WORD "(APP-IMG-SIZE)", "(APP-IMG-SIZE) ( -- w h ) loaded image pixel size", 0, XAPP_IMG_SIZE, XAPP_IMG_SIZE_END
+XAPP_IMG_SIZE:
+    stp  x29, x30, [sp, #-16]!
+    mov  x29, sp
+    sub  sp, sp, #16
+    add  x0, sp, #0
+    add  x1, sp, #8
+    str  xzr, [sp]
+    str  xzr, [sp, #8]
+    SAVE_VM
+    bl   _host_app_img_size
+    RESTORE_VM
+    ldr  x0, [sp]
+    ldr  x1, [sp, #8]
+    add  sp, sp, #16
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    str  x0, [x22, #-8]!           // w
+    mov  x20, x1                   // h
+XAPP_IMG_SIZE_END:
+    NEXT
+
+// (APP-IMG-RENDER) ( c-addr w h cx cy zoom100 -- ior )
+// Fill TRUECOLOR BGRA buffer from loaded image; zoom100=100 is 1:1.
+    BOOT_WORD "(APP-IMG-RENDER)", "(APP-IMG-RENDER) ( c-addr w h cx cy zoom100 -- ior ) render image view to BGRA", 0, XAPP_IMG_RENDER, XAPP_IMG_RENDER_END
+XAPP_IMG_RENDER:
+    mov  x5, x20                   // zoom100
+    ldr  x4, [x22], #8             // cy
+    ldr  x3, [x22], #8             // cx
+    ldr  x2, [x22], #8             // h
+    ldr  x1, [x22], #8             // w
+    ldr  x0, [x22], #8             // c-addr
+    ldr  x20, [x22], #8
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_img_render
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    mov  x20, x0                   // ior
+XAPP_IMG_RENDER_END:
     NEXT
 
 // int kernel_take_sz_editor_open(void) — sticky flag from SZ-HOST-REQUEST-OPEN

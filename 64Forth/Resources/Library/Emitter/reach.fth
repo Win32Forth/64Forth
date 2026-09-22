@@ -83,12 +83,15 @@ VARIABLE SCAN-ADDR
 
 : LIT-PAYLOAD-MARK  ( x -- )
   DUP 7 AND IF  DROP EXIT  THEN
-  DUP $10000 U< IF  DROP EXIT  THEN
   DUP USER-DICT HERE WITHIN IF
     DUP COLON-WORD? IF  (MARK) EXIT  THEN
     LIT-MARK-DATA-OWNER EXIT
   THEN
-  \ Possible kernel VALUE PFA (TO G-OPEN? etc.)
+  \ Possible kernel VALUE PFA (TO G-PDIRTY? etc.). Only try @ on
+  \ plausible user VAs (≥4GiB, below 48-bit hole). Aligned color/RGB
+  \ immediates like $808080 must NOT be fetched (IMAGEVIEW chrome).
+  DUP $100000000 U< IF  DROP EXIT  THEN
+  DUP $0000800000000000 U< 0= IF  DROP EXIT  THEN
   LIT-MARK-DATA-OWNER ;
 
 

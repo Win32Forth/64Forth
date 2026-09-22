@@ -140,6 +140,14 @@ void host_app_pump(void);
 /// Latest mouse in Forth PLOT coords (origin bottom-left). buttons: 1=left 2=right 4=middle.
 void host_app_mouse(int64_t *x, int64_t *y, int64_t *buttons);
 
+/// Image viewer: NSOpenPanel / path load / size / render into BGRA.
+/// choose: 0=ok -1=cancel -2=fail. load: 0=ok -2=fail. render: 0=ok -1=no image.
+int64_t host_app_img_choose(void);
+int64_t host_app_img_load(const void *path, int64_t nbytes);
+void host_app_img_size(int64_t *w, int64_t *h);
+int64_t host_app_img_render(void *dest, int64_t dest_w, int64_t dest_h,
+                            int64_t cx, int64_t cy, int64_t zoom100);
+
 /// \S / \s on the console SOURCE (SOURCE-ID 0): sticky flag for multi-line paste stop.
 /// Returns 1 if set since last call, else 0; always clears the flag (TZForth-style).
 int kernel_take_repl_batch_stop(void);

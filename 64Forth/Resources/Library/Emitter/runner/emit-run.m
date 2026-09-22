@@ -4,6 +4,8 @@
  *   cc -arch arm64 -O2 -fobjc-arc -framework AppKit \
  *      -o emit-run emit-run.m
  *   ./emit-run /path/to/app.img
+ *   ./emit-run app.img --image /path/to/pic.jpg
+ *   ./emit-run app.img /path/to/pic.jpg
  *   EMIT_HEADLESS=1 ./emit-run app.img   # open returns -1
  *   Inside a .app: no args → Contents/Resources/app.img
  */
@@ -180,22 +182,35 @@ int main(int argc, char **argv) {
   sigaction(SIGBUS, &sa, NULL);
 
   const char *path = NULL;
+  const char *image_path = NULL;
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--headless") == 0 || strcmp(argv[i], "--agent") == 0)
       emit_headless = 1;
-    else if (argv[i][0] != '-')
-      path = argv[i];
+    else if (strcmp(argv[i], "--image") == 0 && i + 1 < argc)
+      image_path = argv[++i];
+    else if (argv[i][0] != '-') {
+      if (!path)
+        path = argv[i];
+      else if (!image_path)
+        image_path = argv[i];
+    }
   }
   if (getenv("EMIT_HEADLESS") && getenv("EMIT_HEADLESS")[0] == '1')
     emit_headless = 1;
   char img_buf[PATH_MAX];
   if (!path) {
     if (resolve_default_img(img_buf, sizeof(img_buf)) != 0) {
-      fprintf(stderr, "usage: %s [--headless] image.img\n", argv[0]);
+      fprintf(stderr, "usage: %s [--headless] image.img [--image pic.jpg]\n",
+              argv[0]);
       fprintf(stderr, "  (or place app.img in Contents/Resources/ for .app)\n");
       return 2;
     }
     path = img_buf;
+  }
+  if (image_path) {
+    /* Warm cache so IMAGEVIEW can sync size at startup without a panel. */
+    if (emit_img_load_path(image_path) != 0)
+      fprintf(stderr, "emit-run: could not load --image %s\n", image_path);
   }
 
   FILE *f = fopen(path, "rb");
@@ -260,7 +275,7 @@ int main(int argc, char **argv) {
     uint32_t off = rd_u32(rel + i * 8);
     uint32_t slot = rd_u32(rel + i * 8 + 4);
     if (off + 8 > code_len) die("reloc off");
-    if (slot >= 17 || !host_fn[slot]) die("reloc slot");
+    if (slot >= 21 || !host_fn[slot]) die("reloc slot");
     uint64_t fn = (uint64_t)(uintptr_t)host_fn[slot];
     memcpy(buf + off, &fn, 8);
   }

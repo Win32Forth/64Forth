@@ -629,8 +629,9 @@ VARIABLE DOES-N
     ['] (DOCON)  (MARK)
     ['] (DODOES) (MARK)
   THEN
-  65536 TGT-OPEN
-  ?EMIT-STANDALONE IF  65536 TGT-DATA-OPEN  THEN
+  \ Window/TRUECOLOR apps pull G-PIX (~1 MiB) into the data segment.
+  262144 TGT-OPEN
+  ?EMIT-STANDALONE IF  2097152 TGT-DATA-OPEN  THEN
   \ Use U. — GRAPHICS on the search order shadows FORTH .
   ." opened " TGT-ORG @ U.  TGT-LIMIT @ U.  ."  cap " TGT-SIZE U. CR
   ?EMIT-WINDOW IF  ." window-io: FORTH EMIT/TYPE/CR/. /KEY → GRAPHICS" CR  THEN

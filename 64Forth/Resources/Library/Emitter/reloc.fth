@@ -56,10 +56,11 @@ $D61F0200 CONSTANT ARM-BR-X16
 \ 12 BI-MUL 13 BI-DIVMOD 14 BI-ISQRT (blr x9 hooks → HOST-APP veneers)
 \ 15 (APP-MOUSE)/host_app_mouse.
 \ 16 (APP-CBLIT)/host_app_cblit (depth 1/8/32).
+\ 17–20 image viewer: choose load size render.
 \ .quad = HOST-CALL-MAGIC|slot until HOST-BIND.
 
 $C0DE000000000000 CONSTANT HOST-CALL-MAGIC
-17 CONSTANT #HOST-APP
+21 CONSTANT #HOST-APP
 128 CONSTANT #HOST-RELOC
 
 CREATE HOST-APP-VA     #HOST-APP CELLS ALLOT
@@ -575,7 +576,11 @@ S" KEY?"  (GFX-IO-XT) CONSTANT GFX-KEY?
   \ or left a bad abs veneer; DOODLE.app flashed/crashed on first G-MOUSE.
   S" (APP-MOUSE)" HOST-APP-XT 15 HOST-APP-SET
   \ (APP-CBLIT) color/depth blit — without a slot, COLOR8/TRUECOLOR stay mono.
-  S" (APP-CBLIT)" HOST-APP-XT 16 HOST-APP-SET ;
+  S" (APP-CBLIT)" HOST-APP-XT 16 HOST-APP-SET
+  S" (APP-IMG-CHOOSE)" HOST-APP-XT 17 HOST-APP-SET
+  S" (APP-IMG-LOAD)"   HOST-APP-XT 18 HOST-APP-SET
+  S" (APP-IMG-SIZE)"   HOST-APP-XT 19 HOST-APP-SET
+  S" (APP-IMG-RENDER)" HOST-APP-XT 20 HOST-APP-SET ;
 
 \ --- re-encode from new pc to same tgt --------------------------------
 

@@ -1,7 +1,7 @@
 # 64Forth development status
 
-**Current:** **1.4.2** (build **41**) + post-release GRAPHICS color (selectable 1/8/32) in tree  
-**Last updated:** 2026-09-22 (GRAPHICS `1BIT`/`COLOR8`/`TRUECOLOR`; `(APP-CBLIT)` slot 16)
+**Current:** **1.4.2** (build **41**) + post-release GRAPHICS color + IMAGEVIEW64 in tree  
+**Last updated:** 2026-09-22 (IMAGEVIEW64; `(APP-IMG-*)` slots 17–20)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
@@ -32,8 +32,10 @@ Append new design sections as we go; mark items done when implemented.
 
 ### After 1.4.2 (in tree, not yet a numbered release)
 
-- **GRAPHICS color depths:** `1BIT` (default) / `COLOR8` / `TRUECOLOR` on the same 640×400 surface; `G-PIX` sized for BGRA; `COLOR` + `RGB` + `CBLACK`…`CWHITE`; host CGImage blit; `(APP-CBLIT)` slot **16** (keep `(APP-PBLIT)` for 1-bit SA). Smoke: `GRAPHICS-CSMOKE`. See `APPKIT.md`. JPEG load still deferred.
+- **GRAPHICS color depths:** `1BIT` (default) / `COLOR8` / `TRUECOLOR` on the same 640×400 surface; `G-PIX` sized for BGRA; `COLOR` + `RGB` + `CBLACK`…`CWHITE`; host CGImage blit; `(APP-CBLIT)` slot **16** (keep `(APP-PBLIT)` for 1-bit SA). Smoke: `GRAPHICS-CSMOKE`. See `APPKIT.md`.
 - **Sample DOODLECOLOR64:** `Library/Sample/DOODLECOLOR64.fth` — COLOR8 sibling of DOODLE64 with a 16-color chrome bar (`FROMLIB FLOAD Sample/DOODLECOLOR64.fth` then `DOODLECOLOR`). Leaves `DOODLE64.fth` unchanged.
+- **Image viewer:** host `(APP-IMG-CHOOSE/LOAD/SIZE/RENDER)` (NSOpenPanel + `NSImage`, any macOS-readable still image) → TRUECOLOR BGRA; slots **17–20** in interactive Swift and Emitter `emit-run` (argv `--image` / drag-drop stage). Sample `Library/Sample/IMAGEVIEW64.fth` → `IMAGEVIEW`. Emit: `EMIT-WINDOW-APP IMAGEVIEW` (needs 2 MiB SA data arena for `G-PIX`).
+- **Emitter LIT-PAYLOAD-MARK:** only `@`-probe payloads that look like user VAs (≥4 GiB); aligned immediates such as `$808080` (IMAGEVIEW chrome) must not be treated as VALUE PFAs (was EXC_BAD_ACCESS in `XFETCH` / `@` during `EMIT-WINDOW-APP`).
 
 ---
 

@@ -8,6 +8,7 @@
 
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 /// Minimal AppKit surface for TCOM-style character graphics under interactive 64Forth.
 final class AppOutputHost: NSObject, NSWindowDelegate {
@@ -49,6 +50,14 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
     var isKeyWindowActive: Bool {
         opened && (window?.isKeyWindow == true)
     }
+
+    // MARK: - Image viewer (NSImage / macOS-supported formats)
+
+    /// Decoded source bitmap (BGRA, top row first) for IMG-RENDER sampling.
+    private var imgBGRA: [UInt8] = []
+    private var imgW = 0
+    private var imgH = 0
+    private var imgPath: String = ""
 
     private override init() {
         super.init()
@@ -553,6 +562,212 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
     fileprivate var gridRows: Int { rows }
     fileprivate var gridCellW: CGFloat { cellW }
     fileprivate var gridCellH: CGFloat { cellH }
+
+    // MARK: Image load / render
+
+    func clearImage() {
+        imgBGRA = []
+        imgW = 0
+        imgH = 0
+        imgPath = ""
+    }
+
+    /// Decode any format NSImage can open into a BGRA buffer (top-left origin).
+    @discardableResult
+    private func ingestNSImage(_ image: NSImage, pathLabel: String) -> Bool {
+        var rect = NSRect(origin: .zero, size: image.size)
+        guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else {
+            let w = max(1, Int(image.size.width.rounded()))
+            let h = max(1, Int(image.size.height.rounded()))
+            guard let rep = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: w,
+                pixelsHigh: h,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: w * 4,
+                bitsPerPixel: 32
+            ) else { return false }
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            NSColor.black.setFill()
+            NSRect(x: 0, y: 0, width: w, height: h).fill()
+            image.draw(
+                in: NSRect(x: 0, y: 0, width: w, height: h),
+                from: .zero,
+                operation: .copy,
+                fraction: 1.0
+            )
+            NSGraphicsContext.restoreGraphicsState()
+            return ingestBitmapRep(rep, pathLabel: pathLabel)
+        }
+        return ingestCGImage(cg, pathLabel: pathLabel)
+    }
+
+    private func ingestCGImage(_ cg: CGImage, pathLabel: String) -> Bool {
+        let w = cg.width
+        let h = cg.height
+        guard w > 0, h > 0 else { return false }
+        var buf = [UInt8](repeating: 0, count: w * h * 4)
+        let cs = CGColorSpaceCreateDeviceRGB()
+        let info = CGBitmapInfo.byteOrder32Little.union(
+            CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)
+        )
+        guard let ctx = CGContext(
+            data: &buf,
+            width: w,
+            height: h,
+            bitsPerComponent: 8,
+            bytesPerRow: w * 4,
+            space: cs,
+            bitmapInfo: info.rawValue
+        ) else { return false }
+        ctx.interpolationQuality = .none
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        imgBGRA = buf
+        imgW = w
+        imgH = h
+        imgPath = pathLabel
+        return true
+    }
+
+    private func ingestBitmapRep(_ rep: NSBitmapImageRep, pathLabel: String) -> Bool {
+        let w = rep.pixelsWide
+        let h = rep.pixelsHigh
+        guard w > 0, h > 0, let data = rep.bitmapData else { return false }
+        var buf = [UInt8](repeating: 0, count: w * h * 4)
+        let spp = rep.samplesPerPixel
+        let bpr = rep.bytesPerRow
+        for y in 0..<h {
+            for x in 0..<w {
+                let src = y * bpr + x * spp
+                let dst = (y * w + x) * 4
+                let r = data[src]
+                let g = spp > 1 ? data[src + 1] : r
+                let b = spp > 2 ? data[src + 2] : r
+                let a = spp > 3 ? data[src + 3] : 255
+                buf[dst] = b
+                buf[dst + 1] = g
+                buf[dst + 2] = r
+                buf[dst + 3] = a == 0 ? 255 : a
+            }
+        }
+        imgBGRA = buf
+        imgW = w
+        imgH = h
+        imgPath = pathLabel
+        return true
+    }
+
+    /// NSOpenPanel for macOS-readable images. 0=ok, -1=cancel, -2=failed.
+    func chooseImage() -> Int64 {
+        if AgentChannel.isRequested { return -1 }
+        let work: () -> Int64 = { [weak self] in
+            guard let self else { return -2 }
+            let panel = NSOpenPanel()
+            panel.title = "Open Image"
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            panel.allowedContentTypes = [.image]
+            if let win = self.window {
+                let group = DispatchGroup()
+                var result: NSApplication.ModalResponse = .abort
+                group.enter()
+                panel.beginSheetModal(for: win) { r in
+                    result = r
+                    group.leave()
+                }
+                while group.wait(timeout: .now() + 0.05) == .timedOut {
+                    RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+                }
+                guard result == .OK, let url = panel.url else { return -1 }
+                return self.loadImage(at: url)
+            } else {
+                guard panel.runModal() == .OK, let url = panel.url else { return -1 }
+                return self.loadImage(at: url)
+            }
+        }
+        if Thread.isMainThread {
+            return work()
+        }
+        var ior: Int64 = -2
+        DispatchQueue.main.sync { ior = work() }
+        return ior
+    }
+
+    /// Load image from UTF-8 path. 0=ok, -2=failed.
+    func loadImagePath(from addr: UnsafeRawPointer?, count: Int) -> Int64 {
+        guard let addr, count > 0 else { return -2 }
+        let n = min(count, 4096)
+        let path = String(bytes: UnsafeRawBufferPointer(start: addr, count: n), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !path.isEmpty else { return -2 }
+        let url = URL(fileURLWithPath: path)
+        let work: () -> Int64 = { [weak self] in
+            self?.loadImage(at: url) ?? -2
+        }
+        if Thread.isMainThread { return work() }
+        var ior: Int64 = -2
+        DispatchQueue.main.sync { ior = work() }
+        return ior
+    }
+
+    private func loadImage(at url: URL) -> Int64 {
+        guard let image = NSImage(contentsOf: url) else {
+            clearImage()
+            return -2
+        }
+        if ingestNSImage(image, pathLabel: url.path) {
+            return 0
+        }
+        clearImage()
+        return -2
+    }
+
+    func imageSize(w: UnsafeMutablePointer<Int64>?, h: UnsafeMutablePointer<Int64>?) {
+        w?.pointee = Int64(imgW)
+        h?.pointee = Int64(imgH)
+    }
+
+    /// Sample loaded image into Forth TRUECOLOR buffer (BGRA, top row first).
+    /// `cx`/`cy` = image-space center (top-left origin). `zoom100` = 100 → 1:1.
+    func renderImage(
+        to dest: UnsafeMutableRawPointer?,
+        destW: Int,
+        destH: Int,
+        centerX: Int,
+        centerY: Int,
+        zoom100: Int
+    ) -> Int64 {
+        guard let dest, destW > 0, destH > 0, imgW > 0, imgH > 0, !imgBGRA.isEmpty else {
+            return -1
+        }
+        let z = max(1, zoom100)
+        let out = dest.assumingMemoryBound(to: UInt8.self)
+        let halfW = destW / 2
+        let halfH = destH / 2
+        for sy in 0..<destH {
+            for sx in 0..<destW {
+                let ix = centerX + (sx - halfW) * 100 / z
+                let iy = centerY + (sy - halfH) * 100 / z
+                let o = (sy * destW + sx) * 4
+                if ix < 0 || iy < 0 || ix >= imgW || iy >= imgH {
+                    out[o] = 0; out[o + 1] = 0; out[o + 2] = 0; out[o + 3] = 255
+                } else {
+                    let s = (iy * imgW + ix) * 4
+                    out[o] = imgBGRA[s]
+                    out[o + 1] = imgBGRA[s + 1]
+                    out[o + 2] = imgBGRA[s + 2]
+                    out[o + 3] = 255
+                }
+            }
+        }
+        return 0
+    }
 }
 
 // MARK: - View
@@ -748,4 +963,45 @@ public func host_app_mouse(
     _ buttons: UnsafeMutablePointer<Int64>?
 ) {
     AppOutputHost.shared.readMouse(x: x, y: y, buttons: buttons)
+}
+
+/// NSOpenPanel image pick + decode. 0=ok, -1=cancel, -2=fail.
+@_cdecl("host_app_img_choose")
+public func host_app_img_choose() -> Int64 {
+    AppOutputHost.shared.chooseImage()
+}
+
+/// Load image from UTF-8 path. 0=ok, -2=fail.
+@_cdecl("host_app_img_load")
+public func host_app_img_load(_ addr: UnsafeRawPointer?, _ nbytes: Int64) -> Int64 {
+    AppOutputHost.shared.loadImagePath(from: addr, count: Int(nbytes))
+}
+
+/// Natural pixel size of the loaded image (0,0 if none).
+@_cdecl("host_app_img_size")
+public func host_app_img_size(
+    _ w: UnsafeMutablePointer<Int64>?,
+    _ h: UnsafeMutablePointer<Int64>?
+) {
+    AppOutputHost.shared.imageSize(w: w, h: h)
+}
+
+/// Render view into TRUECOLOR BGRA buffer. zoom100=100 is 1:1.
+@_cdecl("host_app_img_render")
+public func host_app_img_render(
+    _ dest: UnsafeMutableRawPointer?,
+    _ destW: Int64,
+    _ destH: Int64,
+    _ cx: Int64,
+    _ cy: Int64,
+    _ zoom100: Int64
+) -> Int64 {
+    AppOutputHost.shared.renderImage(
+        to: dest,
+        destW: Int(destW),
+        destH: Int(destH),
+        centerX: Int(cx),
+        centerY: Int(cy),
+        zoom100: Int(zoom100)
+    )
 }

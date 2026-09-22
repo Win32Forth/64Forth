@@ -1,7 +1,8 @@
 /* emit-host.inc — thin GRAPHICS host for Emitter stand-alone runner.
  * Implements host_app_* slots 0–8 (AppOutputHost ABI), slot 9 (MS@ /
  * gettimeofday), slots 10–11 (malloc / free), slots 12–14 (BI-MUL /
- * BI-DIVMOD / BI-ISQRT), slot 15 (host_app_mouse), slot 16 (cblit).
+ * BI-DIVMOD / BI-ISQRT), slot 15 (host_app_mouse), slot 16 (cblit),
+ * slots 17–20 (APP-IMG-CHOOSE/LOAD/SIZE/RENDER).
  * Public domain.
  */
 #import <Cocoa/Cocoa.h>
@@ -10,6 +11,7 @@
 #include <unistd.h>
 #include <math.h>
 #include <sys/time.h>
+#include <limits.h>
 
 enum { EMIT_COLS_MAX = 256, EMIT_ROWS_MAX = 128, EMIT_KEYCAP = 64 };
 
@@ -65,6 +67,32 @@ static NSWindow *emit_window = nil;
 static NSView *emit_view = nil;
 static CGFloat emit_cw = 9.0, emit_ch = 16.0;
 static int emit_headless = 0; /* set if --agent / EMIT_HEADLESS */
+
+/* Decoded source image for (APP-IMG-*) — BGRA, top row first. */
+static uint8_t *emit_img_bgra = NULL;
+static int emit_img_w = 0, emit_img_h = 0, emit_img_n = 0;
+/* Argv --image / drag-drop staged path; consumed by choose or take. */
+static char emit_img_staged[PATH_MAX];
+static int emit_img_staged_set = 0;
+
+static void emit_img_clear(void) {
+  free(emit_img_bgra);
+  emit_img_bgra = NULL;
+  emit_img_w = 0;
+  emit_img_h = 0;
+  emit_img_n = 0;
+}
+
+static void emit_img_stage_path(const char *path) {
+  if (!path || !path[0]) {
+    emit_img_staged_set = 0;
+    emit_img_staged[0] = '\0';
+    return;
+  }
+  strncpy(emit_img_staged, path, sizeof(emit_img_staged) - 1);
+  emit_img_staged[sizeof(emit_img_staged) - 1] = '\0';
+  emit_img_staged_set = 1;
+}
 
 static void emit_clear_mouse(void) {
   emit_mouse_x = 0;
@@ -244,6 +272,20 @@ static int64_t emit_map_key(NSEvent *ev) {
 - (void)otherMouseDragged:(NSEvent *)ev { [self reportMouse:ev]; }
 - (void)otherMouseUp:(NSEvent *)ev { [self reportMouse:ev]; }
 - (void)mouseMoved:(NSEvent *)ev { [self reportMouse:ev]; }
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+  NSPasteboard *pb = [sender draggingPasteboard];
+  NSArray<NSURL *> *urls = [pb readObjectsForClasses:@[[NSURL class]]
+                                            options:@{ NSPasteboardURLReadingFileURLsOnlyKey: @YES }];
+  return urls.count > 0 ? NSDragOperationCopy : NSDragOperationNone;
+}
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+  NSPasteboard *pb = [sender draggingPasteboard];
+  NSArray<NSURL *> *urls = [pb readObjectsForClasses:@[[NSURL class]]
+                                            options:@{ NSPasteboardURLReadingFileURLsOnlyKey: @YES }];
+  if (urls.count < 1) return NO;
+  emit_img_stage_path(urls[0].path.UTF8String);
+  return YES;
+}
 @end
 
 @interface EmitWinDelegate : NSObject <NSWindowDelegate>
@@ -320,6 +362,7 @@ static int64_t host_app_open(int64_t cols, int64_t rows) {
                    NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
         backing:NSBackingStoreBuffered defer:NO];
       emit_view = [[EmitGridView alloc] initWithFrame:NSMakeRect(0, 0, cw, ch)];
+      [emit_view registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
       emit_window.contentView = emit_view;
       emit_window.delegate = emit_delegate;
     } else {
@@ -547,8 +590,187 @@ static int64_t host_app_mouse_slot(int64_t x_ptr, int64_t y_ptr) {
   return 0;
 }
 
-/* Slot table — must match Emitter reloc.fth HOST-APP slots 0–16. */
-static emit_host_fn host_fn[17] = {
+/* --- Image viewer (slots 17–20): NSImage decode → BGRA sample --- */
+
+static int64_t emit_img_ingest_nsimage(NSImage *image) {
+  if (!image) return -2;
+  NSSize sz = image.size;
+  int w = (int)lround(sz.width);
+  int h = (int)lround(sz.height);
+  if (w < 1 || h < 1) return -2;
+  /* Cap absurd sizes (viewer only samples into 640×400). */
+  if (w > 8192) w = 8192;
+  if (h > 8192) h = 8192;
+  int need = w * h * 4;
+  uint8_t *buf = (uint8_t *)malloc((size_t)need);
+  if (!buf) return -2;
+  memset(buf, 0, (size_t)need);
+  CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+  CGContextRef ctx = CGBitmapContextCreate(
+      buf, (size_t)w, (size_t)h, 8, (size_t)w * 4, cs,
+      kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst);
+  if (!ctx) {
+    if (cs) CGColorSpaceRelease(cs);
+    free(buf);
+    return -2;
+  }
+  CGContextSetInterpolationQuality(ctx, kCGInterpolationNone);
+  NSGraphicsContext *prev = [NSGraphicsContext currentContext];
+  NSGraphicsContext *ngc =
+      [NSGraphicsContext graphicsContextWithCGContext:ctx flipped:NO];
+  [NSGraphicsContext setCurrentContext:ngc];
+  [[NSColor blackColor] setFill];
+  NSRectFill(NSMakeRect(0, 0, w, h));
+  [image drawInRect:NSMakeRect(0, 0, w, h)
+           fromRect:NSZeroRect
+          operation:NSCompositingOperationCopy
+           fraction:1.0
+     respectFlipped:YES
+              hints:nil];
+  [NSGraphicsContext setCurrentContext:prev];
+  CGContextRelease(ctx);
+  if (cs) CGColorSpaceRelease(cs);
+  emit_img_clear();
+  emit_img_bgra = buf;
+  emit_img_w = w;
+  emit_img_h = h;
+  emit_img_n = need;
+  return 0;
+}
+
+static int64_t emit_img_load_path(const char *path) {
+  if (!path || !path[0]) return -2;
+  @autoreleasepool {
+    NSImage *image = [[NSImage alloc] initWithContentsOfFile:@(path)];
+    if (!image) {
+      emit_img_clear();
+      return -2;
+    }
+    return emit_img_ingest_nsimage(image);
+  }
+}
+
+static int64_t host_app_img_load(int64_t addr, int64_t nbytes) {
+  if (!addr || nbytes <= 0) return -2;
+  size_t n = (size_t)nbytes;
+  if (n > 4096) n = 4096;
+  char path[4097];
+  memcpy(path, (const void *)(uintptr_t)addr, n);
+  path[n] = '\0';
+  /* Trim trailing whitespace/newlines. */
+  while (n > 0 && (path[n - 1] == ' ' || path[n - 1] == '\n' ||
+                   path[n - 1] == '\r' || path[n - 1] == '\t')) {
+    path[--n] = '\0';
+  }
+  return emit_img_load_path(path);
+}
+
+static int64_t host_app_img_choose(int64_t a, int64_t b) {
+  (void)a;
+  (void)b;
+  if (emit_headless) return -1;
+  /* Prefer staged argv / drag-drop path once. */
+  if (emit_img_staged_set) {
+    char staged[PATH_MAX];
+    strncpy(staged, emit_img_staged, sizeof(staged) - 1);
+    staged[sizeof(staged) - 1] = '\0';
+    emit_img_staged_set = 0;
+    emit_img_staged[0] = '\0';
+    return emit_img_load_path(staged);
+  }
+  __block int64_t ior = -1;
+  emit_on_main_sync(^{
+    emit_ensure_app();
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.title = @"Open Image";
+    panel.canChooseFiles = YES;
+    panel.canChooseDirectories = NO;
+    panel.allowsMultipleSelection = NO;
+    /* Any file; NSImage load fails → ior -2 (avoids deprecated allowedFileTypes). */
+    NSModalResponse resp;
+    if (emit_window) {
+      __block NSModalResponse r = NSModalResponseCancel;
+      dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+      [panel beginSheetModalForWindow:emit_window
+                    completionHandler:^(NSModalResponse result) {
+                      r = result;
+                      dispatch_semaphore_signal(sem);
+                    }];
+      while (dispatch_semaphore_wait(sem, DISPATCH_TIME_NOW) != 0) {
+        emit_pump_events(0.05);
+      }
+      resp = r;
+    } else {
+      resp = [panel runModal];
+    }
+    if (resp != NSModalResponseOK || !panel.URL) {
+      ior = -1;
+      return;
+    }
+    ior = emit_img_load_path(panel.URL.path.UTF8String);
+  });
+  return ior;
+}
+
+static void host_app_img_size(int64_t *w, int64_t *h) {
+  if (w) *w = (int64_t)emit_img_w;
+  if (h) *h = (int64_t)emit_img_h;
+}
+
+__attribute__((noinline, optnone))
+static int64_t host_app_img_size_slot(int64_t w_ptr, int64_t h_ptr) {
+  host_app_img_size((int64_t *)(uintptr_t)w_ptr, (int64_t *)(uintptr_t)h_ptr);
+  return 0;
+}
+
+static int64_t host_app_img_render(void *dest, int64_t dest_w, int64_t dest_h,
+                                   int64_t cx, int64_t cy, int64_t zoom100) {
+  int dw, dh, z, sx, sy, ix, iy, o, s, half_w, half_h;
+  uint8_t *out;
+  if (!dest || dest_w <= 0 || dest_h <= 0 || emit_img_w <= 0 || emit_img_h <= 0 ||
+      !emit_img_bgra)
+    return -1;
+  dw = (int)dest_w;
+  dh = (int)dest_h;
+  z = (int)zoom100;
+  if (z < 1) z = 1;
+  out = (uint8_t *)dest;
+  half_w = dw / 2;
+  half_h = dh / 2;
+  for (sy = 0; sy < dh; sy++) {
+    for (sx = 0; sx < dw; sx++) {
+      ix = (int)cx + (sx - half_w) * 100 / z;
+      iy = (int)cy + (sy - half_h) * 100 / z;
+      o = (sy * dw + sx) * 4;
+      if (ix < 0 || iy < 0 || ix >= emit_img_w || iy >= emit_img_h) {
+        out[o] = 0;
+        out[o + 1] = 0;
+        out[o + 2] = 0;
+        out[o + 3] = 255;
+      } else {
+        s = (iy * emit_img_w + ix) * 4;
+        out[o] = emit_img_bgra[s];
+        out[o + 1] = emit_img_bgra[s + 1];
+        out[o + 2] = emit_img_bgra[s + 2];
+        out[o + 3] = 255;
+      }
+    }
+  }
+  return 0;
+}
+
+/* Slot 20: bl _host_app_img_render — x0=dest x1=w x2=h x3=cx x4=cy x5=zoom100 */
+__attribute__((noinline, optnone))
+static int64_t host_app_img_render_slot(int64_t dest, int64_t dest_w) {
+  int64_t dest_h, cx, cy, zoom100;
+  __asm__ volatile("mov %0, x2\n\tmov %1, x3\n\tmov %2, x4\n\tmov %3, x5"
+                   : "=r"(dest_h), "=r"(cx), "=r"(cy), "=r"(zoom100));
+  return host_app_img_render((void *)(uintptr_t)dest, dest_w, dest_h, cx, cy,
+                             zoom100);
+}
+
+/* Slot table — must match Emitter reloc.fth HOST-APP slots 0–20. */
+static emit_host_fn host_fn[21] = {
   host_app_open,
   host_app_close,
   host_app_blit,
@@ -565,5 +787,9 @@ static emit_host_fn host_fn[17] = {
   host_bi_divmod_slot,
   host_bi_isqrt_slot,
   host_app_mouse_slot,
-  host_app_cblit_slot
+  host_app_cblit_slot,
+  host_app_img_choose,
+  host_app_img_load,
+  host_app_img_size_slot,
+  host_app_img_render_slot
 };
