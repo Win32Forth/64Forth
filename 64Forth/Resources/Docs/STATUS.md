@@ -1,22 +1,42 @@
 # 64Forth development status
 
-**Current:** **1.4.1** (build **40**)  
-**Last updated:** 2026-09-19 (v1.4.1: TRAVERSE/DBG VIEW+HL, boot diagnostics, INCLUDE `file:line`)
+**Current:** **1.4.2** (build **41**)  
+**Last updated:** 2026-09-21 (v1.4.2: ANS SMUDGE, FILE-ECHO, GRAPHICS mouse, Emitter SA DOODLE)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
 
 ---
 
-## v1.4.1 — TRAVERSE DBG VIEW/HL, boot diagnostics, INCLUDE `file:line`
+## v1.4.2 — ANS SMUDGE, FILE-ECHO, GRAPHICS mouse, Emitter SA
 
-**Version strings:** marketing **1.4.1**, build **40** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner).
+**Version strings:** marketing **1.4.2**, build **41** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner).
 
 **Console header stamp** (`ConsoleView.swift` `banner`):
 
 ```text
-=== 64Forth 1.4.1 === Sep 19, 2026 10:50 PM ===
+=== 64Forth 1.4.2 === Sep 21, 2026 10:38 PM ===
 ```
+
+### Highlights (vs 1.4.1)
+
+- **ANS hide-until-`;`:** NFA count bit7 = SMUDGE (max name length 127). `:` / `:NONAME` set it; `;` / `DOES>` clear it. FIND/SEARCH-WORDLIST/WORDS/TRAVERSE skip hidden. Forth `SMUDGE` / `REVEAL` on `LAST`; `NAME>STRING` masks `$7F`. `RECURSE` via `LAST` still works while smudged. ANSValidate `host.fth` covers hide/reveal/CREATE/RECURSE.
+- **FILE-ECHO line numbers:** each echoed INCLUDE/FLOAD source line is prefixed with a 5-digit right-aligned line number and `| `.
+- **GRAPHICS mouse:** host `host_app_mouse` + kernel `(APP-MOUSE)` → `G-MOUSE` / `GETMOUS` (PLOT origin bottom-left; buttons 1=left 2=right 4=middle). Emitter SA slot 15 + `EmitGridView` mouse tracking for stand-alone `.app`s. `host_app_open` clears the key queue so a prior ESC does not make the next `KEY` return immediately.
+- **Sample DOODLE64:** `Library/Sample/DOODLE64.fth` — TCOM DOODLE port for 640×400 1-bit + mouse (`FROMLIB FLOAD Sample/DOODLE64.fth` then `DOODLE`). Ink bar WHITE/BLACK/INVERT; flags as `VARIABLE` (not `VALUE`/`TO`) so Emitter reach sees xts. Classic `TCOM/DOODLE.FTH` unchanged. `EMIT-WINDOW-APP` stand-alone DOODLE verified.
+- **Emitter SA reloc:** `SCAN-DOCON` + DOCON `IMPORT-RELOC-XT-CELLS` mark/rebase CONSTANT PFA xts; `LIT-PAYLOAD-MARK` follows VALUE/VARIABLE PFAs from `TO`; host-VA LIT abort ignores sign-extended immediates (`-1` TRUE, etc.). `GRAPH-BYE` does not `WINDOW-OFF` when the emit runner owns the window.
+- **PLOT BLACK fix:** clear-ink path uses `-1 XOR` so GRAPHICS `INVERT` (ink) no longer shadows bitwise invert.
+- **CODE-BOUNDS / Emitter:** walk `__bootptr` as an array of row pointers (plus `BOOT-WORD-TABLE-END`); restores non-zero ends for `(S")` and other labeled prims so Emitter `PRIM-SPAN` works again. Same fix in Emitter `BOOT-SPAN-NAMED` / `EMM-SPAN-OF` (`reloc.fth`) so `sa-block missing (SA-PRINT)` no longer fires after a good rebuild.
+
+**Release:** `64Forth/releases/64Forth-1.4.2-macOS.dmg` + GitHub `v1.4.2` (DMG pending user build).
+
+---
+
+## v1.4.1 — TRAVERSE DBG VIEW/HL, boot diagnostics, INCLUDE `file:line`
+
+**Version strings:** marketing **1.4.1**, build **40**.
+
+**Console header stamp:** `=== 64Forth 1.4.1 === Sep 19, 2026 10:50 PM ===`
 
 ### Highlights (vs 1.4.0)
 
@@ -27,9 +47,8 @@ Append new design sections as we go; mark items done when implemented.
 - **Debugger library:** `dbg-map.fth` / `dbg-ed.fth` under `Library/Debugger` (moved off Hyper); deferred Editor/Hyper links via `DBG-ED-INSTALL` after Autoload.
 - **Cold-bootstrap messages:** `KernelBridge` retains emit from `kernel_init` (`.incbin` blobs) in `bootTranscript`; **Help → Show Boot Messages** shows it (survives `CLS`). Not auto-inserted at startup. Cold blobs print `.( Loading: … )` / `.( Finished Loading: … )` progress. Agent dumps the same transcript.
 - **Undefined `file:line`:** during INCLUDE/FLOAD/Autoload, `_report_undefined` appends `  (path:line)` from `include_name_pending` + `_source_line_at_token` (FILE-ECHO file-load predicate). Console undefined stays bare.
-- **Autoload order:** `ONLY FORTH ALSO DEFINITIONS` after load (search order `FORTH FORTH`, CURRENT=FORTH). `BREAK`/`BPGO`/… rechain into FORTH from `debugger.fth`; type `DEBUGGER` to PUSH-ORDER hub words.
 
-**Release:** `64Forth/releases/64Forth-1.4.1-macOS.dmg` + GitHub `v1.4.1` (DMG pending user build).
+**Release:** `64Forth/releases/64Forth-1.4.1-macOS.dmg` + GitHub `v1.4.1`.
 
 ---
 

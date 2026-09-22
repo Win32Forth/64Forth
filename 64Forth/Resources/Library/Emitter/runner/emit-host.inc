@@ -1,7 +1,7 @@
 /* emit-host.inc — thin GRAPHICS host for Emitter stand-alone runner.
  * Implements host_app_* slots 0–8 (AppOutputHost ABI), slot 9 (MS@ /
  * gettimeofday), slots 10–11 (malloc / free), slots 12–14 (BI-MUL /
- * BI-DIVMOD / BI-ISQRT). Public domain.
+ * BI-DIVMOD / BI-ISQRT), slot 15 (host_app_mouse). Public domain.
  */
 #import <Cocoa/Cocoa.h>
 #include <stdlib.h>
@@ -26,10 +26,17 @@ static int emit_pix_n = 0, emit_pix_w = 640, emit_pix_h = 400, emit_pix_stride =
 static int emit_has_pix = 0;
 static int64_t emit_keys[EMIT_KEYCAP];
 static int emit_kr = 0, emit_kw = 0;
+static int64_t emit_mouse_x = 0, emit_mouse_y = 0, emit_mouse_buttons = 0;
 static NSWindow *emit_window = nil;
 static NSView *emit_view = nil;
 static CGFloat emit_cw = 9.0, emit_ch = 16.0;
 static int emit_headless = 0; /* set if --agent / EMIT_HEADLESS */
+
+static void emit_clear_mouse(void) {
+  emit_mouse_x = 0;
+  emit_mouse_y = 0;
+  emit_mouse_buttons = 0;
+}
 
 static void emit_key_push(int64_t c) {
   int n = (emit_kw + 1) % EMIT_KEYCAP;
@@ -67,6 +74,38 @@ static int64_t emit_map_key(NSEvent *ev) {
 @end
 @implementation EmitGridView
 - (BOOL)acceptsFirstResponder { return YES; }
+- (void)updateTrackingAreas {
+  [super updateTrackingAreas];
+  for (NSTrackingArea *area in self.trackingAreas)
+    [self removeTrackingArea:area];
+  NSTrackingAreaOptions opts =
+    NSTrackingActiveInKeyWindow | NSTrackingMouseMoved |
+    NSTrackingInVisibleRect | NSTrackingEnabledDuringMouseDrag;
+  [self addTrackingArea:[[NSTrackingArea alloc] initWithRect:self.bounds
+                                                     options:opts
+                                                       owner:self
+                                                    userInfo:nil]];
+}
+/* Map AppKit view point → Forth PLOT coords (origin bottom-left). */
+- (void)reportMouse:(NSEvent *)ev {
+  int pw = emit_has_pix ? (emit_pix_w > 0 ? emit_pix_w : 640) : 640;
+  int ph = emit_has_pix ? (emit_pix_h > 0 ? emit_pix_h : 400) : 400;
+  CGFloat dw = fmax(1, self.bounds.size.width - 8);
+  CGFloat dh = fmax(1, self.bounds.size.height - 8);
+  CGFloat sx = dw / (CGFloat)pw;
+  CGFloat sy = dh / (CGFloat)ph;
+  NSPoint local = [self convertPoint:ev.locationInWindow fromView:nil];
+  int x = (int)floor((local.x - 4) / sx);
+  int y = (int)floor((local.y - 4) / sy);
+  if (x < 0) x = 0;
+  if (y < 0) y = 0;
+  if (x >= pw) x = pw - 1;
+  if (y >= ph) y = ph - 1;
+  /* NSEvent.pressedMouseButtons: bit0 left, bit1 right, bit2 middle. */
+  emit_mouse_x = x;
+  emit_mouse_y = y;
+  emit_mouse_buttons = (int64_t)([NSEvent pressedMouseButtons] & 0x7);
+}
 - (void)drawRect:(NSRect)dirty {
   [[NSColor blackColor] setFill];
   NSRectFill(self.bounds);
@@ -111,6 +150,25 @@ static int64_t emit_map_key(NSEvent *ev) {
   int64_t c = emit_map_key(ev);
   if (c >= 0) emit_key_push(c);
 }
+- (void)mouseDown:(NSEvent *)ev {
+  [self.window makeFirstResponder:self];
+  [self reportMouse:ev];
+}
+- (void)mouseDragged:(NSEvent *)ev { [self reportMouse:ev]; }
+- (void)mouseUp:(NSEvent *)ev { [self reportMouse:ev]; }
+- (void)rightMouseDown:(NSEvent *)ev {
+  [self.window makeFirstResponder:self];
+  [self reportMouse:ev];
+}
+- (void)rightMouseDragged:(NSEvent *)ev { [self reportMouse:ev]; }
+- (void)rightMouseUp:(NSEvent *)ev { [self reportMouse:ev]; }
+- (void)otherMouseDown:(NSEvent *)ev {
+  [self.window makeFirstResponder:self];
+  [self reportMouse:ev];
+}
+- (void)otherMouseDragged:(NSEvent *)ev { [self reportMouse:ev]; }
+- (void)otherMouseUp:(NSEvent *)ev { [self reportMouse:ev]; }
+- (void)mouseMoved:(NSEvent *)ev { [self reportMouse:ev]; }
 @end
 
 @interface EmitWinDelegate : NSObject <NSWindowDelegate>
@@ -120,6 +178,7 @@ static int64_t emit_map_key(NSEvent *ev) {
   (void)sender;
   emit_opened = 0;
   emit_key_push(0x1B);
+  emit_clear_mouse();
   emit_window = nil;
   emit_view = nil;
   /* ITC may have already returned; stop [NSApp run] so the process exits.
@@ -196,6 +255,9 @@ static int64_t host_app_open(int64_t cols, int64_t rows) {
     [emit_window makeKeyAndOrderFront:nil];
     [emit_window makeFirstResponder:emit_view];
     [NSApp activateIgnoringOtherApps:YES];
+    /* Drop stale ESC from a prior WINDOW-OFF so a later KEY waits. */
+    emit_kr = emit_kw = 0;
+    emit_clear_mouse();
     emit_opened = 1;
     [emit_view setNeedsDisplay:YES];
   });
@@ -208,6 +270,7 @@ static int64_t host_app_close(int64_t a, int64_t b) {
   emit_opened = 0;
   emit_key_push(0x1B);
   emit_kr = emit_kw = 0;
+  emit_clear_mouse();
   emit_on_main_sync(^{
     [emit_window orderOut:nil];
     emit_window = nil;
@@ -364,8 +427,32 @@ static int64_t host_bi_isqrt_slot(int64_t a, int64_t r) {
   return 0;
 }
 
-/* Slot table — must match Emitter reloc.fth HOST-APP slots 0–14. */
-static emit_host_fn host_fn[15] = {
+/* Slot 15: (APP-MOUSE) bl _host_app_mouse — x0=&x, x1=&y, x2=&buttons.
+ * Capture x2 before the C prologue can clobber it (same pattern as BI). */
+static void host_app_mouse(int64_t *x, int64_t *y, int64_t *buttons) {
+  if (emit_headless || !emit_opened) {
+    if (x) *x = 0;
+    if (y) *y = 0;
+    if (buttons) *buttons = 0;
+    return;
+  }
+  if (x) *x = emit_mouse_x;
+  if (y) *y = emit_mouse_y;
+  if (buttons) *buttons = emit_mouse_buttons;
+}
+
+__attribute__((noinline, optnone))
+static int64_t host_app_mouse_slot(int64_t x_ptr, int64_t y_ptr) {
+  int64_t buttons_ptr;
+  __asm__ volatile("mov %0, x2" : "=r"(buttons_ptr));
+  host_app_mouse((int64_t *)(uintptr_t)x_ptr,
+                 (int64_t *)(uintptr_t)y_ptr,
+                 (int64_t *)(uintptr_t)buttons_ptr);
+  return 0;
+}
+
+/* Slot table — must match Emitter reloc.fth HOST-APP slots 0–15. */
+static emit_host_fn host_fn[16] = {
   host_app_open,
   host_app_close,
   host_app_blit,
@@ -380,5 +467,6 @@ static emit_host_fn host_fn[15] = {
   host_free,
   host_bi_mul_slot,
   host_bi_divmod_slot,
-  host_bi_isqrt_slot
+  host_bi_isqrt_slot,
+  host_app_mouse_slot
 };

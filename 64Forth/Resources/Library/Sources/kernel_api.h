@@ -133,6 +133,8 @@ void host_app_name(const void *addr, int64_t nbytes);
 /// TONE: freq = Hz, dur = tenths of a second (F-PC/TCOM). Plays a sine tone.
 void host_app_tone(int64_t freq, int64_t dur);
 void host_app_pump(void);
+/// Latest mouse in Forth PLOT coords (origin bottom-left). buttons: 1=left 2=right 4=middle.
+void host_app_mouse(int64_t *x, int64_t *y, int64_t *buttons);
 
 /// \S / \s on the console SOURCE (SOURCE-ID 0): sticky flag for multi-line paste stop.
 /// Returns 1 if set since last call, else 0; always clears the flag (TZForth-style).

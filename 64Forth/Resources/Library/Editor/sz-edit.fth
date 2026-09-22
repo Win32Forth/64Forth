@@ -2465,7 +2465,7 @@ VARIABLE SZ-HL-NEGF
    DUP 8 - @  65535 AND                  \ nfa byte offset (low 16 bits)
    DUP 0= IF  2DROP FALSE EXIT  THEN
    DUP 4096 SZ-U>= IF  2DROP FALSE EXIT  THEN
-   OVER SWAP - C@  NIP                   \ NFA length
+   OVER SWAP - C@  $7F AND NIP           \ NFA length (mask SMUDGE bit7)
    DUP 0= IF  DROP FALSE EXIT  THEN
    64 U<
 ;

@@ -55,7 +55,8 @@ DOC" >CODE ( xt -- a-addr ) code field (xt itself)"
 DOC" >BODY ( xt -- addr ) data field of a CREATEd word"
 : >BODY 8 + ;
 \ Layout: HFA | NFA | LFA | FLAGS | CFA | BODY
-\ FLAGS: 0-15 NFA_OFF, 16-31 HFA_OFF, 32-47 LINE, 48-62 FILE-ID, 63 IMM
+\ NFA count byte: bits 0-6 = length (max 127), bit 7 = SMUDGE (hidden until ;)
+\ FLAGS: 0-15 NFA_OFF, 16-31 HFA_OFF, 32-47 LINE, 48-60 FILE-ID, 61 INLINE, 62 EMM, 63 IMM
 DOC" NFA ( xt -- nfa ) name field address"
 : NFA DUP >FLAGS @ 65535 AND - ;
 DOC" >NAME ( xt -- nfa ) name field address (classic synonym for NFA)"
@@ -68,8 +69,12 @@ DOC" VIEW-LINE ( xt -- u ) 1-based source line in FLAGS (0=none)"
 : VIEW-LINE >FLAGS @ 32 RSHIFT 65535 AND ;
 DOC" VIEW-FILE# ( xt -- u ) source file-id in FLAGS (0=none)"
 : VIEW-FILE# >FLAGS @ 48 RSHIFT 32767 AND ;
-DOC" NAME>STRING ( nt -- c-addr u ) copy name token name to buffer (valid until next NAME>STRING)"
-: NAME>STRING NFA COUNT ;
+DOC" NAME>STRING ( nt -- c-addr u ) name chars and length (masks NFA SMUDGE bit)"
+: NAME>STRING NFA DUP C@ $7F AND SWAP CHAR+ SWAP ;
+DOC" SMUDGE ( -- ) hide LAST (set NFA count bit7); also done by :"
+: SMUDGE LAST NFA DUP C@ $80 OR SWAP C! ;
+DOC" REVEAL ( -- ) unhide LAST (clear NFA count bit7); also done by ;"
+: REVEAL LAST NFA DUP C@ $7F AND SWAP C! ;
 DOC" >HELP ( xt -- hfa ) help string"
 : >HELP HFA ;
 DOC" DOCOL? ( xt -- flag ) true if colon definition"

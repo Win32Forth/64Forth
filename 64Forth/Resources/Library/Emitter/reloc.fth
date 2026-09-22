@@ -53,11 +53,12 @@ $D61F0200 CONSTANT ARM-BR-X16
 \ --- host_app_* slots (Phase 2a) ----------------------------------------
 \ Slot map (append only): 0 open 1 close 2 blit 3 pblit 4 keyq 5 key
 \ 6 name 7 tone 8 pump 9 MS@/gettimeofday 10 malloc 11 free
-\ 12 BI-MUL 13 BI-DIVMOD 14 BI-ISQRT (blr x9 hooks → HOST-APP veneers).
+\ 12 BI-MUL 13 BI-DIVMOD 14 BI-ISQRT (blr x9 hooks → HOST-APP veneers)
+\ 15 (APP-MOUSE)/host_app_mouse.
 \ .quad = HOST-CALL-MAGIC|slot until HOST-BIND.
 
 $C0DE000000000000 CONSTANT HOST-CALL-MAGIC
-15 CONSTANT #HOST-APP
+16 CONSTANT #HOST-APP
 128 CONSTANT #HOST-RELOC
 
 CREATE HOST-APP-VA     #HOST-APP CELLS ALLOT
@@ -270,22 +271,23 @@ VARIABLE SA-HELP-N
   SA-HELP-COPY ;
 
 \ va inside a FLAG_EMM boot span → ( code u ); else 0 0.
+\ Walk __bootptr (ptrs to rows), not a contiguous /BOOT-WORD stride.
 : EMM-SPAN-OF  ( va -- code u | 0 0 )
   {: va | row code end -- :}
-  BOOT-WORD-TABLE
-  BEGIN  DUP @ WHILE
-    DUP TO row
+  BOOT-WORD-TABLE BOOT-WORD-TABLE-END
+  BEGIN  2DUP < WHILE
+    OVER @ TO row
     row BOOT-WORD-EMM? IF
       row BOOT-WORD-CODE TO code
       row BOOT-WORD-END TO end
       end IF
         va code end WITHIN IF
-          DROP  code  end code -  EXIT
+          2DROP  code  end code -  EXIT
         THEN
       THEN
     THEN
-    /BOOT-WORD +
-  REPEAT DROP 0 0 ;
+    SWAP CELL+ SWAP
+  REPEAT 2DROP 0 0 ;
 
 \ --- SA-BLOCK registry ----------------------------------------------------
 \ Contiguous closed runtimes preferred over leaf FLAG_EMM embeds.
@@ -306,19 +308,20 @@ VARIABLE SA-BLOCK-N
 : SA-BLOCK-CLEAR  ( -- )  0 SA-BLOCK-N ! ;
 
 \ Boot catalog: name → ( code u | 0 0 ).
+\ __bootptr indirection (same as CODE-BOUNDS).
 : BOOT-SPAN-NAMED  ( c-addr u -- code u | 0 0 )
   {: addr len | row code end -- :}
-  BOOT-WORD-TABLE
-  BEGIN  DUP @ WHILE
-    DUP TO row
-    row @ ZCOUNT addr len COMPARE 0= IF
+  BOOT-WORD-TABLE BOOT-WORD-TABLE-END
+  BEGIN  2DUP < WHILE
+    OVER @ TO row
+    row BOOT-WORD-NAME ZCOUNT addr len COMPARE 0= IF
       row BOOT-WORD-CODE TO code
       row BOOT-WORD-END TO end
-      end 0= IF  DROP 0 0 EXIT  THEN
-      DROP  code  end code -  EXIT
+      end 0= IF  2DROP 0 0 EXIT  THEN
+      2DROP  code  end code -  EXIT
     THEN
-    /BOOT-WORD +
-  REPEAT DROP 0 0 ;
+    SWAP CELL+ SWAP
+  REPEAT 2DROP 0 0 ;
 
 : SA-BLOCK-REGISTER  ( c-addr u patch-xt -- )
   {: addr len patch | code u i -- :}
@@ -565,8 +568,11 @@ S" KEY?"  (GFX-IO-XT) CONSTANT GFX-KEY?
   ['] MS@ 9 HOST-APP-SET
   \ ALLOCATE/FREE bl libc — SA would NOP those BLs and crash on first heap use.
   ['] ALLOCATE 10 HOST-APP-SET
-  ['] FREE 11 HOST-APP-SET ;
+  ['] FREE 11 HOST-APP-SET
   \ Slots 12–14 (BI-*) are wired by SA-FIX-BI-HOOKS (blr x9, not bl host).
+  \ (APP-MOUSE) bl _host_app_mouse — without a slot, SA NOP'd the BL (zeros)
+  \ or left a bad abs veneer; DOODLE.app flashed/crashed on first G-MOUSE.
+  S" (APP-MOUSE)" HOST-APP-XT 15 HOST-APP-SET ;
 
 \ --- re-encode from new pc to same tgt --------------------------------
 

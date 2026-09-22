@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-09-19 — **v1.4.1** (build 40) — TRAVERSE/DBG VIEW+HL; cold boot transcript (Help → Show Boot Messages) + INCLUDE/FLOAD undefined `file:line` + cold `.( Loading: … )`; prior **1.4.0** token maps + pause UI; **1.3.9** FLOAD/INCLUDED load-cwd + THROW/CATCH polish; **1.3.8** SZ-EDITOR own window; **1.3.7** ANEW/MARKER + BREAK/BPGO; **1.3.6** Emitter **0.7** SA locals/BI + window I/O remap; app-kit freeze still `Docs/APPKIT.md` (GRAPHICS 80×25 / 640×400; `\ANS`/`\TCOM`/`\EMITTER`; tetra + PIMAIN).
+**Updated:** 2026-09-21 — **v1.4.2** (build 41) — ANS SMUDGE / hide-until-`;`; FILE-ECHO line#s; GRAPHICS mouse + Sample/DOODLE64; Emitter SA CONSTANT/VALUE/LIT reloc for `EMIT-WINDOW-APP`; prior **1.4.1** TRAVERSE/DBG VIEW+HL + cold boot transcript + INCLUDE `file:line`; **1.4.0** token maps + pause UI; **1.3.9** FLOAD/INCLUDED load-cwd + THROW/CATCH polish; **1.3.8** SZ-EDITOR own window; **1.3.7** ANEW/MARKER + BREAK/BPGO; **1.3.6** Emitter **0.7** SA locals/BI + window I/O remap; app-kit freeze still `Docs/APPKIT.md` (GRAPHICS 80×25 / 640×400; `\ANS`/`\TCOM`/`\EMITTER`; tetra + PIMAIN).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 

@@ -24,6 +24,7 @@ Examples
   \ Stand-alone app kit base = GRAPHICS (see Docs/APPKIT.md); first emit target: tetra
   FROMLIB FLOAD Pascal/PASCAL.fth          \ Tiny Pascal → Forth translator
   FROMLIB S" Pascal/PASY.PAS" PASCAL-TO-FILE   \ then INCLUDED + DEMO
+  FROMLIB FLOAD Sample/DOODLE64.fth        \ then: DOODLE (GRAPHICS mouse demo)
 
 Assembler (ASMARM64)
 --------------------

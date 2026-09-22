@@ -72,14 +72,24 @@ VARIABLE SCAN-LIM
 VARIABLE SCAN-MARK?   \ nonzero => (MARK) while walking
 VARIABLE SCAN-ADDR
 
-\ Lit payload may be a number or an xt (CATCH / [']).
-\ Only follow user-dict addresses — @ on small ints SIGSEGVs past CATCH.
+\ Lit payload may be a number, an xt (CATCH / [']), or a VALUE/VARIABLE
+\ PFA from TO (host dict cell). CREATE: does_ip @ CFA+8, user PFA @ CFA+16.
+\ Avoid @ on small ints (SIGSEGV). Kernel VALUEs sit below USER-DICT.
+: LIT-MARK-DATA-OWNER  ( addr -- )
+  DUP DATA-WORD? IF  (MARK) EXIT  THEN
+  DUP 16 - DATA-WORD? IF  16 - (MARK) EXIT  THEN
+  DUP 8 - DATA-WORD? IF  8 - (MARK) EXIT  THEN
+  DROP ;
+
 : LIT-PAYLOAD-MARK  ( x -- )
   DUP 7 AND IF  DROP EXIT  THEN
-  DUP USER-DICT HERE WITHIN 0= IF  DROP EXIT  THEN
-  DUP COLON-WORD? IF  (MARK) EXIT  THEN
-  DUP DATA-WORD? IF  (MARK) EXIT  THEN
-  DROP ;
+  DUP $10000 U< IF  DROP EXIT  THEN
+  DUP USER-DICT HERE WITHIN IF
+    DUP COLON-WORD? IF  (MARK) EXIT  THEN
+    LIT-MARK-DATA-OWNER EXIT
+  THEN
+  \ Possible kernel VALUE PFA (TO G-OPEN? etc.)
+  LIT-MARK-DATA-OWNER ;
 
 
 : (COLON-WALK)  ( body -- )
@@ -124,7 +134,7 @@ VARIABLE SCAN-ADDR
   BODY DUP (COLON-WALK)
   SCAN-LIM @  SWAP - ;
 
-\ DOES> fragment at CFA+8: ITC xt list ending in EXIT (VALUE/CONSTANT/DEFER).
+\ DOES> fragment at CFA+8: ITC xt list ending in EXIT (VALUE/DEFER).
 : SCAN-DOES  ( xt -- )
   8 + @                         \ does_ip
   BEGIN
@@ -133,11 +143,21 @@ VARIABLE SCAN-ADDR
     8 +
   AGAIN ;
 
-\ Colon bodies are walked for callees. DODOES data words contribute their
-\ DOES> fragment xts. Plain CODE / DOVAR / DOCON are leaves.
+\ CONSTANT PFA (CFA+16) may hold an xt — e.g. (EMIT-GFX-KEY) or a user
+\ CONSTANT of an xt. LIT-PAYLOAD-MARK's USER-DICT fence skips kernel
+\ GRAPHICS xts; mark any high aligned payload so IMPORT-RELOC can map it.
+: SCAN-DOCON  ( xt -- )
+  16 + @
+  DUP 7 AND IF  DROP EXIT  THEN
+  DUP $100000000 U< IF  DROP EXIT  THEN   \ small ints / non-VA
+  (MARK) ;
+
+\ Colon bodies are walked for callees. DODOES contribute DOES> fragments;
+\ DOCON contributes a possible xt payload. Plain CODE / DOVAR are leaves.
 : SCAN-ONE  ( xt -- )
   DUP COLON-WORD? IF  SCAN-COLON EXIT  THEN
   DUP DODOES? IF  SCAN-DOES EXIT  THEN
+  DUP DOCON?  IF  SCAN-DOCON EXIT  THEN
   DROP ;
 
 : REACH-FROM  ( xt -- )

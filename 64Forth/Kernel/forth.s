@@ -25,10 +25,11 @@
 //
 // Dictionary header format (built at runtime; grows up with HERE):
 //   HFA:  counted HELP (stack pic + text), pad 8 (empty = count 0)
-//   NFA:  counted NAME (uppercase), pad 8
+//   NFA:  counted NAME (uppercase), pad 8; count bits0-6=len≤127, bit7=SMUDGE
 //   LFA:  LINK  = previous CFA (or 0)     @ CFA-16  >LINK
 //   FFA:  FLAGS @ CFA-8:
-//         bits 0-15 NFA_OFF, 16-31 HFA_OFF, 32-47 VIEW line, 48-62 file-id, 63 IMM
+//         bits 0-15 NFA_OFF, 16-31 HFA_OFF, 32-47 VIEW line, 48-60 file-id,
+//         61 INLINE, 62 EMM, 63 IMM
 //   CFA:  CODE (** xt **)                 >CODE (= xt)
 //   BODY: @ CFA+8                         >BODY
 //
@@ -574,13 +575,22 @@ _kernel_set_facility_op:
     str  x0, [x1]
     ret
 
-    BOOT_WORD "BOOT-WORD-TABLE", "BOOT-WORD-TABLE ( -- addr ) boot catalog", 0, XBOOT_WORD_TABLE, XBOOT_WORD_TABLE_END
+    BOOT_WORD "BOOT-WORD-TABLE", "BOOT-WORD-TABLE ( -- addr ) start of __bootptr (ptrs to rows)", 0, XBOOT_WORD_TABLE, XBOOT_WORD_TABLE_END
 XBOOT_WORD_TABLE:
     str  x20, [x22, #-8]!
     adrp x20, section$start$__DATA$__bootptr@page
     add  x20, x20, section$start$__DATA$__bootptr@pageoff
     NEXT
 XBOOT_WORD_TABLE_END:
+
+// One past last __bootptr entry (safe walk limit for CODE-BOUNDS / .BOOT-WORDS).
+    BOOT_WORD "BOOT-WORD-TABLE-END", "BOOT-WORD-TABLE-END ( -- addr ) end of __bootptr", 0, XBW_TABLE_LIM, XBW_TABLE_LIM_END
+XBW_TABLE_LIM:
+    str  x20, [x22, #-8]!
+    adrp x20, section$end$__DATA$__bootptr@page
+    add  x20, x20, section$end$__DATA$__bootptr@pageoff
+    NEXT
+XBW_TABLE_LIM_END:
 
 // Facility terminal CODE words (host FacilityTerminal grid; not ANSI CSI).
 // PAGE ( -- )
@@ -831,6 +841,7 @@ XFACILITY_OP_GO_END:
 .extern _host_app_name
 .extern _host_app_tone
 .extern _host_app_pump
+.extern _host_app_mouse
 .extern _host_debug_paint
 
 // (APP-OPEN) ( cols rows -- ior )  0=ok
@@ -951,6 +962,34 @@ XAPP_PUMP:
     RESTORE_VM
     ldp  x29, x30, [sp], #16
 XAPP_PUMP_END:
+    NEXT
+
+// (APP-MOUSE) ( -- x y buttons )  latest sample; PLOT origin (bottom-left);
+// buttons: 1=left, 2=right, 4=middle (classic getmous / NSEvent mask).
+    BOOT_WORD "(APP-MOUSE)", "(APP-MOUSE) ( -- x y buttons ) graphics window mouse sample", 0, XAPP_MOUSE, XAPP_MOUSE_END
+XAPP_MOUSE:
+    stp  x29, x30, [sp, #-16]!
+    mov  x29, sp
+    sub  sp, sp, #32               // x,y,buttons outs (16-byte aligned)
+    add  x0, sp, #0                // &x  (set before SAVE_VM)
+    add  x1, sp, #8                // &y
+    add  x2, sp, #16               // &buttons
+    str  xzr, [sp]
+    str  xzr, [sp, #8]
+    str  xzr, [sp, #16]
+    SAVE_VM
+    bl   _host_app_mouse
+    RESTORE_VM
+    ldr  x0, [sp]                  // x
+    ldr  x1, [sp, #8]              // y
+    ldr  x2, [sp, #16]             // buttons
+    add  sp, sp, #32
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    str  x0, [x22, #-8]!           // x
+    str  x1, [x22, #-8]!           // y
+    mov  x20, x2                   // buttons (TOS)
+XAPP_MOUSE_END:
     NEXT
 
 // int kernel_take_sz_editor_open(void) — sticky flag from SZ-HOST-REQUEST-OPEN
@@ -1465,6 +1504,7 @@ _install_fault_handlers:
 // Header layout (low → high):
 //   HFA: counted HELP + pad 8
 //   NFA: counted NAME (UC) + pad 8
+//        count byte: bits 0–6 = length (max 127), bit 7 = SMUDGE (hidden until ;)
 //   LFA: LINK (prev CFA)     @ CFA-16
 //   FFA: FLAGS               @ CFA-8
 //   CFA: CODE
@@ -1484,6 +1524,9 @@ _install_fault_handlers:
 .equ FLAG_IMM,    0x8000000000000000   // bit 63 — IMMEDIATE (existing)
 .equ FLAG_EMM,    0x4000000000000000   // bit 62 — emitter: embed/slice this CODE helper span
 .equ FLAG_INLINE, 0x2000000000000000   // bit 61 — compile-time inline (when you bring it back)
+.equ NFA_LEN_MASK, 0x7F                // name length in NFA count byte
+.equ NFA_SMUDGE,   0x80                // ANS hide-until-; (and DOES> reveal)
+.equ NAME_LEN_MAX, 127
 
 .equ VIEW_FILE_MAX, 256
 .equ VIEW_PATH_MAX, 256
@@ -1630,12 +1673,13 @@ _header_build:
     add x2, x2, #1
     b 4b
 5:
-    // --- counted name (uppercase), pad 8 ---
+    // --- counted name (uppercase), pad 8; length bits 0–6 (max 127) ---
     mov x7, x6                     // NFA
-    cmp x20, #255
+    cmp x20, #NAME_LEN_MAX
     b.ls 6f
-    mov x20, #255
+    mov x20, #NAME_LEN_MAX
 6:
+    and w20, w20, #NFA_LEN_MASK
     strb w20, [x6], #1
     mov x2, #0
 7:
@@ -1714,6 +1758,35 @@ _header_build:
     ldp x19, x20, [sp], #16
     ldp x29, x30, [sp], #16
     ret
+
+// _nfa_from_cfa: x0=CFA → x0=NFA (uses x1)
+_nfa_from_cfa:
+    ldr  x1, [x0, #-8]             // FLAGS
+    and  x1, x1, #NFA_OFF_MASK
+    sub  x0, x0, x1
+    ret
+
+// _nfa_smudge_cfa: x0=CFA (0 = no-op). Sets NFA count bit7 (ANS hide).
+_nfa_smudge_cfa:
+    cbz  x0, 9f
+    stp  x29, x30, [sp, #-16]!
+    bl   _nfa_from_cfa
+    ldrb w1, [x0]
+    orr  w1, w1, #NFA_SMUDGE
+    strb w1, [x0]
+    ldp  x29, x30, [sp], #16
+9:  ret
+
+// _nfa_reveal_cfa: x0=CFA (0 = no-op). Clears NFA count bit7.
+_nfa_reveal_cfa:
+    cbz  x0, 9f
+    stp  x29, x30, [sp, #-16]!
+    bl   _nfa_from_cfa
+    ldrb w1, [x0]
+    and  w1, w1, #NFA_LEN_MASK
+    strb w1, [x0]
+    ldp  x29, x30, [sp], #16
+9:  ret
 
 // _take_pending_help: -> x2=help addr, x3=hlen; clears pending (empty if none)
 _take_pending_help:
@@ -3585,7 +3658,10 @@ _swl_loop:
     ldr  x2, [x21, #-8]            // FLAGS
     and  x3, x2, #0xFFFF           // NFA_OFF (bits 0-15)
     sub  x4, x21, x3               // NFA
-    ldrb w3, [x4], #1              // name length
+    ldrb w3, [x4], #1              // name count (bit7=SMUDGE)
+    tst  w3, #NFA_SMUDGE
+    b.ne _swl_next                 // hidden — skip
+    and  w3, w3, #NFA_LEN_MASK
     cmp  x3, x8
     b.ne _swl_next
     mov  x5, #0
@@ -3755,7 +3831,8 @@ XCOLON:
     adrp x4, DOCOL@page
     add x4, x4, DOCOL@pageoff
     mov x5, #0
-    bl _header_build
+    bl _header_build               // x0 = CFA
+    bl _nfa_smudge_cfa             // ANS: not findable until ;
     adrp x0, state_var@page
     add x0, x0, state_var@pageoff
     mov x1, #1
@@ -3790,10 +3867,14 @@ XNONAME:
     adrp x4, DOCOL@page
     add x4, x4, DOCOL@pageoff
     mov x5, #0
-    bl _header_build
+    bl _header_build               // x0 = CFA
+    bl _nfa_smudge_cfa
     ldp x29, x30, [sp], #16
     adrp x1, noname_xt@page
     add x1, x1, noname_xt@pageoff
+    adrp x2, last_cfa@page
+    add  x2, x2, last_cfa@pageoff
+    ldr  x0, [x2]                  // CFA after smudge helper
     str x0, [x1]
     adrp x0, state_var@page
     add x0, x0, state_var@pageoff
@@ -3812,6 +3893,11 @@ XSEMI:
     bl _compile_cell
     // Clear compile-time local name table
     bl _local_compile_reset
+    // ANS: make the definition findable
+    adrp x0, last_cfa@page
+    add  x0, x0, last_cfa@pageoff
+    ldr  x0, [x0]
+    bl   _nfa_reveal_cfa
     // Set state to interpret mode
     adrp x0, state_var@page
     add x0, x0, state_var@pageoff
@@ -5582,6 +5668,7 @@ _print_wid_name:
     and  x0, x0, #0xFFFF           // NFA_OFF
     sub  x0, x21, x0               // NFA
     ldrb w1, [x0], #1              // count; x0 -> chars
+    and  w1, w1, #NFA_LEN_MASK
     mov  x2, #0
 4:
     cmp  x2, x1
@@ -6296,6 +6383,15 @@ XTRAVERSE_WORDLIST:
 _tw_loop:
     cbz  x7, _tw_advance_thread
     ldr  x8, [x7, #-16]            // link = previous CFA (next to visit)
+    // Skip SMUDGED / empty-name headers (ANS hide; :NONAME)
+    ldr  x0, [x7, #-8]             // FLAGS
+    and  x0, x0, #NFA_OFF_MASK
+    sub  x0, x7, x0                // NFA
+    ldrb w0, [x0]
+    tst  w0, #NFA_SMUDGE
+    b.ne _tw_skip_hidden
+    and  w0, w0, #NFA_LEN_MASK
+    cbz  w0, _tw_skip_hidden
     ldr  x6, [x23]                 // xt (peek; stay on R)
     str  x8, [x23, #-8]!           // R: next (under: xt, thread, wid, IP)
     // Push nt, EXECUTE visitor
@@ -6306,6 +6402,9 @@ _tw_loop:
     adrp x19, tw_continue_cell@page
     add  x19, x19, tw_continue_cell@pageoff
     br   x1
+_tw_skip_hidden:
+    mov  x7, x8
+    b    _tw_loop
 
 _tw_advance_thread:
     // R top: xt, thread, wid, IP  (no next)
@@ -7372,11 +7471,18 @@ _record_words_user_base_once:
     ret
 
 // _words_name_ptr: x0=CFA → x0=name chars, x1=len
+// Smudged or empty names return x1=0 (WORDS skips them).
 _words_name_ptr:
     ldr  x1, [x0, #-8]             // FLAGS
     and  x1, x1, #0xFFFF           // NFA_OFF
     sub  x0, x0, x1                // NFA
     ldrb w1, [x0], #1              // count; x0 → chars
+    tst  w1, #NFA_SMUDGE
+    b.eq 1f
+    mov  x1, #0                    // hidden → treat as empty
+    ret
+1:
+    and  w1, w1, #NFA_LEN_MASK
     ret
 
 // _words_upchar: w0 = char → w0 = uppercase ASCII letter if a-z
@@ -7765,6 +7871,8 @@ XDOES_RT:
     add x1, x1, DODOES@pageoff
     str x1, [x0]                   // CODE at CFA = DODOES
     str x19, [x0, #8]              // does_ip at CFA+8
+    // ANS: definition may become findable at DOES>
+    bl   _nfa_reveal_cfa
 3:
     RPOP
 XDOES_RT_END:
@@ -8572,7 +8680,7 @@ XREDEF_WARNING:
 // FILE-ECHO ( -- addr )  VARIABLE-like; non-zero = echo INCLUDE/FLOAD lines
 // Defaults to 0 (OFF). Use: FILE-ECHO ON   or   FILE-ECHO OFF
 
-    BOOT_WORD "FILE-ECHO", "FILE-ECHO ( -- addr ) variable controlling loaded-source echo (FLOAD, INCLUDE, …; use with ON/OFF)", 0, XFILE_ECHO
+    BOOT_WORD "FILE-ECHO", "FILE-ECHO ( -- addr ) echo INCLUDE/FLOAD lines with left line# (ON/OFF)", 0, XFILE_ECHO
 XFILE_ECHO:
     str x20, [x22, #-8]!
     adrp x0, file_echo@page
@@ -11712,8 +11820,9 @@ _set_source:
 // write any not-yet-echoed source text through the end of the line that
 // contains the next non-whitespace character (lookahead from word_cursor).
 // That way blank lines skipped by the parser are still echoed.
+// Each echoed line is prefixed with a 5-digit right-aligned line number and "| ".
 // Tracks progress in file_echo_pos (absolute address).
-// Safe to call with any VM regs live; uses only x0-x4/x16 (+ frame).
+// Safe with live VM regs: only x0-x4/x16 plus stack spills (no x19-x24).
 // Echo when:
 //   SOURCE-ID > 0  (CODE INCLUDE buffer), or
 //   SOURCE-ID == -1 AND include_name_len != 0  (high-level INCLUDED =
@@ -11740,14 +11849,18 @@ _file_echo_upto_cursor:
     ldr x0, [x0]
     cbz x0, _fe_done
 0:
+    // Locals on stack: [0]=base [8]=end [16]=target_eol [24]=pos
+    sub sp, sp, #32
     // source base / end
     adrp x1, source_addr@page
     add x1, x1, source_addr@pageoff
     ldr x1, [x1]                   // x1 = source base
+    str x1, [sp]
     adrp x2, source_len@page
     add x2, x2, source_len@pageoff
     ldr x2, [x2]
     add x2, x1, x2                 // x2 = source end
+    str x2, [sp, #8]
     // cursor = word_cursor, clamped
     adrp x0, word_cursor@page
     add x0, x0, word_cursor@pageoff
@@ -11790,59 +11903,156 @@ _file_echo_upto_cursor:
     add x3, x3, #1
     b 4b
 5:
-    // x0 = file_echo_pos, clamp into SOURCE; x3 = line_end (on CR/LF or EOF)
+    str x3, [sp, #16]              // target_eol
+    // pos = file_echo_pos, clamped into SOURCE
     adrp x4, file_echo_pos@page
     add x4, x4, file_echo_pos@pageoff
     ldr x0, [x4]
-    adrp x1, source_addr@page
-    add x1, x1, source_addr@pageoff
-    ldr x1, [x1]
+    ldr x1, [sp]                   // base
     cmp x0, x1
     csel x0, x1, x0, lo
+    ldr x2, [sp, #8]               // end
     cmp x0, x2
     csel x0, x2, x0, hi
-    // if pos >= line_end, already echoed through this line
+    str x0, [sp, #24]              // pos
+    // if pos >= target_eol, already echoed through this line
+    ldr x3, [sp, #16]
     cmp x0, x3
-    b.hs _fe_done
-    // write [pos, line_end) via emit_hook — line text only, no CR/LF
-    mov x1, x3
-    subs x1, x1, x0                // len = line_end - pos
-    b.eq 6f
-    str x3, [sp, #-16]!
-    bl  _write_stdout              // x0=buf, x1=len
-    ldr x3, [sp], #16
-6:
-    // Advance past the source terminator (LF, CR, or CRLF), then emit one
-    // console LF. Leaving pos on CR (old bug) made the next echo write that
-    // CR into the output → extra blank / carriage return on comment lines.
-    // Advance *before* putchar: Swift emit_hook clobbers x0–x18.
-    mov x1, x3                     // candidate next pos
+    b.hs _fe_done_locals
+
+    // Echo one source line at a time until pos reaches target_eol.
+_fe_line_loop:
+    ldr x0, [sp, #24]              // pos
+    ldr x3, [sp, #16]              // target_eol
+    cmp x0, x3
+    b.hs _fe_done_locals
+    ldr x1, [sp]                   // base
+    ldr x2, [sp, #8]               // end
+
+    // Mid-line catch-up? Skip number if previous byte is not a line break.
+    cmp x0, x1
+    b.eq 10f                       // at file start → line 1
+    ldrb w4, [x0, #-1]
+    cmp w4, #10
+    b.eq 10f
+    cmp w4, #13
+    b.eq 10f
+    b 11f                          // mid-line: no number prefix
+10:
+    // line# = 1 + #LF in [base, pos)
+    mov x4, #1
+    mov x3, x1
+9:
+    cmp x3, x0
+    b.hs 12f
+    ldrb w5, [x3]
+    cmp w5, #10
+    b.ne 13f
+    add x4, x4, #1
+13:
+    add x3, x3, #1
+    b 9b
+12:
+    mov x0, x4
+    bl  _fe_emit_lineno            // "NNNNN| "
+11:
+    // Find end of this physical line from pos
+    ldr x0, [sp, #24]              // pos
+    ldr x2, [sp, #8]               // end
+    mov x3, x0
+14:
     cmp x3, x2
-    b.hs 8f                        // already at EOF
+    b.hs 15f
+    ldrb w4, [x3]
+    cbz w4, 15f
+    cmp w4, #10
+    b.eq 15f
+    cmp w4, #13
+    b.eq 15f
+    add x3, x3, #1
+    b 14b
+15:
+    // write [pos, this_eol) — line text only
+    mov x1, x3
+    ldr x0, [sp, #24]
+    subs x1, x1, x0
+    b.eq 16f
+    str x3, [sp, #-16]!
+    bl  _write_stdout
+    ldr x3, [sp], #16
+16:
+    // Advance past LF / CR / CRLF; emit one console LF
+    ldr x2, [sp, #8]               // end
+    mov x1, x3
+    cmp x3, x2
+    b.hs 18f
     ldrb w0, [x3]
     cmp w0, #10
-    b.eq 7f                        // bare LF
+    b.eq 17f
     cmp w0, #13
-    b.ne 8f                        // not a newline (shouldn't happen)
-    // CR: step past it; if CRLF, also step past LF
+    b.ne 18f
     add x1, x3, #1
     cmp x1, x2
-    b.hs 8f
+    b.hs 18f
     ldrb w0, [x1]
     cmp w0, #10
-    b.ne 8f
+    b.ne 18f
     add x1, x1, #1
-    b 8f
-7:
-    add x1, x3, #1                 // past LF
-8:
+    b 18f
+17:
+    add x1, x3, #1
+18:
+    str x1, [sp, #24]              // pos
     adrp x4, file_echo_pos@page
     add x4, x4, file_echo_pos@pageoff
     str x1, [x4]
-//    mov x0, #10
-//    bl _putchar
+    mov x0, #10
+    bl  _putchar
+    b   _fe_line_loop
+
+_fe_done_locals:
+    add sp, sp, #32
 _fe_done:
     ldp x29, x30, [sp], #16
+    ret
+
+// _fe_emit_lineno: print 5-digit right-aligned line number + "| " (x0 = line).
+// Uses only caller-saved regs; safe during FILE-ECHO.
+_fe_emit_lineno:
+    stp x29, x30, [sp, #-32]!
+    mov x29, sp
+    str x0, [sp, #16]              // line#
+    // digit count (at least 1)
+    mov x1, #1
+    mov x2, #10
+1:
+    cmp x0, x2
+    b.lo 2f
+    add x1, x1, #1
+    mov x3, #10
+    mul x2, x2, x3
+    cmp x1, #5
+    b.lo 1b
+2:
+    // leading spaces so field width = 5
+    mov x2, #5
+    subs x2, x2, x1
+    b.ls 4f
+3:
+    mov x0, #32
+    str x2, [sp, #24]
+    bl  _putchar
+    ldr x2, [sp, #24]
+    subs x2, x2, #1
+    b.ne 3b
+4:
+    ldr x0, [sp, #16]
+    bl  _print_unsigned
+    mov x0, #124                   // '|'
+    bl  _putchar
+    mov x0, #32
+    bl  _putchar
+    ldp x29, x30, [sp], #32
     ret
 
 // _push_source: save current SOURCE/>IN/SOURCE-ID/file_echo_pos/BLK on source_stack.
@@ -13217,7 +13427,10 @@ _fw_loop:
     ldr x2, [x21, #-8]             // FLAGS
     and x3, x2, #0xFFFF            // NFA_OFF
     sub x4, x21, x3                // NFA
-    ldrb w3, [x4], #1              // name len; x4 -> chars
+    ldrb w3, [x4], #1              // name count (bit7=SMUDGE)
+    tst  w3, #NFA_SMUDGE
+    b.ne _fw_next                  // hidden — skip
+    and  w3, w3, #NFA_LEN_MASK
     cmp x3, x20
     b.ne _fw_next
     mov x5, #0
@@ -15260,6 +15473,7 @@ _fmt_ip_label:
     cmp x0, x2
     b.lo 26f
     ldrb w1, [x0], #1
+    and  w1, w1, #NFA_LEN_MASK
     cbz w1, 26f
     cmp w1, #31
     b.hi 26f
@@ -15476,6 +15690,7 @@ _debug_print_inline_suffix:
     cmp x2, x3
     b.lo 11f
     ldrb w2, [x2]
+    and  w2, w2, #NFA_LEN_MASK
     cbz w2, 11f
     cmp w2, #64
     b.hs 11f
@@ -15612,6 +15827,7 @@ _print_xt_name:
     b.hs _pxn_q
     sub x19, x0, x1                // NFA
     ldrb w20, [x19], #1
+    and  w20, w20, #NFA_LEN_MASK
     cbz w20, _pxn_q
     cmp w20, #64
     b.hs _pxn_q
@@ -16448,6 +16664,7 @@ _debug_sync_view:
     b.hs 8f
     sub x0, x0, x1
     ldrb w1, [x0], #1
+    and  w1, w1, #NFA_LEN_MASK
     cbz w1, 8f
     cmp w1, #31
     b.ls 1f
@@ -16680,6 +16897,7 @@ _debug_capture:
     b.hs 9f
     sub x0, x0, x1                 // NFA
     ldrb w1, [x0], #1
+    and  w1, w1, #NFA_LEN_MASK
     cbz w1, 9f
     cmp w1, #31
     b.ls 10f

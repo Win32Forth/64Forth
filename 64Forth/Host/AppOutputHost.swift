@@ -34,6 +34,14 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
     /// Window / menu title; applied on open and via APP-NAME.
     private var appName: String = "64Forth Graphics"
 
+    /// Latest mouse sample in Forth PLOT coords (origin bottom-left).
+    /// Button mask matches classic getmous / NSEvent.pressedMouseButtons:
+    /// bit0=left (1), bit1=right (2), bit2=middle (4).
+    private let mouseLock = NSLock()
+    private var mouseX: Int64 = 0
+    private var mouseY: Int64 = 0
+    private var mouseButtons: Int64 = 0
+
     /// True when the graphics window is open and key (owns typing for KEY/KEY?).
     var isKeyWindowActive: Bool {
         opened && (window?.isKeyWindow == true)
@@ -103,6 +111,42 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
         keyLock.lock()
         keyQueue.removeAll()
         keyLock.unlock()
+        clearMouse()
+    }
+
+    fileprivate func clearMouse() {
+        mouseLock.lock()
+        mouseX = 0
+        mouseY = 0
+        mouseButtons = 0
+        mouseLock.unlock()
+    }
+
+    /// Poll model for Forth `(APP-MOUSE)` — latest sample, not a deep queue.
+    func readMouse(
+        x: UnsafeMutablePointer<Int64>?,
+        y: UnsafeMutablePointer<Int64>?,
+        buttons: UnsafeMutablePointer<Int64>?
+    ) {
+        if AgentChannel.isRequested || !opened {
+            x?.pointee = 0
+            y?.pointee = 0
+            buttons?.pointee = 0
+            return
+        }
+        mouseLock.lock()
+        x?.pointee = mouseX
+        y?.pointee = mouseY
+        buttons?.pointee = mouseButtons
+        mouseLock.unlock()
+    }
+
+    fileprivate func updateMouse(x: Int, y: Int, buttons: Int) {
+        mouseLock.lock()
+        mouseX = Int64(max(0, x))
+        mouseY = Int64(max(0, y))
+        mouseButtons = Int64(buttons & 0x7)
+        mouseLock.unlock()
     }
 
     /// Called from KernelBridge key monitor while evaluate is active.
@@ -396,6 +440,20 @@ final class AppGridView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas {
+            removeTrackingArea(area)
+        }
+        let opts: NSTrackingArea.Options = [
+            .activeInKeyWindow,
+            .mouseMoved,
+            .inVisibleRect,
+            .enabledDuringMouseDrag
+        ]
+        addTrackingArea(NSTrackingArea(rect: bounds, options: opts, owner: self, userInfo: nil))
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard let host else { return }
@@ -451,10 +509,69 @@ final class AppGridView: NSView {
             }
         }
     }
-    
+
+    /// Map AppKit view point → Forth PLOT coords (origin bottom-left).
+    private func reportMouse(_ event: NSEvent) {
+        guard let host else { return }
+        let pw = host.showingPixels ? max(1, host.pixelW) : 640
+        let ph = host.showingPixels ? max(1, host.pixelH) : 400
+        let dw = max(1, bounds.width - 8)
+        let dh = max(1, bounds.height - 8)
+        let sx = dw / CGFloat(pw)
+        let sy = dh / CGFloat(ph)
+        let local = convert(event.locationInWindow, from: nil)
+        var x = Int(((local.x - 4) / sx).rounded(.down))
+        var y = Int(((local.y - 4) / sy).rounded(.down))
+        if x < 0 { x = 0 }
+        if y < 0 { y = 0 }
+        if x >= pw { x = pw - 1 }
+        if y >= ph { y = ph - 1 }
+        // NSEvent.pressedMouseButtons: bit0 left, bit1 right, bit2 middle.
+        let buttons = Int(NSEvent.pressedMouseButtons) & 0x7
+        host.updateMouse(x: x, y: y, buttons: buttons)
+    }
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        super.mouseDown(with: event)
+        reportMouse(event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        reportMouse(event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        reportMouse(event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        reportMouse(event)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        reportMouse(event)
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        reportMouse(event)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        reportMouse(event)
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        reportMouse(event)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        reportMouse(event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        reportMouse(event)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -513,4 +630,15 @@ public func host_app_tone(_ freq: Int64, _ dur: Int64) {
 @_cdecl("host_app_pump")
 public func host_app_pump() {
     AppOutputHost.shared.pump()
+}
+
+/// Latest mouse sample for GRAPHICS `(APP-MOUSE)`.
+/// Writes Forth PLOT coords (origin bottom-left) and classic button mask.
+@_cdecl("host_app_mouse")
+public func host_app_mouse(
+    _ x: UnsafeMutablePointer<Int64>?,
+    _ y: UnsafeMutablePointer<Int64>?,
+    _ buttons: UnsafeMutablePointer<Int64>?
+) {
+    AppOutputHost.shared.readMouse(x: x, y: y, buttons: buttons)
 }

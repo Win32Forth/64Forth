@@ -104,8 +104,8 @@ DOC" PLOT ( x y -- ) plot one pixel with current ink"
     OVER C@ XOR SWAP C!
   ELSE  IF                             \ set
     OVER C@ OR SWAP C!
-  ELSE                                 \ clear
-    INVERT OVER C@ AND SWAP C!
+  ELSE                                 \ clear (-1 XOR: GRAPHICS INVERT is ink)
+    -1 XOR OVER C@ AND SWAP C!
   THEN THEN
   -1 TO G-PDIRTY?  DIRTY
   ;

@@ -35,13 +35,19 @@ Char / IO: `WINDOW` `WINDOW-OFF` `APP-NAME` `CLS` `AT` `EMIT` `TYPE` `SPACE` `CR
 
 Time / sound: `TIME-RESET` `10TH-ELAPSED` `TENTHS` `TONE`
 
+Mouse: `G-MOUSE` / `GETMOUS` → `(APP-MOUSE)` — `( -- x y buttons )`, PLOT origin (bottom-left); buttons `1`=left `2`=right `4`=middle
+
 Points: `WHITE` `BLACK` `INVERT` `PLOT` `UNPLOT` `LINE` `PCLS` `PREFRESH` (plus helpers as needed)
 
 Smoke: `GRAPHICS-SMOKE` `GRAPHICS-PSMOKE`
 
+Sample: `Library/Sample/DOODLE64.fth` → `DOODLE` (mouse drawing demo)
+
 ### Host CODE ABI (must remain imports for Emitter)
 
-`(APP-OPEN)` `(APP-CLOSE)` `(APP-BLIT)` `(APP-PBLIT)` `(APP-KEY?)` `(APP-KEY)` `(APP-NAME)` `(APP-TONE)` `(APP-PUMP)` plus `MS@` for timers.
+`(APP-OPEN)` `(APP-CLOSE)` `(APP-BLIT)` `(APP-PBLIT)` `(APP-KEY?)` `(APP-KEY)` `(APP-NAME)` `(APP-TONE)` `(APP-PUMP)` `(APP-MOUSE)` plus `MS@` for timers.
+
+Emitter `HOST-APP` slot table is append-only; `(APP-MOUSE)` is slot 15 (after BI 12–14) in `reloc.fth` / `emit-host.inc`.
 
 Swift: `Host/AppOutputHost.swift`. Hooks live in the **GRAPHICS** vocabulary after cold `vocsys.fth` rechain.
 

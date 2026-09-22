@@ -387,22 +387,33 @@ VARIABLE DOES-N
 : LIT-PAYLOAD,  ( host-lit -- )
   \ LIT cells live in the code image (colon bodies).
   \ xt literals (CATCH / ['] / EMIT wrap) must become mapped CFAs —
-  \ DATA-REBASE only covers DATA-WORD spans, not colon/prim xts.
-  \ Window builds: ['] EMIT etc. follow the same FORTH→GRAPHICS remap.
+  \ DATA-REBASE covers VALUE/VARIABLE PFAs from TO once those words are
+  \ in the map (see LIT-PAYLOAD-MARK). Window builds remap FORTH→GRAPHICS.
   IO-REMAP
   DUP MAP-FIND ?DUP IF
     NIP
     TGT-HERE 0 PTR-RELOC-ADD
     TGT, EXIT
   THEN
-  DATA-REBASE IF  TGT-HERE 0 PTR-RELOC-ADD  THEN
+  DATA-REBASE IF  TGT-HERE 0 PTR-RELOC-ADD  TGT, EXIT  THEN
+  \ Stand-alone: leftover host VAs become `!`/`@` into IDE memory → SEGV.
+  \ Do not treat sign-extended immediates (-1 TRUE, -2, …) as pointers —
+  \ those are $FFFF… in the high bits, not canonical user VAs.
+  ?EMIT-STANDALONE IF
+    DUP $FFFF000000000000 AND 0= IF          \ not sign-extended neg
+      DUP $100000000 U< 0= IF               \ above low 4GiB
+        DUP $0000800000000000 U< IF         \ below 48-bit user VA hole
+          ." LIT: unmapped host addr " DUP U. CR ABORT
+        THEN
+      THEN
+    THEN
+  THEN
   TGT, ;
 
-\ After MOVE of a DODOES import, retarget user-PFA cells that hold mapped
-\ xts (CONSTANT / VALUE / DEFER / IS targets). Without this, (EMIT-GFX-KEY)
-\ keeps a host GRAPHICS KEY CFA — EXECUTE in the throw handler SEGVs and the
-\ window only flashes (TETRA/GAME never hits that path on success).
-\ Cells that are not mapped xts (small integers, buffers) are left alone.
+\ After MOVE of a DODOES/DOCON import, retarget user-PFA cells that hold
+\ mapped xts (CONSTANT / VALUE / DEFER / IS targets). Without this,
+\ (DOODLE-XT) / (EMIT-GFX-KEY) keep a host CFA — EXECUTE SEGVs and the
+\ window only flashes. Cells that are not mapped xts are left alone.
 : IMPORT-RELOC-XT-CELLS  ( new u -- )
   {: new u | a end x n -- :}
   new 16 + TO a
@@ -458,6 +469,15 @@ VARIABLE DOES-N
   code new !
   new 1 PTR-RELOC-ADD
   xt DOVAR? IF  new u SA-SANITIZE-DOVAR  THEN
+  xt DOCON? IF
+    \ CONSTANT of an xt must be reachable; leftover host CFA → EXECUTE SEGV.
+    new 16 + @ IO-REMAP
+    DUP $100000000 U< IF  DROP
+    ELSE  MAP-FIND 0= IF
+      ." DOCON: unmapped xt PFA in " xt NAME>STRING TYPE CR ABORT
+    THEN THEN
+    new u IMPORT-RELOC-XT-CELLS
+  THEN
   xt DODOES? IF
     new 8 + @ DOES-SLICE
     new 8 + !

@@ -1,6 +1,7 @@
 \ host.fth — high-ROI TZForth FTEST / ANS-VALIDATE spots not covered elsewhere
 \
 \ Port of selected TestTZForth.swift TEST6 checks as pure Forth EXPECT cases.
+\ Also: ANS hide-until-; (NFA SMUDGE), SMUDGE/REVEAL, CREATE visibility.
 \ Requires: tester.fth already loaded (and kernel with fixed ABORT" / SLITERAL).
 \
 \ CRITICAL: no interpret-time IF/ELSE/THEN/BEGIN.
@@ -114,6 +115,37 @@ ALSO FP
 H-FLIT F>S 3 = S" FLITERAL" EXPECT
 (H-FCLEAR)
 ONLY FORTH DEFINITIONS
+
+\ --- ANS hide-until-; (NFA SMUDGE bit7) + SMUDGE / REVEAL ---
+\ Mid-colon name must not be findable; ; reveals. CREATE stays visible.
+VARIABLE H-HID
+0 H-HID !
+: HIDTEST
+   [ S" HIDTEST" FORTH-WORDLIST SEARCH-WORDLIST 0= H-HID ! ] ;
+H-HID @ S" colon-hidden" EXPECT
+S" HIDTEST" FORTH-WORDLIST SEARCH-WORDLIST 0= 0= S" colon-revealed" EXPECT
+
+\ Self-name while compiling is undefined -13 THROW (not recursive by FIND)
+: (H-SELF-SRC)  S" : BADSELF BADSELF ;" EVALUATE ;
+: (H-SELF-CATCH)  ['] (H-SELF-SRC) CATCH -13 = ;
+(H-SELF-CATCH) S" colon-self-undef" EXPECT
+
+\ CREATE is findable immediately (not smudged)
+CREATE H-CRV
+S" H-CRV" FORTH-WORDLIST SEARCH-WORDLIST 0= 0= S" CREATE-visible" EXPECT
+
+\ Explicit SMUDGE / REVEAL on LAST
+: H-SMW  1 ;
+SMUDGE
+S" H-SMW" FORTH-WORDLIST SEARCH-WORDLIST 0= S" SMUDGE" EXPECT
+\ NAME>STRING masks bit7 — length still correct while hidden
+LAST NAME>STRING NIP 5 = S" NAME>STRING-smudge" EXPECT
+REVEAL
+S" H-SMW" FORTH-WORDLIST SEARCH-WORDLIST 0= 0= S" REVEAL" EXPECT
+
+\ RECURSE still works while the definition is hidden (uses LAST, not FIND)
+: H-REC  1- DUP 0= IF DROP 42 ELSE RECURSE THEN ;
+3 H-REC 42 = S" RECURSE-smudge" EXPECT
 
 \ --- MARKER last so it does not strip earlier host helpers mid-suite ---
 MARKER H-MRK

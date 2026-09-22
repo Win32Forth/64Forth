@@ -9,6 +9,7 @@
 \   (APP-NAME)  ( c-addr u -- )
 \   (APP-TONE)  ( freq dur -- )   \ freq=Hz, dur=tenths of a second (F-PC TONE)
 \   (APP-PUMP)  ( -- )            \ yield for AppKit while spinning
+\   (APP-MOUSE) ( -- x y buttons) \ PLOT coords; 1=left 2=right 4=middle
 \
 \ Dual-load (tetra etc.):
 \   ONLY FORTH ALSO GRAPHICS
@@ -191,6 +192,15 @@ VARIABLE G-T0-MS                     \ TIME-RESET baseline (MS@)
   WINDOW  ?REFRESH
   BEGIN  (APP-KEY) DUP 0<  WHILE  DROP  (APP-PUMP)  REPEAT
   ;
+
+\ Mouse — poll latest sample (classic getmous). Origin matches PLOT (bottom-left).
+DOC" G-MOUSE ( -- x y buttons ) graphics mouse; buttons 1=left 2=right 4=middle"
+: G-MOUSE  ( -- x y buttons )
+  WINDOW  ?REFRESH  (APP-PUMP)  (APP-MOUSE)
+  ;
+
+DOC" GETMOUS ( -- x y buttons ) TCOM-compatible alias for G-MOUSE"
+: GETMOUS  ( -- x y buttons )  G-MOUSE ;
 
 \ Timers — Forth-first via MS@; pump/yield so the main AppKit loop runs.
 : TIME-RESET  ( -- )

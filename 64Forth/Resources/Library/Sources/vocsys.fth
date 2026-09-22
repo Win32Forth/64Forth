@@ -198,6 +198,7 @@ S" (APP-KEY)"    FORTH>GRAPHICS
 S" (APP-NAME)"   FORTH>GRAPHICS
 S" (APP-TONE)"   FORTH>GRAPHICS
 S" (APP-PUMP)"   FORTH>GRAPHICS
+S" (APP-MOUSE)"  FORTH>GRAPHICS
 
 \ Rechain helpers into SYSVOC (ALSO so we can keep calling them while moving).
 ALSO SYSVOC

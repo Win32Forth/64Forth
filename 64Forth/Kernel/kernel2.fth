@@ -731,8 +731,10 @@ DOC" CHAR ( '<spaces>name' -- xchar ) first xchar of next word"
 DOC" [CHAR] ( compile: '<spaces>name' -- ) compile xchar literal (immediate)"
 : [CHAR] ?COMP CHAR LIT-ADDR , , ; IMMEDIATE
 
-\ BOOT_WORD display list for assembly words
-8 5 * CONSTANT /BOOT-WORD   \ name help flags code end
+\ BOOT_WORD catalog: BOOT-WORD-TABLE .. BOOT-WORD-TABLE-END is __bootptr,
+\ an array of pointers to 5-quad rows {name,help,flags,code,end} in __bootword.
+\ Do not stride /BOOT-WORD across __bootptr (that layout is pointer-sized).
+8 5 * CONSTANT /BOOT-WORD   \ bytes per row (not per __bootptr slot)
 \ Match forth.s .equ FLAG_* (bits 61–63 of the FLAGS / boot-row flags cell).
 $8000000000000000 CONSTANT FLAG_IMM     \ bit 63 — IMMEDIATE
 $4000000000000000 CONSTANT FLAG_EMM     \ bit 62 — emitter: embed/slice CODE helper
@@ -750,27 +752,31 @@ $2000000000000000 CONSTANT FLAG_INLINE  \ bit 61 — compile-time inline
 : ZTYPE  ( zaddr -- )  ZCOUNT TYPE ;
 : .BOOT-WORDS  ( -- )
   BASE @ HEX
-  BOOT-WORD-TABLE
-  BEGIN
-    DUP @ ?DUP
-  WHILE
-    ZTYPE  2 SPACES
-    DUP 8 + @ ZTYPE  2 SPACES
-    DUP 24 + @ U. SPACE    \ code
-    DUP 32 + @ U. CR  \ end (use 24 + @ only if 4-quad rows)
-    /BOOT-WORD +
-  REPEAT DROP
+  BOOT-WORD-TABLE BOOT-WORD-TABLE-END
+  BEGIN  2DUP < WHILE
+    OVER @                          \ row
+    DUP BOOT-WORD-NAME ZTYPE  2 SPACES
+    DUP BOOT-WORD-HELP ZTYPE  2 SPACES
+    DUP BOOT-WORD-CODE U. SPACE
+    BOOT-WORD-END U. CR
+    SWAP CELL+ SWAP
+  REPEAT 2DROP
   BASE ! ;
 : CODE-BOUNDS  ( xt -- code end )
-  @                                 \ code*
-  BOOT-WORD-TABLE
-  BEGIN  DUP @ WHILE
-    2DUP 24 + @ = IF                \ this row's code
-      NIP  DUP 24 + @  SWAP 32 + @  EXIT
+  \ Match xt's code pointer against boot rows via __bootptr indirection.
+  @ >R                              \ R: wanted code*
+  BOOT-WORD-TABLE BOOT-WORD-TABLE-END
+  BEGIN  2DUP < WHILE               \ tp tend
+    OVER @                          \ tp tend row
+    DUP BOOT-WORD-CODE R@ = IF
+      NIP NIP                       \ row
+      DUP BOOT-WORD-CODE SWAP BOOT-WORD-END
+      R> DROP EXIT
     THEN
-    /BOOT-WORD +
+    DROP
+    SWAP CELL+ SWAP
   REPEAT
-  DROP  0 ;                         \ not a boot primitive; end unknown
+  2DROP R> 0 ;                      \ unknown / unlabeled → end 0
 : .BOUNDS  ( xt -- )
   CODE-BOUNDS
   BASE @ >R HEX
