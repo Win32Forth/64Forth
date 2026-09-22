@@ -148,6 +148,13 @@ void host_app_img_size(int64_t *w, int64_t *h);
 int64_t host_app_img_render(void *dest, int64_t dest_w, int64_t dest_h,
                             int64_t cx, int64_t cy, int64_t zoom100);
 
+/// Text file panels / staged path (EDIT64). ior: 0=ok, -1=cancel, -2=fail.
+int64_t host_app_file_choose(void);
+int64_t host_app_file_save_as(void);
+int64_t host_app_file_path(void *dest, int64_t max);
+int64_t host_app_file_slurp(void *dest, int64_t max, int64_t *out_u);
+int64_t host_app_file_spew(const void *src, int64_t nbytes);
+
 /// \S / \s on the console SOURCE (SOURCE-ID 0): sticky flag for multi-line paste stop.
 /// Returns 1 if set since last call, else 0; always clears the flag (TZForth-style).
 int kernel_take_repl_batch_stop(void);

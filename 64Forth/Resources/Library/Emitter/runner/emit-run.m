@@ -180,6 +180,7 @@ int main(int argc, char **argv) {
   sa.sa_flags = SA_SIGINFO;
   sigaction(SIGSEGV, &sa, NULL);
   sigaction(SIGBUS, &sa, NULL);
+  sigaction(SIGILL, &sa, NULL);
 
   const char *path = NULL;
   const char *image_path = NULL;
@@ -275,7 +276,7 @@ int main(int argc, char **argv) {
     uint32_t off = rd_u32(rel + i * 8);
     uint32_t slot = rd_u32(rel + i * 8 + 4);
     if (off + 8 > code_len) die("reloc off");
-    if (slot >= 21 || !host_fn[slot]) die("reloc slot");
+    if (slot >= 26 || !host_fn[slot]) die("reloc slot");
     uint64_t fn = (uint64_t)(uintptr_t)host_fn[slot];
     memcpy(buf + off, &fn, 8);
   }

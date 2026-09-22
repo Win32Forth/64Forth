@@ -1085,6 +1085,87 @@ XAPP_IMG_RENDER:
 XAPP_IMG_RENDER_END:
     NEXT
 
+// (APP-FILE-CHOOSE) ( -- ior )  NSOpenPanel; stage path; 0=ok -1=cancel -2=fail
+    BOOT_WORD "(APP-FILE-CHOOSE)", "(APP-FILE-CHOOSE) ( -- ior ) open file via dialog", 0, XAPP_FILE_CHOOSE, XAPP_FILE_CHOOSE_END
+XAPP_FILE_CHOOSE:
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_file_choose
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    mov  x20, x0
+XAPP_FILE_CHOOSE_END:
+    NEXT
+
+// (APP-FILE-SAVE-AS) ( -- ior )  NSSavePanel; stage path
+    BOOT_WORD "(APP-FILE-SAVE-AS)", "(APP-FILE-SAVE-AS) ( -- ior ) save-as via dialog", 0, XAPP_FILE_SAVE_AS, XAPP_FILE_SAVE_AS_END
+XAPP_FILE_SAVE_AS:
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_file_save_as
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    mov  x20, x0
+XAPP_FILE_SAVE_AS_END:
+    NEXT
+
+// (APP-FILE-PATH) ( c-addr u -- u' )  copy staged path; 0 if none
+    BOOT_WORD "(APP-FILE-PATH)", "(APP-FILE-PATH) ( c-addr u -- u2 ) copy staged file path", 0, XAPP_FILE_PATH, XAPP_FILE_PATH_END
+XAPP_FILE_PATH:
+    mov  x1, x20                   // u
+    ldr  x0, [x22], #8             // c-addr
+    ldr  x20, [x22], #8
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_file_path
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    mov  x20, x0                   // u'
+XAPP_FILE_PATH_END:
+    NEXT
+
+// (APP-FILE-SLURP) ( c-addr max -- u ior )  read staged file into buffer
+    BOOT_WORD "(APP-FILE-SLURP)", "(APP-FILE-SLURP) ( c-addr max -- u ior ) read staged file", 0, XAPP_FILE_SLURP, XAPP_FILE_SLURP_END
+XAPP_FILE_SLURP:
+    mov  x1, x20                   // max
+    ldr  x0, [x22], #8             // c-addr
+    ldr  x20, [x22], #8
+    stp  x29, x30, [sp, #-16]!
+    mov  x29, sp
+    sub  sp, sp, #16
+    add  x2, sp, #0                // &u
+    str  xzr, [sp]
+    SAVE_VM
+    bl   _host_app_file_slurp      // x0=ior, *x2=u
+    RESTORE_VM
+    ldr  x1, [sp]                  // u
+    add  sp, sp, #16
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    str  x1, [x22, #-8]!           // u
+    mov  x20, x0                   // ior
+XAPP_FILE_SLURP_END:
+    NEXT
+
+// (APP-FILE-SPEW) ( c-addr u -- ior )  write buffer to staged path
+    BOOT_WORD "(APP-FILE-SPEW)", "(APP-FILE-SPEW) ( c-addr u -- ior ) write staged file", 0, XAPP_FILE_SPEW, XAPP_FILE_SPEW_END
+XAPP_FILE_SPEW:
+    mov  x1, x20                   // u
+    ldr  x0, [x22], #8             // c-addr
+    ldr  x20, [x22], #8
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_app_file_spew
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    mov  x20, x0
+XAPP_FILE_SPEW_END:
+    NEXT
+
 // int kernel_take_sz_editor_open(void) — sticky flag from SZ-HOST-REQUEST-OPEN
 .globl _kernel_take_sz_editor_open
 _kernel_take_sz_editor_open:

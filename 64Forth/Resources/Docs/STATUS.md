@@ -36,6 +36,8 @@ Append new design sections as we go; mark items done when implemented.
 - **Sample DOODLECOLOR64:** `Library/Sample/DOODLECOLOR64.fth` — COLOR8 sibling of DOODLE64 with a 16-color chrome bar (`FROMLIB FLOAD Sample/DOODLECOLOR64.fth` then `DOODLECOLOR`). Leaves `DOODLE64.fth` unchanged.
 - **Image viewer:** host `(APP-IMG-CHOOSE/LOAD/SIZE/RENDER)` (NSOpenPanel + `NSImage`, any macOS-readable still image) → TRUECOLOR BGRA; slots **17–20** in interactive Swift and Emitter `emit-run` (argv `--image` / drag-drop stage). Sample `Library/Sample/IMAGEVIEW64.fth` → `IMAGEVIEW`. Emit: `EMIT-WINDOW-APP IMAGEVIEW` (needs 2 MiB SA data arena for `G-PIX`).
 - **Emitter LIT-PAYLOAD-MARK:** only `@`-probe payloads that look like user VAs (≥4 GiB); aligned immediates such as `$808080` (IMAGEVIEW chrome) must not be treated as VALUE PFAs (was EXC_BAD_ACCESS in `XFETCH` / `@` during `EMIT-WINDOW-APP`).
+- **Sample EDIT64:** GRAPHICS mini-editor (`Library/Sample/EDIT64.fth` → `EDIT64`) — COLOR8 white paper / black text; reverse-video caret; click/arrows/wheel; CRLF normalize on load; OPEN/SAVE via `(APP-FILE-*)` slots **21–25** (NSOpenPanel/NSSavePanel + slurp/spew, no ANS File-Access in emit reach); dirty quit **S**/**D**/**Esc**; chrome buttons only on the label row. Emit: `EMIT-WINDOW-APP EDIT64` (not Facility SZ-EDITOR).
+- **Host file ABI:** `(APP-FILE-CHOOSE/SAVE-AS/PATH/SLURP/SPEW)` in Swift `AppOutputHost` and Emitter `emit-host` / `reloc.fth` (`#HOST-APP` **26**).
 
 ---
 

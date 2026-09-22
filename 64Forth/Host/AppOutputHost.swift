@@ -59,6 +59,9 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
     private var imgH = 0
     private var imgPath: String = ""
 
+    /// Staged UTF-8 path for (APP-FILE-*) — set by choose / save-as; used by path/slurp/spew.
+    private var fileStagedPath: String = ""
+
     private override init() {
         super.init()
     }
@@ -266,7 +269,16 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
 
     fileprivate var pixelW: Int { pixW }
     fileprivate var pixelH: Int { pixH }
+    fileprivate var pixelDepth: Int { pixDepth }
     fileprivate var showingPixels: Bool { hasPixels }
+
+    /// COLOR8 index at pixel (x,y), top-left origin; -1 if unavailable.
+    fileprivate func color8At(x: Int, y: Int) -> Int {
+        guard hasPixels, pixDepth == 8, x >= 0, y >= 0, x < pixW, y < pixH else { return -1 }
+        let i = y * pixW + x
+        guard i < pix.count else { return -1 }
+        return Int(pix[i])
+    }
 
     /// Default 256-color palette as BGRA UInt32 (low byte = B). Indices 0–15 = classic TCOLOR.
     fileprivate static let defaultPaletteBGRA: [UInt32] = {
@@ -768,6 +780,134 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
         }
         return 0
     }
+
+    // MARK: File dialogs / slurp / spew ((APP-FILE-*))
+
+    private func stageFile(at url: URL) {
+        fileStagedPath = url.path
+    }
+
+    /// NSOpenPanel — stage chosen path. 0=ok, -1=cancel, -2=fail.
+    func chooseFile() -> Int64 {
+        if AgentChannel.isRequested { return -1 }
+        let work: () -> Int64 = { [weak self] in
+            guard let self else { return -2 }
+            let panel = NSOpenPanel()
+            panel.title = "Open File"
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            if let win = self.window {
+                let group = DispatchGroup()
+                var result: NSApplication.ModalResponse = .abort
+                group.enter()
+                panel.beginSheetModal(for: win) { r in
+                    result = r
+                    group.leave()
+                }
+                while group.wait(timeout: .now() + 0.05) == .timedOut {
+                    RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+                }
+                guard result == .OK, let url = panel.url else { return -1 }
+                self.stageFile(at: url)
+                return 0
+            } else {
+                guard panel.runModal() == .OK, let url = panel.url else { return -1 }
+                self.stageFile(at: url)
+                return 0
+            }
+        }
+        if Thread.isMainThread { return work() }
+        var ior: Int64 = -2
+        DispatchQueue.main.sync { ior = work() }
+        return ior
+    }
+
+    /// NSSavePanel — stage chosen path. 0=ok, -1=cancel, -2=fail.
+    func saveFileAs() -> Int64 {
+        if AgentChannel.isRequested { return -1 }
+        let suggested = fileStagedPath
+        let work: () -> Int64 = { [weak self] in
+            guard let self else { return -2 }
+            let panel = NSSavePanel()
+            panel.title = "Save File"
+            panel.canCreateDirectories = true
+            if !suggested.isEmpty {
+                let url = URL(fileURLWithPath: suggested)
+                panel.directoryURL = url.deletingLastPathComponent()
+                panel.nameFieldStringValue = url.lastPathComponent
+            }
+            if let win = self.window {
+                let group = DispatchGroup()
+                var result: NSApplication.ModalResponse = .abort
+                group.enter()
+                panel.beginSheetModal(for: win) { r in
+                    result = r
+                    group.leave()
+                }
+                while group.wait(timeout: .now() + 0.05) == .timedOut {
+                    RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+                }
+                guard result == .OK, let url = panel.url else { return -1 }
+                self.stageFile(at: url)
+                return 0
+            } else {
+                guard panel.runModal() == .OK, let url = panel.url else { return -1 }
+                self.stageFile(at: url)
+                return 0
+            }
+        }
+        if Thread.isMainThread { return work() }
+        var ior: Int64 = -2
+        DispatchQueue.main.sync { ior = work() }
+        return ior
+    }
+
+    /// Copy staged path into Forth buffer. Returns bytes written (0 if none).
+    func copyStagedPath(to dest: UnsafeMutableRawPointer?, max: Int) -> Int64 {
+        guard let dest, max > 0, !fileStagedPath.isEmpty else { return 0 }
+        var bytes = Array(fileStagedPath.utf8)
+        if bytes.count > max { bytes = Array(bytes.prefix(max)) }
+        bytes.withUnsafeBytes { src in
+            guard let base = src.baseAddress else { return }
+            dest.copyMemory(from: base, byteCount: bytes.count)
+        }
+        return Int64(bytes.count)
+    }
+
+    /// Read staged file into buffer. Writes byte count to outU. Returns ior (0 ok, -1 no path, -2 fail).
+    func slurpStagedFile(
+        to dest: UnsafeMutableRawPointer?,
+        max: Int,
+        outU: UnsafeMutablePointer<Int64>?
+    ) -> Int64 {
+        outU?.pointee = 0
+        guard let dest, max > 0 else { return -2 }
+        guard !fileStagedPath.isEmpty else { return -1 }
+        let url = URL(fileURLWithPath: fileStagedPath)
+        guard let data = try? Data(contentsOf: url) else { return -2 }
+        let n = min(data.count, max)
+        data.withUnsafeBytes { src in
+            guard let base = src.baseAddress else { return }
+            dest.copyMemory(from: base, byteCount: n)
+        }
+        outU?.pointee = Int64(n)
+        return 0
+    }
+
+    /// Write buffer to staged path. 0=ok, -1=no path, -2=fail.
+    func spewStagedFile(from src: UnsafeRawPointer?, nbytes: Int) -> Int64 {
+        guard let src, nbytes >= 0 else { return -2 }
+        guard !fileStagedPath.isEmpty else { return -1 }
+        let url = URL(fileURLWithPath: fileStagedPath)
+        let data = Data(bytes: src, count: nbytes)
+        do {
+            try data.write(to: url, options: .atomic)
+            return 0
+        } catch {
+            return -2
+        }
+    }
 }
 
 // MARK: - View
@@ -806,12 +946,11 @@ final class AppGridView: NSView {
         }
 
         let font = NSFont.monospacedSystemFont(ofSize: host.gridCellH - 2, weight: .regular)
-        let textFg = NSColor(calibratedRed: 0.7, green: 1.0, blue: 0.7, alpha: 1)
-        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: textFg]
         let cols = host.gridCols
         let rows = host.gridRows
         let cw = host.gridCellW
         let ch = host.gridCellH
+        let classicGreen = NSColor(calibratedRed: 0.7, green: 1.0, blue: 0.7, alpha: 1)
         for y in 0..<rows {
             for x in 0..<cols {
                 let chv = host.cellAt(col: x, row: y)
@@ -820,6 +959,20 @@ final class AppGridView: NSView {
                 if chv == 219 { s = "\u{2588}" }
                 else if chv < 32 || chv > 126 { s = "?" }
                 else { s = String(UnicodeScalar(chv)) }
+                // COLOR8: black on light paper, white on dark (reverse-video caret).
+                // Sample the Forth pixel grid (640×400), not view font cell size.
+                let textFg: NSColor
+                if host.showingPixels && host.pixelDepth == 8 {
+                    let cellPx = max(1, host.pixelW / cols)
+                    let cellPy = max(1, host.pixelH / rows)
+                    let ix = x * cellPx + cellPx / 2
+                    let iy = y * cellPy + cellPy / 2
+                    let idx = host.color8At(x: ix, y: iy)
+                    textFg = (idx >= 0 && idx < 8) ? .white : .black
+                } else {
+                    textFg = classicGreen
+                }
+                let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: textFg]
                 let px = CGFloat(x) * cw + 4
                 let py = CGFloat(rows - 1 - y) * ch + 4
                 (s as NSString).draw(at: NSPoint(x: px, y: py), withAttributes: attrs)
@@ -889,6 +1042,23 @@ final class AppGridView: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         reportMouse(event)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard let host else { return }
+        // Viewport scroll keys for EDIT64: 210=up, 211=down.
+        let dy = event.scrollingDeltaY
+        if dy == 0 && event.hasPreciseScrollingDeltas { return }
+        var steps = 1
+        if event.hasPreciseScrollingDeltas {
+            steps = max(1, min(3, Int(abs(dy) / 4.0)))
+        } else {
+            steps = max(1, min(3, Int(abs(dy))))
+        }
+        let code: Int64 = dy > 0 ? 210 : 211
+        for _ in 0..<steps {
+            host.pushKey(code)
+        }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -1004,4 +1174,38 @@ public func host_app_img_render(
         centerY: Int(cy),
         zoom100: Int(zoom100)
     )
+}
+
+/// NSOpenPanel — stage path. 0=ok, -1=cancel, -2=fail.
+@_cdecl("host_app_file_choose")
+public func host_app_file_choose() -> Int64 {
+    AppOutputHost.shared.chooseFile()
+}
+
+/// NSSavePanel — stage path. 0=ok, -1=cancel, -2=fail.
+@_cdecl("host_app_file_save_as")
+public func host_app_file_save_as() -> Int64 {
+    AppOutputHost.shared.saveFileAs()
+}
+
+/// Copy staged UTF-8 path into dest; returns byte count (0 if none).
+@_cdecl("host_app_file_path")
+public func host_app_file_path(_ dest: UnsafeMutableRawPointer?, _ max: Int64) -> Int64 {
+    AppOutputHost.shared.copyStagedPath(to: dest, max: Int(max))
+}
+
+/// Read staged file into dest. *out_u = bytes; returns ior.
+@_cdecl("host_app_file_slurp")
+public func host_app_file_slurp(
+    _ dest: UnsafeMutableRawPointer?,
+    _ max: Int64,
+    _ outU: UnsafeMutablePointer<Int64>?
+) -> Int64 {
+    AppOutputHost.shared.slurpStagedFile(to: dest, max: Int(max), outU: outU)
+}
+
+/// Write nbytes from src to staged path. Returns ior.
+@_cdecl("host_app_file_spew")
+public func host_app_file_spew(_ src: UnsafeRawPointer?, _ nbytes: Int64) -> Int64 {
+    AppOutputHost.shared.spewStagedFile(from: src, nbytes: Int(nbytes))
 }

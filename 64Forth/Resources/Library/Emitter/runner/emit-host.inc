@@ -2,7 +2,8 @@
  * Implements host_app_* slots 0–8 (AppOutputHost ABI), slot 9 (MS@ /
  * gettimeofday), slots 10–11 (malloc / free), slots 12–14 (BI-MUL /
  * BI-DIVMOD / BI-ISQRT), slot 15 (host_app_mouse), slot 16 (cblit),
- * slots 17–20 (APP-IMG-CHOOSE/LOAD/SIZE/RENDER).
+ * slots 17–20 (APP-IMG-CHOOSE/LOAD/SIZE/RENDER),
+ * slots 21–25 (APP-FILE-CHOOSE/SAVE-AS/PATH/SLURP/SPEW).
  * Public domain.
  */
 #import <Cocoa/Cocoa.h>
@@ -75,6 +76,12 @@ static int emit_img_w = 0, emit_img_h = 0, emit_img_n = 0;
 static char emit_img_staged[PATH_MAX];
 static int emit_img_staged_set = 0;
 
+/* Staged UTF-8 path for (APP-FILE-*) — choose/save-as set; path/slurp/spew use. */
+static char emit_file_staged[PATH_MAX];
+static int emit_file_staged_set = 0;
+/* One-shot: drag-drop arms choose to accept staged path without a panel. */
+static int emit_file_open_once = 0;
+
 static void emit_img_clear(void) {
   free(emit_img_bgra);
   emit_img_bgra = NULL;
@@ -92,6 +99,18 @@ static void emit_img_stage_path(const char *path) {
   strncpy(emit_img_staged, path, sizeof(emit_img_staged) - 1);
   emit_img_staged[sizeof(emit_img_staged) - 1] = '\0';
   emit_img_staged_set = 1;
+}
+
+static void emit_file_stage_path(const char *path) {
+  if (!path || !path[0]) {
+    emit_file_staged_set = 0;
+    emit_file_staged[0] = '\0';
+    emit_file_open_once = 0;
+    return;
+  }
+  strncpy(emit_file_staged, path, sizeof(emit_file_staged) - 1);
+  emit_file_staged[sizeof(emit_file_staged) - 1] = '\0';
+  emit_file_staged_set = 1;
 }
 
 static void emit_clear_mouse(void) {
@@ -231,11 +250,8 @@ static int64_t emit_map_key(NSEvent *ev) {
   }
   if (!emit_cells) return;
   NSFont *font = [NSFont monospacedSystemFontOfSize:emit_ch - 2 weight:NSFontWeightRegular];
-  NSDictionary *attrs = @{
-    NSFontAttributeName: font,
-    NSForegroundColorAttributeName:
-      [NSColor colorWithCalibratedRed:0.7 green:1.0 blue:0.7 alpha:1]
-  };
+  NSColor *classicGreen =
+      [NSColor colorWithCalibratedRed:0.7 green:1.0 blue:0.7 alpha:1];
   for (int y = 0; y < emit_rows; y++) {
     for (int x = 0; x < emit_cols; x++) {
       uint8_t ch = emit_cells[y * emit_cols + x];
@@ -244,6 +260,28 @@ static int64_t emit_map_key(NSEvent *ev) {
       if (ch == 219) s = @"\u2588";
       else if (ch < 32 || ch > 126) s = @"?";
       else s = [NSString stringWithFormat:@"%c", (char)ch];
+      /* COLOR8: black on light paper, white on dark (reverse-video caret).
+       * Sample Forth pixel grid (G-PX×G-PY), not view font metrics. */
+      NSColor *fg = classicGreen;
+      if (emit_has_pix && emit_pix_depth == 8 && emit_pix &&
+          emit_cols > 0 && emit_rows > 0) {
+        int cell_px = emit_pix_w / emit_cols;
+        int cell_py = emit_pix_h / emit_rows;
+        if (cell_px < 1) cell_px = 1;
+        if (cell_py < 1) cell_py = 1;
+        int ix = x * cell_px + cell_px / 2;
+        int iy = y * cell_py + cell_py / 2;
+        if (ix < 0) ix = 0;
+        if (iy < 0) iy = 0;
+        if (ix >= emit_pix_w) ix = emit_pix_w - 1;
+        if (iy >= emit_pix_h) iy = emit_pix_h - 1;
+        int idx = emit_pix[iy * emit_pix_w + ix];
+        fg = (idx < 8) ? [NSColor whiteColor] : [NSColor blackColor];
+      }
+      NSDictionary *attrs = @{
+        NSFontAttributeName: font,
+        NSForegroundColorAttributeName: fg
+      };
       [s drawAtPoint:NSMakePoint(x * emit_cw + 4, (emit_rows - 1 - y) * emit_ch + 4)
       withAttributes:attrs];
     }
@@ -272,6 +310,25 @@ static int64_t emit_map_key(NSEvent *ev) {
 - (void)otherMouseDragged:(NSEvent *)ev { [self reportMouse:ev]; }
 - (void)otherMouseUp:(NSEvent *)ev { [self reportMouse:ev]; }
 - (void)mouseMoved:(NSEvent *)ev { [self reportMouse:ev]; }
+- (void)scrollWheel:(NSEvent *)ev {
+  /* Map wheel to viewport scroll keys: 210=up, 211=down (EDIT64 ED-K-SCR*). */
+  CGFloat dy = ev.scrollingDeltaY;
+  if (dy == 0 && ev.hasPreciseScrollingDeltas)
+    return;
+  int steps = 1;
+  if (ev.hasPreciseScrollingDeltas) {
+    steps = (int)(fabs(dy) / 4.0);
+    if (steps < 1) steps = 1;
+    if (steps > 3) steps = 3;
+  } else {
+    steps = (int)fabs(dy);
+    if (steps < 1) steps = 1;
+    if (steps > 3) steps = 3;
+  }
+  int64_t code = (dy > 0) ? 210 : 211;
+  for (int i = 0; i < steps; i++)
+    emit_key_push(code);
+}
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
   NSPasteboard *pb = [sender draggingPasteboard];
   NSArray<NSURL *> *urls = [pb readObjectsForClasses:@[[NSURL class]]
@@ -284,6 +341,8 @@ static int64_t emit_map_key(NSEvent *ev) {
                                             options:@{ NSPasteboardURLReadingFileURLsOnlyKey: @YES }];
   if (urls.count < 1) return NO;
   emit_img_stage_path(urls[0].path.UTF8String);
+  emit_file_stage_path(urls[0].path.UTF8String);
+  emit_file_open_once = 1;
   return YES;
 }
 @end
@@ -769,8 +828,147 @@ static int64_t host_app_img_render_slot(int64_t dest, int64_t dest_w) {
                              zoom100);
 }
 
-/* Slot table — must match Emitter reloc.fth HOST-APP slots 0–20. */
-static emit_host_fn host_fn[21] = {
+/* --- File dialogs / slurp / spew (slots 21–25) --- */
+
+static int64_t host_app_file_choose(int64_t a, int64_t b) {
+  (void)a;
+  (void)b;
+  if (emit_headless) return -1;
+  /* Drag-drop: accept staged path once without a panel. */
+  if (emit_file_open_once && emit_file_staged_set) {
+    emit_file_open_once = 0;
+    return 0;
+  }
+  __block int64_t ior = -1;
+  emit_on_main_sync(^{
+    emit_ensure_app();
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.title = @"Open File";
+    panel.canChooseFiles = YES;
+    panel.canChooseDirectories = NO;
+    panel.allowsMultipleSelection = NO;
+    NSModalResponse resp;
+    if (emit_window) {
+      __block NSModalResponse r = NSModalResponseCancel;
+      dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+      [panel beginSheetModalForWindow:emit_window
+                    completionHandler:^(NSModalResponse result) {
+                      r = result;
+                      dispatch_semaphore_signal(sem);
+                    }];
+      while (dispatch_semaphore_wait(sem, DISPATCH_TIME_NOW) != 0) {
+        emit_pump_events(0.05);
+      }
+      resp = r;
+    } else {
+      resp = [panel runModal];
+    }
+    if (resp != NSModalResponseOK || !panel.URL) {
+      ior = -1;
+      return;
+    }
+    emit_file_stage_path(panel.URL.path.UTF8String);
+    ior = 0;
+  });
+  return ior;
+}
+
+static int64_t host_app_file_save_as(int64_t a, int64_t b) {
+  (void)a;
+  (void)b;
+  if (emit_headless) return -1;
+  __block int64_t ior = -1;
+  emit_on_main_sync(^{
+    emit_ensure_app();
+    NSSavePanel *panel = [NSSavePanel savePanel];
+    panel.title = @"Save File";
+    panel.canCreateDirectories = YES;
+    if (emit_file_staged_set && emit_file_staged[0]) {
+      NSString *path = @(emit_file_staged);
+      panel.directoryURL = [NSURL fileURLWithPath:path.stringByDeletingLastPathComponent];
+      panel.nameFieldStringValue = path.lastPathComponent;
+    }
+    NSModalResponse resp;
+    if (emit_window) {
+      __block NSModalResponse r = NSModalResponseCancel;
+      dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+      [panel beginSheetModalForWindow:emit_window
+                    completionHandler:^(NSModalResponse result) {
+                      r = result;
+                      dispatch_semaphore_signal(sem);
+                    }];
+      while (dispatch_semaphore_wait(sem, DISPATCH_TIME_NOW) != 0) {
+        emit_pump_events(0.05);
+      }
+      resp = r;
+    } else {
+      resp = [panel runModal];
+    }
+    if (resp != NSModalResponseOK || !panel.URL) {
+      ior = -1;
+      return;
+    }
+    emit_file_stage_path(panel.URL.path.UTF8String);
+    ior = 0;
+  });
+  return ior;
+}
+
+static int64_t host_app_file_path(int64_t dest, int64_t max) {
+  if (!dest || max <= 0 || !emit_file_staged_set || !emit_file_staged[0])
+    return 0;
+  size_t n = strlen(emit_file_staged);
+  if (n > (size_t)max) n = (size_t)max;
+  memcpy((void *)(uintptr_t)dest, emit_file_staged, n);
+  return (int64_t)n;
+}
+
+static int64_t host_app_file_slurp(void *dest, int64_t max, int64_t *out_u) {
+  if (out_u) *out_u = 0;
+  if (!dest || max <= 0) return -2;
+  if (!emit_file_staged_set || !emit_file_staged[0]) return -1;
+  FILE *f = fopen(emit_file_staged, "rb");
+  if (!f) return -2;
+  if (fseek(f, 0, SEEK_END) != 0) {
+    fclose(f);
+    return -2;
+  }
+  long sz = ftell(f);
+  if (sz < 0) {
+    fclose(f);
+    return -2;
+  }
+  rewind(f);
+  size_t n = (size_t)sz;
+  if (n > (size_t)max) n = (size_t)max;
+  size_t got = fread(dest, 1, n, f);
+  fclose(f);
+  if (out_u) *out_u = (int64_t)got;
+  return 0;
+}
+
+/* Slot 24: bl _host_app_file_slurp — x0=dest x1=max x2=&u */
+__attribute__((noinline, optnone))
+static int64_t host_app_file_slurp_slot(int64_t dest, int64_t max) {
+  int64_t *out_u;
+  __asm__ volatile("mov %0, x2" : "=r"(out_u));
+  return host_app_file_slurp((void *)(uintptr_t)dest, max, out_u);
+}
+
+static int64_t host_app_file_spew(int64_t src, int64_t nbytes) {
+  if (!src || nbytes < 0) return -2;
+  if (!emit_file_staged_set || !emit_file_staged[0]) return -1;
+  FILE *f = fopen(emit_file_staged, "wb");
+  if (!f) return -2;
+  size_t n = (size_t)nbytes;
+  size_t wrote = fwrite((const void *)(uintptr_t)src, 1, n, f);
+  int rc = fclose(f);
+  if (wrote != n || rc != 0) return -2;
+  return 0;
+}
+
+/* Slot table — must match Emitter reloc.fth HOST-APP slots 0–25. */
+static emit_host_fn host_fn[26] = {
   host_app_open,
   host_app_close,
   host_app_blit,
@@ -791,5 +989,10 @@ static emit_host_fn host_fn[21] = {
   host_app_img_choose,
   host_app_img_load,
   host_app_img_size_slot,
-  host_app_img_render_slot
+  host_app_img_render_slot,
+  host_app_file_choose,
+  host_app_file_save_as,
+  host_app_file_path,
+  host_app_file_slurp_slot,
+  host_app_file_spew
 };

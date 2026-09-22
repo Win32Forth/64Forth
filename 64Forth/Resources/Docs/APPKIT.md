@@ -47,6 +47,8 @@ Host draw uses a CGImage stretch (not per-pixel rect fills). Char overlay stays 
 
 `(APP-IMG-CHOOSE)` / `(APP-IMG-LOAD)` / `(APP-IMG-SIZE)` / `(APP-IMG-RENDER)` decode any format `NSImage` supports (JPEG, PNG, HEIC, TIFF, GIF, …) into a host BGRA cache, then sample into the Forth `TRUECOLOR` buffer. Zoom is `zoom100` (100 = 1:1) around an image-space center. Sample: `Library/Sample/IMAGEVIEW64.fth` → `IMAGEVIEW`. Interactive Swift host and Emitter `emit-run` both implement slots **17–20** (NSOpenPanel / path load / render). SA also accepts `--image PATH`, a second argv path, or drag-drop onto the window (staged path consumed by OPEN / choose).
 
+`(APP-FILE-CHOOSE)` / `(APP-FILE-SAVE-AS)` / `(APP-FILE-PATH)` / `(APP-FILE-SLURP)` / `(APP-FILE-SPEW)` stage a path via NSOpenPanel/NSSavePanel then read/write bytes (slots **21–25**). Sample: `Library/Sample/EDIT64.fth` → `EDIT64`. Keeps ANS File-Access out of the emit reach graph.
+
 ### Forth words (GRAPHICS)
 
 Char / IO: `WINDOW` `WINDOW-OFF` `APP-NAME` `CLS` `AT` `EMIT` `TYPE` `SPACE` `CR` `.` `."` `GET-CHAR` `KEY` `KEY?` `REFRESH` `?REFRESH`
@@ -61,11 +63,11 @@ Image (interactive): `(APP-IMG-CHOOSE)` `(APP-IMG-LOAD)` `(APP-IMG-SIZE)` `(APP-
 
 Smoke: `GRAPHICS-SMOKE` `GRAPHICS-PSMOKE` `GRAPHICS-CSMOKE`
 
-Samples: `Library/Sample/DOODLE64.fth` → `DOODLE` (1-bit); `Library/Sample/DOODLECOLOR64.fth` → `DOODLECOLOR` (COLOR8 + 16-color bar); `Library/Sample/IMAGEVIEW64.fth` → `IMAGEVIEW` (TRUECOLOR + file open / click zoom)
+Samples: `Library/Sample/DOODLE64.fth` → `DOODLE` (1-bit); `Library/Sample/DOODLECOLOR64.fth` → `DOODLECOLOR` (COLOR8 + 16-color bar); `Library/Sample/IMAGEVIEW64.fth` → `IMAGEVIEW` (TRUECOLOR + file open / click zoom); `Library/Sample/EDIT64.fth` → `EDIT64` (1-bit mini-editor + `(APP-FILE-*)` panels)
 
 ### Host CODE ABI (must remain imports for Emitter)
 
-`(APP-OPEN)` `(APP-CLOSE)` `(APP-BLIT)` `(APP-PBLIT)` `(APP-CBLIT)` `(APP-KEY?)` `(APP-KEY)` `(APP-NAME)` `(APP-TONE)` `(APP-PUMP)` `(APP-MOUSE)` `(APP-IMG-CHOOSE)` `(APP-IMG-LOAD)` `(APP-IMG-SIZE)` `(APP-IMG-RENDER)` plus `MS@` for timers.
+`(APP-OPEN)` `(APP-CLOSE)` `(APP-BLIT)` `(APP-PBLIT)` `(APP-CBLIT)` `(APP-KEY?)` `(APP-KEY)` `(APP-NAME)` `(APP-TONE)` `(APP-PUMP)` `(APP-MOUSE)` `(APP-IMG-CHOOSE)` `(APP-IMG-LOAD)` `(APP-IMG-SIZE)` `(APP-IMG-RENDER)` `(APP-FILE-CHOOSE)` `(APP-FILE-SAVE-AS)` `(APP-FILE-PATH)` `(APP-FILE-SLURP)` `(APP-FILE-SPEW)` plus `MS@` for timers.
 
 - `(APP-PBLIT) ( c-addr u -- )` — **1-bit only** (legacy SA).
 - `(APP-CBLIT) ( c-addr u depth -- )` — depth `1` / `8` / `32`.
@@ -73,8 +75,13 @@ Samples: `Library/Sample/DOODLE64.fth` → `DOODLE` (1-bit); `Library/Sample/DOO
 - `(APP-IMG-LOAD) ( c-addr u -- ior )` — load UTF-8 path; `0` ok, `-2` fail.
 - `(APP-IMG-SIZE) ( -- w h )` — natural pixels (`0 0` if none).
 - `(APP-IMG-RENDER) ( c-addr w h cx cy zoom100 -- ior )` — sample into BGRA buffer.
+- `(APP-FILE-CHOOSE) ( -- ior )` — NSOpenPanel; stages path; `0` ok, `-1` cancel, `-2` fail.
+- `(APP-FILE-SAVE-AS) ( -- ior )` — NSSavePanel; stages path.
+- `(APP-FILE-PATH) ( c-addr u -- u2 )` — copy staged UTF-8 path (`0` if none).
+- `(APP-FILE-SLURP) ( c-addr max -- u ior )` — read staged file into buffer.
+- `(APP-FILE-SPEW) ( c-addr u -- ior )` — write buffer to staged path.
 
-Emitter `HOST-APP` slot table is append-only; `(APP-MOUSE)` **15**, `(APP-CBLIT)` **16**, `(APP-IMG-*)` **17–20** in `reloc.fth` / `emit-host.inc`. Stand-alone `TGT-BUILD` opens a **2 MiB** data arena (and **256 KiB** code) so TRUECOLOR `G-PIX` (~1 MiB) can import.
+Emitter `HOST-APP` slot table is append-only; `(APP-MOUSE)` **15**, `(APP-CBLIT)` **16**, `(APP-IMG-*)` **17–20**, `(APP-FILE-*)` **21–25** in `reloc.fth` / `emit-host.inc`. Stand-alone `TGT-BUILD` opens a **2 MiB** data arena (and **256 KiB** code) so TRUECOLOR `G-PIX` (~1 MiB) can import.
 
 Swift: `Host/AppOutputHost.swift`. Hooks live in the **GRAPHICS** vocabulary after cold `vocsys.fth` rechain.
 
