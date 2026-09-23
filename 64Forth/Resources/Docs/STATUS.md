@@ -1,10 +1,39 @@
 # 64Forth development status
 
-**Current:** **1.4.2** (build **41**) + post-release GRAPHICS / IMAGEVIEW64 / EDIT64 / cold **XREF** in tree  
-**Last updated:** 2026-09-22 (cold `xref.fth` REF/ANYWORDS; KEY during console eval)
+**Current:** **1.4.3** (build **42**) WIP — GRAPHICS color / IMAGEVIEW64 / EDIT64 / cold **XREF**  
+**Last updated:** 2026-09-22 (bump 1.4.3; cold `xref.fth` REF/ANYWORDS)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
+
+---
+
+## v1.4.3 — GRAPHICS color, IMAGEVIEW64/EDIT64, cold XREF
+
+**Version strings:** marketing **1.4.3**, build **42** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner).
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.4.3 === Sep 22, 2026 10:51 PM ===
+```
+
+### Highlights (vs 1.4.2)
+
+- **GRAPHICS color depths:** `1BIT` (default) / `COLOR8` / `TRUECOLOR` on the same 640×400 surface; `G-PIX` sized for BGRA; `COLOR` + `RGB` + `CBLACK`…`CWHITE`; host CGImage blit; `(APP-CBLIT)` slot **16** (keep `(APP-PBLIT)` for 1-bit SA). Smoke: `GRAPHICS-CSMOKE`. See `APPKIT.md`.
+- **Sample DOODLECOLOR64:** `Library/Sample/DOODLECOLOR64.fth` — COLOR8 sibling of DOODLE64 with a 16-color chrome bar (`FROMLIB FLOAD Sample/DOODLECOLOR64.fth` then `DOODLECOLOR`). Leaves `DOODLE64.fth` unchanged.
+- **Image viewer:** host `(APP-IMG-CHOOSE/LOAD/SIZE/RENDER)` (NSOpenPanel + `NSImage`, any macOS-readable still image) → TRUECOLOR BGRA; slots **17–20** in interactive Swift and Emitter `emit-run` (argv `--image` / drag-drop stage). Sample `Library/Sample/IMAGEVIEW64.fth` → `IMAGEVIEW`. Emit: `EMIT-WINDOW-APP IMAGEVIEW` (needs 2 MiB SA data arena for `G-PIX`).
+- **Emitter LIT-PAYLOAD-MARK:** only `@`-probe payloads that look like user VAs (≥4 GiB); aligned immediates such as `$808080` (IMAGEVIEW chrome) must not be treated as VALUE PFAs (was EXC_BAD_ACCESS in `XFETCH` / `@` during `EMIT-WINDOW-APP`).
+- **Sample EDIT64:** GRAPHICS mini-editor (`Library/Sample/EDIT64.fth` → `EDIT64`) — COLOR8 white paper / black text; reverse-video caret; click/arrows/wheel; CRLF normalize on load; OPEN/SAVE via `(APP-FILE-*)` slots **21–25** (NSOpenPanel/NSSavePanel + slurp/spew, no ANS File-Access in emit reach); dirty quit **S**/**D**/**Esc**; chrome buttons only on the label row. Emit: `EMIT-WINDOW-APP EDIT64` (not Facility SZ-EDITOR).
+- **Host file ABI:** `(APP-FILE-CHOOSE/SAVE-AS/PATH/SLURP/SPEW)` in Swift `AppOutputHost` and Emitter `emit-host` / `reloc.fth` (`#HOST-APP` **26**).
+- **Cold REF / XREF:** `Kernel/xref.fth` is `.incbin`’d after `vocsys.fth` (always present after boot — no `FLOAD`). Port of classic TCOM `Library/TCOM/REF.FTH` (kept as the unchanged reference). Public: `REF` / `XREF` / `USEDIN` / `CALLS` / `ANYREF`, `FINDANY`, `ANYWORDS`.
+  - **Wordlists:** FORTH + every named `VOCABULARY` (FORTH traverse) + extra `GET-ORDER` wids — **not** the raw `WORDLISTS` registry (garbage wids crash SEARCH/TRAVERSE). Guards: `XREF-XT-OK?` / `XREF-WID-OK?` / `XREF-WID-SANE?`. Zeroable loops use `?DO` (plain `0 0 DO` runs once and hit stale buffers).
+  - **Titles:** `-------- references to: NAME leaf:line --------` from `VIEW-FILE#` / `VIEW-LINE` / `VIEW-PATH` (`XREF-.LOC` / `XREF-LEAF`); unstamped → `(no source)`. Multi-def `FINDANY` summaries list each def with `(leaf:line)`.
+  - **ANYWORDS** `[filter]`: WORDS-like multi-vocab name listing (headers only; one TRAVERSE per wid; VOCABULARY nts cached at collect; optional case-insensitive substring; Space pause every 32 names; Esc/Q stop). Contrast: `WORDS` is **CONTEXT / first search-order only**.
+  - **Build:** `project.pbxproj` touch-forth.s + Kernel→Sources sync lists include `xref.fth`; Sources mirror at `Library/Sources/xref.fth`.
+  - **Host:** `KernelBridge.deliverConsoleEvalKeyDown` feeds Esc/Space into the KEY queue while console `kernel_eval` runs (otherwise pause/abort never see keys).
+
+**Release:** WIP / not yet (no DMG).
 
 ---
 
@@ -29,21 +58,6 @@ Append new design sections as we go; mark items done when implemented.
 - **CODE-BOUNDS / Emitter:** walk `__bootptr` as an array of row pointers (plus `BOOT-WORD-TABLE-END`); restores non-zero ends for `(S")` and other labeled prims so Emitter `PRIM-SPAN` works again. Same fix in Emitter `BOOT-SPAN-NAMED` / `EMM-SPAN-OF` (`reloc.fth`) so `sa-block missing (SA-PRINT)` no longer fires after a good rebuild.
 
 **Release:** `64Forth/releases/64Forth-1.4.2-macOS.dmg` + GitHub `v1.4.2`.
-
-### After 1.4.2 (in tree, not yet a numbered release)
-
-- **GRAPHICS color depths:** `1BIT` (default) / `COLOR8` / `TRUECOLOR` on the same 640×400 surface; `G-PIX` sized for BGRA; `COLOR` + `RGB` + `CBLACK`…`CWHITE`; host CGImage blit; `(APP-CBLIT)` slot **16** (keep `(APP-PBLIT)` for 1-bit SA). Smoke: `GRAPHICS-CSMOKE`. See `APPKIT.md`.
-- **Sample DOODLECOLOR64:** `Library/Sample/DOODLECOLOR64.fth` — COLOR8 sibling of DOODLE64 with a 16-color chrome bar (`FROMLIB FLOAD Sample/DOODLECOLOR64.fth` then `DOODLECOLOR`). Leaves `DOODLE64.fth` unchanged.
-- **Image viewer:** host `(APP-IMG-CHOOSE/LOAD/SIZE/RENDER)` (NSOpenPanel + `NSImage`, any macOS-readable still image) → TRUECOLOR BGRA; slots **17–20** in interactive Swift and Emitter `emit-run` (argv `--image` / drag-drop stage). Sample `Library/Sample/IMAGEVIEW64.fth` → `IMAGEVIEW`. Emit: `EMIT-WINDOW-APP IMAGEVIEW` (needs 2 MiB SA data arena for `G-PIX`).
-- **Emitter LIT-PAYLOAD-MARK:** only `@`-probe payloads that look like user VAs (≥4 GiB); aligned immediates such as `$808080` (IMAGEVIEW chrome) must not be treated as VALUE PFAs (was EXC_BAD_ACCESS in `XFETCH` / `@` during `EMIT-WINDOW-APP`).
-- **Sample EDIT64:** GRAPHICS mini-editor (`Library/Sample/EDIT64.fth` → `EDIT64`) — COLOR8 white paper / black text; reverse-video caret; click/arrows/wheel; CRLF normalize on load; OPEN/SAVE via `(APP-FILE-*)` slots **21–25** (NSOpenPanel/NSSavePanel + slurp/spew, no ANS File-Access in emit reach); dirty quit **S**/**D**/**Esc**; chrome buttons only on the label row. Emit: `EMIT-WINDOW-APP EDIT64` (not Facility SZ-EDITOR).
-- **Host file ABI:** `(APP-FILE-CHOOSE/SAVE-AS/PATH/SLURP/SPEW)` in Swift `AppOutputHost` and Emitter `emit-host` / `reloc.fth` (`#HOST-APP` **26**).
-- **Cold REF / XREF:** `Kernel/xref.fth` is `.incbin`’d after `vocsys.fth` (always present after boot — no `FLOAD`). Port of classic TCOM `Library/TCOM/REF.FTH` (kept as the unchanged reference). Public: `REF` / `XREF` / `USEDIN` / `CALLS` / `ANYREF`, `FINDANY`, `ANYWORDS`.
-  - **Wordlists:** FORTH + every named `VOCABULARY` (FORTH traverse) + extra `GET-ORDER` wids — **not** the raw `WORDLISTS` registry (garbage wids crash SEARCH/TRAVERSE). Guards: `XREF-XT-OK?` / `XREF-WID-OK?` / `XREF-WID-SANE?`. Zeroable loops use `?DO` (plain `0 0 DO` runs once and hit stale buffers).
-  - **Titles:** `-------- references to: NAME leaf:line --------` from `VIEW-FILE#` / `VIEW-LINE` / `VIEW-PATH` (`XREF-.LOC` / `XREF-LEAF`); unstamped → `(no source)`. Multi-def `FINDANY` summaries list each def with `(leaf:line)`.
-  - **ANYWORDS** `[filter]`: WORDS-like multi-vocab name listing (headers only; one TRAVERSE per wid; VOCABULARY nts cached at collect; optional case-insensitive substring; Space pause every 32 names; Esc/Q stop). Contrast: `WORDS` is **CONTEXT / first search-order only**.
-  - **Build:** `project.pbxproj` touch-forth.s + Kernel→Sources sync lists include `xref.fth`; Sources mirror at `Library/Sources/xref.fth`.
-  - **Host:** `KernelBridge.deliverConsoleEvalKeyDown` feeds Esc/Space into the KEY queue while console `kernel_eval` runs (otherwise pause/abort never see keys).
 
 ---
 
