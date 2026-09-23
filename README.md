@@ -69,6 +69,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ## Status (v1.4.2)
 
+- [x] **After 1.4.2 (in tree):** GRAPHICS `1BIT`/`COLOR8`/`TRUECOLOR`; Sample DOODLECOLOR64 / IMAGEVIEW64 / EDIT64; cold **`xref.fth`** (`REF`/`XREF`/`ANYWORDS`, VIEW `leaf:line` titles; KEY during console eval) — checkpoint, no new DMG yet
 - [x] **v1.4.2:** ANS SMUDGE / hide-until-`;` (NFA bit7, max name 127); FILE-ECHO line numbers; GRAPHICS mouse + Sample/DOODLE64; Emitter SA CONSTANT/VALUE/LIT reloc for `EMIT-WINDOW-APP` — DMG + GitHub release
 - [x] **v1.4.1:** TRAVERSE trampoline DBG resolve/HL; `_ip_find_colon` over `WORDLISTS`; `HYPER-STAMP-COLD` ALSO SYSVOC/EDITOR/GRAPHICS; Debugger `dbg-map`/`dbg-ed` hub; R-stack display ≤4; cold boot transcript + Help → Show Boot Messages; INCLUDE/FLOAD undefined `file:line`; cold `.( Loading: … )` markers — DMG + GitHub release
 - [x] **v1.4.0:** DEBUG token maps (`dbg-map.fth`); comment-safe highlight; taken-IF dest; `I>>` / LIT xt names / DOCOL-only step-over; pause stack columns; BS cursor erase; undefined report + FILE-ECHO polish; DMG + GitHub release

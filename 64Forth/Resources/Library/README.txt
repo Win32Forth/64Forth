@@ -28,6 +28,10 @@ Examples
   FROMLIB FLOAD Sample/DOODLECOLOR64.fth   \ then: DOODLECOLOR (COLOR8 + color bar)
   FROMLIB FLOAD Sample/IMAGEVIEW64.fth     \ then: IMAGEVIEW (TRUECOLOR open/zoom)
   FROMLIB FLOAD Sample/EDIT64.fth          \ then: EDIT64 (GRAPHICS mini-editor; EMITable)
+  \ REF / XREF / USEDIN / CALLS / ANYWORDS — cold-loaded (Kernel/xref.fth .incbin)
+  \   REF DUP          \ colon/DEFER refs; Space=pause Esc/Q=stop; title shows leaf:line
+  \   ANYWORDS OVER    \ WORDS-like across FORTH + named VOCABULARYs (optional filter)
+  \   (Classic TCOM source kept at TCOM/REF.FTH; do not FLOAD Sample/XREF.)
 
 Assembler (ASMARM64)
 --------------------

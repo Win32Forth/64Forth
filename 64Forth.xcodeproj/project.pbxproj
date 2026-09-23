@@ -25,6 +25,7 @@
 		B1000018 /* AppOutputHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000119 /* AppOutputHost.swift */; };
 		B1000019 /* FacilityEditorHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100011A /* FacilityEditorHost.swift */; };
 		FA6AA0DF301916D30007C369 /* 64Forth.jpg in Resources */ = {isa = PBXBuildFile; fileRef = FA6AA0DE301916D30007C369 /* 64Forth.jpg */; };
+		FAE0DA1C30636EA600B77B7C /* xref.fth in Resources */ = {isa = PBXBuildFile; fileRef = FAE0DA1B30636EA600B77B7C /* xref.fth */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -60,6 +61,7 @@
 		FA38151E304B00A900EB8DE3 /* boot_words_end.inc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.pascal; path = boot_words_end.inc; sourceTree = "<group>"; };
 		FA38151F304B00A900EB8DE3 /* kernel_api.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = kernel_api.h; sourceTree = "<group>"; };
 		FA6AA0DE301916D30007C369 /* 64Forth.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = 64Forth.jpg; sourceTree = "<group>"; };
+		FAE0DA1B30636EA600B77B7C /* xref.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = xref.fth; sourceTree = "<group>"; };
 		FAEB4C7E30425AF900F5334E /* kernel1.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = kernel1.fth; sourceTree = "<group>"; };
 		FAEB4C7F30425B4800F5334E /* kernel2.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = kernel2.fth; sourceTree = "<group>"; };
 		FAEB4C8030425C0000F5334E /* vocemit.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = vocemit.fth; sourceTree = "<group>"; };
@@ -133,6 +135,7 @@
 		B1000304 /* Kernel */ = {
 			isa = PBXGroup;
 			children = (
+				FAE0DA1B30636EA600B77B7C /* xref.fth */,
 				FA38151E304B00A900EB8DE3 /* boot_words_end.inc */,
 				FA38151F304B00A900EB8DE3 /* kernel_api.h */,
 				FA1CDF343048632900D22FCE /* app-output.fth */,
@@ -226,6 +229,7 @@
 			files = (
 				B1000007 /* Assets.xcassets in Resources */,
 				FA6AA0DF301916D30007C369 /* 64Forth.jpg in Resources */,
+				FAE0DA1C30636EA600B77B7C /* xref.fth in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -247,6 +251,7 @@
 				"$(SRCROOT)/64Forth/Kernel/vocsys.fth",
 				"$(SRCROOT)/64Forth/Kernel/app-output.fth",
 				"$(SRCROOT)/64Forth/Kernel/app-points.fth",
+				"$(SRCROOT)/64Forth/Kernel/xref.fth",
 				"$(SRCROOT)/64Forth/Kernel/boot_words.inc",
 				"$(SRCROOT)/64Forth/Kernel/boot_words_end.inc",
 				"$(SRCROOT)/64Forth/Kernel/colon_words.inc",
@@ -258,7 +263,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nKERN=\"${SRCROOT}/64Forth/Kernel\"\nASM=\"${KERN}/forth.s\"\nneed=0\nfor f in kernel1.fth kernel2.fth vocemit.fth vocsys.fth app-output.fth app-points.fth boot_words.inc boot_words_end.inc colon_words.inc; do\n  if [ -f \"${KERN}/$f\" ] && [ \"${KERN}/$f\" -nt \"$ASM\" ]; then need=1; break; fi\ndone\nif [ \"$need\" = 1 ]; then\n  touch \"$ASM\"\n  echo \"note: touched forth.s (embedded .fth/.inc newer)\"\nfi\n";
+			shellScript = "set -e\nKERN=\"${SRCROOT}/64Forth/Kernel\"\nASM=\"${KERN}/forth.s\"\nneed=0\nfor f in kernel1.fth kernel2.fth vocemit.fth vocsys.fth app-output.fth app-points.fth xref.fth boot_words.inc boot_words_end.inc colon_words.inc; do\n  if [ -f \"${KERN}/$f\" ] && [ \"${KERN}/$f\" -nt \"$ASM\" ]; then need=1; break; fi\ndone\nif [ \"$need\" = 1 ]; then\n  touch \"$ASM\"\n  echo \"note: touched forth.s (embedded .fth/.inc newer)\"\nfi\n";
 		};
 		B1000701 /* Copy AutoLoad */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -300,7 +305,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nSRC=\"${SRCROOT}/64Forth/Resources/Library\"\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Library\"\nKERN=\"${SRCROOT}/64Forth/Kernel\"\nLIBSRC=\"${SRC}/Sources\"\n\n# 1) Sync Kernel → Resources/Library/Sources (source tree) so repo VIEW/index\n#    and the bundle all match the assembly that is being linked.\nmkdir -p \"${LIBSRC}\"\nif [ -d \"${KERN}\" ]; then\n  for f in forth.s boot_words.inc boot_words_end.inc colon_words.inc kernel_api.h kernel1.fth kernel2.fth vocemit.fth app-output.fth app-points.fth vocsys.fth; do\n    if [ -f \"${KERN}/$f\" ]; then\n      cp -f \"${KERN}/$f\" \"${LIBSRC}/\"\n    fi\n  done\nfi\n\n# 2) Fresh copy Library → app bundle (includes updated Sources/).\n#    Avoids stale FROMLIB sources from folder-ref caching.\nrm -rf \"${DEST}\"\nmkdir -p \"${DEST}\"\nif [ -d \"${SRC}\" ]; then\n  for f in \"${SRC}\"/* \"${SRC}\"/.[!.]* \"${SRC}\"/..?*; do\n    [ -e \"$f\" ] || continue\n    base=$(basename \"$f\")\n    case \"$base\" in\n      .DS_Store|*.swp|*~) continue ;;\n    esac\n    if [ -f \"$f\" ]; then\n      cp -f \"$f\" \"${DEST}/\"\n    elif [ -d \"$f\" ]; then\n      cp -R \"$f\" \"${DEST}/\"\n    fi\n  done\nfi\n";
+			shellScript = "set -e\nSRC=\"${SRCROOT}/64Forth/Resources/Library\"\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Library\"\nKERN=\"${SRCROOT}/64Forth/Kernel\"\nLIBSRC=\"${SRC}/Sources\"\n\n# 1) Sync Kernel → Resources/Library/Sources (source tree) so repo VIEW/index\n#    and the bundle all match the assembly that is being linked.\nmkdir -p \"${LIBSRC}\"\nif [ -d \"${KERN}\" ]; then\n  for f in forth.s boot_words.inc boot_words_end.inc colon_words.inc kernel_api.h kernel1.fth kernel2.fth vocemit.fth app-output.fth app-points.fth vocsys.fth xref.fth; do\n    if [ -f \"${KERN}/$f\" ]; then\n      cp -f \"${KERN}/$f\" \"${LIBSRC}/\"\n    fi\n  done\nfi\n\n# 2) Fresh copy Library → app bundle (includes updated Sources/).\n#    Avoids stale FROMLIB sources from folder-ref caching.\nrm -rf \"${DEST}\"\nmkdir -p \"${DEST}\"\nif [ -d \"${SRC}\" ]; then\n  for f in \"${SRC}\"/* \"${SRC}\"/.[!.]* \"${SRC}\"/..?*; do\n    [ -e \"$f\" ] || continue\n    base=$(basename \"$f\")\n    case \"$base\" in\n      .DS_Store|*.swp|*~) continue ;;\n    esac\n    if [ -f \"$f\" ]; then\n      cp -f \"$f\" \"${DEST}/\"\n    elif [ -d \"$f\" ]; then\n      cp -R \"$f\" \"${DEST}/\"\n    fi\n  done\nfi\n";
 		};
 		B1000703 /* Copy Docs */ = {
 			isa = PBXShellScriptBuildPhase;

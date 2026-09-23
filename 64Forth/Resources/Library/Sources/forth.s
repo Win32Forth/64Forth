@@ -17580,6 +17580,7 @@ forth_init_str:
     .incbin "app-output.fth"
     .incbin "app-points.fth"
     .incbin "vocsys.fth"
+    .incbin "xref.fth"
     .byte 0
 forth_init_end:
 // REPL trampoline: restart_cell holds address of restart_cfa; that cell is XRESTART.

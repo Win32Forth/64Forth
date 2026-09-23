@@ -14,6 +14,9 @@ Hybrid macOS app: ARM64 ITC kernel (assembly) + SwiftUI console/host
 Library/Pascal — Tiny Pascal → Forth translator (`PASCAL"`, `PASCAL-TO-FILE`).
 See Library/Pascal/README.txt. Prefer PASY.PAS; PASX.PAS is the older stress sample.
 
+REF / XREF / ANYWORDS — cold-loaded from Kernel/xref.fth (always present after
+boot). Classic TCOM source kept at Library/TCOM/REF.FTH. See Docs/STATUS.md.
+
 Three windows (v1.3.8+, macOS)
 -----------------------------
   Console     — Forth REPL only (live while the editor KEY loop runs).

@@ -227,4 +227,4 @@ ALSO SYSVOC
 ' (SLURP)        >SYSVOC
 
 ONLY FORTH DEFINITIONS
-.( Finished Loading: vocsys.fth) CR
+

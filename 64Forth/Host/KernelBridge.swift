@@ -2476,9 +2476,40 @@ final class KernelBridge {
                 return nil
             }
             if mods.contains(.command) { return event }
-            // Console key while facility open: do not swallow — let the REPL type.
+
+            // Blocking console eval (REF/XREF, KEY loops, …): feed the KEY/KEY?
+            // queue. Without this, Esc/Space go to the text view and Forth never
+            // sees them while kernel_eval is running on forthQueue.
+            if !editorWindowOwnsKeys, self.deliverConsoleEvalKeyDown(event) {
+                return nil
+            }
+            // Facility open + console key window: leave event for REPL typing.
             return event
         }
+    }
+
+    /// Push a keyDown into the console KEY queue while `evaluatingFlag` (not facility).
+    @discardableResult
+    private func deliverConsoleEvalKeyDown(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        // Esc by keyCode (characters may be empty).
+        if event.keyCode == 53 {
+            pushKey(27)
+            return true
+        }
+        let chars = event.charactersIgnoringModifiers ?? event.characters
+        guard let chars, !chars.isEmpty else { return false }
+        var any = false
+        for scalar in chars.unicodeScalars {
+            if scalar.value >= 0xF700 && scalar.value <= 0xF8FF { continue }
+            var v = Int32(bitPattern: UInt32(scalar.value))
+            if v == 13 { v = 10 }
+            if v > 0 && v < 0x11_0000 {
+                pushKey(v)
+                any = true
+            }
+        }
+        return any
     }
 
     /// Map NSEvent special keys → K-* id, or nil for normal character keys.
