@@ -65,7 +65,7 @@ Image (interactive): `(APP-IMG-CHOOSE)` `(APP-IMG-LOAD)` `(APP-IMG-SIZE)` `(APP-
 
 Smoke: `GRAPHICS-SMOKE` `GRAPHICS-PSMOKE` `GRAPHICS-CSMOKE`
 
-Samples: `Library/Sample/DOODLE64.fth` → `DOODLE` (1-bit); `Library/Sample/DOODLECOLOR64.fth` → `DOODLECOLOR` (COLOR8 + 16-color bar); `Library/Sample/IMAGEVIEW64.fth` → `IMAGEVIEW` (TRUECOLOR + file open / click zoom); `Library/Sample/EDIT64.fth` → `EDIT64` (1-bit mini-editor + `(APP-FILE-*)` panels)
+Samples: `Library/Sample/DOODLE64.fth` → `DOODLE` (1-bit); `Library/Sample/DOODLECOLOR64.fth` → `DOODLECOLOR` (COLOR8 + 16-color bar); `Library/Sample/IMAGEVIEW64.fth` → `IMAGEVIEW` (TRUECOLOR + file open / click zoom); `Library/Sample/EDIT64.fth` → `EDIT64` (COLOR8 mini-editor + `(APP-FILE-*)` panels); `Library/Sample/VED64.fth` → `VED64` (minimal VED, same file panels, 256KB buffer); `Library/Sample/MIDNIGHT.FTH` → `MAIN` (Towers of Hanoi, `(APP-TONE)`)
 
 ### Host CODE ABI (must remain imports for Emitter)
 

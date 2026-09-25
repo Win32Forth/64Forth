@@ -1,7 +1,7 @@
 # 64Forth development status
 
-**Current:** **1.4.3** (build **42**) WIP — GRAPHICS color / IMAGEVIEW64 / EDIT64 / cold **XREF**  
-**Last updated:** 2026-09-22 (bump 1.4.3; cold `xref.fth` REF/ANYWORDS)
+**Current:** **1.4.3** (build **42**) WIP — GRAPHICS color / IMAGEVIEW64 / EDIT64 / VED64 / MIDNIGHT / cold **XREF**  
+**Last updated:** 2026-09-25 (VED64; REF skips IMMEDIATE; Sample MIDNIGHT; Pascal RECURSE)
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.
@@ -32,6 +32,10 @@ Append new design sections as we go; mark items done when implemented.
   - **ANYWORDS** `[filter]`: WORDS-like multi-vocab name listing (headers only; one TRAVERSE per wid; VOCABULARY nts cached at collect; optional case-insensitive substring; Space pause every 32 names; Esc/Q stop). Contrast: `WORDS` is **CONTEXT / first search-order only**.
   - **Build:** `project.pbxproj` touch-forth.s + Kernel→Sources sync lists include `xref.fth`; Sources mirror at `Library/Sources/xref.fth`.
   - **Host:** `KernelBridge.deliverConsoleEvalKeyDown` feeds Esc/Space into the KEY queue while console `kernel_eval` runs (otherwise pause/abort never see keys).
+  - **IMMEDIATE targets:** `REF` does not scan a definition whose FLAGS bit 63 (`FLAG_IMM`) is set. Those words compile other words into a definition, so the body is not a call list. Message: `-------- NAME is immediate (not cross-referenced) --------`. A name with both an immediate and an ordinary definition still scans the ordinary one.
+- **Sample VED64:** `Library/Sample/VED64.fth` → `VED64`. Minimal app-window port of TCOM `Library/TCOM/VED.FTH` (that file stays the DOS/TCOM reference). Flat 256KB buffer (not the 40MB swap-file cache). COLOR8 grid; OPEN/SAVE/FIND/HELP via the same `(APP-FILE-*)` panels as EDIT64; dirty quit **S**/**D**/**Esc**. Status numbers go through graphics `TYPE` (`U.R` is console-only and was leaking digits). `S" file" VED-LOAD` optional. Not emitted yet.
+- **Sample MIDNIGHT:** `Library/Sample/MIDNIGHT.FTH` → `MAIN` (Towers of Hanoi). Peter Midnight’s F-PC demo, adapted: `RECURSE`, `CHAR`/`[CHAR]`, `AT-XY`, `(APP-TONE)` for `BEEP`. `FROMLIB FLOAD Sample/MIDNIGHT.FTH` then `MAIN`. Classic source also updated in `Library/TCOM/MIDNIGHT.FTH`.
+- **Tiny Pascal:** `FACTOR-` / `SIMP-EXPR` call `RECURSE` (the name is smudged until `;`, so a direct call was undefined). Generated sample `Library/Pascal/PASY.fth` kept beside `PASY.PAS`.
 
 **Release:** WIP / not yet (no DMG).
 

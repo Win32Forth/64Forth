@@ -15,7 +15,11 @@ Library/Pascal — Tiny Pascal → Forth translator (`PASCAL"`, `PASCAL-TO-FILE`
 See Library/Pascal/README.txt. Prefer PASY.PAS; PASX.PAS is the older stress sample.
 
 REF / XREF / ANYWORDS — cold-loaded from Kernel/xref.fth (always present after
-boot). Classic TCOM source kept at Library/TCOM/REF.FTH. See Docs/STATUS.md.
+boot). Classic TCOM source kept at Library/TCOM/REF.FTH. REF does not
+cross-reference IMMEDIATE words. See Docs/STATUS.md.
+
+Samples (App Output): Library/Sample/VED64.fth → VED64 (minimal VED);
+Library/Sample/MIDNIGHT.FTH → MAIN (Towers of Hanoi). See Docs/STATUS.md.
 
 Three windows (v1.3.8+, macOS)
 -----------------------------

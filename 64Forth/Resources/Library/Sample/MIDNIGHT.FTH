@@ -30,9 +30,8 @@ ONLY FORTH ALSO DEFINITIONS ALSO GRAPHICS    DECIMAL
 
 \ TONE — F-PC / TCOM: freq in Hz, dur in tenths of a second (host plays sine).
 : TONE  ( freq dur -- )             \ freq=Hz, dur=tenths of a second
-\  ?REFRESH
-  (APP-TONE)
-  ;
+\       ?REFRESH
+        (APP-TONE) ;
 
 PREVIOUS
 
