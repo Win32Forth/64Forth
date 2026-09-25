@@ -294,8 +294,19 @@ VARIABLE XREF-VOC-FOUND   \ true once .WID-NAME printed a VOCABULARY name
   VIEW-LINE 0 .R
 ;
 
+\ Immediate words compile other words into a definition. Their own
+\ bodies are not a list of calls, so REF cannot cross-reference them.
+: XREF-IMM?  ( xt -- flag )
+  >FLAGS @ FLAG_IMM AND 0<>
+;
+
 : XREF-ONE-TARGET  ( xt -- )
   DUP XREF-XT-OK? 0= IF DROP EXIT THEN
+  DUP XREF-IMM? IF
+    CR ." -------- " DUP NAME>STRING TYPE
+    ."  is immediate (not cross-referenced) --------" CR
+    DROP EXIT
+  THEN
   XREF-XT !
   CR ." -------- references to: "
   XREF-XT @ DUP NAME>STRING TYPE SPACE XREF-.LOC
