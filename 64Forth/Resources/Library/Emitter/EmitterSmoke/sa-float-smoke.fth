@@ -7,7 +7,7 @@
 \ Prefer:  FROMLIB FLOAD Emitter/EmitterSmoke/sa-float-smoke.fth
 \ Agent:   …/64Forth --agent -f $HOME/Documents/64Forth/Library/Emitter/EmitterSmoke/sa-float-smoke.fth
 
-ONLY FORTH ALSO SYSVOC ALSO EMITTER ALSO FP DEFINITIONS DECIMAL
+ONLY FORTH ALSO SYSVOC ALSO EMITTER ALSO FLOATING DEFINITIONS DECIMAL
 
 CR .( --- sa-float-smoke ---) CR
 

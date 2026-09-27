@@ -479,10 +479,10 @@ VARIABLE SA-BLOCK-N
 : HOST-APP-SET  ( xt slot -- )
   SWAP HOST-PRIM-VA  SWAP CELLS HOST-APP-VA + ! ;
 
-\ (APP-*) live in GRAPHICS (FORTH>GRAPHICS). wid = VOCABULARY PFA+CELL
-\ (does_ip at >BODY, heads at >BODY CELL+). Do not ALSO GRAPHICS while
-\ compiling Emitter — it shadows TYPE/EMIT/CR.
-: GRAPHICS-WID  ( -- wid )  ['] GRAPHICS >BODY CELL+ ;
+\ (APP-*) live in GRAPHICS (FORTH>GRAPHICS). wid = >BODY of the
+\ VOCABULARY (does_ip at CFA+8, wordlist at CFA+16). Do not ALSO GRAPHICS
+\ while compiling Emitter — it shadows TYPE/EMIT/CR.
+: GRAPHICS-WID  ( -- wid )  ['] GRAPHICS >BODY ;
 
 : HOST-APP-XT  ( c-addr u -- xt )
   2DUP GRAPHICS-WID SEARCH-WORDLIST

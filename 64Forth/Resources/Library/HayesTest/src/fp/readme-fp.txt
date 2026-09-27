@@ -43,7 +43,7 @@ Or, with cwd = HayesTest/src/:
 
       s" Harness/runfptests.fth" included
 
-(Requires FP words in the search order, e.g. ALSO FP.)
+(Requires floating-point words in the search order, e.g. ALSO FLOATING.)
 
 Notes
 ~~~~~

@@ -93,7 +93,7 @@ DEFER DOBUTTON ' NOOP IS DOBUTTON
 \ Optional convenience for interactive TCOM tools (SZ-EDITOR does its own refresh).
 : AT-XY-REFRESH  ( col row -- )  AT-XY TERMINAL-REFRESH ;
 
-\ --- SAVE> / RESTORE> / SAVE!> (DEFER or VALUE data at >BODY CELL+) ---
+\ --- SAVE> / RESTORE> / SAVE!> (DEFER or VALUE data at >BODY) ---
 \ IMMEDIATE: run while compiling outer colon word; POSTPONE runtime into it.
 \ Bare R>/! here ran at the wrong time → stack underflow.
 \   save> name              →  <addr> @ >R
@@ -101,19 +101,19 @@ DEFER DOBUTTON ' NOOP IS DOBUTTON
 \   ['] xt save!> name      →  xt  <addr>  DUP @ >R  !
 
 : SAVE>  ( "name" -- )  \ runtime: push current DEFER/VALUE cell to R
-    ?COMP  ' >BODY CELL+  POSTPONE LITERAL  POSTPONE @  POSTPONE >R ; IMMEDIATE
+    ?COMP  ' >BODY  POSTPONE LITERAL  POSTPONE @  POSTPONE >R ; IMMEDIATE
 
 : RESTORE>  ( "name" -- )  \ runtime: pop R into DEFER/VALUE cell
-    ?COMP  ' >BODY CELL+  POSTPONE LITERAL  POSTPONE R>  POSTPONE SWAP  POSTPONE ! ; IMMEDIATE
+    ?COMP  ' >BODY  POSTPONE LITERAL  POSTPONE R>  POSTPONE SWAP  POSTPONE ! ; IMMEDIATE
 
 : SAVE!>  ( "name" -- )  \ runtime: ( xt -- ) save old cell to R, store xt
-    ?COMP  ' >BODY CELL+  POSTPONE LITERAL
+    ?COMP  ' >BODY  POSTPONE LITERAL
     POSTPONE DUP  POSTPONE @  POSTPONE >R  POSTPONE ! ; IMMEDIATE
 
 : 0MAX  ( n1 -- n2 )    \ maximize n1 with zero and return n2
     0 MAX ;
 
-\ VALUE data is at CFA+16 (DOES> layout: does_ip @ +8, value @ +16).
+\ VALUE data is >BODY (CFA+16; does_ip stays at CFA+8).
 \
 \ OFF> / ON> / =: / +!> are IMMEDIATE (run while compiling an outer colon word).
 \ LITERAL is also IMMEDIATE: use POSTPONE LITERAL so it lives in OFF>'s body and
@@ -125,16 +125,16 @@ DEFER DOBUTTON ' NOOP IS DOBUTTON
 \ becomes runtime:  … min  <addr>  !
 
 : OFF>  ( "name" -- )  \ compile: <addr> OFF   (OFF stores 0)
-    ?COMP  ' >BODY CELL+  POSTPONE LITERAL  POSTPONE OFF ; IMMEDIATE
+    ?COMP  ' >BODY  POSTPONE LITERAL  POSTPONE OFF ; IMMEDIATE
 
 : ON>   ( "name" -- )  \ compile: <addr> ON    (ON stores -1)
-    ?COMP  ' >BODY CELL+  POSTPONE LITERAL  POSTPONE ON ; IMMEDIATE
+    ?COMP  ' >BODY  POSTPONE LITERAL  POSTPONE ON ; IMMEDIATE
 
 : =:    ( "name" -- )  \ compile: <addr> !     (n comes from code above)
-    ?COMP  ' >BODY CELL+  POSTPONE LITERAL  POSTPONE ! ; IMMEDIATE
+    ?COMP  ' >BODY  POSTPONE LITERAL  POSTPONE ! ; IMMEDIATE
 
 : +!>   ( "name" -- )  \ compile: <addr> +!    (n comes from code above)
-    ?COMP  ' >BODY CELL+  POSTPONE LITERAL  POSTPONE +! ; IMMEDIATE
+    ?COMP  ' >BODY  POSTPONE LITERAL  POSTPONE +! ; IMMEDIATE
 
 : BETWEEN ( n1|u1 n2|u2 n3|u3 -- flag ) \ n2<=n1<=n3 (unsigned wrap)
     1 + WITHIN ;

@@ -101,10 +101,10 @@ H-USTEP NEGATE CONSTANT H-MUSTEP
 0 H-MAXU 0 H-USTEP H-GD8 256 = S" GD8-ustep" EXPECT
 0 0 H-MAXU H-MUSTEP H-GD8 256 = S" GD8-mustep" EXPECT
 
-\ --- Float: FALIGNED FATAN2 FLITERAL (FP vocabulary) ---
+\ --- Float: FALIGNED FATAN2 FLITERAL (FLOATING vocabulary) ---
 \ 64Forth/TZForth FALIGNED is a *flag* "addr already float-aligned?"
 \ (not ANS "round addr up to alignment" — that is closer to host op FALIGN).
-ALSO FP
+ALSO FLOATING
 : (H-FCLEAR)  BEGIN FDEPTH WHILE FDROP REPEAT ;
 (H-FCLEAR)
 0 FALIGNED S" FALIGNED-0" EXPECT

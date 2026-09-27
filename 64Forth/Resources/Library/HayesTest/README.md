@@ -28,7 +28,7 @@ That:
 1. Runs `src/Harness/prepare-blocks.fth` — selects a **writable** block volume at  
    `~/Library/Application Support/64Forth/hayes-blocks.blk`  
    (app bundle `Resources/Library/…` is **read-only**; Hayes `UPDATE`/`FLUSH` need write access).
-2. FLOADs suite sources under `src/`; FP tests via `src/Harness/runfptests.fth` → `src/fp/`.
+2. FLOADs suite sources under `src/`. Floating-point tests go through `src/Harness/runfptests.fth`, which does `ONLY FORTH ALSO FLOATING` and then loads `src/fp/`. The vocabulary name is `FLOATING`. Four floating-point tests still fail.
 
 **Writable scratch files:** File-Access tests create `fatest*.txt` relative to the load
 cwd. When that cwd is inside the app bundle, TZForth automatically maps those names to

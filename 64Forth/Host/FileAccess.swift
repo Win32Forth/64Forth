@@ -182,17 +182,12 @@ final class FileAccess {
                 return (0, Self.iorErr)
             }
         } else {
+            // OPEN-FILE opens an existing file. Creating a missing file is CREATE-FILE.
+            // A failed open returns fileid -1 (nonzero): Hayes checks that the id is not 0.
             if let existing = try? Data(contentsOf: url) {
                 data = existing
-            } else if write {
-                guard ensureParentDirectory(of: url) else { return (0, Self.iorErr) }
-                data = Data()
-                let ok = FileManager.default.createFile(atPath: url.path, contents: data, attributes: nil)
-                if !ok && !FileManager.default.fileExists(atPath: url.path) {
-                    return (0, Self.iorErr)
-                }
             } else {
-                return (0, Self.iorErr)
+                return (-1, Self.iorErr)
             }
         }
 
@@ -341,13 +336,13 @@ final class FileAccess {
             n += 1
         }
         files[id] = e
-        // At EOF with zero chars: flag false
-        if !sawNL && e.position >= e.data.count && n == 0 {
+        // EOF with nothing stored and no delimiter: flag false.
+        // A zero-length request while data remains is still a successful read
+        // (flag true, u2 0) and must not consume the line.
+        if !sawNL && n == 0 && e.position >= e.data.count {
             return (0, 0, Self.iorOK)
         }
-        // ANS: flag true if a line was read (including last line without NL)
-        let lineFlag: Int64 = (n > 0 || sawNL) ? -1 : 0
-        return (Int64(n), lineFlag, Self.iorOK)
+        return (Int64(n), -1, Self.iorOK)
     }
 
     func filePosition(_ fileid: Int64) -> (lo: Int64, hi: Int64, ior: Int64) {
@@ -375,7 +370,9 @@ final class FileAccess {
         let id = Int(fileid)
         guard var e = files[id], e.isOpen else { return Self.iorErr }
         let pos = Int(lo)
-        if pos < 0 || pos > e.data.count { return Self.iorErr }
+        // Past EOF is a valid position (POSIX lseek). WRITE-FILE extends;
+        // READ-FILE at or past the end returns zero bytes.
+        if pos < 0 { return Self.iorErr }
         e.position = pos
         files[id] = e
         return Self.iorOK

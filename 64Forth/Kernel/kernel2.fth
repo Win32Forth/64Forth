@@ -50,13 +50,27 @@ DOC" [UNDEFINED] ( 'name' -- flag ) true if name is not found (immediate)"
 : [UNDEFINED] BL WORD FIND NIP 0= ; IMMEDIATE
 DOC" [THEN] ( -- ) end of [IF] (immediate no-op)"
 : [THEN] ; IMMEDIATE
+DOC" >UPPER ( c -- c ) ASCII a-z to A-Z"
+: >UPPER ( c -- c )
+    DUP [CHAR] a < IF EXIT THEN
+    DUP [CHAR] z > IF EXIT THEN
+    32 - ;
+DOC" CEQUAL ( c-addr1 u1 c-addr2 u2 -- flag ) true if equal, ignoring a-z case"
+: CEQUAL ( c-addr1 u1 c-addr2 u2 -- flag )
+    ROT 2DUP <> IF 2DROP 2DROP FALSE EXIT THEN
+    DROP DUP 0= IF DROP 2DROP TRUE EXIT THEN
+    0 DO
+        OVER C@ >UPPER OVER C@ >UPPER <> IF 2DROP UNLOOP FALSE EXIT THEN
+        1+ SWAP 1+ SWAP
+    LOOP
+    2DROP TRUE ;
 DOC" [ELSE] ( -- ) skip to matching [THEN] (immediate)"
 : [ELSE]
   1 BEGIN
     BEGIN BL WORD COUNT DUP WHILE
-      2DUP S" [IF]" COMPARE 0= IF 2DROP 1+
-      ELSE 2DUP S" [ELSE]" COMPARE 0= IF 2DROP 1- DUP IF 1+ THEN
-      ELSE 2DUP S" [THEN]" COMPARE 0= IF 2DROP 1- ELSE 2DROP THEN THEN THEN
+      2DUP S" [IF]" CEQUAL IF 2DROP 1+
+      ELSE 2DUP S" [ELSE]" CEQUAL IF 2DROP 1- DUP IF 1+ THEN
+      ELSE 2DUP S" [THEN]" CEQUAL IF 2DROP 1- ELSE 2DROP THEN THEN THEN
       DUP 0= IF DROP EXIT THEN
     REPEAT 2DROP REFILL 0= UNTIL DROP ; IMMEDIATE
 DOC" [IF] ( flag -- ) interpret if true else skip to [ELSE]/[THEN] (immediate)"
@@ -67,8 +81,11 @@ DOC" ENDCASE ( -- ) end CASE, resolve branches (immediate)"
 \ --- 5. Tools / extensions ---
 DOC" DOCOL? ( xt -- flag ) true if colon definition"
 : DOCOL? @ DOCOL-ADDR = ;
-DOC" ALIAS ( xt 'name' -- ) define name with same CODE field as xt"
-: ALIAS CREATE LAST SWAP @ SWAP ! ;
+DOC" ALIAS ( xt 'name' -- ) new name executes xt; copies IMMEDIATE"
+: ALIAS ( xt "name" -- )
+    >R CREATE R@ ,
+    R> >FLAGS @ 1 63 LSHIFT AND IF IMMEDIATE THEN
+    DOES> @ EXECUTE ;
 DOC" SYNONYM ( 'newname' 'oldname' -- ) newname behaves as oldname"
 : SYNONYM >IN @ >R PARSE-NAME 2DROP ' R> >IN ! ALIAS ;
 
@@ -161,7 +178,7 @@ DOC" .THREADS ( -- ) print CONTEXT wordlist hash-chain depths in aligned columns
 DOC" (TYPE-FIELD) ( c-addr u n -- ) type string left-justified in field n"
 : (TYPE-FIELD) >R 2DUP TYPE NIP R> SWAP - 0 MAX SPACES ;
 DOC" (IS-VOCAB) ( nt -- flag ) true if nt was defined by VOCABULARY"
-: (IS-VOCAB) CELL+ @ ['] FP CELL+ @ = ;
+: (IS-VOCAB) CELL+ @ ['] FLOATING CELL+ @ = ;
 DOC" (SHOW-VOCAB) ( nt -- true ) print vocabulary name and thread depths"
 : (SHOW-VOCAB) DUP (IS-VOCAB) IF DUP NAME>STRING 16 (TYPE-FIELD) 2 CELLS + (WID.THREADS) CR ELSE DROP THEN TRUE ;
 VARIABLE (VW-T)  VARIABLE (VW-F)
@@ -189,18 +206,18 @@ DOC" COMPILE, ( xt -- ) compile the execution token xt"
 : COMPILE, , ;
 DOC" [COMPILE] ( 'name' -- ) force-compile name even if immediate (immediate)"
 : [COMPILE] ?COMP BL WORD FIND 0= IF DROP EXIT THEN DROP , ; IMMEDIATE
-DOC" BUFFER: ( u 'name' -- ) create a buffer of u bytes"
-: BUFFER: CREATE ALLOT ;
+DOC" BUFFER: ( u 'name' -- ) create an aligned buffer of u bytes"
+: BUFFER: ALIGN CREATE ALLOT ;
 DOC" VALUE ( x 'name' -- ) create a value; change with TO"
 : VALUE CREATE , DOES> @ ;
 DOC" DEFER ( 'name' -- ) create a deferred word (set with IS)"
 : DEFER CREATE ['] ABORT , DOES> @ EXECUTE ;
 DOC" DEFER@ ( xt1 -- xt2 ) get the xt that defer xt1 currently executes"
-: DEFER@ >BODY CELL+ @ ;
+: DEFER@ >BODY @ ;
 DOC" DEFER! ( xt1 xt2 -- ) set defer xt2 to execute xt1"
-: DEFER! >BODY CELL+ ! ;
-DOC" IS ( xt 'name' -- ) set DEFER named (immediate)"
-: IS STATE @ IF POSTPONE ['] POSTPONE DEFER! ELSE ' DEFER! THEN ; IMMEDIATE
+: DEFER! >BODY ! ;
+DOC" IS ( x 'name' -- ) same store as TO (VALUE, DEFER, local, 2VALUE)"
+' TO ALIAS IS IMMEDIATE
 DOC" ACTION-OF ( 'name' -- xt ) xt currently in deferred name (immediate)"
 : ACTION-OF STATE @ IF POSTPONE ['] POSTPONE DEFER@ ELSE ' DEFER@ THEN ; IMMEDIATE
 
@@ -223,8 +240,9 @@ DEFER DEBUG
 DOC" HELP ( 'name' -- ) show help and decompile word (same as SEE)"
 : HELP SEE ;
 
-\ File load via ALLOCATE+EVALUATE so ANEW/MARKER (HERE rewind) cannot
-\ invalidate the SOURCE text mid-interpret. Bare INCLUDE keeps (INCLUDE) dialog.
+\ File load via ALLOCATE so ANEW/MARKER (HERE rewind) cannot
+\ invalidate the SOURCE text mid-interpret. Each line is one SOURCE.
+\ Bare INCLUDE keeps (INCLUDE) dialog.
 DOC" (SLURP) ( c-addr u -- addr u ) read whole file into ALLOCATE buffer"
 \ Open failure: print can't open: <path> and THROW -38 (ANS non-existent file),
 \ matching CODE (INCLUDE) — not a bare OPEN-FILE ior -1.
@@ -245,20 +263,20 @@ DOC" (SLURP) ( c-addr u -- addr u ) read whole file into ALLOCATE buffer"
     2DUP R@ READ-FILE THROW NIP      \ addr nread
     R> CLOSE-FILE THROW ;
 
-DOC" (INCLUDED-BODY) ( c-addr u -- ) slurp + EVALUATE + FREE (no load-cwd)"
+DOC" (INCLUDED-BODY) ( c-addr u -- ) slurp + line SOURCE + FREE (no load-cwd)"
 : (INCLUDED-BODY)  ( c-addr u -- )
     (SLURP)                          \ a u
     DUP 0= IF 2DROP EXIT THEN        \ empty file: (SLURP) may leave PAD 0 — no FREE
     SWAP >R                          \ u    R: a
     R@ SWAP                          \ a u  R: a
-    ['] EVALUATE CATCH               \ ior  R: a
+    ['] (LINE-SOURCE) CATCH          \ ior  R: a
     R> FREE DROP                     \ drop FREE ior
     THROW ;
 
 CREATE INC-KEY  256 ALLOT
 VARIABLE INC-LEN
 
-DOC" INCLUDED ( c-addr u -- ) resolve (FROMLIB), load-cwd, slurp, EVALUATE, FREE"
+DOC" INCLUDED ( c-addr u -- ) resolve (FROMLIB), load-cwd, one line per SOURCE, FREE"
 \ BEGIN/END-LOAD-CWD so nested relative FLOAD/OPEN-FILE match CODE (INCLUDED).
 \ On THROW from the body, CATCH restores the path (c-addr u) under ior — drop
 \ it before rethrow so a failed FLOAD does not leak two stack cells.
@@ -317,19 +335,27 @@ DOC" ANEW ( 'name' -- ) FORGET name if present, then CREATE reload marker"
 
 \ --- 7. Double-Number ---
 DOC" 2CONSTANT ( x1 x2 'name' -- ) create double constant"
-: 2CONSTANT CREATE SWAP , , DOES> 2@ ;
+: 2CONSTANT CREATE , , DOES> 2@ ;
 DOC" 2VARIABLE ( 'name' -- ) create double variable"
 : 2VARIABLE CREATE 0 , 0 , ;
 DOC" 2VALUE ( x1 x2 'name' -- ) double value; change with TO"
-: 2VALUE CREATE SWAP , , DOES> 2@ ;
+: 2VALUE CREATE , , DOES> 2@ ;
 DOC" 2LITERAL ( x1 x2 -- ) compile double literal (immediate)"
 : 2LITERAL ?COMP SWAP POSTPONE LITERAL POSTPONE LITERAL ; IMMEDIATE
 DOC" D. ( d -- ) print signed double with space"
 : D. 2DUP D0< IF DNEGATE -1 ELSE 0 THEN >R <# #S R> SIGN #> TYPE SPACE ;
 DOC" D.R ( d n -- ) print signed double right-justified"
 : D.R >R 2DUP D0< IF DNEGATE -1 ELSE 0 THEN >R <# #S R> SIGN #> R> OVER - 0 MAX SPACES TYPE ;
-DOC" M*/ ( d1 n1 +n2 -- d2 ) multiply double by n1 then divide by n2"
-: M*/ >R >R D>S R> R> */ S>D ;
+DOC" M*/ ( d1 n1 +n2 -- d2 ) floored double multiply then divide"
+\ Triple-cell product so values above a single cell stay exact.
+: (T*) ( d u -- tlo tmid thi ) TUCK UM* 2>R UM* 0 2R> D+ ;
+: (T/) ( tlo tmid thi u -- dlo dhi rem )
+    >R R@ UM/MOD ROT ROT R> UM/MOD >R SWAP R> SWAP ROT ;
+: M*/ ( d1 n1 +n2 -- d2 )
+    \ Symmetric, same direction as / (toward zero). +n2 stays positive.
+    >R OVER 0< OVER 0< XOR >R ABS ROT ROT DABS ROT (T*)
+    R> R> SWAP >R (T/) DROP
+    R> IF DNEGATE THEN ;
 
 \ --- 8. String word set ---
 DOC" BLANK ( c-addr u -- ) fill with spaces"
@@ -360,7 +386,7 @@ VARIABLE (UE-B) VARIABLE (UE-D)
 DOC" UNESCAPE ( c-addr1 u1 c-addr2 -- c-addr2 u2 ) double each % character"
 : UNESCAPE DUP (UE-B) ! (UE-D) ! 0 (SS-I) !
   BEGIN (SS-I) @ OVER < WHILE
-    2 PICK (SS-I) @ + C@ DUP 37 = IF DROP 37 (UE-D) @ C! 1 (UE-D) +! 37 THEN
+    OVER (SS-I) @ + C@ DUP 37 = IF DROP 37 (UE-D) @ C! 1 (UE-D) +! 37 THEN
     (UE-D) @ C! 1 (UE-D) +! 1 (SS-I) +!
   REPEAT 2DROP (UE-B) @ (UE-D) @ OVER - ;
 VARIABLE (SS-DEST) VARIABLE (SS-MAX) VARIABLE (SS-LEN) VARIABLE (SS-N) VARIABLE (SS-ERR)
@@ -471,7 +497,9 @@ DOC" (BLOCK-WRITE) ( u -- ior ) write block buffer to mass storage block u"
   DUP (BLOCK-SEEK) ?DUP IF NIP EXIT THEN DROP (BLOCK-BUF) 1024 BLOCK-FILE @ WRITE-FILE ;
 DOC" (BLOCK-READ) ( u -- ior ) read mass storage block u into block buffer"
 : (BLOCK-READ) BLOCK-FILE @ 0= IF DROP (BLOCK-BUF) 1024 BL FILL 0 EXIT THEN
-  DUP (BLOCK-SEEK) ?DUP IF NIP EXIT THEN DROP (BLOCK-BUF) 1024 BLOCK-FILE @ READ-FILE NIP ;
+  DUP (BLOCK-SEEK) ?DUP IF NIP EXIT THEN DROP
+  (BLOCK-BUF) 1024 BL FILL
+  (BLOCK-BUF) 1024 BLOCK-FILE @ READ-FILE 2DROP 0 ;
 DOC" UPDATE ( -- ) mark current block buffer dirty"
 : UPDATE -1 (BLOCK-UPD) ! ;
 DOC" SAVE-BUFFERS ( -- ) write dirty buffers; keep assignment"
@@ -495,7 +523,7 @@ DOC" CREATE-BLOCK-FILE ( c-addr u n -- fileid ior ) create .blk with n blank blo
 : CREATE-BLOCK-FILE
   >R R/W BIN CREATE-FILE DUP IF R> DROP EXIT THEN DROP
   R> 0 ?DO DUP (BLOCK-BUF) 1024 BL FILL (BLOCK-BUF) 1024 ROT WRITE-FILE DROP LOOP
-  DUP >R 0 0 R@ REPOSITION-FILE DROP R> 0 ;
+  DUP 0 0 ROT REPOSITION-FILE DROP 0 ;
 DOC" USE-BLOCK-FILE ( fileid -- ) select volume as current; flush previous"
 : USE-BLOCK-FILE FLUSH BLOCK-FILE ! ;
 DOC" CLOSE-BLOCK-FILE ( fileid -- ior ) flush if current, then CLOSE-FILE"
@@ -507,9 +535,9 @@ DOC" THRU ( i*x u1 u2 -- j*x ) LOAD u1..u2 inclusive"
 DOC" LIST ( u -- ) display block u as 16 lines of 64 chars"
 : LIST DUP SCR ! BLOCK 16 0 DO CR I 3 .R SPACE DUP 64 TYPE 64 + LOOP DROP CR ;
 
-\ --- Floating-point word set in FP vocabulary ---
+\ --- Floating-point word set in FLOATING vocabulary ---
 \ DOC" lines are minimal; F: marks the floating-point stack.
-ALSO FP DEFINITIONS
+ALSO FLOATING DEFINITIONS
 DOC" FDEPTH ( -- n ) floating-point stack depth"
 : FDEPTH 1 (F-OP) ;
 DOC" FDROP ( F: r -- ) drop float"

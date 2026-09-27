@@ -3,7 +3,7 @@
 \   >LINK  ( xt -- a-addr )  LINK at CFA-16
 \   >FLAGS ( xt -- a-addr )  FLAGS at CFA-8
 \   >CODE  ( xt -- a-addr )  CFA itself
-\   >BODY  ( xt -- a-addr )  CFA+8
+\   >BODY  ( xt -- a-addr )  CFA+16
 .( Loading: kernel1.fth) CR
 \ DOC" needs SETDOC (CODE). Define DOC" first, then document HERE via redefine.
 : DOC" 34 PARSE SETDOC ;
@@ -52,8 +52,8 @@ DOC" >FLAGS ( xt -- a-addr ) flags field address"
 : >FLAGS 8 - ;
 DOC" >CODE ( xt -- a-addr ) code field (xt itself)"
 : >CODE ;
-DOC" >BODY ( xt -- addr ) data field of a CREATEd word"
-: >BODY 8 + ;
+DOC" >BODY ( xt -- addr ) body at CFA+16 (colon code, or CREATE/DOES> data)"
+: >BODY 16 + ;
 \ Layout: HFA | NFA | LFA | FLAGS | CFA | BODY
 \ NFA count byte: bits 0-6 = length (max 127), bit 7 = SMUDGE (hidden until ;)
 \ FLAGS: 0-15 NFA_OFF, 16-31 HFA_OFF, 32-47 LINE, 48-60 FILE-ID, 61 INLINE, 62 EMM, 63 IMM
@@ -100,9 +100,9 @@ DOC" THEN ( -- ) end of IF/ELSE (immediate)"
 DOC" ELSE ( -- ) else part of IF (immediate)"
 : ELSE BRANCH-ADDR , HERE 0 , SWAP HERE OVER - SWAP ! ; IMMEDIATE
 DOC" WHILE ( flag -- ) conditional exit from BEGIN (immediate)"
-: WHILE 0BRANCH-ADDR , HERE 0 , ; IMMEDIATE
+: WHILE 0BRANCH-ADDR , HERE 0 , SWAP ; IMMEDIATE
 DOC" REPEAT ( -- ) branch back from WHILE (immediate)"
-: REPEAT BRANCH-ADDR , SWAP HERE - , HERE OVER - SWAP ! ; IMMEDIATE
+: REPEAT BRANCH-ADDR , HERE - , HERE OVER - SWAP ! ; IMMEDIATE
 DOC" ?COMP ( -- ) error if not compiling"
 : ?COMP STATE @ 0= IF S" compile only" TYPE CR -14 THROW THEN ;
 DOC" AHEAD ( -- orig ) compile forward branch (immediate; resolve with THEN)"
@@ -133,15 +133,17 @@ DOC" RECURSE ( -- ) recurse into current definition (immediate)"
 
 \ --- Search-Order / VOCABULARY ---
 DOC" VOCABULARY ( 'name' -- ) named word list; execute to push onto search order"
-: VOCABULARY CREATE WORDLIST DROP DOES> PUSH-ORDER ;
+\ The body is the wid (xt + 2 CELLS). It must be DICT-THREADS head cells,
+\ or words defined into the vocabulary hash into memory that FIND never searches.
+: VOCABULARY CREATE DICT-THREADS 0 DO 0 , LOOP DOES> PUSH-ORDER ;
 DOC" BIG-INTEGER ( -- ) vocabulary for big-integer extensions; execute to ALSO it"
 VOCABULARY BIG-INTEGER
 DOC" EDITOR ( -- ) vocabulary for editor extensions; execute to ALSO it"
 VOCABULARY EDITOR
 DOC" ASSEMBLER ( -- ) vocabulary for assembler extensions; execute to ALSO it"
 VOCABULARY ASSEMBLER
-DOC" FP ( -- ) vocabulary for floating-point word set; execute to ALSO it"
-VOCABULARY FP
+DOC" FLOATING ( -- ) vocabulary for floating-point word set; execute to ALSO it"
+VOCABULARY FLOATING
 
 ONLY FORTH DEFINITIONS
 

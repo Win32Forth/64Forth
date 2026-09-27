@@ -21,8 +21,22 @@ DECIMAL
    2DUP OPEN-BLOCK-FILE                 \ ( c-addr u bid ior )
    DUP 0= IF                            \ open succeeded
       DROP                              \ ( c-addr u bid )
-      NIP NIP USE-BLOCK-FILE
-      ." prepare-blocks: using hayes-blocks.blk" CR
+      DUP FILE-SIZE DROP DROP           \ ( c-addr u bid size )
+      64 1024 * < IF                    \ empty or short volume
+         CLOSE-FILE DROP
+         2DUP DELETE-FILE DROP
+         64 CREATE-BLOCK-FILE
+         DUP 0= IF
+            DROP USE-BLOCK-FILE
+            ." prepare-blocks: recreated short hayes-blocks.blk" CR
+         ELSE
+            ." prepare-blocks: CREATE-BLOCK-FILE failed ior= " . CR
+            DROP
+         THEN
+      ELSE
+         NIP NIP USE-BLOCK-FILE
+         ." prepare-blocks: using hayes-blocks.blk" CR
+      THEN
    ELSE                                 \ ( c-addr u bid ior )
       2DROP                             \ drop ior bid → ( c-addr u )
       2DUP DELETE-FILE DROP             \ ignore missing-file delete error

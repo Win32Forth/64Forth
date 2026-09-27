@@ -1,7 +1,7 @@
-\ float.fth -- ANS Float Tier A/B spot-checks (FP vocabulary)
+\ float.fth -- ANS Float Tier A/B spot-checks (FLOATING vocabulary)
 \
 \ Requires: tester.fth already loaded
-\ Float words live in the FP wordlist: ALSO FP before use.
+\ Float words live in the FLOATING wordlist: ALSO FLOATING before use.
 \ Prefer Hayes fp/ suite for deep coverage (paranoia, ttester).
 \
 \ CRITICAL: no interpret-time IF/ELSE/THEN/BEGIN.
@@ -9,7 +9,7 @@
 
 DECIMAL
 ONLY FORTH DEFINITIONS
-ALSO FP
+ALSO FLOATING
 
 CR .( === Float ===) CR
 

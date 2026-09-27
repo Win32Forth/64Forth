@@ -3,20 +3,24 @@
 \ Location: HayesTest/src/Harness/   (kept out of fp/ so suite sources stay clean)
 \ Actual FP tests live in:          HayesTest/src/fp/
 \
-\ Loaded from HayesTest.fth with ALSO FP. Named FLOAD sets cwd to this
-\ Harness/ folder, so test paths are relative: ../fp/<file>
+\ Named FLOAD sets cwd to this Harness/ folder, so test paths are
+\ relative: ../fp/<file>
 \
 \ Note: inside colon definitions use ." or S" TYPE — not .(
 \ .( is immediate and prints at compile time (causes false "noise" messages).
 
 CR .( Running FP Tests) CR
 
+\ searchordertest can leave a odd order. FLOATING is the vocabulary;
+\ filetest's CREATE FP is a buffer and is left alone.
+ONLY FORTH ALSO FLOATING
+
 0 WARNING !
 
 [UNDEFINED] [UNDEFINED] [IF]
   : [UNDEFINED]  ( "name" -- flag )  BL WORD FIND NIP 0= ; IMMEDIATE
 [THEN]
-
+order
 : ZAP-FPSTACK  BEGIN FDEPTH WHILE FDROP REPEAT ;
 
 [UNDEFINED] ERROR-XT [IF]
@@ -35,12 +39,23 @@ CR .( Running FP Tests) CR
 ' ERROR1 ERROR-XT !
 
 0 VALUE FP-ERR-TOTAL
+\ Each FP file may do  VARIABLE #errors  and count into that new word.
+\ Resolve the name when the file returns so the latest counter is the one added.
+\ FIND takes a counted string. Copy the name to PAD so a file's own
+\ VARIABLE #errors is the one we read, not the counter compiled earlier.
+: FP-ERR-FIND  ( -- xt|0 )
+   S" #ERRORS" DUP PAD C! PAD 1+ SWAP CMOVE PAD FIND
+   IF EXIT THEN DROP 0 ;
+: FP-ERR@  ( -- n )
+   FP-ERR-FIND ?DUP IF >BODY @ ELSE 0 THEN ;
+: FP-ERR-CLEAR  ( -- )
+   FP-ERR-FIND ?DUP IF >BODY 0 SWAP ! THEN ;
 : ACCUM-FP-ERR  ( -- )
-   #ERRORS @ DUP IF
+   FP-ERR@ DUP IF
       ." FP: file #ERRORS = " DUP . CR
    THEN
    FP-ERR-TOTAL + TO FP-ERR-TOTAL
-   0 #ERRORS !
+   FP-ERR-CLEAR
 ;
 
 \ c-addr u is a path relative to this Harness/ directory (../fp/…).

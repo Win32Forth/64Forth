@@ -137,9 +137,10 @@ What is not portable, or not the same as Win32Forth
     return to the word that called it. A host whose EVALUATE does
     return still runs the send, because nothing follows it.
 
-13. On 64Forth the body of a CREATE word has an extra cell before the
-    data you comma. XT>DATA steps over that cell when it sees it, and
-    is just >BODY on a system where >BODY already is the data. Class
+13. On 64Forth >BODY is CFA+16. For CREATE, VARIABLE, CONSTANT, VALUE,
+    and DEFER that cell is the data, and CFA+8 is the DOES> fragment
+    pointer. For a colon word the threaded body also starts at CFA+16,
+    and CFA+8 is spare. XT>DATA is >BODY. Class
     and object words are created with ALIGN before CREATE. :M aligns
     before the system `:`. A header that starts unaligned makes the
     code field unaligned, and a cell fetch of it faults.

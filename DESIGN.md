@@ -26,7 +26,7 @@ Do **not** put SZ-EDITOR inside App Output. Console stays live while the editor 
 | Resources layout (`AutoLoad/`, `Library/`, `Docs/`) | **TZForth** bundle pattern | Bundled libraries & samples |
 | FROMLIB / FLOAD / CHDIR / DIR / EDIT | **TZForth** host file architecture | Path resolution & UX |
 | Host multiprecision BI-MUL / BI-DIVMOD / BI-ISQRT | **TZForth** algorithms (`BigIntHost.swift`) | BIG-INTEGER library support |
-| Floating-point (IEEE-64 F-stack, parse/print) | **TZForth** `TZForthFloat.swift` → `FloatHost.swift` | **`VOCABULARY FP`** (public names); thin FORTH hooks `FLIT` / `(F-OP)` |
+| Floating-point (IEEE-64 F-stack, parse/print) | **TZForth** `TZForthFloat.swift` → `FloatHost.swift` | **`VOCABULARY FLOATING`** (public names); thin FORTH hooks `FLIT` / `(F-OP)` |
 | File-Access + Block volumes | TZForth-style host + kernel CODE | `FileAccess.swift`, block file words, Hayes prepare-blocks |
 | XChar | Kernel UTF-8 CODE + high-level words; bulk `emit_buf` for multi-byte TYPE | ANS 18; validate via `ANSValidate/all-in-one.fth` |
 | Facility terminal grid | TZForth-style host | `FacilityTerminal.swift` — `PAGE`/`AT-XY` cell buffer for SZ-EDITOR (thread-safe) |
@@ -62,7 +62,7 @@ Do **not** put SZ-EDITOR inside App Output. Console stays live while the editor 
 │    • kernel_init / kernel_eval (embed); _kernel_cold_start    │
 │    • Dictionary in user_dict_area; CODE bodies in .text       │
 │    • INCLUDE nests whole-file SOURCE; FILE-ECHO; \S           │
-│    • VOCABULARIES: FORTH, BIG-INTEGER, EDITOR, ASSEMBLER, FP  │
+│    • VOCABULARIES: FORTH, BIG-INTEGER, EDITOR, ASSEMBLER, FLOATING│
 │    • GROWMEMORYMB raises logical dict size (CFA-stable)       │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -157,7 +157,7 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 | Locals / Memory / Search-Order | **done** | `{: :}`, `ALLOCATE`, multi-wordlist |
 | Facility + Facility Ext | **done** | `MS`; `KEY`/`KEY?`/`EKEY`; `EKEY>CHAR`/`EKEY>FKEY`; `K-*` constants; host maps arrows/F-keys; structures; `ENVIRONMENT? FACILITY` / `FACILITY-EXT` |
 | Block | **done** | File volume; `LOAD` pushes SOURCE and restores outer `BLK` (source-stack frame includes BLK) |
-| **Floating-point** | **done** | Host `FloatHost` (IEEE-64, 16-deep F-stack); public words in **`VOCABULARY FP`**; FORTH holds `FLIT` / `(F-OP)` / `FLIT-ADDR` only; float literals in outer interpreter |
+| **Floating-point** | **done** | Host `FloatHost` (IEEE-64, 16-deep F-stack); public words in **`VOCABULARY FLOATING`**; FORTH holds `FLIT` / `(F-OP)` / `FLIT-ADDR` only; float literals in outer interpreter |
 | String Ext (17.6.2) | **done** | `REPLACES` / `SUBSTITUTE` / `UNESCAPE` (high-level) |
 | Locals Ext | **done** | `(LOCAL)`, `LOCALS|`, `{: … :}`; `#LOCALS` = 32 |
 | **Extended Character (18)** | **done** | UTF-8 in kernel; validate via modular `ANSValidate/` or `all-in-one.fth` |
@@ -170,7 +170,7 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 ### Floating-point design (v0.5+)
 
 - **Not** pure assembly: same hybrid as BigInteger — Swift host + thin kernel multiplex (`kernel_set_float_op`).
-- **Vocabulary:** `ALSO FP` to use `F+`, `F.`, `FVARIABLE`, …; default FORTH search order stays clean.
+- **Vocabulary:** `ALSO FLOATING` to use `F+`, `F.`, `FVARIABLE`, …; default FORTH search order stays clean.
 - **Literals:** `1.5e0` / `3.14` recognized by the outer interpreter (trailing-only `123.` remains double).
 - **ENVIRONMENT?:** boolean/word-set queries return **value then true** (ttester double-`[IF]` idiom). Float: `FLOATING`, `FLOAT-EXT`, `FLOATING-STACK` (16), `MAX-FLOAT`.
 
@@ -185,8 +185,9 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 
 **Hayes driver:** `FROMLIB FLOAD HayesTest/HayesTest.fth`
 
-- Resets `ONLY FORTH` then `ALSO FP` before FP suite (searchordertest leaves odd orders).
-- Expect: `Running FP Tests` … `FP tests finished`, all `*ERRORS @ = 0`, including `FPERRORS` and `BERRORS`.
+- `src/Harness/runfptests.fth` does `ONLY FORTH ALSO FLOATING` before the floating-point files (`searchordertest` can leave an odd order). The vocabulary is `FLOATING`; `filetest.fth`'s `CREATE FP` is a buffer and is not the vocabulary.
+- Core through block counters are 0. The floating-point suite runs and still reports 4 failures (`FPERRORS`). Those are not fixed yet.
+- The core `ACCEPT` test waits for a typed line (`PLEASE TYPE UP TO 80 CHARACTERS:`).
 
 **File-Access / Block:** relative paths use logical cwd; bundle writes remap to `Application Support/64Forth/`; Hayes blocks file under `Application Support/64Forth/hayes-blocks.blk`.
 

@@ -6,7 +6,7 @@
 //
 //  ANS floating-point (IEEE 64-bit) — ported from TZForthFloat.swift.
 //  Separate 16-deep F-stack; ops invoked via kernel float_op multiplex.
-//  Word headers live in the FP vocabulary (not FORTH).
+//  Word headers live in the FLOATING vocabulary (not FORTH).
 //
 
 import Foundation

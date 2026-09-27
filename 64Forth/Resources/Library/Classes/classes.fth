@@ -11,12 +11,10 @@ DECIMAL
 \ Core requires CELL+ . CELL- is also Core; 64Forth does not provide it.
 : CELL- ( a-addr -- a-addr ) 1 CELLS - ;
 
-\ ANS >BODY of a CREATE word is the address HERE had after CREATE.
-\ 64Forth keeps a does-pointer in that cell and puts user data one
-\ cell later. The probe picks the cell that actually holds 123.
-CREATE XTPROBE 123 ,
-: XT>DATA ( xt -- a-addr )
-    >BODY DUP @ 123 = IF EXIT THEN CELL+ ;
+\ >BODY is CFA+16 for every word. On a CREATE word that cell is the data
+\ and CFA+8 is the DOES> fragment pointer. On a colon word CFA+16 is the
+\ threaded body and CFA+8 is spare.
+: XT>DATA ( xt -- a-addr ) >BODY ;
 
 \ ----- string buffers ------------------------------------------------------
 
@@ -114,8 +112,8 @@ VARIABLE CLONE-SRC
 VARIABLE DLO
 VARIABLE DCARRY
 : (D+!) ( lo hi base off -- )
-    + >R SWAP DUP DLO ! R@ @ + DUP DLO @ U< DCARRY !
-    SWAP R@ CELL+ @ DCARRY @ + + R> 2! ;
+    + >R SWAP DUP DLO ! R@ CELL+ @ + DUP DLO @ U< DCARRY !
+    SWAP R@ @ DCARRY @ + + R> 2! ;
 : (ADDR)  ( base off -- a ) + ;
 : (OADDR) ( base off -- a ) + CELL+ ;
 : (BF@) ( base off shift mask -- n ) >R >R + @ R> RSHIFT R> AND ;
@@ -640,12 +638,13 @@ VARIABLE MWARN
 : MESSAGE ( c-addr u -- )
     DUP SELLEN ! SELBUF SWAP CMOVE SELBUF SELLEN @ UPCASE
     PARSE-NAME DUP 0= ABORT" selector needs a receiver"
-    2DUP S" [" COMPARE 0= IF 2DROP DO-BRACKETS EXIT THEN
-    2DUP S" SELF" COMPARE 0= IF
+    2DUP >DOTB DOTB DOTBU @ UPCASE
+    DOTB DOTBU @ S" [" COMPARE 0= IF 2DROP DO-BRACKETS EXIT THEN
+    DOTB DOTBU @ S" SELF" COMPARE 0= IF
         2DROP ^CLASS @ 0= ABORT" SELF outside a method"
         ^CLASS @ BIND-BASE EXIT
     THEN
-    2DUP S" SUPER" COMPARE 0= IF
+    DOTB DOTBU @ S" SUPER" COMPARE 0= IF
         2DROP ^CLASS @ 0= ABORT" SUPER outside a method"
         ^CLASS @ 2 CF @ DUP 0= ABORT" no superclass"
         BIND-BASE EXIT

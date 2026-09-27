@@ -31,7 +31,8 @@
 //         bits 0-15 NFA_OFF, 16-31 HFA_OFF, 32-47 VIEW line, 48-60 file-id,
 //         61 INLINE, 62 EMM, 63 IMM
 //   CFA:  CODE (** xt **)                 >CODE (= xt)
-//   BODY: @ CFA+8                         >BODY
+//   INFO: @ CFA+8   DOES> fragment pointer, or a spare cell on colon words
+//   BODY: @ CFA+16                        >BODY
 //
 // LATEST = CFA. NEXT: W = CFA from *IP; br *W.
 // _header_build for BOOT_WORD and : / CREATE. SETDOC/DOC" set pending help.
@@ -95,12 +96,16 @@
 // Implementation choices / differences (still ANS-legal where noted):
 //   xt from ' / FIND / [']  = CFA (code-field address). ANS xt is opaque.
 //   / MOD /MOD              = symmetric (toward zero), ARM sdiv; FLOORED false.
-//   >BODY                   = after name for any xt (used by SEE on colon words);
-//                             ANS text is oriented toward CREATE bodies.
+//   >BODY                   = CFA+16. Colon bodies, CREATE data, and DOES>
+//                             parameter fields all start there. CFA+8 is the
+//                             DOES> fragment pointer, and a spare cell on a
+//                             colon word (DOCOL does not execute it).
 //   FIND                    = case-insensitive names.
-//   INCLUDE                 = loads whole file into one SOURCE (REFILL is false
-//                             for file/EVALUATE sources; true only for terminal).
-//   \S                      = pin >IN to end of current SOURCE (file stop);
+//   INCLUDE                 = file image is one buffer; SOURCE is the current
+//                             line. REFILL (and end-of-line) advances a line.
+//                             EVALUATE remains one string, REFILL false.
+//   \S                      = end the rest of an INCLUDE file (or this SOURCE
+//                             for EVALUATE); console also stops a paste.
 //                             console multi-line paste stopped via host flag.
 //   Header layout           = link | flags|len | code | name | body  (see above).
 //
@@ -1674,7 +1679,8 @@ _install_fault_handlers:
 // ============================================================================
 // DOCOL / DOEXIT / DOVAR
 // ============================================================================
-// xt = CFA = x21. Body always at CFA+8. CREATE: does_ip @ CFA+8, PFA @ CFA+16.
+// xt = CFA = x21. Body at CFA+16. CFA+8 is the DOES> fragment pointer,
+// or a spare cell on colon words.
 // Header layout (low → high):
 //   HFA: counted HELP + pad 8
 //   NFA: counted NAME (UC) + pad 8
@@ -1682,7 +1688,8 @@ _install_fault_handlers:
 //   LFA: LINK (prev CFA)     @ CFA-16
 //   FFA: FLAGS               @ CFA-8
 //   CFA: CODE
-//   BODY                     @ CFA+8
+//   INFO                     @ CFA+8
+//   BODY                     @ CFA+16
 // FLAGS packed cell:
 //   bits  0-15  NFA_OFF   (CFA - NFA), max 65535
 //   bits 16-31  HFA_OFF   (CFA - HFA), max 65535
@@ -1706,7 +1713,7 @@ _install_fault_handlers:
 .equ VIEW_PATH_MAX, 256
 
 .macro DICT_BODY_ADDR dst, cfa
-    add \dst, \cfa, #8
+    add \dst, \cfa, #16
 .endm
 
     BOOT_WORD "(NEXT)", "(NEXT) ITC dispatch", 0, XNEXT, XNEXT_END
@@ -1717,7 +1724,16 @@ XNEXT_END:
     BOOT_WORD "(DOCOL)",  "(DOCOL) colon runtime",            0, DOCOL,  DOCOL_END
 DOCOL:
     RPUSH
-    add x19, x21, #8               // IP = body (CFA+8)
+    add x19, x21, #16              // IP = body (CFA+16)
+    ldr x0, [x19]
+    cbnz x0, DOCOL_END             // a zero xt is an empty/unfinished body
+    mov x0, x21
+    bl _print_xt_name
+    adrp x0, str_empty_body@page
+    add x0, x0, str_empty_body@pageoff
+    mov x1, #18
+    bl _write_stdout
+    b _do_quit
 DOCOL_END:
     NEXT
 
@@ -1794,6 +1810,8 @@ _dict_hash:
 //   x5=flags (0 or FLAG_IMM|FLAG_EMM|FLAG_INLINE from BOOT_WORD)
 //   Builds: HFA help | NFA name | LFA link | FFA flags | CFA code
 //   HERE → CFA+8. Links into CURRENT wordlist heads[hash]. Returns x0 = CFA.
+//   : and :NONAME then allot one cell so the colon body starts at CFA+16.
+//   CREATE allots that same cell for the DOES> fragment pointer.
 //   Names UPPERCASE. Help always written (empty = count 0 + pad 8).
 // ============================================================================
 .align 4
@@ -2316,7 +2334,9 @@ XNIP_END:
 
     BOOT_WORD "TUCK", "TUCK ( x1 x2 -- x2 x1 x2 ) copy TOS under the second cell", 0, XTUCK, XTUCK_END
 XTUCK:
-    str x20, [x22, #-8]!           // push TOS under; stack becomes x2, x1, x2
+    ldr x0, [x22]                  // x1
+    str x20, [x22]                 // under becomes x2
+    str x0, [x22, #-8]!            // push x1; TOS stays x2
 XTUCK_END:
     NEXT
 
@@ -4020,8 +4040,14 @@ XCOLON:
     adrp x4, DOCOL@page
     add x4, x4, DOCOL@pageoff
     mov x5, #0
-    bl _header_build               // x0 = CFA
+    bl _header_build               // x0 = CFA, HERE = CFA+8
     bl _nfa_smudge_cfa             // ANS: not findable until ;
+    // Spare cell at CFA+8. Threaded body starts at CFA+16.
+    adrp x1, here_ptr@page
+    add x1, x1, here_ptr@pageoff
+    ldr x0, [x1]
+    str xzr, [x0], #8
+    str x0, [x1]
     adrp x0, state_var@page
     add x0, x0, state_var@pageoff
     mov x1, #1
@@ -4056,8 +4082,13 @@ XNONAME:
     adrp x4, DOCOL@page
     add x4, x4, DOCOL@pageoff
     mov x5, #0
-    bl _header_build               // x0 = CFA
+    bl _header_build               // x0 = CFA, HERE = CFA+8
     bl _nfa_smudge_cfa
+    adrp x1, here_ptr@page
+    add x1, x1, here_ptr@pageoff
+    ldr x0, [x1]
+    str xzr, [x0], #8
+    str x0, [x1]
     ldp x29, x30, [sp], #16
     adrp x1, noname_xt@page
     add x1, x1, noname_xt@pageoff
@@ -4749,7 +4780,8 @@ _include_with_len:
     bl   _view_push_src_id
     mov  x0, x25
     mov  x1, x26
-    bl   _set_source
+    bl   _arm_lines
+    bl   _take_line
     adrp x0, source_id_var@page
     add  x0, x0, source_id_var@pageoff
     mov  x1, #1
@@ -4806,7 +4838,8 @@ _include_done_restore:
     b.ge 2f
     mov  x1, #0
 2:
-    bl   _set_source
+    bl   _arm_lines
+    bl   _take_line
     adrp x0, source_id_var@page
     add  x0, x0, source_id_var@pageoff
     mov  x1, #1
@@ -5279,7 +5312,7 @@ _source_line_now:
     adrp x2, to_in_var@page
     add  x2, x2, to_in_var@pageoff
     ldr  x2, [x2]                  // >IN
-    b    _source_line_at
+    b    _source_line_from_window
 
 // _source_line_at_token: like _source_line_now, but backs >IN over trailing
 // whitespace (SPACE/TAB/CR/LF) first so an undefined token reports the line it
@@ -5292,7 +5325,7 @@ _source_line_at_token:
     add  x2, x2, to_in_var@pageoff
     ldr  x2, [x2]                  // >IN
 1:
-    cbz  x2, _source_line_at
+    cbz  x2, _source_line_from_window
     sub  x3, x2, #1
     ldrb w4, [x1, x3]
     cmp  w4, #32                   // BL
@@ -5303,10 +5336,24 @@ _source_line_at_token:
     b.eq 2f
     cmp  w4, #13                   // CR
     b.eq 2f
-    b    _source_line_at           // landed on token char
+    b    _source_line_from_window // landed on token char
 2:
     mov  x2, x3
     b    1b
+
+// x1 = window base, x2 = offset in that window. File lines count from line_origin.
+_source_line_from_window:
+    adrp x4, line_mode@page
+    add  x4, x4, line_mode@pageoff
+    ldr  x4, [x4]
+    cbz  x4, _source_line_at
+    adrp x3, line_origin@page
+    add  x3, x3, line_origin@pageoff
+    ldr  x3, [x3]
+    add  x4, x1, x2
+    sub  x2, x4, x3
+    mov  x1, x3
+    b    _source_line_at
 
 // _source_line_at: x1=source base, x2=offset → x0 = 1-based line.
 _source_line_at:
@@ -7101,7 +7148,7 @@ XTO_IMM:
     add  sp, sp, #16
     b    9f
 1:
-    // VALUE path: FIND name, >BODY CELL+ (CFA+16 for DOES> VALUE), ! or compile
+    // VALUE path: FIND name, data at CFA+16 (>BODY of a DOES> word), ! or compile
     ldp  x0, x1, [sp], #16
     bl   _find_word
     cbz  x0, 9f
@@ -7111,38 +7158,58 @@ XTO_IMM:
     add  x2, x2, state_var@pageoff
     ldr  x2, [x2]
     cbz  x2, 2f
-    // compile LIT addr !
-    str  x0, [sp, #-16]!
+    // compile LIT addr !   or LIT addr 2! when the DOES> fragment starts with 2@
+    // (2VALUE). x19 is the interpreter IP — do not use it here.
+    str  x0, [sp, #-16]!           // data addr (CFA+16)
+    ldr  x1, [x0, #-8]             // DOES> fragment IP at CFA+8
+    cbz  x1, _to_bang
+    ldr  x3, [x1]                  // first threaded xt
+    str  x3, [sp, #-16]!
+    adrp x0, str_twofetch@page
+    add  x0, x0, str_twofetch@pageoff
+    mov  x1, #2
+    bl   _find_word
+    ldr  x3, [sp], #16
+    cmp  x0, x3
+    b.ne _to_bang
+    adrp x0, str_twostore@page
+    add  x0, x0, str_twostore@pageoff
+    mov  x1, #2
+    b    _to_find_store
+_to_bang:
+    adrp x0, str_store_name@page
+    add  x0, x0, str_store_name@pageoff
+    mov  x1, #1
+_to_find_store:
+    stp  x0, x1, [sp, #-16]!       // name, len
     adrp x0, cfa_lit@page
     add  x0, x0, cfa_lit@pageoff
     ldr  x0, [x0]
     bl   _compile_cell
-    ldr  x0, [sp], #16
+    ldr  x0, [sp, #16]             // data addr
     bl   _compile_cell
-    // compile !  (find CODE word "!")
-    adrp x0, str_store_name@page
-    add  x0, x0, str_store_name@pageoff
-    mov  x1, #1
+    ldp  x0, x1, [sp], #16
+    add  sp, sp, #16               // drop data addr
     bl   _find_word
     cbz  x0, 9f
     bl   _compile_cell
     b    9f
 2:
     // interpret TO: VALUE ( x -- ) or 2VALUE ( x1 x2 -- )
-    // depth including TOS: cells under + 1. Stack grows down from SP0.
+    // DEPTH is (SP0-DSP)/8, including the bottom sentinel. 2VALUE when that
+    // count is at least 2. Do not add 1 for TOS or a single value stores the sentinel.
     adrp x3, data_stack@page
     add  x3, x3, data_stack@pageoff
     add  x3, x3, #4096             // SP0 empty
     mov  x4, x3                    // keep SP0
     sub  x3, x3, x22
-    lsr  x3, x3, #3                // #cells under TOS
-    add  x3, x3, #1                // + TOS
-    cmp  x3, #2
+    lsr  x3, x3, #3                // cells under TOS; sentinel makes this DEPTH
+    cmp  x3, #2                    // two real cells → 2VALUE
     b.lo 3f
-    // 2VALUE: lo under, hi TOS → 2! at addr
-    str  x20, [x0, #8]             // hi
+    // 2VALUE: same cells as 2! — hi (TOS) at addr, lo at addr+cell
+    str  x20, [x0]                 // hi
     ldr  x1, [x22], #8             // lo
-    str  x1, [x0]
+    str  x1, [x0, #8]
     // pop new TOS if under remains; else empty (DSP at SP0)
     cmp  x22, x4
     b.hs 4f
@@ -7979,37 +8046,29 @@ XLOOP_RT_END:
     NEXT
 
 // (+LOOP) ( n -- )
+// Terminate when n crosses the boundary between limit-1 and limit
+// (circular, two's complement). index==limit is a normal first pass,
+// not an exit: DO runs at least once.
 
     BOOT_WORD "(+LOOP)", "(+LOOP) ( n -- ) internal runtime for +LOOP", 0, XPLUSLOOP_RT, XPLUSLOOP_RT_END
 XPLUSLOOP_RT:
     ldr x0, [x23], #8              // index
     ldr x1, [x23], #8              // limit
     DPOP x2                        // step n
-    cmp x0, x1
-    b.eq _pl_done                  // LEAVE: index == limit
-    mov x3, x0                     // old index
+    sub x3, x0, x1                 // old distance to limit
+    add x4, x3, x2                 // new distance (wraps)
+    eor x5, x3, x4
+    eor x6, x3, x2
+    ands x5, x5, x6
+    b.mi _pl_done                  // sign bit: boundary crossed
     add x0, x0, x2                 // new index
-    cmp x2, #0
-    b.lt _pl_neg
-    // n >= 0: done if old < limit && new >= limit
-    cmp x3, x1
-    b.ge _pl_cont
-    cmp x0, x1
-    b.ge _pl_done
-    b _pl_cont
-_pl_neg:
-    cmp x3, x1
-    b.lt _pl_cont
-    cmp x0, x1
-    b.lt _pl_done
-_pl_cont:
     str x1, [x23, #-8]!
     str x0, [x23, #-8]!
     ldr x2, [x19]
     add x19, x19, x2
     NEXT
 _pl_done:
-    add x19, x19, #8
+    add x19, x19, #8               // skip back-branch offset
 XPLUSLOOP_RT_END:
     NEXT
 
@@ -8039,12 +8098,27 @@ XUNLOOP:
 XUNLOOP_END:
     NEXT
 
-// LEAVE ( -- )  set index=limit so LOOP/+LOOP exit
+// LEAVE ( -- )  drop this loop and continue after its LOOP or +LOOP.
+// Scans ahead in the threaded body so a start index equal to the limit
+// is not mistaken for an already-finished +LOOP.
 
     BOOT_WORD "LEAVE", "LEAVE ( -- ) exit current DO loop (branch to after LOOP)", 0, XLEAVE, XLEAVE_END
 XLEAVE:
-    ldr x0, [x23, #8]              // limit
-    str x0, [x23]                  // index = limit
+    add x23, x23, #16              // UNLOOP
+    adrp x1, cfa_loop@page
+    add  x1, x1, cfa_loop@pageoff
+    ldr  x1, [x1]
+    adrp x2, cfa_plusloop@page
+    add  x2, x2, cfa_plusloop@pageoff
+    ldr  x2, [x2]
+1:
+    ldr x0, [x19], #8
+    cmp x0, x1
+    b.eq 2f
+    cmp x0, x2
+    b.ne 1b
+2:
+    add x19, x19, #8               // skip back-branch offset
 XLEAVE_END:
     NEXT
 
@@ -8510,7 +8584,7 @@ XFLUSH_FILE_END:
     NEXT
 
 // ============================================================================
-// Floating-point (host F-stack; public words in FP vocabulary)
+// Floating-point (host F-stack; public words in FLOATING vocabulary)
 // ============================================================================
 // FLIT ( -- ) ( F: -- r )  inline IEEE-64 bits at IP
 
@@ -9130,27 +9204,27 @@ XTWOSLASH:
 XTWOSLASH_END:
     NEXT
 
-// 2@ ( a-addr -- x1 x2 )  x1 at a-addr (lo), x2 at a-addr+cell (hi/TOS)
+// 2@ ( a-addr -- x1 x2 )  x2 at a-addr, x1 at a-addr+cell (Forth-2012)
 
     BOOT_WORD "2@", "2@ ( addr -- n1 n2 ) fetch two cells", 0, XTWOFETCH, XTWOFETCH_END
 XTWOFETCH:
     mov x0, x20
-    ldr x1, [x0]                   // lo
-    ldr x20, [x0, #8]              // hi
+    ldr x1, [x0, #8]               // x1
+    ldr x20, [x0]                  // x2
     str x1, [x22, #-8]!
 XTWOFETCH_END:
     NEXT
 
-// 2! ( x1 x2 a-addr -- )  store x1 at a-addr, x2 at a-addr+cell
+// 2! ( x1 x2 a-addr -- )  store x2 at a-addr, x1 at a-addr+cell
 
     BOOT_WORD "2!", "2! ( n1 n2 addr -- ) store two cells", 0, XTWOSTORE, XTWOSTORE_END
 XTWOSTORE:
     mov x0, x20                    // a-addr
-    ldr x2, [x22], #8              // x2 (more significant)
-    ldr x1, [x22], #8              // x1 (less significant)
+    ldr x2, [x22], #8              // x2
+    ldr x1, [x22], #8              // x1
     ldr x20, [x22], #8
-    str x1, [x0]
-    str x2, [x0, #8]
+    str x2, [x0]
+    str x1, [x0, #8]
 XTWOSTORE_END:
     NEXT
 
@@ -9747,7 +9821,9 @@ XCONTAINS_END:
     NEXT
 
 // EVALUATE ( c-addr u -- )  nest SOURCE and interpret the string
-// Saves BLK in the source frame (see _push_source); does not change BLK.
+// Saves BLK in the source frame (see _push_source), then sets BLK to 0.
+// The saved value returns when this string ends. Hayes blocktest expects
+// BLK @ inside EVALUATE to be 0 even when EVALUATE runs from LOAD.
 
     BOOT_WORD "EVALUATE", "EVALUATE ( i*x c-addr u -- j*x ) interpret the string as Forth source", 0, XEVALUATE
 XEVALUATE:
@@ -9758,11 +9834,18 @@ XEVALUATE:
     bl _push_source
     ldp x0, x1, [sp], #16
     bl _set_source
-    // SOURCE-ID = -1 (string)
+    // Whole string, not a file line window (_set_source clears line_mode).
+    // SOURCE-ID = -1 (string). BLK 0: this is a string, not a block.
     adrp x0, source_id_var@page
     add x0, x0, source_id_var@pageoff
     mov x1, #-1
     str x1, [x0]
+    adrp x0, blk_var@page
+    add  x0, x0, blk_var@pageoff
+    str  xzr, [x0]
+    // Resume the caller when the string ends. Not the Forth return
+    // stack: the interpreter parks the current token there.
+    bl   _eval_resume_push
     b _interpret_loop
 
 // (LOAD-ENTER) ( u -- u )
@@ -9781,8 +9864,8 @@ XLOAD_ENTER:
 
 // (LOAD-RUN) ( c-addr u -- )
 // Install block buffer as SOURCE (SOURCE-ID -1) and interpret it.
-// When SOURCE ends, _pop_source restores outer SOURCE and BLK.
-// Like EVALUATE: does not return into the colon definition that called it.
+// When SOURCE ends, _pop_source restores outer SOURCE and BLK,
+// then execution continues after (LOAD-RUN).
 
     BOOT_WORD "(LOAD-RUN)", "(LOAD-RUN) ( c-addr u -- ) interpret buffer as nested SOURCE for LOAD", 0, XLOAD_RUN
 XLOAD_RUN:
@@ -9794,7 +9877,31 @@ XLOAD_RUN:
     add  x0, x0, source_id_var@pageoff
     mov  x1, #-1
     str  x1, [x0]
+    bl   _eval_resume_push         // resume after (LOAD-RUN)
     b    _interpret_loop
+
+// (LINE-SOURCE) ( c-addr u -- )
+// Interpret a file image one line at a time.
+// SOURCE-ID is -2: not console (0), not EVALUATE (-1), so the file-id test
+// passes, and _interpret_empty resumes the caller instead of popping load
+// cwd. INCLUDED pairs BEGIN-LOAD-CWD with END-LOAD-CWD.
+// \S ends the rest of the image, not only the current line.
+
+    BOOT_WORD "(LINE-SOURCE)", "(LINE-SOURCE) ( c-addr u -- ) interpret file image one line per SOURCE", 0, XLINE_SOURCE
+XLINE_SOURCE:
+    mov x1, x20
+    ldr x0, [x22], #8
+    ldr x20, [x22], #8
+    stp x0, x1, [sp, #-16]!
+    bl _push_source
+    ldp x0, x1, [sp], #16
+    bl _arm_lines
+    adrp x0, source_id_var@page
+    add x0, x0, source_id_var@pageoff
+    mov  x1, #-2                   // file text; see _interpret_empty
+    str  x1, [x0]
+    bl   _eval_resume_push         // resume after (LINE-SOURCE)
+    b _interpret_empty
 
 // CATCH ( i*x xt -- j*x 0 | i*x n )
 // R-stack frame (top first): saved_IP, saved_source_sp, saved_DSP, saved_TOS, prev_handler
@@ -9809,6 +9916,10 @@ XCATCH:
     adrp x7, throw_handler@page
     add x7, x7, throw_handler@pageoff
     ldr x2, [x7]
+    adrp x3, eval_resume_sp@page
+    add  x3, x3, eval_resume_sp@pageoff
+    ldr  x3, [x3]
+    str  x3, [x23, #-8]!           // eval_resume_sp at xt entry
     str x2, [x23, #-8]!            // prev_handler
     str x20, [x23, #-8]!           // saved_TOS
     str x22, [x23, #-8]!           // saved_DSP
@@ -9869,6 +9980,7 @@ XCATCH_OK:
     add x23, x23, #24              // skip source_sp + DSP + TOS (keep xt results)
     ldr x0, [x23], #8              // prev_handler
     str x0, [x7]
+    add x23, x23, #8               // eval_resume_sp cell
 _cok_push0:
     str x20, [x22, #-8]!
     mov x20, #0
@@ -9895,6 +10007,10 @@ XTHROW:
     ldr x20, [x23], #8             // TOS
     ldr x0, [x23], #8              // prev_handler
     str x0, [x7]
+    ldr x0, [x23], #8              // eval_resume_sp at xt entry
+    adrp x3, eval_resume_sp@page
+    add  x3, x3, eval_resume_sp@pageoff
+    str  x0, [x3]
     str x20, [x22, #-8]!
     mov x20, x5                    // throw code
     NEXT
@@ -10241,8 +10357,8 @@ _bs_block:
     NEXT
 
 // \S ( -- ) IMMEDIATE  TZForth / F-PC model:
-//   Stop further interpretation of the *current* SOURCE (whole INCLUDE/FLOAD
-//   buffer, EVALUATE string, or single console kernel_eval line). Does NOT
+//   Stop further interpretation of the current INCLUDE file (every remaining
+//   line), or of the current EVALUATE string / console line. Does NOT
 //   clear STATE. Nested INCLUDE: only the innermost file stops; outer SOURCE
 //   resumes (so `FLOAD f 123 .` still runs tokens after FLOAD).
 //   When SOURCE-ID == 0 (console), also set repl_batch_stop so the host can
@@ -10251,7 +10367,19 @@ _bs_block:
 
     BOOT_WORD "\\S", "\\S ( -- ) stop rest of FLOAD/INCLUDE file or multi-line console paste (immediate; also \\s)", FLAG_IMM, XBACKSLASH_S
 XBACKSLASH_S:
-    // Pin >IN and word_cursor at end of current SOURCE (ignore rest of line/file)
+    // A file line-window: no further lines after this one.
+    adrp x0, line_mode@page
+    add  x0, x0, line_mode@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 2f
+    adrp x0, line_limit@page
+    add  x0, x0, line_limit@pageoff
+    ldr  x1, [x0]
+    adrp x0, line_next@page
+    add  x0, x0, line_next@pageoff
+    str  x1, [x0]
+2:
+    // Pin >IN and word_cursor at end of current SOURCE (rest of this line / string)
     adrp x0, source_len@page
     add  x0, x0, source_len@pageoff
     ldr  x1, [x0]                   // u
@@ -10287,16 +10415,33 @@ XPAREN:
     mov x9, x0                      // end
 _par_loop:
     cmp x10, x9
-    b.hs _par_done
+    b.hs _par_eol
     ldrb w2, [x10]
-    cbz w2, _par_done
+    cbz w2, _par_eol
     cmp w2, #41
     b.eq _par_found
     add x10, x10, #1
     b _par_loop
 _par_found:
     add x10, x10, #1
-_par_done:
+    b _par_store
+_par_eol:
+    // No ')' on this line. A file keeps scanning the following lines.
+    adrp x0, line_mode@page
+    add x0, x0, line_mode@pageoff
+    ldr x0, [x0]
+    cbz x0, _par_store
+    bl _take_line
+    cbz x0, _par_eof
+    bl _cursor_load
+    mov x10, x0
+    bl _source_end
+    mov x9, x0
+    b _par_loop
+_par_eof:
+    bl _cursor_load
+    mov x10, x0
+_par_store:
     mov x0, x10
     bl _cursor_store
     NEXT
@@ -10329,7 +10474,8 @@ XSOURCE_ID:
 // REFILL ( -- flag )  ANS
 // Terminal (SOURCE-ID 0): read a line into input_buffer, true (false on EOF).
 // Block source (BLK nonzero): advance to next block, true (Hayes blocktest).
-// EVALUATE string / INCLUDE file without BLK: false.
+// INCLUDE line window: next line of the file image, true (false at end).
+// EVALUATE string: false.
 
     BOOT_WORD "REFILL", "REFILL ( -- flag ) attempt to refill the input buffer; flag true if successful", 0, XREFILL
 XREFILL:
@@ -10337,6 +10483,16 @@ XREFILL:
     add  x0, x0, blk_var@pageoff
     ldr  x0, [x0]
     cbnz x0, _refill_block
+    adrp x0, line_mode@page
+    add  x0, x0, line_mode@pageoff
+    ldr  x0, [x0]
+    cbz  x0, _refill_terminal
+    bl   _take_line
+    str  x20, [x22, #-8]!
+    cmp  x0, #0
+    csetm x20, ne                  // -1 true, 0 false
+    NEXT
+_refill_terminal:
     adrp x0, source_id_var@page
     add x0, x0, source_id_var@pageoff
     ldr x0, [x0]
@@ -10831,9 +10987,21 @@ XSESCAPE:
     ldr x12, [x0]
     add x1, x9, x11                // cursor (include leading spaces)
     add x6, x9, x12                // end
-    // Expand into slit_esc_buf (max 255)
+    // Two transient buffers so back-to-back interpret S\" stay distinct.
+    adrp x8, slit_esc_which@page
+    add  x8, x8, slit_esc_which@pageoff
+    ldr  x4, [x8]
+    cbnz x4, _se_buf2
     adrp x7, slit_esc_buf@page
-    add x7, x7, slit_esc_buf@pageoff
+    add  x7, x7, slit_esc_buf@pageoff
+    mov  x4, #1
+    str  x4, [x8]
+    b    _se_buf_ready
+_se_buf2:
+    adrp x7, slit_esc_buf2@page
+    add  x7, x7, slit_esc_buf2@pageoff
+    str  xzr, [x8]
+_se_buf_ready:
     mov x5, #0                     // out len
 _se_loop:
     cmp x1, x6
@@ -11115,6 +11283,43 @@ _ri_apply:
     adrp x4, word_cursor@page
     add x4, x4, word_cursor@pageoff
     str x3, [x4]
+    // File line window: the next REFILL starts after this restored line.
+    adrp x4, line_mode@page
+    add x4, x4, line_mode@pageoff
+    ldr x4, [x4]
+    cbz x4, _ri_done
+    adrp x4, source_addr@page
+    add x4, x4, source_addr@pageoff
+    ldr x3, [x4]
+    adrp x4, source_len@page
+    add x4, x4, source_len@pageoff
+    ldr x4, [x4]
+    add x3, x3, x4
+    adrp x5, line_limit@page
+    add x5, x5, line_limit@pageoff
+    ldr x5, [x5]
+    cmp x3, x5
+    b.hs _ri_next
+    ldrb w4, [x3]
+    cmp w4, #10
+    b.eq _ri_nl
+    cmp w4, #13
+    b.ne _ri_next
+    add x4, x3, #1
+    cmp x4, x5
+    b.hs _ri_next
+    ldrb w6, [x4]
+    cmp w6, #10
+    b.ne _ri_next
+    add x3, x4, #1
+    b _ri_next
+_ri_nl:
+    add x3, x3, #1
+_ri_next:
+    adrp x4, line_next@page
+    add x4, x4, line_next@pageoff
+    str x3, [x4]
+_ri_done:
     str x20, [x22, #-8]!
     mov x20, #0
     NEXT
@@ -11345,6 +11550,9 @@ _do_quit:
     adrp x0, source_sp@page
     add  x0, x0, source_sp@pageoff
     str  xzr, [x0]
+    adrp x0, eval_resume_sp@page
+    add  x0, x0, eval_resume_sp@pageoff
+    str  xzr, [x0]
     // Terminal is the input source
     adrp x0, source_id_var@page
     add  x0, x0, source_id_var@pageoff
@@ -11400,6 +11608,9 @@ _quit_loop:
     str xzr, [x0]
     adrp x0, source_sp@page
     add x0, x0, source_sp@pageoff
+    str xzr, [x0]
+    adrp x0, eval_resume_sp@page
+    add x0, x0, eval_resume_sp@pageoff
     str xzr, [x0]
     adrp x0, source_id_var@page
     add x0, x0, source_id_var@pageoff
@@ -11777,9 +11988,12 @@ _report_undef_loc:
     ldr  x0, [x0]
     cmp  x0, #0
     b.gt 1f
-    // SOURCE-ID == -1 and include_name_len != 0 → high-level INCLUDED/FLOAD
+    // -1 high-level INCLUDED, or -2 line-at-a-time FLOAD
     cmn  x0, #1
+    b.eq 8f
+    cmn  x0, #2
     b.ne 9f
+8:
     adrp x0, include_name_len@page
     add  x0, x0, include_name_len@pageoff
     ldr  x0, [x0]
@@ -11884,12 +12098,22 @@ _ea_unwind:
     adrp x1, word_cursor@page
     add  x1, x1, word_cursor@pageoff
     str  x0, [x1]
+    adrp x0, eval_resume_sp@page
+    add  x0, x0, eval_resume_sp@pageoff
+    str  xzr, [x0]
     // Finish this evaluate (print ok / return to host). Do *not* re-enter
     // the interpret loop on a restored outer line.
     b    _interpret_done
 
-// End of current SOURCE: pop nested source (INCLUDE/EVALUATE) or finish line
+// End of current SOURCE: next file line, else pop nested source or finish
 _interpret_empty:
+    adrp x0, line_mode@page
+    add  x0, x0, line_mode@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 3f
+    bl   _take_line
+    cbnz x0, _interpret_loop
+3:
     // Remember which kind of SOURCE just ended (before _pop_source overwrites id).
     adrp x0, source_id_var@page
     add  x0, x0, source_id_var@pageoff
@@ -11911,25 +12135,20 @@ _interpret_empty:
     ldr  x10, [sp, #8]
     ldr  x0, [sp], #16
     cbz  x0, _interpret_done       // base done
-    // Outer SOURCE restored — usually continue scanning it (INCLUDE mid-line).
-    //
-    // Special case: ['] EVALUATE CATCH — resume CATCH when *this* EVALUATE
-    // ends (source_sp back to the value CATCH saved), not only when the
-    // outermost SOURCE ends. Bare inner EVALUATE (no matching CATCH) keeps
-    // scanning the outer SOURCE (source_sp != catch's saved_source_sp).
-    cmn  x10, #1                   // ending id == -1 (EVALUATE / LOAD string)?
+    // File INCLUDE (SOURCE-ID > 0): keep scanning the restored outer SOURCE.
+    // EVALUATE and (LOAD-RUN) use -1. (LINE-SOURCE) uses -2 so a positive id
+    // is not also taken as "pop the load directory" (INCLUDED does that).
+    // Both pushed the caller's IP on eval_resume_stack. A zero IP means
+    // this level did not push one.
+    cmn  x10, #1
+    b.eq 2f
+    cmn  x10, #2
     b.ne _interpret_loop
-    adrp x7, throw_handler@page
-    add  x7, x7, throw_handler@pageoff
-    ldr  x1, [x7]
-    cbz  x1, _interpret_loop       // no CATCH: keep scanning outer
-    ldr  x3, [x1, #8]              // CATCH frame saved_source_sp
-    adrp x2, source_sp@page
-    add  x2, x2, source_sp@pageoff
-    ldr  x2, [x2]
-    cmp  x2, x3
-    b.ne _interpret_loop           // deeper/shallower than this CATCH's EVALUATE
-    b    _catch_ok_resume          // matching EVALUATE done → CATCH success
+2:
+    bl   _eval_resume_pop          // x0 = IP, or 0 if none
+    cbz  x0, _interpret_loop
+    mov  x19, x0
+    NEXT
 
 _interpret_done:
     // First completion is bootstrap (forth_init_str); fence user WORDS after that.
@@ -11951,6 +12170,7 @@ _catch_ok_resume:
     add  x23, x23, #24             // skip source_sp + DSP + TOS (keep xt results)
     ldr  x0, [x23], #8             // prev_handler
     str  x0, [x7]
+    add  x23, x23, #8              // eval_resume_sp cell
     str  x20, [x22, #-8]!
     mov  x20, #0
     NEXT
@@ -12003,6 +12223,95 @@ _set_source:
     adrp x2, file_echo_pos@page
     add x2, x2, file_echo_pos@pageoff
     str x0, [x2]
+    adrp x2, line_mode@page
+    add x2, x2, line_mode@pageoff
+    str xzr, [x2]
+    ret
+
+// _arm_lines: x0=buffer, x1=length. Current SOURCE becomes a line window
+// over this image. Does not install the first line (caller or _interpret_empty).
+_arm_lines:
+    adrp x2, line_origin@page
+    add x2, x2, line_origin@pageoff
+    str x0, [x2]
+    add x3, x0, x1
+    adrp x2, line_limit@page
+    add x2, x2, line_limit@pageoff
+    str x3, [x2]
+    adrp x2, line_next@page
+    add x2, x2, line_next@pageoff
+    str x0, [x2]
+    mov x3, #1
+    adrp x2, line_mode@page
+    add x2, x2, line_mode@pageoff
+    str x3, [x2]
+    adrp x2, file_echo_pos@page
+    add x2, x2, file_echo_pos@pageoff
+    str x0, [x2]
+    ret
+
+// _take_line: install the next line as SOURCE. x0=1 if a line was taken, else 0.
+// Newline is not part of SOURCE. line_next moves past CR, LF, or CRLF.
+_take_line:
+    stp x29, x30, [sp, #-16]!
+    adrp x2, line_next@page
+    add x2, x2, line_next@pageoff
+    ldr x0, [x2]
+    adrp x3, line_limit@page
+    add x3, x3, line_limit@pageoff
+    ldr x3, [x3]
+    cmp x0, x3
+    b.hs _tl_eof
+    mov x1, x0
+_tl_scan:
+    cmp x1, x3
+    b.hs _tl_eos
+    ldrb w4, [x1]
+    cmp w4, #10
+    b.eq _tl_lf
+    cmp w4, #13
+    b.eq _tl_cr
+    add x1, x1, #1
+    b _tl_scan
+_tl_lf:
+    mov x5, x1
+    add x1, x1, #1
+    b _tl_set
+_tl_cr:
+    mov x5, x1
+    add x1, x1, #1
+    cmp x1, x3
+    b.hs _tl_set
+    ldrb w4, [x1]
+    cmp w4, #10
+    b.ne _tl_set
+    add x1, x1, #1
+    b _tl_set
+_tl_eos:
+    mov x5, x1
+_tl_set:
+    sub x6, x5, x0
+    adrp x2, line_next@page
+    add x2, x2, line_next@pageoff
+    str x1, [x2]
+    adrp x2, source_addr@page
+    add x2, x2, source_addr@pageoff
+    str x0, [x2]
+    adrp x2, source_len@page
+    add x2, x2, source_len@pageoff
+    str x6, [x2]
+    adrp x2, to_in_var@page
+    add x2, x2, to_in_var@pageoff
+    str xzr, [x2]
+    adrp x2, word_cursor@page
+    add x2, x2, word_cursor@pageoff
+    str x0, [x2]
+    mov x0, #1
+    ldp x29, x30, [sp], #16
+    ret
+_tl_eof:
+    mov x0, #0
+    ldp x29, x30, [sp], #16
     ret
 
 // _file_echo_upto_cursor: if FILE-ECHO nonzero and this SOURCE is a file load,
@@ -12014,8 +12323,9 @@ _set_source:
 // Safe with live VM regs: only x0-x4/x16 plus stack spills (no x19-x24).
 // Echo when:
 //   SOURCE-ID > 0  (CODE INCLUDE buffer), or
-//   SOURCE-ID == -1 AND include_name_len != 0  (high-level INCLUDED =
-//     (SLURP)+EVALUATE — EVALUATE sets SOURCE-ID -1, but the load path is set).
+//   SOURCE-ID == -1 or -2 AND include_name_len != 0.
+//   -1 is high-level INCLUDED ((SLURP)+EVALUATE). -2 is line-at-a-time
+//   (LINE-SOURCE); Hayes FLOAD uses that path.
 _file_echo_upto_cursor:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
@@ -12030,9 +12340,12 @@ _file_echo_upto_cursor:
     ldr x0, [x0]
     cmp x0, #0
     b.gt 0f
-    // SOURCE-ID == -1 (EVALUATE): echo only while an INCLUDE name is pending
+    // -1 EVALUATE or -2 (LINE-SOURCE): echo only while an INCLUDE name is pending
     cmn x0, #1                     // x0 == -1?
+    b.eq 8f
+    cmn x0, #2                     // x0 == -2?
     b.ne _fe_done
+8:
     adrp x0, include_name_len@page
     add x0, x0, include_name_len@pageoff
     ldr x0, [x0]
@@ -12040,15 +12353,29 @@ _file_echo_upto_cursor:
 0:
     // Locals on stack: [0]=base [8]=end [16]=target_eol [24]=pos
     sub sp, sp, #32
-    // source base / end
+    // source base / end. A file line window echoes against the whole image
+    // so line numbers stay file-relative.
+    adrp x4, line_mode@page
+    add x4, x4, line_mode@pageoff
+    ldr x4, [x4]
+    cbz x4, 0f
+    adrp x1, line_origin@page
+    add x1, x1, line_origin@pageoff
+    ldr x1, [x1]
+    adrp x2, line_limit@page
+    add x2, x2, line_limit@pageoff
+    ldr x2, [x2]
+    b 7f
+0:
     adrp x1, source_addr@page
     add x1, x1, source_addr@pageoff
     ldr x1, [x1]                   // x1 = source base
-    str x1, [sp]
     adrp x2, source_len@page
     add x2, x2, source_len@pageoff
     ldr x2, [x2]
     add x2, x1, x2                 // x2 = source end
+7:
+    str x1, [sp]
     str x2, [sp, #8]
     // cursor = word_cursor, clamped
     adrp x0, word_cursor@page
@@ -12244,8 +12571,38 @@ _fe_emit_lineno:
     ldp x29, x30, [sp], #32
     ret
 
-// _push_source: save current SOURCE/>IN/SOURCE-ID/file_echo_pos/BLK on source_stack.
-// Frame = 6 quads (addr, len, >IN, source-id, file_echo_pos, BLK). Clobbers x0-x3.
+// _eval_resume_push: remember x19 (caller IP) for the current EVALUATE /
+// (LINE-SOURCE) / (LOAD-RUN). _eval_resume_pop returns that IP in x0, or 0.
+// Separate from the Forth return stack, which holds the token being parsed.
+_eval_resume_push:
+    adrp x0, eval_resume_sp@page
+    add  x0, x0, eval_resume_sp@pageoff
+    ldr  x1, [x0]
+    cmp  x1, #8
+    b.hs 1f
+    adrp x2, eval_resume_stack@page
+    add  x2, x2, eval_resume_stack@pageoff
+    str  x19, [x2, x1, lsl #3]
+    add  x1, x1, #1
+    str  x1, [x0]
+1:  ret
+
+_eval_resume_pop:
+    adrp x0, eval_resume_sp@page
+    add  x0, x0, eval_resume_sp@pageoff
+    ldr  x1, [x0]
+    cbz  x1, 1f
+    sub  x1, x1, #1
+    str  x1, [x0]
+    adrp x2, eval_resume_stack@page
+    add  x2, x2, eval_resume_stack@pageoff
+    ldr  x0, [x2, x1, lsl #3]
+    ret
+1:  mov  x0, #0
+    ret
+
+// _push_source: save SOURCE/>IN/SOURCE-ID/file_echo_pos/BLK and the file
+// line window (mode, origin, limit, next). Frame = 10 quads. Clobbers x0-x3.
 // BLK is saved so LOAD can set BLK after the push and have it restored when the
 // nested EVALUATE/LOAD source ends (EVALUATE does not return into colon defs).
 // Returns x0=1 ok, x0=0 overflow.
@@ -12255,7 +12612,7 @@ _push_source:
     ldr x1, [x0]
     cmp x1, #8
     b.hs 1f
-    mov x2, #48                    // 6*8 per frame
+    mov x2, #80                    // 10*8 per frame
     mul x3, x1, x2
     adrp x2, source_stack@page
     add x2, x2, source_stack@pageoff
@@ -12284,6 +12641,22 @@ _push_source:
     adrp x3, blk_var@page
     add x3, x3, blk_var@pageoff
     ldr x3, [x3]
+    str x3, [x2], #8
+    adrp x3, line_mode@page
+    add x3, x3, line_mode@pageoff
+    ldr x3, [x3]
+    str x3, [x2], #8
+    adrp x3, line_origin@page
+    add x3, x3, line_origin@pageoff
+    ldr x3, [x3]
+    str x3, [x2], #8
+    adrp x3, line_limit@page
+    add x3, x3, line_limit@pageoff
+    ldr x3, [x3]
+    str x3, [x2], #8
+    adrp x3, line_next@page
+    add x3, x3, line_next@pageoff
+    ldr x3, [x3]
     str x3, [x2]
     add x1, x1, #1
     str x1, [x0]
@@ -12293,7 +12666,7 @@ _push_source:
     mov x0, #0
     ret
 
-// _pop_source: restore SOURCE/>IN/SOURCE-ID/file_echo_pos/BLK. x0=1 ok, x0=0 underflow.
+// _pop_source: restore SOURCE window plus file line state. x0=1 ok, x0=0 underflow.
 _pop_source:
     adrp x0, source_sp@page
     add x0, x0, source_sp@pageoff
@@ -12301,7 +12674,7 @@ _pop_source:
     cbz x1, 1f
     sub x1, x1, #1
     str x1, [x0]
-    mov x2, #48
+    mov x2, #80
     mul x3, x1, x2
     adrp x2, source_stack@page
     add x2, x2, source_stack@pageoff
@@ -12331,9 +12704,25 @@ _pop_source:
     adrp x0, file_echo_pos@page
     add x0, x0, file_echo_pos@pageoff
     str x3, [x0]
-    ldr x3, [x2]
+    ldr x3, [x2], #8
     adrp x0, blk_var@page
     add x0, x0, blk_var@pageoff
+    str x3, [x0]
+    ldr x3, [x2], #8
+    adrp x0, line_mode@page
+    add x0, x0, line_mode@pageoff
+    str x3, [x0]
+    ldr x3, [x2], #8
+    adrp x0, line_origin@page
+    add x0, x0, line_origin@pageoff
+    str x3, [x0]
+    ldr x3, [x2], #8
+    adrp x0, line_limit@page
+    add x0, x0, line_limit@pageoff
+    str x3, [x0]
+    ldr x3, [x2]
+    adrp x0, line_next@page
+    add x0, x0, line_next@pageoff
     str x3, [x0]
     mov x0, #1
     ret
@@ -13267,7 +13656,11 @@ _rl_nl:
 2:
     mov x0, #10
     bl _rl_echo
+    // Caller buffer is exactly +n1 bytes (x20). A full line has no room for NUL.
+    cmp x21, x20
+    b.hs 3f
     strb wzr, [x19, x21]
+3:
     bl _hist_push                   // remember non-empty lines
     // _tty_raw_leave clobbers x0 (tcsetattr status); keep buffer ptr in x25
     mov x25, x19
@@ -13283,9 +13676,12 @@ _rl_nl:
 _rl_eof:
     // Preserve len across leave; x0 must be buf or 0 after restore
     mov x25, x21
+    cmp x21, x20
+    b.hs 1f
+    strb wzr, [x19, x21]
+1:
     bl _tty_raw_leave
     cbz x25, _rl_null
-    strb wzr, [x19, x25]
     mov x0, x19
     ldp x25, x26, [sp], #16
     ldp x23, x24, [sp], #16
@@ -17250,6 +17646,8 @@ file_echo:        .quad 0           // FILE-ECHO body; 0=off, nonzero=on
 file_echo_pos:    .quad 0           // absolute addr: next source byte not yet echoed
 noname_xt:        .quad 0           // :NONAME entry; ; pushes then clears
 slit_esc_buf:     .skip 256         // S\" interpret expansion buffer
+slit_esc_buf2:    .skip 256         // second transient S\" buffer
+slit_esc_which:   .quad 0           // 0 → next S\" uses buf, 1 → buf2
 // Line history (see HIST_MAX / HIST_LINE)
 hist_data:        .skip HIST_MAX * HIST_LINE
 hist_draft:       .skip HIST_LINE
@@ -17304,10 +17702,17 @@ to_in_var:      .quad 0
 repl_batch_stop: .quad 0           // set by \S on SOURCE-ID 0; host takes via kernel_take_repl_batch_stop
 pad_buffer:     .skip 1024         // must match PAD docstring / MH-EMIT-FILE chunking
 hold_ptr:       .quad 0
-// Nested SOURCE stack: 8 frames * 5 quads (addr, len, >IN, source-id, file_echo_pos)
-source_stack:   .skip 384          // 8 frames * 48 bytes (addr,len,>IN,id,echo,BLK)
+// Nested SOURCE stack: 8 frames * 10 quads
+// addr, len, >IN, source-id, file_echo_pos, BLK, line_mode, origin, limit, next
+source_stack:   .skip 640
+eval_resume_sp: .quad 0
+eval_resume_stack: .skip 64
 source_sp:      .quad 0
 source_id_var:  .quad 0
+line_mode:      .quad 0            // 1 = SOURCE is one line of [line_origin, line_limit)
+line_origin:    .quad 0
+line_limit:     .quad 0
+line_next:      .quad 0
 throw_handler:  .quad 0
 
 // ENVIRONMENT? tables (name ptrs, value cells, kinds: 0=flag, 1=value+true, 2=string+true)
@@ -17431,6 +17836,7 @@ str_undefined:  .ascii "undefined: "
 str_protected:  .asciz "protected (system word)\n"
                 .byte 0
 str_underflow:  .asciz "stack underflow\n"
+str_empty_body: .asciz " empty colon body\n"
 str_overflow:   .asciz "stack overflow\n"
 str_memfault:   .asciz "memory access error\n"
 str_allot_over: .asciz "ALLOT: dictionary full (need more USER-DICT space)\n"
@@ -17630,6 +18036,8 @@ local_frame_rsp:    .skip LOCAL_FRAME_MAX * 8
 local_frame_n:      .skip LOCAL_FRAME_MAX * 8
 local_frames:       .skip LOCAL_FRAME_MAX * LOCAL_MAX * 8
 str_store_name:     .asciz "!"
+str_twofetch:       .asciz "2@"
+str_twostore:       .asciz "2!"
 
 // ============================================================================
 // User dictionary space (grows upward)

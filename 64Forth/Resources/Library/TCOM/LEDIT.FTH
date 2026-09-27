@@ -291,14 +291,14 @@ defer doldel    ' <doldel> is doldel
                                         \ keyvalue n1 of the KEYFUNCS array
                 128 - dup 0< over 127 > or
                 abort" keys must be in the range 128 to 255"
-                \ keysfuncptr = xt; body data starts at >BODY CELL+ (CFA+16)
-                CELLS keysfuncptr >BODY CELL+ + ! ;
+                \ keysfuncptr = xt; body data is >BODY (CFA+16)
+                CELLS keysfuncptr >BODY + ! ;
 
 : lkey@         ( n1 --- a1 )           \ fetch the function CFA a1 of
                                         \ keyvalue n1 from the KEYFUNCS array
                 128 - dup 0< over 127 > or
                 abort" keys must be in the range 128 to 255"
-                CELLS keysfuncptr >BODY CELL+ + @ ;
+                CELLS keysfuncptr >BODY + @ ;
 
 : ?func        ( --- )                         \ handle function keys
                 lchar   127 >

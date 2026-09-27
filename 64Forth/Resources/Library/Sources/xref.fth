@@ -88,12 +88,12 @@ VARIABLE XREF-VOC-FOUND   \ true once .WID-NAME printed a VOCABULARY name
   0 SWAP XREF-WID-ADD-NT
 ;
 
-\ VOCABULARY words live in FORTH; their wid is at nt + 2 CELLS (same as FP).
+\ VOCABULARY words live in FORTH; their wid is at nt + 2 CELLS (same as FLOATING).
 \ Record nt alongside wid so titles need no second FORTH walk.
 : XREF-COLLECT-VOC  ( nt -- cont )
   DUP XREF-XT-OK? 0= IF DROP TRUE EXIT THEN
   DUP DOCOL? IF DROP TRUE EXIT THEN
-  DUP CELL+ @ ['] FP CELL+ @ = IF
+  DUP CELL+ @ ['] FLOATING CELL+ @ = IF
     DUP 2 CELLS + XREF-WID-ADD-NT
   ELSE DROP THEN
   TRUE
@@ -177,7 +177,7 @@ VARIABLE XREF-VOC-FOUND   \ true once .WID-NAME printed a VOCABULARY name
 : XREF-VOCAB?  ( nt -- flag )
   DUP XREF-XT-OK? 0= IF DROP FALSE EXIT THEN
   DUP DOCOL? IF DROP FALSE EXIT THEN
-  CELL+ @ ['] FP CELL+ @ =
+  CELL+ @ ['] FLOATING CELL+ @ =
 ;
 
 : XREF-MATCH-VOC  ( nt -- cont )

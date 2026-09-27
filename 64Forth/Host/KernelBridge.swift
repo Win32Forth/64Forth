@@ -2025,7 +2025,7 @@ final class KernelBridge {
 
     func statusLine() -> String {
         if isKernelLive {
-            return "[64Forth] kernel live — FP · BIG-INTEGER · FROMLIB FLOAD DIR\n"
+            return "[64Forth] kernel live — FLOATING · BIG-INTEGER · FROMLIB FLOAD DIR\n"
         }
         return "[64Forth] kernel embed API failed to start\n"
     }
@@ -2625,6 +2625,10 @@ final class KernelBridge {
             // Nested CFRunLoopRunInMode re-entry (e.g. from scroll/layout while
             // already pumping) has trapped as EXC_BREAKPOINT on some macOS builds.
             while done.wait(timeout: .now() + 0.016) == .timedOut {
+                // Drain here. The async main-queue flush can sit unrun while this
+                // loop is inside nextEvent, so a long FLOAD shows nothing until
+                // KEY blocks and the queue gets a turn.
+                self.drainEmitBufferToSink()
                 if !self.isPumpingEvents {
                     var more = true
                     var steps = 0

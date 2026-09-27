@@ -48,7 +48,7 @@ Current modules - driver load order
   file.fth       File-Access - CREATE/OPEN/READ/WRITE under /tmp
   block.fth      Block - /tmp .blk volume, LOAD
   xchar.fth      Extended Character UTF-8
-  float.fth      Float Tier A/B - ALSO FP vocabulary
+  float.fth      Float Tier A/B - ALSO FLOATING vocabulary
   host.fth       High-ROI TZForth FTEST ports (FIND, POSTPONE, SLITERAL,
                  MARKER, 2!/2@, SIGN, REQUIRED/INCLUDED, EMIT?/EKEY?,
                  double literals, {:} order, FALIGNED/FATAN2/FLITERAL,

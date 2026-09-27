@@ -8,10 +8,8 @@
 \ FILE-ECHO ON is fine for debugging but is not required.
 \
 \ 64Forth notes:
-\   - Floating-point words live in vocabulary FP — driver does ONLY FORTH ALSO FP
-\     before the FP suite (searchordertest can leave a weird search order).
-\   - Look for: "Running FP Tests" … "FP tests finished" and FPERRORS @ = 0
-\   - If you see "Harness/runfptests: skipped" the FP vocabulary/words were not found.
+\   - Floating-point words live in vocabulary FLOATING. The harness does
+\     ONLY FORTH ALSO FLOATING (searchordertest can leave a weird order).
 \   - FP *tests* live in src/fp/; the FP *driver* is src/Harness/runfptests.fth
 \
 \ Full suite source remains under src/ for comparison with HAYES-RESULTS.txt.
@@ -34,9 +32,7 @@ VARIABLE cperrors  0 #ERRORS ! fload src/coreplustest.fth  .( #ERRORS @ = ) #ERR
 VARIABLE cerrors  0 #ERRORS ! fload src/coreexttest.fth .( #ERRORS @ = ) #ERRORS @  cerrors !
 VARIABLE derrors  0 #ERRORS ! fload src/doubletest.fth .( #ERRORS @ = ) #ERRORS @  derrors !
 VARIABLE eerrors  0 #ERRORS ! fload src/exceptiontest.fth .( #ERRORS @ = ) #ERRORS @  eerrors !
-
 VARIABLE ferrors  0 #ERRORS ! fload src/filetest.fth .( #ERRORS @ = ) #ERRORS @  ferrors !
-
 VARIABLE lerrors  0 #ERRORS ! fload src/localstest.fth .( #ERRORS @ = ) #ERRORS @  lerrors !
 VARIABLE merrors  0 #ERRORS ! fload src/memorytest.fth .( #ERRORS @ = ) #ERRORS @  merrors !
 VARIABLE terrors  0 #ERRORS ! fload src/toolstest.fth .( #ERRORS @ = ) #ERRORS @  terrors !
@@ -51,27 +47,11 @@ VARIABLE faerrors  0 #ERRORS ! fload src/facilitytest.fth .( #ERRORS @ = ) #ERRO
   VARIABLE berrors  0 #ERRORS ! fload src/blocktest.fth .( #ERRORS @ = ) #ERRORS @  berrors !
 [THEN]
 
-\ Floating-point: words live in the FP vocabulary.
-\ Reset search order first — searchordertest often leaves ONLY / odd orders
-\ so a bare ALSO FP can fail with undefined: FP and abort the driver.
 VARIABLE fperrors  0 fperrors !
-ONLY FORTH
-[UNDEFINED] FP [IF]
-  .( Harness/runfptests: skipped - VOCABULARY FP not defined - rebuild with FP ) CR
-[ELSE]
-  ALSO FP
-  [UNDEFINED] F+ [IF]
-    .( Harness/runfptests: skipped - F+ missing in FP vocabulary ) CR
-  [ELSE]
-    .( --- starting FP suite --- ) CR
-    .( Expect: Running FP Tests, per-file FP: lines, then FP tests finished ) CR
-    0 #ERRORS !
-    FLOAD src/Harness/runfptests.fth
-    #ERRORS @ fperrors !
-    .( --- FP suite returned; FPERRORS will be #ERRORS after suite --- ) CR
-  [THEN]
-  PREVIOUS
-[THEN]
+0 #ERRORS !
+FLOAD src/Harness/runfptests.fth
+#ERRORS @ fperrors !
+PREVIOUS
 
 .( CPERRORS @ = ) cperrors @ .
 .( CERRORS @ = ) cerrors @ .

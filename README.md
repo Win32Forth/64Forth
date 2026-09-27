@@ -2,7 +2,7 @@
 
 **Public domain.**
 
-**64Forth's Heritage**: When I decided to make yet another Forth system, I went looking for a name for it. I thought of my earlier Forths, like F-PC, and Win32Forth, and thought possibly of Win64Forth. But this Forth is not designed for Windows, so that seemed wrong. I then thought of 64Forth, and went looking for Forth systems on the internet with that name. You will never guess what I found. Yes, you guessed it. 64Forth was the name of my earlier Forth system for the Commodore 64 Computer. In that case, the 64 represented the fact that the Commodore had I believe 64 MB of memory, which was quite a lot in that day. Anyway, I realized that I essentially already had dibs on the 64Forth name, so that is the name I chose for this MacOS M1-M5+ Forth system that is a hybrid of the two previous Forth systems I created this month. I hope you will find 64Forth interesting, at least enough to take a look. It is constructed mostly by Grok with an assembly language kernel, and a Swift code console and extensions, and like TZForth, it has some Libraries built right into the app. **As of v1.0.0** it includes File-Access, file-backed Blocks, Floating-point (`VOCABULARY FP`), Core/Core Ext, String Ext, Locals, **Facility + Facility Ext** (structures, `EKEY>FKEY`, `K-*`), **FacilityTerminal** full-screen `PAGE`/`AT-XY`, **SZ-EDITOR** (full-screen edit, find, clip, mouse/wheel, Tab indent, `EDIT` entry), **Hypertext** (LOCATE/VIEW, multi-hit ⌘PgUp/Dn, ⌘E, in-app `HYPER-REINDEX`), **Extended Character (UTF-8 XChar)**, **hashed multi-thread wordlists** (`DICT_THREADS`), a green Hayes subset (core through FP/paranoia Excellent), and modular Library **ANSValidate** (~383 passed / 0 failed). Optional later: App Sandbox for store builds, dual-buffer editor, richer reindex TYPE rules. The architecture is very interesting: CODE words are assembly labels; macros build traditional headers (NFA, LFA, FFA, CFA, BODY) plus an HFA (Help Field Address). Go Forth and prosper!
+**64Forth's Heritage**: When I decided to make yet another Forth system, I went looking for a name for it. I thought of my earlier Forths, like F-PC, and Win32Forth, and thought possibly of Win64Forth. But this Forth is not designed for Windows, so that seemed wrong. I then thought of 64Forth, and went looking for Forth systems on the internet with that name. You will never guess what I found. Yes, you guessed it. 64Forth was the name of my earlier Forth system for the Commodore 64 Computer. In that case, the 64 represented the fact that the Commodore had I believe 64 MB of memory, which was quite a lot in that day. Anyway, I realized that I essentially already had dibs on the 64Forth name, so that is the name I chose for this MacOS M1-M5+ Forth system that is a hybrid of the two previous Forth systems I created this month. I hope you will find 64Forth interesting, at least enough to take a look. It is constructed mostly by Grok with an assembly language kernel, and a Swift code console and extensions, and like TZForth, it has some Libraries built right into the app. **As of v1.0.0** it includes File-Access, file-backed Blocks, Floating-point (`VOCABULARY FLOATING`), Core/Core Ext, String Ext, Locals, **Facility + Facility Ext** (structures, `EKEY>FKEY`, `K-*`), **FacilityTerminal** full-screen `PAGE`/`AT-XY`, **SZ-EDITOR** (full-screen edit, find, clip, mouse/wheel, Tab indent, `EDIT` entry), **Hypertext** (LOCATE/VIEW, multi-hit ⌘PgUp/Dn, ⌘E, in-app `HYPER-REINDEX`), **Extended Character (UTF-8 XChar)**, **hashed multi-thread wordlists** (`DICT_THREADS`), a green Hayes subset (core through FP/paranoia Excellent), and modular Library **ANSValidate** (~383 passed / 0 failed). Optional later: App Sandbox for store builds, dual-buffer editor, richer reindex TYPE rules. The architecture is very interesting: CODE words are assembly labels; macros build traditional headers (NFA, LFA, FFA, CFA, BODY) plus an HFA (Help Field Address). Go Forth and prosper!
 
 
 **Getting 64Forth to run on your Mac**: All of the latest security changes Apple has made to MacOS, have made it fairly difficult to run apps obtained from outside the Apple App Store, but it is not impossible. Here is how you to it;
@@ -117,7 +117,7 @@ Stamp the date/time only when finishing a change set for a version, just before 
 - [x] Multi-wordlist `FORGET`, `RESIZE`, quoted `INCLUDE "…"` paths, console KEY  
 - [x] File-Access word set (`FileAccess` host + CODE)  
 - [x] Block word set with file volume; `LOAD` restores outer `BLK`  
-- [x] Floating-point (`FloatHost` + `VOCABULARY FP`; `ALSO FP` to use)  
+- [x] Floating-point (`FloatHost` + `VOCABULARY FLOATING`; `ALSO FLOATING` to use)  
 - [x] In-app Hayes subset green: core through FP (`FROMLIB FLOAD HayesTest/HayesTest.fth`)  
 - [x] v0.6: FIND-before-number, Tools `?`, CODE `DEPTH`, include buffer 256 KiB, Hayes harness  
 - [x] String Ext, Locals Ext, Facility structures, Extended Character (UTF-8 XChar)  
@@ -163,7 +163,7 @@ Open `64Forth.xcodeproj` in **full Xcode** (Apple Silicon; not Command Line Tool
 ```text
 FROMLIB FLOAD BigInteger/big-int.fth
 FROMLIB FLOAD HayesTest/HayesTest.fth
-ALSO FP
+ALSO FLOATING
 1.5e0 2e0 F+ F.
 
 FROMLIB FLOAD ANSValidate/ANS-VALIDATE.fth
@@ -180,6 +180,8 @@ FROMLIB S" Pascal/PASY.PAS" PASCAL-TO-FILE
 FROMLIB S" Pascal/PASY.fth" INCLUDED
 DEMO
 ```
+
+Floating-point words are in the `FLOATING` vocabulary (`ALSO FLOATING`). The Hayes core `ACCEPT` test waits for a typed line. The rest of the Hayes subset is clean except four floating-point failures still open.
 
 ### Phase 1 API (assembly ↔ Swift)
 

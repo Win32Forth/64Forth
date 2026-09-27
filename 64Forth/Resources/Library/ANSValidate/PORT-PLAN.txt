@@ -26,7 +26,7 @@ Module order
   [done]  file.fth       File-Access - /tmp paths
   [done]  block.fth      Block - /tmp .blk volume
   [done]  xchar.fth      Extended Character
-  [done]  float.fth      Float Tier A/B - ALSO FP
+  [done]  float.fth      Float Tier A/B - ALSO FLOATING
   [done]  host.fth       TZForth FTEST high-ROI wave (v0.8.2)
 
 Skip / never pure Forth

@@ -22,4 +22,4 @@ Run (from the app):
   FROMLIB FLOAD HayesTest/HayesTest.fth
   → FLOAD src/Harness/prepare-blocks.fth  (if OPEN-BLOCK-FILE present)
   → … word-set tests …
-  → FLOAD src/Harness/runfptests.fth      (after ALSO FP)
+  → FLOAD src/Harness/runfptests.fth      (after ALSO FLOATING)

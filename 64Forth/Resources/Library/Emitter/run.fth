@@ -101,7 +101,7 @@ VARIABLE RET-BODY
   RUN-HERE TO patch
   0 0 ARM-MOV64,               \ 4 insns; overwritten below
   $F81F8EE0 RUN-W,             \ STR X0, [X23, #-8]!   RPUSH return IP
-  $910022B3 RUN-W,             \ ADD X19, X21, #8      IP = body
+  $910042B3 RUN-W,             \ ADD X19, X21, #16     IP = body
   $F8408675 RUN-W,             \ LDR X21, [X19], #8    NEXT
   $F94002A1 RUN-W,             \ LDR X1, [X21]
   $D61F0020 RUN-W,             \ BR X1
@@ -167,7 +167,7 @@ VARIABLE RET-BODY
   RUN-HERE TO patch
   0 0 ARM-MOV64,
   $F81F8EE0 RUN-W,             \ STR X0, [X23, #-8]!   RPUSH return IP
-  $910022B3 RUN-W,             \ ADD X19, X21, #8      IP = body
+  $910042B3 RUN-W,             \ ADD X19, X21, #16     IP = body
   $F8408675 RUN-W,             \ LDR X21, [X19], #8    NEXT
   $F94002A1 RUN-W,             \ LDR X1, [X21]
   $D61F0020 RUN-W,             \ BR X1
