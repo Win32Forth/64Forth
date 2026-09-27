@@ -161,7 +161,7 @@ static void __attribute__((noinline)) run_itc(void *cfa, void *dsp, void *rp) {
     "str x30, [x23, #-8]!\n\t"
     "mov x0, %3\n\t"
     "str x0, [x23, #-8]!\n\t"
-    "add x19, x21, #8\n\t"
+    "add x19, x21, #8\n\t" /* emitted colon body; host DOES> slot is not copied */
     "ldr x21, [x19], #8\n\t"
     "ldr x1, [x21]\n\t"
     "br x1\n\t"

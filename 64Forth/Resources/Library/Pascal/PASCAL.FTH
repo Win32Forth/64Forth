@@ -507,6 +507,7 @@ DEFER EXPR-
         A$CONSTANT >R
         TOKEN ==??
         TOKEN #??
+        DUP R@ CELL - !                \ keep the value for array bounds
         CROUT ##OUT S" CONSTANT" "OUT R> $OUT
         TOKEN ;??
         TOKEN IDENT? 0=
@@ -527,10 +528,25 @@ DEFER EXPR-
     INREC TOKEN ;? DUP
     IF  DROP TOKEN IDENT?  THEN  0= ;
 
+\ array [n], array [Limit], or array [Limit+1]. Limit must already be a const.
+: ARRAY-BOUND  ( -- n )
+    TOKEN
+    #? IF
+    ELSE
+        IDENT? 0= S" Number or constant expected !" "PABORT
+        A$ COUNT INSET PASWORD $INCON
+        DUP 0= S" Unknown constant in array bound !" "PABORT
+        DROP CELL - @  INREC
+    THEN
+    TOKEN
+    +? IF  TOKEN #?? +       TOKEN ]?? EXIT  THEN
+    -? IF  TOKEN #?? NEGATE +  TOKEN ]?? EXIT  THEN
+    ]?? ;
+
 : MAKEARRAYS  ( -- f )
-    TOKEN [??  TOKEN
-    #A??  CELLS TO ARRAYSIZE
-    TOKEN ]??  TOKEN OF??
+    TOKEN [??
+    ARRAY-BOUND CELLS TO ARRAYSIZE
+    TOKEN OF??
     TOKEN INTEGER??  TOKEN ;??
     VAR$ COUNT INSET
     BEGIN

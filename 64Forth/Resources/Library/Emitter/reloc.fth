@@ -861,6 +861,20 @@ $D63F0120 CONSTANT ARM-BLR-X9
   ." sa-bss catch cells n=" SA-BSS-N @ .
   ."  cfa-ok data=" SA-DC @ U. CR ;
 
+\ Emitted colon bodies start at CFA+8. Host (DOCOL) may add #16.
+: SA-DOCOL-IP8  ( -- )
+  ?EMIT-STANDALONE 0= IF  EXIT  THEN
+  ['] (DOCOL) MAP-FIND DUP 0= IF  DROP EXIT  THEN
+  {: new | a n w -- :}
+  new 8 + TO a
+  ['] (DOCOL) PRIM-SPAN NIP TO n
+  BEGIN  n 4 U< 0= WHILE
+    a W@ TO w
+    w $910042B3 = IF  $910022B3 a W!  EXIT  THEN
+    a 4 + TO a
+    n 4 - TO n
+  REPEAT ;
+
 : SA-EXCEPT-FIX-CFA  ( -- )
   ?EMIT-STANDALONE 0= IF  EXIT  THEN
   SA-DC @ 0= IF  EXIT  THEN
@@ -870,6 +884,9 @@ $D63F0120 CONSTANT ARM-BLR-X9
     ." sa-bss: (CATCH-OK) not mapped" CR ABORT
   THEN
   SA-DC @ !
+  \ The cell holds a sliced CFA. SAVE-IMAGE must rebase it or the
+  \ stand-alone image jumps to the emit-time address and the window flashes.
+  SA-DC @ 1 PTR-RELOC-ADD
   ." sa-bss cfa-ok fixed " SA-DC @ @ U. CR ;
 
 : SA-EXCEPT-SETUP  ( -- )
@@ -988,6 +1005,7 @@ $D63F0120 CONSTANT ARM-BLR-X9
     i 1+ TO i
   REPEAT
   SA-EXCEPT-FIX-CFA
+  SA-DOCOL-IP8
   SA-FIX-BI-HOOKS
   ." host-relocs " HOST-RELOC-N @ . CR ;
 

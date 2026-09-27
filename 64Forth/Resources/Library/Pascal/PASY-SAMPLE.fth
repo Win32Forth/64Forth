@@ -5,19 +5,20 @@
                                         \ 
                                         \ Program DEMO;
                                         \         const
-                                        \           Limit = 5;
+                                        \           Limit = 7;
 
-5 CONSTANT Limit                        \           NumberBase = 10;
+7 CONSTANT Limit                        \           NumberBase = 10;
       
 10 CONSTANT NumberBase                  \         var
-                                        \           idx, sum, n : Integer ;
+                                        \           idx, sum, n, alldone : Integer ;
 
 VARIABLE idx 
 VARIABLE sum 
-VARIABLE n                              \         var
-                                        \           squares : array [6] of Integer;
+VARIABLE n 
+VARIABLE alldone                        \         var
+                                        \           squares : array [Limit+1] of Integer;
 
-CREATE squares 48 ALLOT                 \ 
+CREATE squares 64 ALLOT                 \ 
                                         \         Proc bump(x:integer);
 
 VARIABLE x 
@@ -80,7 +81,9 @@ VARIABLE x
       ." Unexpected small sum "         \                         newline;
       CR                                \                       end;
       
-  THEN                                  \         END.
+  THEN                                  \ \*              Write('Press Return to Leave');
+                                        \                 read(alldone);  *\
+                                        \         END.
       
   ;  
 

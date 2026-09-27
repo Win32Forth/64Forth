@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-09-25 — **v1.4.3** (build 42) WIP — Sample VED64 + MIDNIGHT; `REF` skips IMMEDIATE; Pascal `RECURSE`. Prior same version: GRAPHICS color depths + Sample IMAGEVIEW64/EDIT64; cold **`Kernel/xref.fth`** (`REF`/`XREF`/`ANYWORDS`, VIEW leaf:line; KEY during console eval). Prior **1.4.2**: ANS SMUDGE / hide-until-`;`; FILE-ECHO line#s; GRAPHICS mouse + Sample/DOODLE64; Emitter SA CONSTANT/VALUE/LIT reloc for `EMIT-WINDOW-APP`; **1.4.1** TRAVERSE/DBG VIEW+HL + cold boot transcript + INCLUDE `file:line`; **1.4.0** token maps + pause UI; **1.3.9** FLOAD/INCLUDED load-cwd + THROW/CATCH polish; **1.3.8** SZ-EDITOR own window; **1.3.7** ANEW/MARKER + BREAK/BPGO; **1.3.6** Emitter **0.7** SA locals/BI + window I/O remap; app-kit freeze still `Docs/APPKIT.md` (GRAPHICS 80×25 / 640×400; `\ANS`/`\TCOM`/`\EMITTER`; tetra + PIMAIN).
+**Updated:** 2026-09-27 — **v1.5.0** (build 44) — Forth-2012 classes; case-folding dictionary lookup; colon body at CFA+16; `VOCABULARY` wid is the hash-head array and is registered; float wordlist **`FLOATING`**; `REPRESENT` writes digits; Hayes subset green; stand-alone `(CATCH-OK)` reloc; Pascal array bounds accept a constant. Prior **1.4.3** (build 42): Sample VED64 + MIDNIGHT; `REF` skips IMMEDIATE; Pascal `RECURSE`; GRAPHICS color depths + IMAGEVIEW64/EDIT64; cold **`Kernel/xref.fth`**. Prior **1.4.2**: ANS SMUDGE / hide-until-`;`; FILE-ECHO line#s; GRAPHICS mouse + Sample/DOODLE64; Emitter SA CONSTANT/VALUE/LIT reloc for `EMIT-WINDOW-APP`; **1.4.1** TRAVERSE/DBG VIEW+HL + cold boot transcript + INCLUDE `file:line`; **1.4.0** token maps + pause UI; **1.3.9** FLOAD/INCLUDED load-cwd + THROW/CATCH polish; **1.3.8** SZ-EDITOR own window; **1.3.7** ANEW/MARKER + BREAK/BPGO; **1.3.6** Emitter **0.7** SA locals/BI + window I/O remap; app-kit freeze still `Docs/APPKIT.md` (GRAPHICS 80×25 / 640×400; `\ANS`/`\TCOM`/`\EMITTER`; tetra + PIMAIN).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
@@ -186,8 +186,7 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 **Hayes driver:** `FROMLIB FLOAD HayesTest/HayesTest.fth`
 
 - `src/Harness/runfptests.fth` does `ONLY FORTH ALSO FLOATING` before the floating-point files (`searchordertest` can leave an odd order). The vocabulary is `FLOATING`; `filetest.fth`'s `CREATE FP` is a buffer and is not the vocabulary.
-- Core through block counters are 0. The floating-point suite runs and still reports 4 failures (`FPERRORS`). Those are not fixed yet.
-- The core `ACCEPT` test waits for a typed line (`PLEASE TYPE UP TO 80 CHARACTERS:`).
+- The core `ACCEPT` test waits for a typed line (`PLEASE TYPE UP TO 80 CHARACTERS:`). After that, every suite counter is 0, including `FPERRORS`.
 
 **File-Access / Block:** relative paths use logical cwd; bundle writes remap to `Application Support/64Forth/`; Hayes blocks file under `Application Support/64Forth/hayes-blocks.blk`.
 

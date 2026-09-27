@@ -1733,7 +1733,9 @@ DOCOL:
     add x0, x0, str_empty_body@pageoff
     mov x1, #18
     bl _write_stdout
-    b _do_quit
+    // BL, not B: the stand-alone slicer can NOP a call that leaves the
+    // copied (DOCOL) span. _do_quit does not return on the host.
+    bl _do_quit
 DOCOL_END:
     NEXT
 
@@ -5257,6 +5259,16 @@ XWORDLIST:
     bl   _wordlist_register        // clobbers x1–x5; preserves x0 (= wid)
     DPUSH
     mov  x20, x0                   // must use x0, not x2 (x2 was reg_n)
+    NEXT
+
+// (REGISTER-WID) ( wid -- )  append a vocabulary body to WORDLISTS.
+// VOCABULARY allots the heads itself (the body is the wid) and must register
+// that address. DATA-END and .WORDLISTS only scan this table.
+
+    BOOT_WORD "(REGISTER-WID)", "(REGISTER-WID) ( wid -- ) register a wordlist", 0, XREGWID
+XREGWID:
+    DPOP x0
+    bl   _wordlist_register
     NEXT
 
 // WORDLISTS ( -- addr n )  base of registered wid table and count

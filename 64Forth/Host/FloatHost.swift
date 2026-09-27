@@ -607,8 +607,10 @@ final class FloatHost {
         case .setprecision:
             precision = max(1, Int(a))
         case .represent:
+            // (F-OP) passes c-addr in ptr and u in b. a is unused.
             let r = fpop()
-            let res = floatRepresentSignificand(r, u: Int(b), writeTo: a)
+            let addr = Int64(bitPattern: UInt64(UInt(bitPattern: ptr)))
+            let res = floatRepresentSignificand(r, u: Int(b), writeTo: addr)
             o1?.pointee = Int64(res.k)
             o2?.pointee = Int64(res.charFlag)
             o3?.pointee = res.exact ? -1 : 0

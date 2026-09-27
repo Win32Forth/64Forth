@@ -9,7 +9,7 @@ Program DEMO;
         var
           idx, sum, n, alldone : Integer ;
         var
-          squares : array [6] of Integer;
+          squares : array [Limit+1] of Integer;
 
         Proc bump(x:integer);
                 BEGIN

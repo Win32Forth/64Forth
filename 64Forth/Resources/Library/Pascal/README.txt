@@ -52,7 +52,16 @@ Samples
 
   PASCAL-TO-FILE writes PASX.fth / PASY.fth next to the sources. Those
   generated names are intentionally free; keep *-SAMPLE.fth in the tree
-  as stable references.
+  as stable references. Pascal.zip is not part of the library.
+
+Array bounds
+-------------
+  array [n]              n cells (indexes 0 .. n-1)
+  array [Limit]          the const's value, in cells
+  array [Limit+1]        that value plus or minus a number
+
+  A FOR from 0 to Limit includes both ends, so the array needs Limit+1
+  cells. The bound must be a number or an already-defined const.
 
 I/O codegen notes
 -----------------

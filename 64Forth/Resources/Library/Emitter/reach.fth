@@ -28,7 +28,8 @@ DECIMAL
   DUP DOCON? IF  DROP TRUE EXIT  THEN
   DODOES? ;
 
-: BODY  ( xt -- addr )  8 + ;
+\ Colon bodies start at CFA+16. CFA+8 is the DOES> slot (zero on colon words).
+: BODY  ( xt -- addr )  16 + ;
 
 512 CONSTANT REACH-MAX
 CREATE REACH-XTS  REACH-MAX CELLS ALLOT

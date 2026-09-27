@@ -1,7 +1,34 @@
 # 64Forth development status
 
-**Current:** **1.4.3** (build **42**) WIP — GRAPHICS color / IMAGEVIEW64 / EDIT64 / VED64 / MIDNIGHT / cold **XREF**  
-**Last updated:** 2026-09-25 (VED64; REF skips IMMEDIATE; Sample MIDNIGHT; Pascal RECURSE)
+**Current:** **1.5.0** (build **44**) — Forth-2012 classes, `FLOATING` vocabulary, Hayes subset green, stand-alone window emit  
+**Last updated:** 2026-09-27
+
+---
+
+## v1.5.0 — Classes, FLOATING, Hayes
+
+**Version strings:** marketing **1.5.0**, build **44** (Info.plist, Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, console banner).
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.5.0 === Sep 27, 2026 5:06 PM ===
+```
+
+### Highlights (vs 1.4.3)
+
+- **Classes:** Forth-2012 port of the April 2, 2002 Win32Forth object system in `Library/Classes/classes.fth`. Heap send is `MSG: [ ]` with the object already on top. `n NEW>` only after `<INDEXED`.
+- **Dictionary:** lookup folds a–z. `COMPARE`, `SEARCH`, file paths, and `SUBSTITUTE` text stay case-sensitive. Colon bodies start at CFA+16; `>BODY` is `16 +`. A `VOCABULARY` body is the 16 hash-head cells (the wid), not a cell holding a pointer.
+- **`FLOATING`:** the floating-point wordlist was renamed from `FP`. `filetest.fth`'s `CREATE FP` buffer is unchanged. Use `ALSO FLOATING`.
+- **`REPRESENT`:** digits are written to the `c-addr` the kernel passes. The Hayes number-output compares (`10000` / `33333` / `66667`) pass.
+- **Blocks and source:** block volumes may seek past EOF; a short `hayes-blocks.blk` is recreated; `EVALUATE` clears `BLK`. Line-at-a-time `INCLUDE` is `SOURCE-ID` −2, and `FILE-ECHO` / undefined reports treat that like a file. The console drains emit while `evaluate` waits, so long `FLOAD`s show output without a `KEY`.
+- **Hayes:** `FROMLIB FLOAD HayesTest/HayesTest.fth`. The core `ACCEPT` test still waits for a typed line. After that, every suite counter is 0, including `FPERRORS`.
+- **Emitter stand-alone:** each `VOCABULARY` registers its wid, so `DATA-END` sizes GRAPHICS data to the next header (tetra no longer overflows the data segment). `(CATCH-OK)` is recorded as a pointer reloc, so `EMIT-WINDOW-APP` stays open after the window appears. Emitted colon bodies start at CFA+8; the host `DOES>` slot is not copied, and `>BODY` on the host remains CFA+16. Pass the word that waits (`GAME` for tetra), not a wrapper that calls `WINDOW-OFF` as soon as it returns.
+- **Pascal:** an array bound may be a number, a named constant, or that constant plus or minus a number (`array [Limit+1]` → `(Limit+1)` cells). Generated `PASY.fth` / `PASX.fth` and `Pascal.zip` are not shipped; `*-SAMPLE.fth` stays.
+
+**Release:** DMG + GitHub release. Rebuild before making the DMG so the banner and build number match.
+
+---
 
 This file tracks design notes and progress for work after 1.0.7.  
 Append new design sections as we go; mark items done when implemented.

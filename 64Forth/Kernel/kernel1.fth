@@ -135,7 +135,8 @@ DOC" RECURSE ( -- ) recurse into current definition (immediate)"
 DOC" VOCABULARY ( 'name' -- ) named word list; execute to push onto search order"
 \ The body is the wid (xt + 2 CELLS). It must be DICT-THREADS head cells,
 \ or words defined into the vocabulary hash into memory that FIND never searches.
-: VOCABULARY CREATE DICT-THREADS 0 DO 0 , LOOP DOES> PUSH-ORDER ;
+: VOCABULARY CREATE DICT-THREADS 0 DO 0 , LOOP
+  LAST >BODY (REGISTER-WID) DOES> PUSH-ORDER ;
 DOC" BIG-INTEGER ( -- ) vocabulary for big-integer extensions; execute to ALSO it"
 VOCABULARY BIG-INTEGER
 DOC" EDITOR ( -- ) vocabulary for editor extensions; execute to ALSO it"
