@@ -1072,6 +1072,148 @@ final class AppGridView: NSView {
 
 // MARK: - C ABI from forth.s
 
+// OOP windows, menus, and buttons. Separate from the GRAPHICS char window.
+private final class OOPWin {
+    let window: NSWindow?
+    let view: NSView
+    var menu: NSMenu?
+    var menuBarItem: NSMenuItem?
+    init(x: Int64, y: Int64, w: Int64, h: Int64) {
+        let rect = NSRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(max(w, 120)), height: CGFloat(max(h, 80)))
+        let win = NSWindow(contentRect: rect, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        win.title = "OOP"
+        win.isReleasedWhenClosed = false
+        view = NSView(frame: NSRect(origin: .zero, size: rect.size))
+        view.autoresizingMask = [.width, .height]
+        win.contentView = view
+        window = win
+        win.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    init(childOf parent: OOPWin, x: Int64, y: Int64, w: Int64, h: Int64) {
+        window = nil
+        let pw = parent.view.bounds.width
+        let ph = parent.view.bounds.height
+        let ww = CGFloat(max(w, 8))
+        let hh = CGFloat(max(h, 8))
+        view = NSView(frame: NSRect(x: CGFloat(x), y: ph - CGFloat(y) - hh, width: min(ww, pw), height: min(hh, ph)))
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        parent.view.addSubview(view)
+    }
+}
+
+private final class OOPHub: NSObject {
+    static let shared = OOPHub()
+    var wins: [Int: OOPWin] = [:]
+    var nextId = 1
+    var events: [Int64] = []
+    let lock = NSLock()
+    func run<T>(_ body: () -> T) -> T {
+        if Thread.isMainThread { return body() }
+        return DispatchQueue.main.sync(execute: body)
+    }
+    @objc func fired(_ sender: AnyObject) {
+        let tag: Int64
+        if let item = sender as? NSMenuItem { tag = Int64(item.tag) }
+        else if let control = sender as? NSControl { tag = Int64(control.tag) }
+        else { tag = 0 }
+        lock.lock(); events.append(tag); lock.unlock()
+    }
+    func take() -> Int64 {
+        lock.lock(); defer { lock.unlock() }
+        return events.isEmpty ? 0 : events.removeFirst()
+    }
+}
+
+@_cdecl("host_oop_call")
+public func host_oop_call(_ a: Int64, _ b: Int64, _ c: Int64, _ d: Int64, _ op: Int64) -> Int64 {
+    let hub = OOPHub.shared
+    switch op {
+    case 1:
+        return hub.run {
+            let id = hub.nextId
+            hub.nextId += 1
+            hub.wins[id] = OOPWin(x: a, y: b, w: c, h: d)
+            return Int64(id)
+        }
+    case 2:
+        hub.run {
+            if let win = hub.wins[Int(a)] {
+                if let item = win.menuBarItem { NSApp.mainMenu?.removeItem(item) }
+                if let window = win.window { window.close() }
+                else { win.view.removeFromSuperview() }
+            }
+            hub.wins[Int(a)] = nil
+        }
+        return 0
+    case 3:
+        let text = String(bytes: UnsafeRawBufferPointer(start: UnsafeRawPointer(bitPattern: UInt(a)), count: Int(b)), encoding: .utf8) ?? ""
+        hub.run { hub.wins[Int(c)]?.window?.title = text }
+        return 0
+    case 4:
+        let text = String(bytes: UnsafeRawBufferPointer(start: UnsafeRawPointer(bitPattern: UInt(a)), count: Int(b)), encoding: .utf8) ?? ""
+        hub.run {
+            guard let win = hub.wins[Int(c)], let window = win.window else { return }
+            if win.menu == nil {
+                let menu = NSMenu(title: window.title)
+                let top = NSMenuItem(title: window.title, action: nil, keyEquivalent: "")
+                top.submenu = menu
+                NSApp.mainMenu?.addItem(top)
+                win.menu = menu
+                win.menuBarItem = top
+            }
+            let item = NSMenuItem(title: text, action: #selector(OOPHub.fired(_:)), keyEquivalent: "")
+            item.target = hub
+            item.tag = Int(d)
+            win.menu?.addItem(item)
+        }
+        return 0
+    case 5:
+        let text = String(bytes: UnsafeRawBufferPointer(start: UnsafeRawPointer(bitPattern: UInt(a)), count: Int(b)), encoding: .utf8) ?? ""
+        hub.run {
+            guard let win = hub.wins[Int(c)] else { return }
+            let tag = Int(d & 0xffff)
+            let x = CGFloat((d >> 16) & 0xffff)
+            let y = CGFloat((d >> 32) & 0xffff)
+            let button = NSButton(title: text, target: hub, action: #selector(OOPHub.fired(_:)))
+            button.tag = tag
+            let bh: CGFloat = 28
+            button.frame = NSRect(x: x, y: win.view.bounds.height - y - bh, width: 160, height: bh)
+            win.view.addSubview(button)
+        }
+        return 0
+    case 7:
+        return hub.run {
+            guard let parent = hub.wins[Int(d)] else { return 0 }
+            let id = hub.nextId
+            hub.nextId += 1
+            let w = c & 0xffff
+            let h = (c >> 16) & 0xffff
+            hub.wins[id] = OOPWin(childOf: parent, x: a, y: b, w: w, h: h)
+            return Int64(id)
+        }
+    case 6:
+        let pending = hub.take()
+        if pending != 0 { return pending }
+        // Forth is on the main thread. Pump AppKit or clicks never arrive.
+        if Thread.isMainThread {
+            let until = Date().addingTimeInterval(0.05)
+            while Date() < until {
+                guard let ev = NSApp.nextEvent(matching: .any, until: until, inMode: .default, dequeue: true) else { break }
+                NSApp.sendEvent(ev)
+                let tag = hub.take()
+                if tag != 0 { return tag }
+            }
+        } else {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return hub.take()
+    default:
+        return 0
+    }
+}
+
 @_cdecl("host_app_open")
 public func host_app_open(_ cols: Int64, _ rows: Int64) -> Int64 {
     AppOutputHost.shared.open(cols: Int(cols), rows: Int(rows))

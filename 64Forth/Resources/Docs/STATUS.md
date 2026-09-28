@@ -1,9 +1,26 @@
 # 64Forth development status
 
-**Current:** **1.5.0** (build **44**) — Forth-2012 classes, `FLOATING` vocabulary, Hayes subset green, stand-alone window emit  
+**Current:** **1.5.1** (build **45**) — OOP windows, menus, buttons, and child views  
 **Last updated:** 2026-09-27
 
 ---
+
+## v1.5.1 — OOP windows
+
+**Version strings:** marketing **1.5.1**, build **45**. No DMG yet.
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.5.1 === Sep 27, 2026 9:59 PM ===
+```
+
+### Highlights (vs 1.5.0)
+
+- **OOP UI,** separate from the GRAPHICS App Output window. `FROMLIB FLOAD Classes/oop.fth` loads `WINDOW`, `CHILD`, `MENU`, and `BUTTON`.
+- `(OOP-CALL)` is the host word. A window is an `NSWindow`. A child is an `NSView` inside its parent. Menu items and buttons post a tag.
+- `OOP-ON` stores an xt for a tag. `OOP-SERVE` runs that word. `OOP-STOP` ends the wait. `LABEL:` is `( c-addr u x y tag -- )` from the parent's top-left.
+- `Classes/OOP_REF` is local Win32Forth reference material and is not part of this version.
 
 ## v1.5.0 — Classes, FLOATING, Hayes
 

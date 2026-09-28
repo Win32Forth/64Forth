@@ -838,6 +838,7 @@ XFACILITY_OP_GO_END:
 // ----- App-output char-graphics window (not Facility / not console) -----
 // Forth owns the cell buffer; these CODE words open/blit/keys + thin host helpers.
 .extern _host_app_open
+.extern _host_oop_call
 .extern _host_app_close
 .extern _host_app_blit
 .extern _host_app_pblit
@@ -868,6 +869,25 @@ XAPP_OPEN:
     str  x20, [x22, #-8]!
     mov  x20, x0                   // ior
 XAPP_OPEN_END:
+    NEXT
+
+// (OOP-CALL) ( a b c d op -- n )  Mac window/menu/button. Not GRAPHICS.
+    BOOT_WORD "(OOP-CALL)", "(OOP-CALL) ( a b c d op -- n ) OOP window host", 0, XOOP_CALL, XOOP_CALL_END
+XOOP_CALL:
+    mov  x4, x20                   // op
+    ldr  x3, [x22], #8             // d
+    ldr  x2, [x22], #8             // c
+    ldr  x1, [x22], #8             // b
+    ldr  x0, [x22], #8             // a
+    ldr  x20, [x22], #8
+    stp  x29, x30, [sp, #-16]!
+    SAVE_VM
+    bl   _host_oop_call
+    RESTORE_VM
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    mov  x20, x0
+XOOP_CALL_END:
     NEXT
 
 // (APP-CLOSE) ( -- )

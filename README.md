@@ -67,8 +67,9 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ---
 
-## Status (v1.5.0)
+## Status (v1.5.1)
 
+- [x] **v1.5.1:** OOP windows, menus, buttons, and child views (`FROMLIB FLOAD Classes/oop.fth`); tag words via `OOP-ON` / `OOP-SERVE`. Separate from GRAPHICS App Output. No DMG yet
 - [x] **v1.5.0:** Forth-2012 classes (`Library/Classes`); dictionary lookup folds case; colon bodies at CFA+16; `VOCABULARY` body is the hash-head wid and is registered for the emitter; float wordlist renamed **`FLOATING`**; `REPRESENT` writes its digit buffer; block seek / `EVALUATE` `BLK` / line-source echo; Hayes subset green (core `ACCEPT` still waits for a typed line); `EMIT-WINDOW-APP` keeps the window up (`(CATCH-OK)` reloc); Pascal `array [Limit+1]` — DMG + GitHub release
 - [x] **v1.4.3:** GRAPHICS `1BIT`/`COLOR8`/`TRUECOLOR`; Sample DOODLECOLOR64 / IMAGEVIEW64 / EDIT64 / VED64 / MIDNIGHT; cold **`xref.fth`** (`REF`/`XREF`/`ANYWORDS`, VIEW `leaf:line` titles; KEY during console eval; `REF` skips IMMEDIATE) — checkpoint, no separate DMG (folded into 1.5.0)
 - [x] **v1.4.2:** ANS SMUDGE / hide-until-`;` (NFA bit7, max name 127); FILE-ECHO line numbers; GRAPHICS mouse + Sample/DOODLE64; Emitter SA CONSTANT/VALUE/LIT reloc for `EMIT-WINDOW-APP` — DMG + GitHub release
@@ -96,7 +97,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 - [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Agent-channel.md`
 - [ ] **Later (optional):** DMG `/Volumes/…` open noise — see STATUS
 
-**Console header** (GUI): `=== 64Forth 1.5.0 === Sep 27, 2026 5:06 PM ===`  
+**Console header** (GUI): `=== 64Forth 1.5.1 === Sep 27, 2026 9:59 PM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
 
 **Windows (macOS):** **Console** (Forth REPL) · **SZ-EDITOR** (`FacilityEditorHost`, facility grid) · **App Output** (GRAPHICS / Emitter only). Do not merge the editor into App Output. iOS: Console only (no SZ-EDITOR host).
