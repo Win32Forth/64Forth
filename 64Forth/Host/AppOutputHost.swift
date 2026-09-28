@@ -87,12 +87,14 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
         let rows = max(1, min(r, 128))
         let work = { [weak self] in
             guard let self else { return }
+            let gridChanged = (self.cols != cols) || (self.rows != rows)
             self.cols = cols
             self.rows = rows
             self.cells = [UInt8](repeating: 32, count: cols * rows)
             if self.window == nil {
                 self.buildWindow()
-            } else {
+            } else if gridChanged {
+                // Forth asked for a new cell grid — then snap. User drag does not.
                 self.resizeWindow()
             }
             self.window?.makeKeyAndOrderFront(nil)
@@ -537,9 +539,14 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
         )
         win.title = appName
         win.delegate = self
+        win.contentMinSize = NSSize(width: 160, height: 100)
+        // No contentAspectRatio — free corner drag.
+        // No contentMaxSize.
+
         let view = AppGridView(frame: NSRect(x: 0, y: 0, width: contentW, height: contentH))
         view.host = self
         view.wantsLayer = true
+        view.autoresizingMask = [.width, .height]
         win.contentView = view
         window = win
         gridView = view
@@ -553,6 +560,14 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
         gridView?.frame = NSRect(x: 0, y: 0, width: contentW, height: contentH)
     }
 
+    func windowDidResize(_ notification: Notification) {
+        gridView?.needsDisplay = true
+    }
+
+    func windowDidEndLiveResize(_ notification: Notification) {
+        gridView?.needsDisplay = true
+    }
+    
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         // Defer teardown — closing mid pumpUIForKeyInput/sendEvent crashes.
         opened = false
@@ -937,30 +952,34 @@ final class AppGridView: NSView {
         NSColor.black.setFill()
         bounds.fill()
 
+        let inner = CGRect(x: 4, y: 4, width: max(1, bounds.width - 8), height: max(1, bounds.height - 8))
+
         if host.showingPixels, let img = host.makePixelCGImage() {
-            let rect = CGRect(x: 4, y: 4, width: bounds.width - 8, height: bounds.height - 8)
             if let ctx = NSGraphicsContext.current?.cgContext {
                 ctx.interpolationQuality = .none
-                ctx.draw(img, in: rect)
+                ctx.draw(img, in: inner)
             }
         }
 
-        let font = NSFont.monospacedSystemFont(ofSize: host.gridCellH - 2, weight: .regular)
         let cols = host.gridCols
         let rows = host.gridRows
-        let cw = host.gridCellW
-        let ch = host.gridCellH
+        guard cols > 0, rows > 0 else { return }
+
+        let cw = inner.width / CGFloat(cols)
+        let ch = inner.height / CGFloat(rows)
+        let fontSize = max(6, ch - 2)
+        let font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         let classicGreen = NSColor(calibratedRed: 0.7, green: 1.0, blue: 0.7, alpha: 1)
+
         for y in 0..<rows {
             for x in 0..<cols {
                 let chv = host.cellAt(col: x, row: y)
-                if chv == 32 { continue }          // leave pixels visible
+                if chv == 32 { continue }
                 let s: String
                 if chv == 219 { s = "\u{2588}" }
                 else if chv < 32 || chv > 126 { s = "?" }
                 else { s = String(UnicodeScalar(chv)) }
-                // COLOR8: black on light paper, white on dark (reverse-video caret).
-                // Sample the Forth pixel grid (640×400), not view font cell size.
+
                 let textFg: NSColor
                 if host.showingPixels && host.pixelDepth == 8 {
                     let cellPx = max(1, host.pixelW / cols)
@@ -973,8 +992,8 @@ final class AppGridView: NSView {
                     textFg = classicGreen
                 }
                 let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: textFg]
-                let px = CGFloat(x) * cw + 4
-                let py = CGFloat(rows - 1 - y) * ch + 4
+                let px = inner.minX + CGFloat(x) * cw
+                let py = inner.minY + CGFloat(rows - 1 - y) * ch
                 (s as NSString).draw(at: NSPoint(x: px, y: py), withAttributes: attrs)
             }
         }
