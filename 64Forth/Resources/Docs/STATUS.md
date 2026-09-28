@@ -7,7 +7,9 @@
 
 ## v1.5.1 — OOP windows
 
-**Version strings:** marketing **1.5.1**, build **45**. No DMG yet.
+**Version strings:** marketing **1.5.1**, build **45**.
+
+**Release:** DMG + GitHub release.
 
 **Console header stamp** (`ConsoleView.swift` `banner`):
 
