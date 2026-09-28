@@ -35,6 +35,14 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
     private var keyQueue: [Int64] = []
     private let keyLock = NSLock()
     private var opened = false
+    /// Forth cell grid proposed after the user finishes a corner-drag.
+    private var pendingCols = 80
+    private var pendingRows = 25
+    private var sizeDirty = false
+    
+    fileprivate var forthPixW: Int { max(1, cols * 8) }
+    fileprivate var forthPixH: Int { max(1, rows * 16) }
+    
     /// Window / menu title; applied on open and via APP-NAME.
     private var appName: String = "64Forth Graphics"
 
@@ -219,21 +227,17 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
 
     /// Packed 1-bit, LSB = leftmost pixel in the byte, row-major, top row first.
     /// Kept for Emitter SA images that still call `(APP-PBLIT)`.
-    func pblit(from addr: UnsafeRawPointer?, count: Int, width: Int = 640, height: Int = 400) {
-        cblit(from: addr, count: count, depth: 1, width: width, height: height)
+    func pblit(from addr: UnsafeRawPointer?, count: Int, width: Int? = nil, height: Int? = nil) {
+        cblit(from: addr, count: count, depth: 1,
+              width: width ?? forthPixW, height: height ?? forthPixH)
     }
 
     /// Color / depth blit: `depth` is 1 (packed bits), 8 (index), or 32 (BGRA).
-    func cblit(
-        from addr: UnsafeRawPointer?,
-        count: Int,
-        depth: Int,
-        width: Int = 640,
-        height: Int = 400
-    ) {
+    func cblit(from addr: UnsafeRawPointer?, count: Int, depth: Int,
+               width: Int? = nil, height: Int? = nil) {
         guard opened, let addr, count > 0 else { return }
-        let w = max(1, width)
-        let h = max(1, height)
+        let w = max(1, width ?? forthPixW)
+        let h = max(1, height ?? forthPixH)
         let d: Int
         let stride: Int
         let need: Int
@@ -564,8 +568,35 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
         gridView?.needsDisplay = true
     }
 
+    private func snapGrid(from view: NSView) -> (Int, Int) {
+        let innerW = max(1, view.bounds.width - 8)
+        let innerH = max(1, view.bounds.height - 8)
+        let c = max(40, min(256, Int(innerW / cellW)))
+        let r = max(12, min(128, Int(innerH / cellH)))
+        return (c, r)
+    }
+
     func windowDidEndLiveResize(_ notification: Notification) {
+        guard let view = gridView else { return }
+        let (c, r) = snapGrid(from: view)
+        if c != pendingCols || r != pendingRows {
+            pendingCols = c
+            pendingRows = r
+            sizeDirty = true
+        }
         gridView?.needsDisplay = true
+    }
+
+    /// (APP-SIZE?) support. Returns -1 if Forth should adopt cols/rows.
+    func takePendingSize(cols outC: UnsafeMutablePointer<Int64>?,
+                         rows outR: UnsafeMutablePointer<Int64>?) -> Int64 {
+        outC?.pointee = Int64(pendingCols)
+        outR?.pointee = Int64(pendingRows)
+        if sizeDirty {
+            sizeDirty = false
+            return -1
+        }
+        return 0
     }
     
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -1315,6 +1346,14 @@ public func host_app_img_size(
     _ h: UnsafeMutablePointer<Int64>?
 ) {
     AppOutputHost.shared.imageSize(w: w, h: h)
+}
+
+@_cdecl("host_app_size")
+public func host_app_size(
+    _ cols: UnsafeMutablePointer<Int64>?,
+    _ rows: UnsafeMutablePointer<Int64>?
+) -> Int64 {
+    AppOutputHost.shared.takePendingSize(cols: cols, rows: rows)
 }
 
 /// Render view into TRUECOLOR BGRA buffer. zoom100=100 is 1:1.

@@ -46,14 +46,30 @@ DOC" G-CELLH ( -- n ) pixel height of one character cell"
 16 CONSTANT G-CELLH
 
 DOC" G-PX ( -- n ) pixel width of the graphics window"
-G-COLS G-CELLW * CONSTANT G-PX          \ 640
+: G-PX  ( -- n )  G-COLS G-CELLW * ;
 
 DOC" G-PY ( -- n ) pixel height of the graphics window"
-G-ROWS G-CELLH * CONSTANT G-PY          \ 400
+: G-PY  ( -- n )  G-ROWS G-CELLH * ;
 
 \ Max buffer = truecolor; 1-bit/COLOR8 use a prefix of the same allot.
 DOC" G-PIX ( -- addr ) pixel map (sized for 32-bit; depth selects used bytes)"
-CREATE G-PIX  G-PX G-PY * 4 * ALLOT
+0 VALUE G-PIX
+
+: G-PIXMAX  ( -- u )  G-PX G-PY * 4 * ;
+
+: G-FREE-PIX  ( -- )
+  G-PIX IF  G-PIX FREE DROP  0 TO G-PIX  THEN ;
+
+: G-ALLOC-PIX  ( -- )
+  G-FREE-PIX
+  G-PIXMAX ALLOCATE IF
+    DROP 0 TO G-PIX
+  ELSE
+    TO G-PIX
+    G-PIX G-PIXMAX 0 FILL
+  THEN ;
+
+G-ALLOC-PIX
 
 DOC" G-DEPTH ( -- n ) 1=bits 8=index 32=BGRA"
 1 VALUE G-DEPTH
@@ -124,7 +140,7 @@ DOC" PIX-ERASE ( -- ) zero the used pixel map without blitting"
   G-PIX  G-PIXBYTES  0 FILL
   -1 TO G-PDIRTY?
   ;
-
+  
 DOC" 1BIT ( -- ) select 1-bit packed pixels (default)"
 : 1BIT  ( -- )
   1 TO G-DEPTH
@@ -307,6 +323,20 @@ DOC" PREFRESH ( -- ) blit pixel map and any text to the window"
   [THEN]
   0 TO G-PDIRTY?  0 TO G-DIRTY?
   ;
+
+: WINDOW-SIZE  ( cols rows -- )
+  G-CLAMP-GRID
+  2DUP G-ROWS = SWAP G-COLS = AND IF  2DROP EXIT  THEN
+  TO G-ROWS  TO G-COLS
+  G-ALLOC-BUF
+  G-ALLOC-PIX
+  G-BUF 0= G-PIX 0= OR IF EXIT THEN
+  0 G-CX !  0 G-CY !
+  G-COLS G-ROWS (APP-OPEN) 0= IF
+    -1 TO G-OPEN?
+    PIX-ERASE
+    PREFRESH
+  THEN ;
 
 DOC" PCLS ( -- ) clear pixels and chars, home cursor, blit"
 : PCLS  ( -- )

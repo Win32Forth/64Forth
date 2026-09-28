@@ -853,6 +853,7 @@ XFACILITY_OP_GO_END:
 .extern _host_app_img_load
 .extern _host_app_img_size
 .extern _host_app_img_render
+.extern _host_app_size
 .extern _host_debug_paint
 
 // (APP-OPEN) ( cols rows -- ior )  0=ok
@@ -1035,6 +1036,30 @@ XAPP_MOUSE:
     str  x1, [x22, #-8]!           // y
     mov  x20, x2                   // buttons (TOS)
 XAPP_MOUSE_END:
+    NEXT
+
+// (APP-SIZE?) ( -- cols rows flag )  flag -1 = user finished a resize
+    BOOT_WORD "(APP-SIZE?)", "(APP-SIZE?) ( -- cols rows flag ) pending graphics grid after live resize", 0, XAPP_SIZE, XAPP_SIZE_END
+XAPP_SIZE:
+    stp  x29, x30, [sp, #-16]!
+    mov  x29, sp
+    sub  sp, sp, #16
+    add  x0, sp, #0
+    add  x1, sp, #8
+    str  xzr, [sp]
+    str  xzr, [sp, #8]
+    SAVE_VM
+    bl   _host_app_size
+    RESTORE_VM
+    ldr  x1, [sp]                  // cols
+    ldr  x2, [sp, #8]              // rows
+    add  sp, sp, #16
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    str  x1, [x22, #-8]!           // cols
+    str  x2, [x22, #-8]!           // rows
+    mov  x20, x0                   // flag (TOS)
+XAPP_SIZE_END:
     NEXT
 
 // (APP-IMG-CHOOSE) ( -- ior )  NSOpenPanel; 0=ok -1=cancel -2=fail
