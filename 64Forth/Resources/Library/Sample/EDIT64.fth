@@ -1,7 +1,8 @@
 \ EDIT64.fth — slim GRAPHICS text editor for 64Forth + Emitter
 \
-\ Mini editor on the frozen 80×25 App Output grid (not SZ-EDITOR /
-\ Facility). Runs interactively and is meant for EMIT-WINDOW-APP.
+\ Mini editor on the viewport follows G-COLS/G-ROWS after a live resize
+\ (not SZ-EDITOR / Facility). Runs interactively and is meant for
+\ EMIT-WINDOW-APP.
 \
 \ Load:
 \   FROMLIB FLOAD Sample/EDIT64.fth
@@ -45,8 +46,8 @@ DECIMAL
 
 \ --- layout -----------------------------------------------------------------
 3 CONSTANT ED-TEXT0
-G-ROWS ED-TEXT0 - CONSTANT ED-VROWS
-48 CONSTANT ED-CHROME-PX          \ top chrome height in pixels
+: ED-VROWS  ( -- n )  G-ROWS ED-TEXT0 - 1 MAX ;
+: ED-CHROME-PX  ( -- n )  ED-TEXT0 G-CELLH * ;        \ top chrome height in pixels
 
 \ Fixed dictionary buffer — avoid ALLOCATE/RESIZE in SA images
 \ (libc malloc BL is HOST-APP-bound but still a common flash-on-boot fault).
@@ -78,6 +79,8 @@ VARIABLE ED-PENDING                  \ key pushed back after scroll coalesce
 VARIABLE ED-FIND-T                   \ caret-row search target (not R: DO uses R)
 VARIABLE ED-CC                       \ invert-cell col
 VARIABLE ED-CR                       \ invert-cell row
+VARIABLE ED-LAST-COLS
+VARIABLE ED-LAST-ROWS
 
 CREATE ED-STORE  ED-CAP0 ALLOT
 CREATE ED-PATH    256 ALLOT
@@ -499,19 +502,33 @@ CREATE ED-PATH    256 ALLOT
   THEN
 ;
 
+: ED-SYNC-SIZE  ( -- )
+  ?WINDOW-RESIZE
+  G-COLS ED-LAST-COLS @ =  G-ROWS ED-LAST-ROWS @ = AND IF EXIT THEN
+  G-COLS ED-LAST-COLS !
+  G-ROWS ED-LAST-ROWS !
+  ED-ENSURE-VISIBLE
+  ED-REDRAW
+  ;
+
 \ --- main -------------------------------------------------------------------
 
 : ED-GRAPH  ( -- )
   DECIMAL
   S" 64Forth EDIT64" APP-NAME
   WINDOW PIXEL-ON COLOR8              \ white paper + black text (host depth 8)
+
+  0 ED-LAST-COLS !
+  0 ED-LAST-ROWS !
+  ED-SYNC-SIZE          \ first paint uses current G-COLS/G-ROWS
+  
   ED-BOOT-BUF
   ED-M-EDIT ED-MODE !
   0 ED-DONE? !
   0 ED-WASDOWN? !
   0 ED-PENDING !
-  ED-REDRAW
   BEGIN ED-DONE? @ 0= WHILE
+    ED-SYNC-SIZE
     (APP-PUMP)
     G-MOUSE ED-HANDLE-MOUSE
     DEPTH IF BEGIN DEPTH WHILE DROP REPEAT THEN
@@ -550,10 +567,12 @@ CREATE ED-PATH    256 ALLOT
 ;
 
 ONLY FORTH DEFINITIONS ALSO GRAPHICS
+
 : EDIT64  ( -- )
   ED-GRAPH
   WINDOW-OFF
   ;
+  
 : EDMAIN  ( -- )  EDIT64 ;
 
 \ Single FORTH names — call GRAPHICS helpers (not same-name wrappers).

@@ -22,7 +22,8 @@
 \   Esc                         quit (S=save, D=discard, Esc=cancel)
 \
 \ Files larger than VED-CAP are truncated on OPEN (host slurps at most
-\ VED-CAP bytes). Resizable grid and Emitter stand-alone are later.
+\ VED-CAP bytes). Resizable grid and Emitter stand-alone are viewport
+\ follows G-COLS/G-ROWS after a live resize.
 \
 \ Public domain, same as VED.
 
@@ -32,6 +33,10 @@ ONLY FORTH DEFINITIONS
 DECIMAL
 
 \ --- ANS fallbacks (no-ops when the host already has the word) ----------
+
+[UNDEFINED] ?WINDOW-RESIZE [IF]
+: ?WINDOW-RESIZE  ( -- )  ;
+[THEN]
 
 [UNDEFINED] /STRING [IF]
 : /STRING  ( c-addr u n -- c-addr' u' )
@@ -150,6 +155,8 @@ VARIABLE VED-CC
 VARIABLE VED-CR
 VARIABLE VED-NR
 VARIABLE VED-NW
+VARIABLE VED-LAST-COLS
+VARIABLE VED-LAST-ROWS
 
 0 VED-PENDING !
 
@@ -164,8 +171,8 @@ CREATE VED-FIND   VED-FIND-MAX 1+ ALLOT
 \ Call this whenever the window size may have changed.
 : ROW/COL!  ( -- )
   G-COLS VED-COLS !
-  G-ROWS DUP 24 < IF DROP 25 THEN VED-ROWS !
-;
+  G-ROWS VED-ROWS !
+  ;
 
 \ Arm64 for Kernel/forth.s — not compiled by this file.
 \ High-level ROW/COL! above is the one that runs.
@@ -178,7 +185,7 @@ CREATE VED-FIND   VED-FIND-MAX 1+ ALLOT
 \     mov  w0, #80              // G-COLS
 \     adrp x1, ved_cols@PAGE
 \     str  x0, [x1, ved_cols@PAGEOFF]
-\     mov  w0, #25              // G-ROWS (original forced at least 25)
+\     mov  w0, #25 // WINDOW-SIZE already clamps to 40×12 … 256×128.
 \     adrp x1, ved_rows@PAGE
 \     str  x0, [x1, ved_rows@PAGEOFF]
 \     NEXT
@@ -485,6 +492,17 @@ CREATE VED-FIND   VED-FIND-MAX 1+ ALLOT
   PREFRESH
 ;
 
+: VED-SYNC-SIZE  ( -- )
+  ?WINDOW-RESIZE
+  ROW/COL!
+  VED-COLS @ VED-LAST-COLS @ =
+  VED-ROWS @ VED-LAST-ROWS @ = AND IF EXIT THEN
+  VED-COLS @ VED-LAST-COLS !
+  VED-ROWS @ VED-LAST-ROWS !
+  VED-ENSURE-VISIBLE
+  DOPAGE
+  ;
+
 \ --- file ------------------------------------------------------------------
 
 : VED-TAKE-PATH  ( -- flag )
@@ -635,13 +653,15 @@ CREATE VED-FIND   VED-FIND-MAX 1+ ALLOT
   DECIMAL
   S" 64Forth VED64" APP-NAME
   WINDOW PIXEL-ON COLOR8
-  ROW/COL!
+  0 VED-LAST-COLS !
+  0 VED-LAST-ROWS !
+  VED-SYNC-SIZE
   VED-M-EDIT VED-MODE !
   0 VED-DONE? !
   0 VED-WASDOWN? !
   0 VED-PENDING !
-  DOPAGE
   BEGIN VED-DONE? @ 0= WHILE
+    VED-SYNC-SIZE
     (APP-PUMP)
     G-MOUSE VED-HANDLE-MOUSE
     DEPTH IF BEGIN DEPTH WHILE DROP REPEAT THEN

@@ -36,6 +36,7 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
     private let keyLock = NSLock()
     private var opened = false
     /// Forth cell grid proposed after the user finishes a corner-drag.
+    private var liveResizing = false
     private var pendingCols = 80
     private var pendingRows = 25
     private var sizeDirty = false
@@ -87,7 +88,7 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
             return -1
         }
     }
-
+    
     @discardableResult
     func open(cols c: Int, rows r: Int) -> Int64 {
         if AgentChannel.isRequested { return -1 }
@@ -101,7 +102,7 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
             self.cells = [UInt8](repeating: 32, count: cols * rows)
             if self.window == nil {
                 self.buildWindow()
-            } else if gridChanged {
+            } else if gridChanged && !liveResizing {
                 // Forth asked for a new cell grid — then snap. User drag does not.
                 self.resizeWindow()
             }
@@ -202,39 +203,50 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
         return -1
     }
 
+    private let pixLock = NSLock()
+    private let cellsLock = NSLock()
+
     /// Copy Forth buffer (addr, cols*rows bytes) into host snapshot and redraw.
     func blit(from addr: UnsafeRawPointer?, count: Int) {
         guard opened, let addr, count > 0 else { return }
-        let n = min(count, cols * rows)
-        let work = { [weak self] in
+        let c = max(1, cols)
+        let r = max(1, rows)
+        let need = c * r
+        let n = min(count, need)
+
+        var copy = [UInt8](repeating: 32, count: need)
+        copy.withUnsafeMutableBytes { dest in
+            guard let base = dest.baseAddress else { return }
+            memcpy(base, addr, n)
+        }
+
+        let apply = { [weak self] in
             guard let self else { return }
-            if self.cells.count != self.cols * self.rows {
-                self.cells = [UInt8](repeating: 32, count: self.cols * self.rows)
-            }
-            self.cells.withUnsafeMutableBytes { dest in
-                guard let base = dest.baseAddress else { return }
-                memcpy(base, addr, n)
-            }
+            self.cellsLock.lock()
+            self.cells = copy
+            self.cellsLock.unlock()
             self.gridView?.needsDisplay = true
-            self.window?.displayIfNeeded()
         }
-        if Thread.isMainThread {
-            work()
-        } else {
-            DispatchQueue.main.async(execute: work)
-        }
+        DispatchQueue.main.async(execute: apply)
     }
 
     /// Packed 1-bit, LSB = leftmost pixel in the byte, row-major, top row first.
     /// Kept for Emitter SA images that still call `(APP-PBLIT)`.
+
+
+    /// Color / depth blit: `depth` is 1 (packed bits), 8 (index), or 32 (BGRA).
     func pblit(from addr: UnsafeRawPointer?, count: Int, width: Int? = nil, height: Int? = nil) {
         cblit(from: addr, count: count, depth: 1,
               width: width ?? forthPixW, height: height ?? forthPixH)
     }
 
-    /// Color / depth blit: `depth` is 1 (packed bits), 8 (index), or 32 (BGRA).
-    func cblit(from addr: UnsafeRawPointer?, count: Int, depth: Int,
-               width: Int? = nil, height: Int? = nil) {
+    func cblit(
+        from addr: UnsafeRawPointer?,
+        count: Int,
+        depth: Int,
+        width: Int? = nil,
+        height: Int? = nil
+    ) {
         guard opened, let addr, count > 0 else { return }
         let w = max(1, width ?? forthPixW)
         let h = max(1, height ?? forthPixH)
@@ -250,29 +262,30 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
             d = 1; stride = (w + 7) / 8; need = stride * h
         }
         let n = min(count, need)
-        let work = { [weak self] in
+        // Cap: 256×128 cells × 8×16 × 4 bytes = 16 MiB truecolor.
+        guard need > 0, need <= 16 * 1024 * 1024 else { return }
+
+        var copy = [UInt8](repeating: 0, count: need)
+        copy.withUnsafeMutableBytes { dest in
+            guard let base = dest.baseAddress else { return }
+            memcpy(base, addr, n)
+        }
+
+        let apply = { [weak self] in
             guard let self else { return }
+            self.pixLock.lock()
             self.pixW = w
             self.pixH = h
             self.pixDepth = d
             self.pixStride = stride
-            if self.pix.count != need {
-                self.pix = [UInt8](repeating: 0, count: need)
-            }
-            self.pix.withUnsafeMutableBytes { dest in
-                guard let base = dest.baseAddress else { return }
-                memcpy(base, addr, n)
-                if n < need {
-                    memset(base.advanced(by: n), 0, need - n)
-                }
-            }
+            self.pix = copy
             self.hasPixels = true
+            self.pixLock.unlock()
             self.gridView?.needsDisplay = true
-            self.window?.displayIfNeeded()
         }
-        if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
+        DispatchQueue.main.async(execute: apply)
     }
-
+     
     fileprivate var pixelW: Int { pixW }
     fileprivate var pixelH: Int { pixH }
     fileprivate var pixelDepth: Int { pixDepth }
@@ -280,6 +293,8 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
 
     /// COLOR8 index at pixel (x,y), top-left origin; -1 if unavailable.
     fileprivate func color8At(x: Int, y: Int) -> Int {
+        pixLock.lock()
+        defer { pixLock.unlock() }
         guard hasPixels, pixDepth == 8, x >= 0, y >= 0, x < pixW, y < pixH else { return -1 }
         let i = y * pixW + x
         guard i < pix.count else { return -1 }
@@ -319,7 +334,14 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
 
     /// Build a CGImage from the current pixel buffer (top row first → correct in flipped NSView).
     fileprivate func makePixelCGImage() -> CGImage? {
+        pixLock.lock()
+        defer { pixLock.unlock() }
         guard hasPixels, pixW > 0, pixH > 0 else { return nil }
+        switch pixDepth {
+        case 32: guard pix.count >= pixW * pixH * 4 else { return nil }
+        case 8:  guard pix.count >= pixW * pixH else { return nil }
+        default: guard pix.count >= pixStride * pixH else { return nil }
+        }
         let need = pixW * pixH * 4
         if drawBGRA.count != need {
             drawBGRA = [UInt8](repeating: 0, count: need)
@@ -564,10 +586,6 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
         gridView?.frame = NSRect(x: 0, y: 0, width: contentW, height: contentH)
     }
 
-    func windowDidResize(_ notification: Notification) {
-        gridView?.needsDisplay = true
-    }
-
     private func snapGrid(from view: NSView) -> (Int, Int) {
         let innerW = max(1, view.bounds.width - 8)
         let innerH = max(1, view.bounds.height - 8)
@@ -576,6 +594,14 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
         return (c, r)
     }
 
+    func windowWillStartLiveResize(_ notification: Notification) {
+        liveResizing = true
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        gridView?.needsDisplay = true
+    }
+    
     func windowDidEndLiveResize(_ notification: Notification) {
         guard let view = gridView else { return }
         let (c, r) = snapGrid(from: view)
@@ -610,6 +636,8 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
     }
 
     fileprivate func cellAt(col: Int, row: Int) -> UInt8 {
+        cellsLock.lock()
+        defer { cellsLock.unlock() }
         guard col >= 0, row >= 0, col < cols, row < rows else { return 32 }
         let i = row * cols + col
         guard i < cells.count else { return 32 }
@@ -961,6 +989,8 @@ final class AppOutputHost: NSObject, NSWindowDelegate {
 final class AppGridView: NSView {
     weak var host: AppOutputHost?
 
+    private var letterbox: CGRect = .zero
+    
     override var acceptsFirstResponder: Bool { true }
 
     override func updateTrackingAreas() {
@@ -978,78 +1008,125 @@ final class AppGridView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard let host else { return }
-        NSColor.black.setFill()
-        bounds.fill()
+            super.draw(dirtyRect)
+            guard let host else { return }
+            NSColor.black.setFill()
+            bounds.fill()
 
-        let inner = CGRect(x: 4, y: 4, width: max(1, bounds.width - 8), height: max(1, bounds.height - 8))
+            let inner = CGRect(
+                x: 4, y: 4,
+                width: max(1, bounds.width - 8),
+                height: max(1, bounds.height - 8)
+            )
 
-        if host.showingPixels, let img = host.makePixelCGImage() {
-            if let ctx = NSGraphicsContext.current?.cgContext {
-                ctx.interpolationQuality = .none
-                ctx.draw(img, in: inner)
-            }
-        }
+            var dest = inner
 
-        let cols = host.gridCols
-        let rows = host.gridRows
-        guard cols > 0, rows > 0 else { return }
-
-        let cw = inner.width / CGFloat(cols)
-        let ch = inner.height / CGFloat(rows)
-        let fontSize = max(6, ch - 2)
-        let font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        let classicGreen = NSColor(calibratedRed: 0.7, green: 1.0, blue: 0.7, alpha: 1)
-
-        for y in 0..<rows {
-            for x in 0..<cols {
-                let chv = host.cellAt(col: x, row: y)
-                if chv == 32 { continue }
-                let s: String
-                if chv == 219 { s = "\u{2588}" }
-                else if chv < 32 || chv > 126 { s = "?" }
-                else { s = String(UnicodeScalar(chv)) }
-
-                let textFg: NSColor
-                if host.showingPixels && host.pixelDepth == 8 {
-                    let cellPx = max(1, host.pixelW / cols)
-                    let cellPy = max(1, host.pixelH / rows)
-                    let ix = x * cellPx + cellPx / 2
-                    let iy = y * cellPy + cellPy / 2
-                    let idx = host.color8At(x: ix, y: iy)
-                    textFg = (idx >= 0 && idx < 8) ? .white : .black
-                } else {
-                    textFg = classicGreen
+            if host.showingPixels, let img = host.makePixelCGImage() {
+                let iw = CGFloat(max(1, img.width))
+                let ih = CGFloat(max(1, img.height))
+                let s = min(inner.width / iw, inner.height / ih)
+                let dw = iw * s
+                let dh = ih * s
+                dest = CGRect(
+                    x: inner.midX - dw / 2,
+                    y: inner.midY - dh / 2,
+                    width: max(1, dw),
+                    height: max(1, dh)
+                )
+                if let ctx = NSGraphicsContext.current?.cgContext {
+                    ctx.interpolationQuality = .none
+                    ctx.draw(img, in: dest)
                 }
-                let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: textFg]
-                let px = inner.minX + CGFloat(x) * cw
-                let py = inner.minY + CGFloat(rows - 1 - y) * ch
-                (s as NSString).draw(at: NSPoint(x: px, y: py), withAttributes: attrs)
+            }
+
+            letterbox = dest
+
+            let cols = host.gridCols
+            let rows = host.gridRows
+            guard cols > 0, rows > 0 else { return }
+
+            let chromeRows = min(2, rows)
+            let cw = host.gridCellW
+            let ch = host.gridCellH
+            var fontSize = ch - 2
+            if !fontSize.isFinite { fontSize = 12 }
+            fontSize = min(22, max(11, fontSize))
+            let font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            let classicGreen = NSColor(calibratedRed: 0.7, green: 1.0, blue: 0.7, alpha: 1)
+
+            for y in 0..<chromeRows {
+                for x in 0..<cols {
+                    let chv = host.cellAt(col: x, row: y)
+                    if chv == 32 { continue }
+                    let s: String
+                    if chv == 219 { s = "\u{2588}" }
+                    else if chv < 32 || chv > 126 { s = "?" }
+                    else { s = String(UnicodeScalar(chv)) }
+
+                    let textFg: NSColor
+                    if host.showingPixels && host.pixelDepth == 8 {
+                        let cellPx = max(1, host.pixelW / cols)
+                        let cellPy = max(1, host.pixelH / rows)
+                        let ix = x * cellPx + cellPx / 2
+                        let iy = y * cellPy + cellPy / 2
+                        let idx = host.color8At(x: ix, y: iy)
+                        textFg = (idx >= 0 && idx < 8) ? .white : .black
+                    } else {
+                        textFg = classicGreen
+                    }
+                    let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: textFg]
+                    let px = inner.minX + CGFloat(x) * cw
+                    let baseline = inner.maxY - CGFloat(y + 1) * ch
+                        + (ch - font.ascender + font.descender) / 2
+                    (s as NSString).draw(at: NSPoint(x: px, y: baseline), withAttributes: attrs)
+                }
             }
         }
-    }
 
     /// Map AppKit view point → Forth PLOT coords (origin bottom-left).
     private func reportMouse(_ event: NSEvent) {
-        guard let host else { return }
-        let pw = host.showingPixels ? max(1, host.pixelW) : 640
-        let ph = host.showingPixels ? max(1, host.pixelH) : 400
-        let dw = max(1, bounds.width - 8)
-        let dh = max(1, bounds.height - 8)
-        let sx = dw / CGFloat(pw)
-        let sy = dh / CGFloat(ph)
-        let local = convert(event.locationInWindow, from: nil)
-        var x = Int(((local.x - 4) / sx).rounded(.down))
-        var y = Int(((local.y - 4) / sy).rounded(.down))
-        if x < 0 { x = 0 }
-        if y < 0 { y = 0 }
-        if x >= pw { x = pw - 1 }
-        if y >= ph { y = ph - 1 }
-        // NSEvent.pressedMouseButtons: bit0 left, bit1 right, bit2 middle.
-        let buttons = Int(NSEvent.pressedMouseButtons) & 0x7
-        host.updateMouse(x: x, y: y, buttons: buttons)
-    }
+            guard let host else { return }
+            let pw = host.showingPixels ? max(1, host.pixelW) : 640
+            let ph = host.showingPixels ? max(1, host.pixelH) : 400
+            let cols = max(1, host.gridCols)
+            let rows = max(1, host.gridRows)
+            let cw = host.gridCellW
+            let ch = host.gridCellH
+
+            let inner = CGRect(
+                x: 4, y: 4,
+                width: max(1, bounds.width - 8),
+                height: max(1, bounds.height - 8)
+            )
+            let chromeH = ch * 2
+            let local = convert(event.locationInWindow, from: nil)
+
+            var x: Int
+            var y: Int
+
+            if local.y >= inner.maxY - chromeH {
+                // Visible QUIT / OPEN / FIT row — Forth row 0 / 1 at top of canvas
+                let col = Int(((local.x - inner.minX) / cw).rounded(.down))
+                let row = Int(((inner.maxY - local.y) / ch).rounded(.down))
+                let cc = min(max(0, col), cols - 1)
+                let rr = min(max(0, row), 1)
+                x = cc * (pw / cols)
+                y = ph - 1 - rr * (ph / rows) - (ph / rows) / 2
+            } else {
+                let box = letterbox.width > 1 ? letterbox : inner
+                let dw = max(1, box.width)
+                let dh = max(1, box.height)
+                x = Int(((local.x - box.minX) / dw * CGFloat(pw)).rounded(.down))
+                y = Int(((local.y - box.minY) / dh * CGFloat(ph)).rounded(.down))
+            }
+
+            if x < 0 { x = 0 }
+            if y < 0 { y = 0 }
+            if x >= pw { x = pw - 1 }
+            if y >= ph { y = ph - 1 }
+            let buttons = Int(NSEvent.pressedMouseButtons) & 0x7
+            host.updateMouse(x: x, y: y, buttons: buttons)
+        }
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)

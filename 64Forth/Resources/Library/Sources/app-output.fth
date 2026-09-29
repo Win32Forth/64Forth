@@ -150,7 +150,7 @@ VARIABLE G-T0-MS                     \ TIME-RESET baseline (MS@)
 
 \ Flush pending EMIT/TYPE pixels before input/time waits.
 : ?REFRESH  ( -- )
-  ?WINDOW-RESIZE
+\  ?WINDOW-RESIZE
   G-DIRTY? IF  REFRESH  THEN ;
 
 : APP-NAME  ( c-addr u -- )
@@ -158,7 +158,6 @@ VARIABLE G-T0-MS                     \ TIME-RESET baseline (MS@)
   ;
   
 : WINDOW  ( -- )
-  ?WINDOW-RESIZE
   G-OPEN? IF EXIT THEN
   G-BUF 0= IF  G-ALLOC-BUF  THEN
   G-BUF 0= IF EXIT THEN

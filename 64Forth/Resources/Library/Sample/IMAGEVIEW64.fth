@@ -1,7 +1,7 @@
 \ IMAGEVIEW64.fth — macOS image viewer for 64Forth GRAPHICS TRUECOLOR
 \
 \ Opens any format NSImage/macOS supports (JPEG, PNG, HEIC, TIFF, …)
-\ via a file dialog, renders into the 640×400 TRUECOLOR window, and
+\ via a file dialog, renders into the  live G-PX×G-PY canvas, and
 \ zooms on click.
 \
 \ Load:
@@ -36,7 +36,8 @@ DECIMAL
 ONLY FORTH ALSO GRAPHICS DEFINITIONS
 DECIMAL
 
-48 CONSTANT IV-DRAWTOP
+: IV-DRAWTOP  ( -- n )  3 G-CELLH * ;
+
 VARIABLE IV-WASDOWN?  0 IV-WASDOWN? !
 VARIABLE IV-HELP?     0 IV-HELP? !
 VARIABLE IV-DONE?     0 IV-DONE? !
@@ -104,8 +105,6 @@ VARIABLE IV-IMG-H     0 IV-IMG-H !
   0 0 AT ." QUIT  OPEN  FIT"
   IV-.STATUS
   0 1 AT ." L-click=zoom+  R-click=zoom-  O=open  F=fit  1=100%  H=help  Esc=quit"
-  128 128 128 RGB COLOR ! WHITE
-  0 IV-CHROME-Y0 1-  G-PX 1- IV-CHROME-Y0 1- LINE
   ;
 
 : IV-REFRESH  ( -- )
@@ -119,6 +118,9 @@ VARIABLE IV-IMG-H     0 IV-IMG-H !
   THEN
   PREFRESH
   ;
+
+VARIABLE IV-LAST-PX
+VARIABLE IV-LAST-PY
 
 : IV-.HELP  ( -- )
   -1 IV-HELP? !
@@ -170,6 +172,21 @@ VARIABLE IV-IMG-H     0 IV-IMG-H !
   IV-CENTER-IMAGE
   IV-FIT-ZOOM IV-ZOOM !
   IV-REFRESH
+  ;
+
+: XXIV-ADOPT-WINDOW  ( -- )
+  (APP-SIZE?) 0= IF 2DROP EXIT THEN     \ no finished drag
+  WINDOW-SIZE                           \ adopt cols/rows, new G-PIX
+  G-PX IV-LAST-PX !
+  G-PY IV-LAST-PY !
+  IV-FIT                                \ optional: refit photo to the new window
+  ;
+
+: IV-ADOPT-WINDOW  ( -- )
+  G-PX IV-LAST-PX @ =  G-PY IV-LAST-PY @ = AND IF EXIT THEN
+  G-PX IV-LAST-PX !
+  G-PY IV-LAST-PY !
+  IV-FIT
   ;
 
 : IV-ZOOM-AT  ( fx fy factor -- )   \ +2 = ×2, -2 = ÷2
@@ -256,16 +273,21 @@ VARIABLE IV-IMG-H     0 IV-IMG-H !
   TRUECOLOR
   CWHITE COLOR ! WHITE
   PIX-ERASE
+0 IV-LAST-PX !
+  0 IV-LAST-PY !
   G-BUF G-COLS G-ROWS * BL FILL
   0 G-CX ! 0 G-CY !
   0 IV-IMG-W ! 0 IV-IMG-H !
   100 IV-ZOOM !
   IV-SYNC-FROM-HOST
   IV-REFRESH
+  G-PX IV-LAST-PX !
+  G-PY IV-LAST-PY !
   0 IV-DONE? !
   BEGIN IV-DONE? @ 0= WHILE
     (APP-PUMP)
     G-MOUSE IV-HANDLE-MOUSE
+    IV-ADOPT-WINDOW
     DEPTH IF BEGIN DEPTH WHILE DROP REPEAT THEN
     KEY? IF KEY IV-DO-KEY IF -1 IV-DONE? ! THEN THEN
   REPEAT
@@ -280,10 +302,11 @@ ONLY FORTH DEFINITIONS ALSO GRAPHICS
   IV-GRAPH
   WINDOW-OFF
   ;
+  
 : IMAGEVIEW64  ( -- )  IMAGEVIEW ;
 
 \ Re-export IV-LOAD for scripts (path string).
-: IV-LOAD  ( c-addr u -- )  ALSO GRAPHICS IV-LOAD PREVIOUS ;
+\ : IV-LOAD  ( c-addr u -- )  ALSO GRAPHICS IV-LOAD PREVIOUS ;
 
 PREVIOUS
 CR .( IMAGEVIEW64 loaded — type IMAGEVIEW to run.) CR
