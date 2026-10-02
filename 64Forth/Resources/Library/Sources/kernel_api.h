@@ -109,6 +109,9 @@ void kernel_set_dir(void (*fn)(const char *path, size_t n));
 /// Honors FROMLIB (Library resolve; does not permanently chdir into Library).
 void kernel_set_edit(void (*fn)(const char *path, size_t n));
 
+/// EDIT-AT — open path at 1-based line in 64Edit (VIEW); no cwd change.
+void kernel_set_edit_at(void (*fn)(const char *path, size_t n, int64_t line));
+
 /// SYSTEM — run shell command (host: /bin/sh -c). cmd is not necessarily NUL-terminated.
 /// Returns process exit status (0 = success), or -1 if launch/wait failed.
 typedef long long (*kernel_system_fn)(const char *cmd, size_t n);

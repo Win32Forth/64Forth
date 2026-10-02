@@ -563,6 +563,15 @@ _kernel_set_edit:
     str  x0, [x1]
     ret
 
+// void kernel_set_edit_at(void (*fn)(const char *path, size_t n, int64_t line))
+// EDIT-AT / VIEW — open path at 1-based line (0 = open only).
+.globl _kernel_set_edit_at
+_kernel_set_edit_at:
+    adrp x1, edit_at_hook@page
+    add  x1, x1, edit_at_hook@pageoff
+    str  x0, [x1]
+    ret
+
 // void kernel_set_system(long long (*fn)(const char *cmd, size_t n))
 // Host runs /bin/sh -c; returns exit status (0 ok) or -1 on launch failure.
 .globl _kernel_set_system
@@ -4535,11 +4544,12 @@ XDIR:
     RESTORE_VM
     NEXT
 
-// TEXTEDIT ( -- ) name|dialog  open in system text editor TextEdit.app
+// TEXTEDIT ( -- ) name|dialog  open in 64Edit (EDIT's default DEFER target).
 // Bare → open panel; named (or "quoted path") → resolve, open, chdir to folder.
 // FROMLIB EDIT resolves under Library without permanently changing session cwd.
+// Host prefers DerivedData Debug 64Edit.app, then /Applications/64Edit.app.
 
-    BOOT_WORD "TEXTEDIT", "TEXTEDIT ( -- ) name|dialog open in system editor; updates cwd (FROMLIB ok)", 0, XTEXTEDIT
+    BOOT_WORD "TEXTEDIT", "TEXTEDIT ( -- ) name|dialog open in 64Edit; updates cwd (FROMLIB ok)", 0, XTEXTEDIT
 XTEXTEDIT:
     bl   _next_filespec            // x25=len (0 = bare); word_scratch if named
     SAVE_VM
@@ -4556,6 +4566,45 @@ XTEXTEDIT:
     mov  x0, #0
     mov  x1, #0
 3:
+    blr  x9
+1:
+    RESTORE_VM
+    NEXT
+
+// EDIT-AT ( c-addr u line -- ) open path at 1-based line in 64Edit (VIEW).
+// Absolute paths open as-is; relative names use the same resolve as EDIT.
+// Does not change session cwd.
+
+    BOOT_WORD "EDIT-AT", "EDIT-AT ( c-addr u line -- ) open path at line in 64Edit", 0, XEDIT_AT
+XEDIT_AT:
+    // TOS=line, under=u, under2=c-addr → consume 3, restore prior TOS
+    mov  x3, x20                   // line
+    ldr  x2, [x22], #8             // u
+    ldr  x1, [x22], #8             // c-addr
+    adrp x9, data_stack@page
+    add  x9, x9, data_stack@pageoff
+    add  x9, x9, #4096             // SP0
+    cmp  x22, x9
+    b.hs 2f
+    ldr  x20, [x22], #8            // prior TOS
+    b    3f
+2:  mov  x20, #0
+3:
+    adrp x9, host_tmp0@page
+    add  x9, x9, host_tmp0@pageoff
+    str  x1, [x9]                  // c-addr
+    str  x2, [x9, #8]              // u
+    str  x3, [x9, #16]             // line
+    SAVE_VM
+    adrp x2, edit_at_hook@page
+    add  x2, x2, edit_at_hook@pageoff
+    ldr  x9, [x2]
+    cbz  x9, 1f
+    adrp x2, host_tmp0@page
+    add  x2, x2, host_tmp0@pageoff
+    ldr  x0, [x2]                  // path
+    ldr  x1, [x2, #8]              // path_len
+    ldr  x2, [x2, #16]             // line
     blr  x9
 1:
     RESTORE_VM
@@ -18031,6 +18080,7 @@ chdir_hook:     .quad 0            // void (*)(path, path_len); path_len 0 = bar
 pwd_hook:       .quad 0            // void (*)(void)
 dir_hook:       .quad 0            // void (*)(path, path_len); path_len 0 = list cwd
 edit_hook:      .quad 0            // void (*)(path, path_len); path_len 0 = bare EDIT dialog
+edit_at_hook:   .quad 0            // void (*)(path, path_len, line); EDIT-AT / VIEW
 system_hook:    .quad 0            // long long (*)(cmd, n) — SYSTEM /bin/sh -c
 facility_op_hook: .quad 0          // void (*)(op, a, b) Facility terminal
 alloc_hook:     .quad 0            // int (*)(size_t n, void **out)

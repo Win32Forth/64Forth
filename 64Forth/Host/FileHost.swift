@@ -1424,7 +1424,7 @@ final class FileHost {
             return
         }
 
-        openInSystemEditor(url)
+        openInSystemEditor(url, line: 0)
 
         if preserveCwd || preserveSessionCwdAfterFileOp {
             preserveSessionCwdAfterFileOp = false
@@ -1435,6 +1435,41 @@ final class FileHost {
             let parent = url.deletingLastPathComponent()
             applyChdir(parent)
         }
+    }
+
+    /// Kernel EDIT-AT / VIEW: open path at 1-based line in 64Edit (no cwd change).
+    func editAtForKernel(path: UnsafePointer<CChar>?, pathLen: Int, line: Int) {
+        lastLoadError = nil
+        guard let path, pathLen > 0 else {
+            msg("? EDIT-AT needs a path\n")
+            return
+        }
+        var bytes = [UInt8](repeating: 0, count: pathLen)
+        for i in 0..<pathLen { bytes[i] = UInt8(bitPattern: path[i]) }
+        let raw = String(bytes: bytes, encoding: .utf8) ?? ""
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            msg("? EDIT-AT needs a path\n")
+            return
+        }
+
+        let url: URL
+        if name.hasPrefix("/"), FileManager.default.fileExists(atPath: name) {
+            url = URL(fileURLWithPath: name)
+        } else if let resolved = resolveLoadPath(name) {
+            url = resolved
+        } else {
+            let err = lastLoadError ?? "can't edit: \(name) (resolve failed)"
+            lastLoadError = err
+            msg(err + "\n")
+            return
+        }
+
+        if !FileManager.default.fileExists(atPath: url.path) {
+            msg("can't edit: \(url.path) (not found)\n")
+            return
+        }
+        openInSystemEditor(url, line: max(0, line))
     }
 
     /// Bare EDIT: file open panel. FROMLIB arms start at Library without permanent CHDIR.
@@ -1493,7 +1528,7 @@ final class FileHost {
         }
 
         rememberScopedURL(url)
-        openInSystemEditor(url)
+        openInSystemEditor(url, line: 0)
 
         if preserveCwd {
             restoreSessionDirectory(logical: savedLogical, process: savedProcess)
@@ -1504,8 +1539,64 @@ final class FileHost {
         #endif
     }
 
-    private func openInSystemEditor(_ url: URL) {
+    /// Application Support JSON read by 64Edit to scroll after open (cold or warm).
+    private static var pendingGotoURL: URL {
+        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = root.appendingPathComponent("64Forth", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("pending-goto.json")
+    }
+
+    private func writePendingGoto(path: String, line: Int) {
+        guard line > 0 else { return }
+        let payload: [String: Any] = [
+            "path": path,
+            "line": line,
+            "created": Date().timeIntervalSince1970
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted]) else { return }
+        try? data.write(to: Self.pendingGotoURL, options: .atomic)
+        DistributedNotificationCenter.default().postNotificationName(
+            Notification.Name("com.Win32Forth.64Edit.goto"),
+            object: nil,
+            userInfo: ["path": path, "line": line],
+            deliverImmediately: true
+        )
+    }
+
+    /// Open `url` in 64Edit (experimental). Prefers a Debug build under
+    /// DerivedData, then `/Applications/64Edit.app`. Falls back to the default
+    /// system opener only if 64Edit cannot be found or launched.
+    /// Uses `/usr/bin/open -a` so launch finishes before EDIT returns (async
+    /// NSWorkspace open was cancelled when the agent process exited).
+    /// When `line` > 0, writes `pending-goto.json` so 64Edit can scroll there.
+    private func openInSystemEditor(_ url: URL, line: Int) {
         #if os(macOS)
+        if line > 0 {
+            writePendingGoto(path: url.path, line: line)
+        }
+        if let app = locateSixtyFourEditApp() {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            task.arguments = ["-a", app.path, url.path]
+            do {
+                try task.run()
+                task.waitUntilExit()
+                if task.terminationStatus == 0 {
+                    if line > 0 {
+                        msg("VIEW (64Edit): \(url.path):\(line)\n")
+                    } else {
+                        msg("EDIT (64Edit): \(url.path)\n")
+                    }
+                } else {
+                    msg("? EDIT 64Edit open failed (status \(task.terminationStatus)): \(url.path)\n")
+                }
+            } catch {
+                msg("? EDIT 64Edit launch failed: \(error.localizedDescription)\n")
+            }
+            return
+        }
+        msg("? 64Edit.app not found (build Debug or install in /Applications); using system opener\n")
         let ok = NSWorkspace.shared.open(url)
         if ok {
             msg("EDIT: \(url.path)\n")
@@ -1516,6 +1607,48 @@ final class FileHost {
         msg("? EDIT open in system editor is not available on iOS: \(url.path)\n")
         #endif
     }
+
+    #if os(macOS)
+    /// Newest Debug `64Edit.app` under DerivedData, else Release there, else `/Applications`.
+    private func locateSixtyFourEditApp() -> URL? {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser
+        let dd = home.appendingPathComponent("Library/Developer/Xcode/DerivedData", isDirectory: true)
+        var candidates: [(url: URL, date: Date)] = []
+        if let dirs = try? fm.contentsOfDirectory(
+            at: dd,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for dir in dirs where dir.lastPathComponent.hasPrefix("64Edit-") {
+                for config in ["Debug", "Release"] {
+                    let app = dir
+                        .appendingPathComponent("Build/Products/\(config)/64Edit.app", isDirectory: true)
+                    var isDir: ObjCBool = false
+                    guard fm.fileExists(atPath: app.path, isDirectory: &isDir), isDir.boolValue else { continue }
+                    let vals = try? app.resourceValues(forKeys: [.contentModificationDateKey])
+                    candidates.append((app, vals?.contentModificationDate ?? .distantPast))
+                }
+            }
+        }
+        // Prefer Debug over Release when both exist; then newest mtime.
+        if let best = candidates
+            .sorted(by: { a, b in
+                let aDebug = a.url.path.contains("/Debug/")
+                let bDebug = b.url.path.contains("/Debug/")
+                if aDebug != bDebug { return aDebug && !bDebug }
+                return a.date > b.date
+            })
+            .first {
+            return best.url
+        }
+        let applications = URL(fileURLWithPath: "/Applications/64Edit.app", isDirectory: true)
+        if fm.fileExists(atPath: applications.path) {
+            return applications
+        }
+        return nil
+    }
+    #endif
 
     private func restoreSessionDirectory(logical: String, process: String) {
         logicalCurrentDirectory = logical

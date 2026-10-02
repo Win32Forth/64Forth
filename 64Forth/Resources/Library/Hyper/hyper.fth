@@ -1014,19 +1014,28 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC
    HYPER-HIST-RECORD-DEST
    HYPER-APPLY-HIT ;
 
-\ Editor disconnected: VIEW / (VIEW) / SEE-SOURCE decompile like SEE
-\ (primitives print "(primitive)"). Do not open SZ-EDITOR or rebuild FL.
+\ VIEW opens 64Edit at the word's VIEW stamp (path:line) via EDIT-AT.
+\ Prints path:line like SEE; does not decompile (use SEE for that).
+\ ALSO SYSVOC so compile-time FIND sees (SEE-HDR)/(SEE-LOC) after vocsys move.
 ALSO SYSVOC
+\ ( xt -- xt ) if stamped, EDIT-AT path line; always leave xt.
+: (VIEW-OPEN)  ( xt -- xt )
+   DUP VIEW-FILE# ?DUP 0= IF  DROP EXIT  THEN     \ xt id  (id=0 → drop 0)
+   OVER VIEW-LINE >R                              \ xt id  R:line
+   VIEW-PATH                                      \ xt c-addr u  R:line
+   DUP 0= IF  2DROP R> DROP EXIT  THEN            \ no path
+   R> EDIT-AT ;                                   \ EDIT-AT ( c-addr u line )
+
 : (VIEW)  ( c-addr u -- )
    DUP 0= IF  2DROP EXIT  THEN
    PAD PLACE PAD FIND DUP 0= IF
       DROP PAD COUNT TYPE ."  ?" CR EXIT
-   THEN DROP                                 \ xt
-   (SEE-HDR) (SEE-LOC) DUP DOCOL? 0= IF  (SEE-PRIM) EXIT  THEN
-   >BODY BEGIN  (SEE-STEP) DUP 0= UNTIL DROP ;
-PREVIOUS
+   THEN DROP                                      \ xt
+   (SEE-HDR) (SEE-LOC) (VIEW-OPEN) DROP ;
 
-: VIEW  ( "name" -- )  SEE ;
+: VIEW  ( "name" -- )
+   ' (SEE-HDR) (SEE-LOC) (VIEW-OPEN) DROP ;
+PREVIOUS
 
 \ DBG name — VIEW stamped source if the live xt has VIEW-FILE#, else console
 \ DEBUG only (no empty untitled). Mid-step Into a stamped colon opens the
@@ -1165,7 +1174,7 @@ HYPER-STAMP-COLD
 : HYPER-HELP  ( -- )
    CR
    ." LOCATE <name>     print path:line  [n/m] if multiple" CR
-   ." VIEW <name>       same as SEE (path:line + decompile)" CR
+   ." VIEW <name>       print path:line and open 64Edit at that line" CR
    ." SEE <name>        path:line + decompile (primitives: (primitive))" CR
    ." SEE-SOURCE        alias of SEE" CR
    ." SEE-HYPER         optional Hyper+editor path (unused without editor)" CR

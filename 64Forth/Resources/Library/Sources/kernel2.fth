@@ -230,7 +230,7 @@ DOC" IS ( x 'name' -- ) same store as TO (VALUE, DEFER, local, 2VALUE)"
 DOC" ACTION-OF ( 'name' -- xt ) xt currently in deferred name (immediate)"
 : ACTION-OF STATE @ IF POSTPONE ['] POSTPONE DEFER@ ELSE ' DEFER@ THEN ; IMMEDIATE
 
-DOC" EDIT ( 'filename' -- ) edit 'filename'' (DEFER; SZ-EDITOR may IS)"
+DOC" EDIT ( 'filename' -- ) edit 'filename' in 64Edit (DEFER; host opens 64Edit.app)"
 DEFER EDIT
 ' TEXTEDIT is EDIT
 

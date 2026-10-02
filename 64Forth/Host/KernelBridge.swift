@@ -172,6 +172,11 @@ private func kernel_set_edit(
     _ fn: (@convention(c) (UnsafePointer<CChar>?, Int) -> Void)?
 )
 
+@_silgen_name("kernel_set_edit_at")
+private func kernel_set_edit_at(
+    _ fn: (@convention(c) (UnsafePointer<CChar>?, Int, Int64) -> Void)?
+)
+
 @_silgen_name("kernel_set_system")
 private func kernel_set_system(
     _ fn: (@convention(c) (UnsafePointer<CChar>?, Int) -> Int64)?
@@ -481,6 +486,10 @@ private let kernelDirTrampoline: @convention(c) (UnsafePointer<CChar>?, Int) -> 
 
 private let kernelEditTrampoline: @convention(c) (UnsafePointer<CChar>?, Int) -> Void = { path, pathLen in
     FileHost.shared.editForKernel(path: path, pathLen: pathLen)
+}
+
+private let kernelEditAtTrampoline: @convention(c) (UnsafePointer<CChar>?, Int, Int64) -> Void = { path, pathLen, line in
+    FileHost.shared.editAtForKernel(path: path, pathLen: pathLen, line: Int(line))
 }
 
 /// SYSTEM ( c-addr u -- n ): run /bin/sh -c with the length-bounded command string.
@@ -1737,6 +1746,7 @@ final class KernelBridge {
         kernel_set_pwd(kernelPwdTrampoline)
         kernel_set_dir(kernelDirTrampoline)
         kernel_set_edit(kernelEditTrampoline)
+        kernel_set_edit_at(kernelEditAtTrampoline)
         kernel_set_system(kernelSystemTrampoline)
         kernel_set_allocate(kernelAllocTrampoline)
         kernel_set_free(kernelFreeTrampoline)
