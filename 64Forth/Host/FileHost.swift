@@ -1547,19 +1547,24 @@ final class FileHost {
         return dir.appendingPathComponent("pending-goto.json")
     }
 
-    private func writePendingGoto(path: String, line: Int) {
-        guard line > 0 else { return }
-        let payload: [String: Any] = [
+    /// `mode` is `"view"` (VIEW / EDIT-AT) or `"edit"` (EDIT). Line 0 skips scroll.
+    private func writePendingGoto(path: String, line: Int, mode: String) {
+        var payload: [String: Any] = [
             "path": path,
-            "line": line,
+            "mode": mode,
             "created": Date().timeIntervalSince1970
         ]
+        if line > 0 {
+            payload["line"] = line
+        }
         guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted]) else { return }
         try? data.write(to: Self.pendingGotoURL, options: .atomic)
+        var info: [AnyHashable: Any] = ["path": path, "mode": mode]
+        if line > 0 { info["line"] = line }
         DistributedNotificationCenter.default().postNotificationName(
             Notification.Name("com.Win32Forth.64Edit.goto"),
             object: nil,
-            userInfo: ["path": path, "line": line],
+            userInfo: info,
             deliverImmediately: true
         )
     }
@@ -1569,12 +1574,12 @@ final class FileHost {
     /// system opener only if 64Edit cannot be found or launched.
     /// Uses `/usr/bin/open -a` so launch finishes before EDIT returns (async
     /// NSWorkspace open was cancelled when the agent process exited).
-    /// When `line` > 0, writes `pending-goto.json` so 64Edit can scroll there.
+    /// Writes `pending-goto.json`: VIEW (`line` > 0) opens read-only view mode;
+    /// EDIT opens edit mode (and can clear a prior VIEW lock on the same file).
     private func openInSystemEditor(_ url: URL, line: Int) {
         #if os(macOS)
-        if line > 0 {
-            writePendingGoto(path: url.path, line: line)
-        }
+        let viewMode = line > 0
+        writePendingGoto(path: url.path, line: line, mode: viewMode ? "view" : "edit")
         if let app = locateSixtyFourEditApp() {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
@@ -1583,7 +1588,7 @@ final class FileHost {
                 try task.run()
                 task.waitUntilExit()
                 if task.terminationStatus == 0 {
-                    if line > 0 {
+                    if viewMode {
                         msg("VIEW (64Edit): \(url.path):\(line)\n")
                     } else {
                         msg("EDIT (64Edit): \(url.path)\n")

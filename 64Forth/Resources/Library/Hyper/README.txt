@@ -3,10 +3,11 @@
 
 Load
 ----
-  FROMLIB FLOAD Editor/SZ-EDITOR.fth   \ required for VIEW
   FROMLIB FLOAD Hyper/hyper.fth
 
   Often already loaded via AutoLoad (with HYPER-REINDEX on startup).
+  Viewing/editing source uses the external **64Edit** app (v1.5.2+);
+  there is no in-app SZ-EDITOR.
 
 Vocabulary
 ----------
@@ -29,11 +30,12 @@ Vocabulary
 Commands
 --------
   LOCATE <name>     Print defining path:line  (shows [n/m] if multiple hits)  (FORTH)
-  VIEW <name>       Open source in SZ-EDITOR window at that line              (FORTH)
+  VIEW <name>       Open source in 64Edit at that line (view / read-only)     (FORTH)
   SEE <name>        Decompile to Console (kernel SEE; does not open editor)   (FORTH)
   SEE-SOURCE        Alias of VIEW                                             (FORTH)
-  SEE-HYPER         Optional: VIEW if indexed+editor, else decompile          (FORTH)
-  DBG <name>        VIEW or untitled, then DEBUG                              (FORTH)
+  SEE-HYPER         Optional: VIEW if indexed, else decompile                 (FORTH)
+  DBG <name>        Print VIEW stamp path:line, then DEBUG (console)          (FORTH)
+  EDIT <path>       Open path in 64Edit (edit mode)                           (host)
   HYPER-NEXT        Visit history forward, else next multi-hit   (Cmd-PgDn)   (SYSVOC)
   HYPER-PREV        Visit history back, else previous multi-hit  (Cmd-PgUp)   (SYSVOC)
   HYPER-REINDEX     Rebuild Config/HYPER.NDX, reload                          (FORTH)
@@ -54,16 +56,15 @@ Commands
                     for CODE words, assembly labels, multi-hit.
                     HYPER-REINDEX only rebuilds NDX — it does not rewrite headers.
 
-  Cmd-E             VIEW word under caret (console or SZ-EDITOR)
-  Cmd-click         VIEW word under click (console or SZ-EDITOR; same as Cmd-E)
+  Cmd-E / Cmd-click  (legacy Hyper keys; console VIEW stamp + 64Edit open)
   Cmd-PgDn          history forward, else next hit for current name
   Cmd-PgUp          history back, else previous hit
-  Cmd-Left/Right    prev/next same-word occurrence in the open file only
 
-Editor (ALSO EDITOR)
---------------------
-  SZ-GOTO-LINE ( n -- )                 1-based line, cursor at start
-  SZ-EDIT-FILE-AT ( c-addr u n -- )     load path, go to line n, edit
+64Edit (external)
+-----------------
+  VIEW / EDIT-AT write Application Support/64Forth/pending-goto.json
+  (path, line, mode "view") and open 64Edit; typing there prompts
+  Switch to Edit mode?  EDIT uses mode "edit". See 64Edit README.
 
 Index load order
 ----------------

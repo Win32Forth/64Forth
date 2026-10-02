@@ -35,6 +35,7 @@ Console-only (current default):
   host_debug_paint is a no-op; Autoload skips DBG-ED-INSTALL.
   DEBUG / DBG step only in the Forth console.
   Editing is external 64Edit (https://github.com/Win32Forth/64Edit).
+  VIEW opens 64Edit in view mode at path:line; EDIT opens edit mode.
 
 Install / revert:
   DBG-PAUSE-INSTALL / DBG-KEY-INSTALL

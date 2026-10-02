@@ -1,6 +1,6 @@
 # 64Forth development status
 
-**Current:** **1.5.2** (build **46**) — SZ-EDITOR removed; **64Edit** external editor; VIEW stamp / console DEBUG  
+**Current:** **1.5.2** (build **46**) — SZ-EDITOR removed; **64Edit** external editor; VIEW opens 64Edit at `path:line` in view mode; console DEBUG  
 **Last updated:** 2026-10-02
 
 ---
@@ -21,6 +21,7 @@
 
 - **In-app SZ-EDITOR removed.** `Library/Editor/` (SZ-EDITOR and helpers) is gone from the tree and from Autoload. Editing moves to the separate **64Edit** app: https://github.com/Win32Forth/64Edit
 - **64Edit link:** 64Forth listens on `~/Library/Application Support/64Forth/edit.sock` (`ForthEditorServer`). 64Edit connects as a client. Autoload keeps an empty `EDITOR` vocabulary so Hyper can `ALSO EDITOR`.
+- **EDIT / VIEW → 64Edit:** `EDIT` launches 64Edit (Debug DerivedData preferred, then `/Applications`). Hyper `VIEW` / `EDIT-AT` write `~/Library/Application Support/64Forth/pending-goto.json` (`path`, `line`, `mode`) and post DistributedNotification `com.Win32Forth.64Edit.goto` so 64Edit opens the stamp and scrolls to the line. `mode: "view"` for VIEW/EDIT-AT (read-only until the user switches); `mode: "edit"` for EDIT.
 - **DEBUG / DBG** stay **console-only** (no facility-grid paint; `host_debug_paint` is a no-op; Autoload skips `DBG-ED-INSTALL`).
 - **SEE / VIEW / DBG** print a word’s VIEW stamp as full `path:line` (or `(no source)`). Nested `REQUIRE` / `INCLUDED` correctly push/pop the view source stack so Autoload Hyper words stamp as `Library/Hyper/hyper.fth:…`, not an earlier file.
 - `HYPER-STAMP-COLD` uses `ALSO FORTH` and restamps after `VIEW` / `LOCATE` / `DBG` exist; `HYPER-REINDEX` still restamps from the NDX.

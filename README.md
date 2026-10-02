@@ -69,7 +69,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ## Status (v1.5.2)
 
-- [x] **v1.5.2:** In-app **SZ-EDITOR** removed; editing moves to **[64Edit](https://github.com/Win32Forth/64Edit)** (local socket). Autoload keeps an empty `EDITOR` vocab. DEBUG/DBG console-only. `SEE`/`VIEW`/`DBG` print full `path:line`; nested INCLUDE view-stack fix so Hyper Autoload words stamp correctly
+- [x] **v1.5.2:** In-app **SZ-EDITOR** removed; editing moves to **[64Edit](https://github.com/Win32Forth/64Edit)** (`edit.sock` + `EDIT`/`VIEW` open). Autoload keeps an empty `EDITOR` vocab. DEBUG/DBG console-only. `SEE`/`VIEW`/`DBG` print full `path:line`; nested INCLUDE view-stack fix. `VIEW` opens 64Edit at the stamp line in **view mode** (read-only until switch); `EDIT` opens edit mode
 - [x] **v1.5.1:** OOP windows, menus, buttons, and child views (`FROMLIB FLOAD Classes/oop.fth`); tag words via `OOP-ON` / `OOP-SERVE`. Separate from GRAPHICS App Output — DMG + GitHub release
 - [x] **v1.5.0:** Forth-2012 classes (`Library/Classes`); dictionary lookup folds case; colon bodies at CFA+16; `VOCABULARY` body is the hash-head wid and is registered for the emitter; float wordlist renamed **`FLOATING`**; `REPRESENT` writes its digit buffer; block seek / `EVALUATE` `BLK` / line-source echo; Hayes subset green (core `ACCEPT` still waits for a typed line); `EMIT-WINDOW-APP` keeps the window up (`(CATCH-OK)` reloc); Pascal `array [Limit+1]` — DMG + GitHub release
 - [x] **v1.4.3:** GRAPHICS `1BIT`/`COLOR8`/`TRUECOLOR`; Sample DOODLECOLOR64 / IMAGEVIEW64 / EDIT64 / VED64 / MIDNIGHT; cold **`xref.fth`** (`REF`/`XREF`/`ANYWORDS`, VIEW `leaf:line` titles; KEY during console eval; `REF` skips IMMEDIATE) — checkpoint, no separate DMG (folded into 1.5.0)

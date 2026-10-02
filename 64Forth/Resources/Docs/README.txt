@@ -28,6 +28,9 @@ Editor (v1.5.2+)
   64Forth over a local socket (Application Support/64Forth/edit.sock).
   Autoload keeps an empty EDITOR vocabulary so Hyper can ALSO EDITOR.
   DEBUG / DBG stay console-only; SEE / VIEW / DBG print full path:line.
+  EDIT opens 64Edit in edit mode. VIEW / EDIT-AT write pending-goto.json
+  (path, line, mode "view") so 64Edit scrolls to the definition and stays
+  read-only until the user switches to Edit (dialog or banner button).
 
 Windows (macOS)
 ---------------
