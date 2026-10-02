@@ -39,6 +39,11 @@ void kernel_debug_get(int64_t *s, int *ns, int64_t *r, int *nr, char *name, int 
 /// Cell after paused IP (LIT's value when the upcoming word is LIT).
 int64_t kernel_debug_inline(void);
 
+/// VIEW path + 1-based line for the paused enclosing colon (or peek xt).
+/// Writes a NUL-terminated path into `path` (up to path_max). Returns 1 if
+/// stamped, else 0 (*line = 0, path empty).
+int kernel_debug_location(char *path, int path_max, int *line);
+
 void kernel_set_emit(void (*fn)(int c));
 /// Bulk TYPE path: emit `n` bytes at `buf` as one UTF-8 (or Latin-1 fallback) chunk.
 void kernel_set_emit_buf(void (*fn)(const char *buf, size_t n));

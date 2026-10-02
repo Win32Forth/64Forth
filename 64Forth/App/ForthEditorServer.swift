@@ -24,7 +24,12 @@ final class ForthEditorServer {
     private let queue = DispatchQueue(label: "com.64forth.editor-server")
     private var clients: [Int32] = []
     private var clientSources: [DispatchSourceRead] = []
-    
+    private var debugPoll: DispatchSourceTimer?
+    private var lastDebugArmed = false
+    /// Tail of console text for late sock clients (DEBUG often opens 64Edit after first prints).
+    private var recentConsole = ""
+    private let recentConsoleMax = 32_768
+
     func start() {
         let dir = Self.socketURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -67,6 +72,34 @@ final class ForthEditorServer {
             previous?(chunk)
             ForthEditorServer.shared.broadcast(.consoleOutput(text: chunk))
         }
+
+        startDebugSessionPoll()
+    }
+
+    /// Watch `kernel_any_debug_armed` and push `.debugSession` on edges.
+    private func startDebugSessionPoll() {
+        debugPoll?.cancel()
+        let t = DispatchSource.makeTimerSource(queue: queue)
+        t.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(100))
+        t.setEventHandler { [weak self] in
+            self?.pollDebugSession()
+        }
+        t.resume()
+        debugPoll = t
+    }
+
+    private func pollDebugSession() {
+        let armed = KernelBridge.shared.isAnyDebugArmed
+        guard armed != lastDebugArmed else { return }
+        lastDebugArmed = armed
+        if !armed {
+            DispatchQueue.main.async {
+                FileHost.shared.clearDebugReveal()
+            }
+        }
+        for fd in clients {
+            writeResponse(.debugSession(armed: armed), to: fd)
+        }
     }
 
     private func acceptClient() {
@@ -84,6 +117,15 @@ final class ForthEditorServer {
             src.resume()
             clientSources.append(src)
             NSLog("64Forth editor server: client fd=%d", cfd)
+
+            // Replay recent console so a late connect (e.g. DEBUG open) sees the pause banner.
+            if !recentConsole.isEmpty {
+                writeResponse(.consoleOutput(text: recentConsole), to: cfd)
+            }
+            // Sync current stepper state so a late connect sees an active session.
+            let armed = KernelBridge.shared.isAnyDebugArmed
+            lastDebugArmed = armed
+            writeResponse(.debugSession(armed: armed), to: cfd)
         }
 
     private func readClient(_ fd: Int32) {
@@ -116,19 +158,44 @@ final class ForthEditorServer {
             let response: ForthResponse
             switch request {
             case .executeCommand(let command):
-                let st = kernel.evaluate(command)
-                kernel.forceFlushEmitSync()
-                response = st == 0
-                    ? .consoleOutput(text: "ok(\(kernel.dataStackDepth))")
-                    : .error(message: "status=\(st)")
+                // Kernel holds evalLock while DEBUG waits for KEY; reject with a clear message.
+                if kernel.isAnyDebugArmed {
+                    response = .error(message: "debugger paused — use Step/Continue")
+                } else {
+                    let st = kernel.evaluate(command)
+                    kernel.forceFlushEmitSync()
+                    response = st == 0
+                        ? .consoleOutput(text: "ok(\(kernel.dataStackDepth))")
+                        : .error(message: "status=\(st)")
+                }
             case .loadSource(let path):
-                let st = kernel.loadFile(named: path)
-                kernel.forceFlushEmitSync()
-                response = st == 0 ? .consoleOutput(text: "ok") : .error(message: "load status=\(st)")
+                if kernel.isAnyDebugArmed {
+                    response = .error(message: "debugger paused — use Step/Continue")
+                } else {
+                    let st = kernel.loadFile(named: path)
+                    kernel.forceFlushEmitSync()
+                    response = st == 0 ? .consoleOutput(text: "ok") : .error(message: "load status=\(st)")
+                }
+            case .stepOver:
+                response = kernel.debugStepOver()
+                    ? .consoleOutput(text: "")
+                    : .error(message: "debugger not armed")
+            case .stepInto:
+                response = kernel.debugStepInto()
+                    ? .consoleOutput(text: "")
+                    : .error(message: "debugger not armed")
+            case .resume:
+                response = kernel.debugResume()
+                    ? .consoleOutput(text: "")
+                    : .error(message: "debugger not armed")
             case .stop:
-                response = .executionFinished(exitCode: 0)
-            default:
-                response = .error(message: "debugger not wired")
+                if kernel.debugAbort() {
+                    response = .consoleOutput(text: "")
+                } else {
+                    response = .executionFinished(exitCode: 0)
+                }
+            case .setBreakpoint:
+                response = .error(message: "breakpoints not wired yet")
             }
             self.writeResponse(response, to: fd)
         }
@@ -145,9 +212,22 @@ final class ForthEditorServer {
 
     func broadcast(_ response: ForthResponse) {
         queue.async {
+            if case .consoleOutput(let text) = response, !text.isEmpty {
+                self.appendRecentConsole(text)
+            }
             for fd in self.clients {
                 self.writeResponse(response, to: fd)
             }
+        }
+    }
+
+    private func appendRecentConsole(_ text: String) {
+        recentConsole.append(text)
+        guard recentConsole.count > recentConsoleMax else { return }
+        let overflow = recentConsole.count - recentConsoleMax
+        recentConsole.removeFirst(overflow)
+        if let nl = recentConsole.firstIndex(of: "\n") {
+            recentConsole.removeSubrange(..<recentConsole.index(after: nl))
         }
     }
 }

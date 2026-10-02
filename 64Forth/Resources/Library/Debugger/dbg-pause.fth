@@ -112,7 +112,8 @@ VARIABLE DBG-PAUSE-KEY
 ;
 
 : DBG-PAUSE-UI  ( -- )
-  \ Console-only: print S/R + >> word + cursor; do not sync/HL/paint SZ-EDITOR.
+  \ Open/scroll 64Edit first so the sock can connect while the pause banner prints.
+  DBG-HOST-PAINT
   DBG-PAUSE-PREAMBLE
   DBG-PRINT-TOKEN-UI
   BEGIN

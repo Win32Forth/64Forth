@@ -46,6 +46,9 @@ final class FileHost {
     /// Absolute standardized path of the last successful load (REQUIRE registry key).
     private(set) var lastLoadRegistryKey: String?
 
+    /// Last path opened for DEBUG reveal; open -a only when this changes.
+    private var lastDebugRevealPath: String?
+
     /// Optional emit sink (KernelBridge sets this for load/chdir messages).
     var onMessage: ((String) -> Void)?
 
@@ -1435,6 +1438,46 @@ final class FileHost {
             let parent = url.deletingLastPathComponent()
             applyChdir(parent)
         }
+    }
+
+    /// DEBUG pause: scroll/open 64Edit to VIEW path:line without console spam.
+    /// Writes pending-goto every pause; launches 64Edit only when the path changes.
+    func revealForDebug(path: String, line: Int) {
+        let name = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, line > 0 else { return }
+
+        let url: URL
+        if name.hasPrefix("/"), FileManager.default.fileExists(atPath: name) {
+            url = URL(fileURLWithPath: name)
+        } else if let resolved = resolveLoadPath(name) {
+            url = resolved
+        } else {
+            return
+        }
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+
+        let standardized = url.standardizedFileURL.path
+        let pathChanged = lastDebugRevealPath != standardized
+        lastDebugRevealPath = standardized
+
+        writePendingGoto(path: url.path, line: line, mode: "view")
+        #if os(macOS)
+        guard pathChanged, let app = locateSixtyFourEditApp() else { return }
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        task.arguments = ["-a", app.path, url.path]
+        do {
+            try task.run()
+            task.waitUntilExit()
+        } catch {
+            // Quiet during DEBUG; sock + pending-goto still deliver the location.
+        }
+        #endif
+    }
+
+    /// Clear DEBUG open-path cache when the stepper disarms.
+    func clearDebugReveal() {
+        lastDebugRevealPath = nil
     }
 
     /// Kernel EDIT-AT / VIEW: open path at 1-based line in 64Edit (no cwd change).

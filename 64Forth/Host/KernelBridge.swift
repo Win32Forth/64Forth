@@ -48,6 +48,13 @@ private func kernel_debug_get(
 @_silgen_name("kernel_debug_inline")
 private func kernel_debug_inline() -> Int64
 
+@_silgen_name("kernel_debug_location")
+private func kernel_debug_location(
+    _ path: UnsafeMutablePointer<CChar>?,
+    _ pathMax: Int32,
+    _ line: UnsafeMutablePointer<Int32>?
+) -> Int32
+
 @_silgen_name("kernel_take_repl_batch_stop")
 private func kernel_take_repl_batch_stop() -> Int32
 
@@ -624,11 +631,31 @@ private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> 
     }
 }
 
-/// Former SZ-EDITOR Files-column paint for ITC DEBUG.
-/// Console-only debugger: never open, paint, or redraw the Facility editor.
+/// ITC DEBUG pause: open/scroll 64Edit to the paused word's VIEW path:line.
+/// Called from DBG-HOST-PAINT (Forth pause UI) and the asm stepper paint path.
 @_cdecl("host_debug_paint")
 public func host_debug_paint() {
-    // Intentionally empty. Stacks / >> lines print in the Forth console.
+    var line: Int32 = 0
+    var buf = [CChar](repeating: 0, count: 1024)
+    let ok = buf.withUnsafeMutableBufferPointer { bp in
+        kernel_debug_location(bp.baseAddress, Int32(bp.count), &line)
+    }
+    guard ok != 0, line > 0 else { return }
+    let path = String(cString: buf)
+    guard !path.isEmpty else { return }
+    let pathCopy = path
+    let lineCopy = Int(line)
+    let publish: () -> Void = {
+        // Drain pending emits into the sock replay buffer before open/connect.
+        KernelBridge.shared.forceFlushEmitSync()
+        FileHost.shared.revealForDebug(path: pathCopy, line: lineCopy)
+        ForthEditorServer.shared.broadcast(.debugLocation(path: pathCopy, line: lineCopy))
+    }
+    if Thread.isMainThread {
+        publish()
+    } else {
+        DispatchQueue.main.async(execute: publish)
+    }
 }
 
 /// AT-XY? — facility cursor (0-based). Called from kernel CODE `XAT_XY_Q`.
@@ -1949,6 +1976,39 @@ final class KernelBridge {
         lock.unlock()
         keyAvailable.signal()
         return true
+    }
+
+    /// True while ITC DEBUG / DBG-ON or TDBG is waiting for a stepper key.
+    var isAnyDebugArmed: Bool {
+        kernel_any_debug_armed() != 0
+    }
+
+    /// Sock / editor step-over: Space (same as F6 / o while armed).
+    @discardableResult
+    func debugStepOver() -> Bool {
+        guard isAnyDebugArmed else { return false }
+        return pushKey(Int32(Character(" ").asciiValue ?? 32))
+    }
+
+    /// Sock / editor step-into: i (same as F7 while armed).
+    @discardableResult
+    func debugStepInto() -> Bool {
+        guard isAnyDebugArmed else { return false }
+        return pushKey(Int32(Character("i").asciiValue ?? 105))
+    }
+
+    /// Sock / editor continue: 134 (same as ⌘⇧Y / g while armed).
+    @discardableResult
+    func debugResume() -> Bool {
+        guard isAnyDebugArmed else { return false }
+        return pushKey(FacilityFKey.debugContinue)
+    }
+
+    /// Sock / editor abort: q (same as Esc while armed).
+    @discardableResult
+    func debugAbort() -> Bool {
+        guard isAnyDebugArmed else { return false }
+        return pushKey(Int32(Character("q").asciiValue ?? 113))
     }
 
     /// NSEvent function-key characters → classic editor codes (no modifiers).

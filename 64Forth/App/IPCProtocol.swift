@@ -27,6 +27,10 @@ enum ForthResponse: Codable, Equatable {
     case variableChanged(name: String, value: String)
     case executionFinished(exitCode: Int)
     case error(message: String)
+    /// ITC DEBUG / TDBG stepper armed (true) or finished / aborted (false).
+    case debugSession(armed: Bool)
+    /// Source location for the paused word (VIEW stamp). Line is 1-based.
+    case debugLocation(path: String, line: Int)
 }
 
 // MARK: - JSON on the wire (NSXPC cannot pass Swift enums)

@@ -46,6 +46,7 @@ final class ForthEngine: NSObject, ForthEngineXPC {
         case .stop:
             return .executionFinished(exitCode: 0)
         }
+
     }
 
     private func push(_ response: ForthResponse) {
