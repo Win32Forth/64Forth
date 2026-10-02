@@ -25,6 +25,9 @@
 		B1000018 /* AppOutputHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000119 /* AppOutputHost.swift */; };
 		B1000019 /* FacilityEditorHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100011A /* FacilityEditorHost.swift */; };
 		FA6AA0DF301916D30007C369 /* 64Forth.jpg in Resources */ = {isa = PBXBuildFile; fileRef = FA6AA0DE301916D30007C369 /* 64Forth.jpg */; };
+		FADE85D8306D82790035B509 /* IPCProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = FADE85D7306D82790035B509 /* IPCProtocol.swift */; };
+		FADE85DC306D83330035B509 /* ForthEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = FADE85DB306D832B0035B509 /* ForthEngine.swift */; };
+		FADE85E2306DB6EE0035B509 /* ForthEditorServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FADE85E1306DB6D70035B509 /* ForthEditorServer.swift */; };
 		FAE0DA1C30636EA600B77B7C /* xref.fth in Resources */ = {isa = PBXBuildFile; fileRef = FAE0DA1B30636EA600B77B7C /* xref.fth */; };
 /* End PBXBuildFile section */
 
@@ -61,6 +64,9 @@
 		FA38151E304B00A900EB8DE3 /* boot_words_end.inc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.pascal; path = boot_words_end.inc; sourceTree = "<group>"; };
 		FA38151F304B00A900EB8DE3 /* kernel_api.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = kernel_api.h; sourceTree = "<group>"; };
 		FA6AA0DE301916D30007C369 /* 64Forth.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = 64Forth.jpg; sourceTree = "<group>"; };
+		FADE85D7306D82790035B509 /* IPCProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCProtocol.swift; sourceTree = "<group>"; };
+		FADE85DB306D832B0035B509 /* ForthEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForthEngine.swift; sourceTree = "<group>"; };
+		FADE85E1306DB6D70035B509 /* ForthEditorServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForthEditorServer.swift; sourceTree = "<group>"; };
 		FAE0DA1B30636EA600B77B7C /* xref.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = xref.fth; sourceTree = "<group>"; };
 		FAEB4C7E30425AF900F5334E /* kernel1.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = kernel1.fth; sourceTree = "<group>"; };
 		FAEB4C7F30425B4800F5334E /* kernel2.fth */ = {isa = PBXFileReference; lastKnownFileType = text; path = kernel2.fth; sourceTree = "<group>"; };
@@ -106,6 +112,9 @@
 		B1000302 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				FADE85E1306DB6D70035B509 /* ForthEditorServer.swift */,
+				FADE85DB306D832B0035B509 /* ForthEngine.swift */,
+				FADE85D7306D82790035B509 /* IPCProtocol.swift */,
 				B1000117 /* AppMain.swift */,
 				B1000118 /* AgentChannel.swift */,
 				B1000101 /* SixtyFourForthApp.swift */,
@@ -358,6 +367,7 @@
 			files = (
 				B1000016 /* AppMain.swift in Sources */,
 				B1000017 /* AgentChannel.swift in Sources */,
+				FADE85E2306DB6EE0035B509 /* ForthEditorServer.swift in Sources */,
 				B1000001 /* SixtyFourForthApp.swift in Sources */,
 				B1000015 /* ForthApplication.swift in Sources */,
 				B1000002 /* ContentView.swift in Sources */,
@@ -369,9 +379,11 @@
 				B1000011 /* BigIntHost.swift in Sources */,
 				B1000013 /* FloatHost.swift in Sources */,
 				B1000014 /* FacilityTerminal.swift in Sources */,
+				FADE85D8306D82790035B509 /* IPCProtocol.swift in Sources */,
 				B1000018 /* AppOutputHost.swift in Sources */,
 				B1000019 /* FacilityEditorHost.swift in Sources */,
 				B1000006 /* forth.s in Sources */,
+				FADE85DC306D83330035B509 /* ForthEngine.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -481,7 +493,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 46;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = X5YCJL3LJ8;
 				ENABLE_APP_SANDBOX = NO;
@@ -489,14 +501,15 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)/64Forth/Kernel";
 				INFOPLIST_FILE = 64Forth/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = 64Forth;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
-				MARKETING_VERSION = 1.5.1;
+				MACOSX_DEPLOYMENT_TARGET = 26.6;
+				MARKETING_VERSION = 1.5.2;
 				OTHER_CFLAGS = "-I$(SRCROOT)/64Forth/Kernel";
 				PRODUCT_BUNDLE_IDENTIFIER = com.win32forth.SixtyFourForth;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -515,7 +528,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 46;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = X5YCJL3LJ8;
 				ENABLE_APP_SANDBOX = NO;
@@ -523,14 +536,15 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)/64Forth/Kernel";
 				INFOPLIST_FILE = 64Forth/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = 64Forth;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
-				MARKETING_VERSION = 1.5.1;
+				MACOSX_DEPLOYMENT_TARGET = 26.6;
+				MARKETING_VERSION = 1.5.2;
 				OTHER_CFLAGS = "-I$(SRCROOT)/64Forth/Kernel";
 				PRODUCT_BUNDLE_IDENTIFIER = com.win32forth.SixtyFourForth;
 				PRODUCT_NAME = "$(TARGET_NAME)";

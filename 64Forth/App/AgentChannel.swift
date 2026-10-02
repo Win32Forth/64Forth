@@ -91,7 +91,8 @@ enum AgentChannel {
         kernel.setAgentSyncEmit(true)
         kernel.onEmit = { chunk in
             appendOut(chunk)
-        }
+            ForthEditorServer.shared.broadcast(.consoleOutput(text: chunk))
+       }
         // Flush anything buffered during KernelBridge.init before onEmit was set.
         kernel.forceFlushEmitSync()
         // Cold-blob / post-init diagnostics are snapshotted into bootTranscript

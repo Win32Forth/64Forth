@@ -12,22 +12,17 @@
 \
 \ After this file loads, the host runs MAIN once (if defined), then the REPL.
 
-\ by default, we are loading the debugger helpers, the editor, the Emitter
-\ application builder and the hyper text system as part of what the user has
-\ available when they start using 64Forth
+\ Boot loads: debugger helpers, Emitter, Hyper. SZ-EDITOR is out of Autoload
+\ (external 64Edit + XPC). Empty EDITOR vocab keeps Hyper's ALSO EDITOR safe.
 \ FILE-ECHO ON
     \ ITC DEBUG (hub loads Debugger/*; leaves ALSO DEBUGGER on the order)
     FROMLIB REQUIRE Debugger/debugger.fth
-    FROMLIB REQUIRE EDITOR/SZ-EDITOR.fth
-    \ Size follows the graphic window on each SZ-REDRAW (SZ-SYNC-SIZE).
-    EDITOR 80 20 SET-EDIT-WINDOW FORTH
+    [UNDEFINED] EDITOR [IF] VOCABULARY EDITOR [THEN]
     FROMLIB REQUIRE Emitter/emitter.fth
     \ Load the hyper text code, and finally re-index so everything is up to date
     FROMLIB REQUIRE HYPER/HYPER.fth
     HYPER-VOC MIN-HYPER-NOISE ON FORTH
     HYPER-REINDEX
-    \ Maps already loaded with Debugger; bind Editor/Hyper links now.
-    ALSO DEBUGGER  DBG-ED-INSTALL DROP  PREVIOUS
 
 \ Boot: ONLY FORTH ALSO DEFINITIONS (FORTH FORTH, CURRENT=FORTH).
 \ ALSO leaves a spare FORTH slot for vocabulary context; DEFINITIONS → FORTH.
@@ -42,7 +37,7 @@ ONLY FORTH ALSO DEFINITIONS
 \ print while compiling MAIN. 64Forth has no .ERROR; print the code with .
 
 : APP-RUN  ( -- )
-  \ Default: nothing (editor / hyper / emitter already loaded above).
+  \ Default: nothing (debugger / hyper / emitter already loaded above).
   \ Put product startup here, or enable the template block below.
   ;
 

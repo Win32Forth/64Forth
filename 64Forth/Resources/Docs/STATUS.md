@@ -1,9 +1,29 @@
 # 64Forth development status
 
-**Current:** **1.5.1** (build **45**) — OOP windows, menus, buttons, and child views  
-**Last updated:** 2026-09-27
+**Current:** **1.5.2** (build **46**) — SZ-EDITOR removed; **64Edit** external editor; VIEW stamp / console DEBUG  
+**Last updated:** 2026-10-02
 
 ---
+
+## v1.5.2 — 64Edit, console DEBUG, VIEW stamps
+
+**Version strings:** marketing **1.5.2**, build **46**.
+
+**Release:** version bump on `main` (rebuild in Xcode for the new banner). DMG when you cut one.
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.5.2 === Oct 2, 2026 1:48 PM ===
+```
+
+### Highlights (vs 1.5.1)
+
+- **In-app SZ-EDITOR removed.** `Library/Editor/` (SZ-EDITOR and helpers) is gone from the tree and from Autoload. Editing moves to the separate **64Edit** app: https://github.com/Win32Forth/64Edit
+- **64Edit link:** 64Forth listens on `~/Library/Application Support/64Forth/edit.sock` (`ForthEditorServer`). 64Edit connects as a client. Autoload keeps an empty `EDITOR` vocabulary so Hyper can `ALSO EDITOR`.
+- **DEBUG / DBG** stay **console-only** (no facility-grid paint; `host_debug_paint` is a no-op; Autoload skips `DBG-ED-INSTALL`).
+- **SEE / VIEW / DBG** print a word’s VIEW stamp as full `path:line` (or `(no source)`). Nested `REQUIRE` / `INCLUDED` correctly push/pop the view source stack so Autoload Hyper words stamp as `Library/Hyper/hyper.fth:…`, not an earlier file.
+- `HYPER-STAMP-COLD` uses `ALSO FORTH` and restamps after `VIEW` / `LOCATE` / `DBG` exist; `HYPER-REINDEX` still restamps from the NDX.
 
 ## v1.5.1 — OOP windows
 

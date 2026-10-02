@@ -536,11 +536,12 @@ CREATE HX-LTAB  HX-LMAX HX-ESIZE * ALLOT
    S" Library/Sources/boot_words.inc"  HX-SCAN-FILE
    S" Library/Hyper/hyper.fth"   HX-SCAN-FILE
    S" Library/Hyper/hyper-index.fth" HX-SCAN-FILE
-   S" Library/Editor/sz-edit.fth" HX-SCAN-FILE
-   S" Library/Editor/sz-buffer.fth" HX-SCAN-FILE
-   S" Library/Editor/sz-screen.fth" HX-SCAN-FILE
-   S" Library/Editor/sz-host.fth" HX-SCAN-FILE
-   S" Library/Editor/SZ-EDITOR.fth" HX-SCAN-FILE ;
+\   S" Library/Editor/sz-edit.fth" HX-SCAN-FILE
+\   S" Library/Editor/sz-buffer.fth" HX-SCAN-FILE
+\   S" Library/Editor/sz-screen.fth" HX-SCAN-FILE
+\   S" Library/Editor/sz-host.fth" HX-SCAN-FILE
+\   S" Library/Editor/SZ-EDITOR.fth" HX-SCAN-FILE
+;
 
 \ One SPECS path line (skip blanks / # comments)
 : HX-SCAN-SPECS-LINE  ( a u -- )

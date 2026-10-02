@@ -578,6 +578,7 @@ _kernel_set_facility_op:
     adrp x1, facility_op_hook@page
     add  x1, x1, facility_op_hook@pageoff
     str  x0, [x1]
+    
     ret
 
     BOOT_WORD "BOOT-WORD-TABLE", "BOOT-WORD-TABLE ( -- addr ) start of __bootptr (ptrs to rows)", 0, XBOOT_WORD_TABLE, XBOOT_WORD_TABLE_END
@@ -5518,14 +5519,15 @@ _view_register_path:
     b    6b
 _vrp_found:
     mov  x0, x3
-    ldp  x19, x20, [sp], #16
+    // Saved as stp x19,x20 then stp x21,x22 — pop in reverse order.
     ldp  x21, x22, [sp], #16
+    ldp  x19, x20, [sp], #16
     ldp  x29, x30, [sp], #16
     ret
 _vrp_fail:
     mov  x0, #0
-    ldp  x19, x20, [sp], #16
     ldp  x21, x22, [sp], #16
+    ldp  x19, x20, [sp], #16
     ldp  x29, x30, [sp], #16
     ret
 
@@ -9942,6 +9944,11 @@ XLOAD_RUN:
 // SOURCE-ID is -2: not console (0), not EVALUATE (-1), so the file-id test
 // passes, and _interpret_empty resumes the caller instead of popping load
 // cwd. INCLUDED pairs BEGIN-LOAD-CWD with END-LOAD-CWD.
+// Nest VIEW like CODE INCLUDE: push outer view_src_id, register
+// include_name_pending (set by RESOLVE-KEY / INCLUDED), pop on end.
+// Without push/set, CREATE during high-level FLOAD is unstamped; without
+// a matching pop-only-for--2 rule, ending this SOURCE wiped the outer
+// INCLUDE stamp (SEE VIEW → "(no source)" after FLOAD hyper-index.fth).
 // \S ends the rest of the image, not only the current line.
 
     BOOT_WORD "(LINE-SOURCE)", "(LINE-SOURCE) ( c-addr u -- ) interpret file image one line per SOURCE", 0, XLINE_SOURCE
@@ -9951,6 +9958,11 @@ XLINE_SOURCE:
     ldr x20, [x22], #8
     stp x0, x1, [sp, #-16]!
     bl _push_source
+    // Preserve VM regs across view helpers (same as CODE INCLUDE setup).
+    SAVE_VM
+    bl _view_push_src_id
+    bl _view_set_src_from_pending
+    RESTORE_VM
     ldp x0, x1, [sp], #16
     bl _arm_lines
     adrp x0, source_id_var@page
@@ -12124,11 +12136,14 @@ _error_abandon:
     add  x0, x0, state_var@pageoff
     str  xzr, [x0]                 // STATE = interpret
     // Unwind nested INCLUDE/EVALUATE frames (end_include restores host cwd).
+    // Also pop VIEW for levels that pushed it (same rule as _interpret_empty),
+    // or a soft fault mid-REQUIRE leaves view_src_id on the abandoned file.
 _ea_unwind:
     adrp x0, source_id_var@page
     add  x0, x0, source_id_var@pageoff
-    ldr  x0, [x0]
-    cmp  x0, #0
+    ldr  x10, [x0]                 // ending SOURCE-ID (preserve across hook)
+    str  x10, [sp, #-16]!
+    cmp  x10, #0
     b.le 1f
     adrp x0, end_include_hook@page
     add  x0, x0, end_include_hook@pageoff
@@ -12137,7 +12152,17 @@ _ea_unwind:
     blr  x9
 1:
     bl   _pop_source               // x0=1 restored outer, 0 = already base
-    cbnz x0, _ea_unwind
+    mov  x1, x0
+    ldr  x10, [sp], #16
+    cbz  x1, 2f
+    cmp  x10, #0
+    b.gt 3f
+    cmn  x10, #2                   // (LINE-SOURCE)
+    b.ne _ea_unwind
+3:
+    bl   _view_pop_src_id
+    b    _ea_unwind
+2:
     // Base SOURCE only: pin >IN to end so no further tokens this evaluate.
     adrp x0, source_len@page
     add  x0, x0, source_len@pageoff
@@ -12172,9 +12197,15 @@ _interpret_empty:
     cbnz x0, _interpret_loop
 3:
     // Remember which kind of SOURCE just ended (before _pop_source overwrites id).
+    // x10 is caller-saved: end_include_hook (Swift/C) clobbers it. Save the
+    // ending SOURCE-ID on the stack before the hook so CODE INCLUDE still
+    // runs _view_pop_src_id. Without that, nested REQUIRE leaves view_src_id
+    // on the included file, fills view_id_stack, and Hyper's FLOAD hyper-index
+    // push fails — VIEW/DBG/LOCATE then stamp as Emitter/… .
     adrp x0, source_id_var@page
     add  x0, x0, source_id_var@pageoff
     ldr  x10, [x0]                 // x10 = ending SOURCE-ID
+    str  x10, [sp, #-16]!          // preserve across hook + _pop_source
     // If ending a file INCLUDE/FLOAD (SOURCE-ID > 0), restore host load cwd
     // so nested relative FLOAD paths resolve against the outer file's folder.
     cmp  x10, #0
@@ -12186,11 +12217,22 @@ _interpret_empty:
     blr  x9
 1:
     bl   _pop_source               // x0=1 restored outer, 0 = base done
-    str  x0, [sp, #-16]!
-    str  x10, [sp, #8]             // keep ending SOURCE-ID across VIEW helper
-    bl   _view_pop_src_id          // nest VIEW file-id with SOURCE
-    ldr  x10, [sp, #8]
-    ldr  x0, [sp], #16
+    ldr  x10, [sp]                 // ending SOURCE-ID (hook may have clobbered x10)
+    str  x0, [sp, #8]              // pop_source result
+    // Pop VIEW only when this level pushed it: CODE INCLUDE (id>0) or
+    // (LINE-SOURCE) (id==-2). EVALUATE / (LOAD-RUN) (id==-1) must not pop —
+    // that wrongly cleared the outer INCLUDE stamp after nested high-level
+    // FLOAD (words after FLOAD hyper-index.fth in hyper.fth had VIEW-FILE#=0).
+    cmp  x10, #0
+    b.gt 4f
+    cmn  x10, #2                   // id == -2?
+    b.ne 5f
+4:
+    bl   _view_pop_src_id
+5:
+    ldr  x10, [sp]
+    ldr  x0, [sp, #8]
+    add  sp, sp, #16
     cbz  x0, _interpret_done       // base done
     // File INCLUDE (SOURCE-ID > 0): keep scanning the restored outer SOURCE.
     // EVALUATE and (LOAD-RUN) use -1. (LINE-SOURCE) uses -2 so a positive id

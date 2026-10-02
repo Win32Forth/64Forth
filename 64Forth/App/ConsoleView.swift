@@ -55,7 +55,7 @@ extension Notification.Name {
 // Update the date/time stamp only when finishing a change set for a version —
 // just before DMG + commit/push (not on every intermediate build).
 // Format: === 64Forth M.N.P === Mon D, YYYY H:MM AM/PM ===
-private let banner = "=== 64Forth 1.5.1 === Sep 27, 2026 9:59 PM ===\n"
+private let banner = "=== 64Forth 1.5.2 === Oct 2, 2026 1:48 PM ===\n"
 
 struct ConsoleView: View {
     @State private var consoleText = banner
@@ -170,6 +170,7 @@ struct ConsoleView: View {
         kernel.onEmit = { chunk in
             // Full Console REPL only (never App Output; never in-console facility grid).
             self.appendEngineOutput(chunk)
+            ForthEditorServer.shared.broadcast(.consoleOutput(text: chunk))
         }
         // After SZ-DO-CONSOLE-LINE finishes EVALUATE, host appends ok(n)> .
         kernel.onCommandLineDone = {
@@ -600,6 +601,16 @@ struct ConsoleView: View {
         appendPrompt()
         isProgrammaticConsoleAppend = false
         keepCursorVisible(followPrompt: true)
+        #if os(macOS)
+        if FacilityTerminal.shared.isActive,
+           let tv = consoleTextView,
+           let win = tv.window {
+            win.makeKeyAndOrderFront(nil)
+            win.makeFirstResponder(tv)
+            let end = (tv.string as NSString).length
+            tv.setSelectedRange(NSRange(location: end, length: 0))
+        }
+        #endif
     }
 
     /// Bare SZEDIT / SZ-HOST-REQUEST-OPEN → open panel, then enter SZ-EDITOR.

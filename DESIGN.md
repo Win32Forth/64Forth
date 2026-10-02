@@ -1,19 +1,19 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-09-27 — **v1.5.1** (build 45) — OOP `WINDOW`/`CHILD`/`MENU`/`BUTTON` via `(OOP-CALL)`, separate from GRAPHICS. Prior **v1.5.0** (build 44) — Forth-2012 classes; case-folding dictionary lookup; colon body at CFA+16; `VOCABULARY` wid is the hash-head array and is registered; float wordlist **`FLOATING`**; `REPRESENT` writes digits; Hayes subset green; stand-alone `(CATCH-OK)` reloc; Pascal array bounds accept a constant. Prior **1.4.3** (build 42): Sample VED64 + MIDNIGHT; `REF` skips IMMEDIATE; Pascal `RECURSE`; GRAPHICS color depths + IMAGEVIEW64/EDIT64; cold **`Kernel/xref.fth`**. Prior **1.4.2**: ANS SMUDGE / hide-until-`;`; FILE-ECHO line#s; GRAPHICS mouse + Sample/DOODLE64; Emitter SA CONSTANT/VALUE/LIT reloc for `EMIT-WINDOW-APP`; **1.4.1** TRAVERSE/DBG VIEW+HL + cold boot transcript + INCLUDE `file:line`; **1.4.0** token maps + pause UI; **1.3.9** FLOAD/INCLUDED load-cwd + THROW/CATCH polish; **1.3.8** SZ-EDITOR own window; **1.3.7** ANEW/MARKER + BREAK/BPGO; **1.3.6** Emitter **0.7** SA locals/BI + window I/O remap; app-kit freeze still `Docs/APPKIT.md` (GRAPHICS 80×25 / 640×400; `\ANS`/`\TCOM`/`\EMITTER`; tetra + PIMAIN).
+**Updated:** 2026-10-02 — **v1.5.2** (build 46) — in-app **SZ-EDITOR** removed; editing moves to external **64Edit** (https://github.com/Win32Forth/64Edit) over `edit.sock`; console-only DEBUG; VIEW `path:line` stamps. Prior **v1.5.1** (build 45) — OOP `WINDOW`/`CHILD`/`MENU`/`BUTTON` via `(OOP-CALL)`, separate from GRAPHICS. Prior **v1.5.0** (build 44) — Forth-2012 classes; case-folding dictionary lookup; colon body at CFA+16; `VOCABULARY` wid is the hash-head array and is registered; float wordlist **`FLOATING`**; `REPRESENT` writes digits; Hayes subset green; stand-alone `(CATCH-OK)` reloc; Pascal array bounds accept a constant. Prior **1.4.3** (build 42): Sample VED64 + MIDNIGHT; `REF` skips IMMEDIATE; Pascal `RECURSE`; GRAPHICS color depths + IMAGEVIEW64/EDIT64; cold **`Kernel/xref.fth`**. Prior **1.4.2**: ANS SMUDGE / hide-until-`;`; FILE-ECHO line#s; GRAPHICS mouse + Sample/DOODLE64; Emitter SA CONSTANT/VALUE/LIT reloc for `EMIT-WINDOW-APP`; **1.4.1** TRAVERSE/DBG VIEW+HL + cold boot transcript + INCLUDE `file:line`; **1.4.0** token maps + pause UI; **1.3.9** FLOAD/INCLUDED load-cwd + THROW/CATCH polish; **1.3.8** SZ-EDITOR own window (retired in 1.5.2); **1.3.7** ANEW/MARKER + BREAK/BPGO; **1.3.6** Emitter **0.7** SA locals/BI + window I/O remap; app-kit freeze still `Docs/APPKIT.md` (GRAPHICS 80×25 / 640×400; `\ANS`/`\TCOM`/`\EMITTER`; tetra + PIMAIN).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
-**Host windows (macOS, v1.3.8+):**
+**Host windows (macOS, v1.5.2+):**
 
 | Window | Role |
 |--------|------|
-| **Console** | Forth REPL only — never hosts the facility grid |
-| **SZ-EDITOR** | `FacilityEditorHost` — facility character grid + KEY loop |
+| **Console** | Forth REPL |
 | **App Output** | `AppOutputHost` — GRAPHICS / Emitter / stand-alone apps only |
+| **64Edit** (separate app) | External editor; connects to 64Forth via Application Support `edit.sock` |
 
-Do **not** put SZ-EDITOR inside App Output. Console stays live while the editor KEY loop runs.
+In-app **SZ-EDITOR** / `Library/Editor` are gone. Do not put an editor inside App Output.
 
 ---
 
@@ -29,9 +29,9 @@ Do **not** put SZ-EDITOR inside App Output. Console stays live while the editor 
 | Floating-point (IEEE-64 F-stack, parse/print) | **TZForth** `TZForthFloat.swift` → `FloatHost.swift` | **`VOCABULARY FLOATING`** (public names); thin FORTH hooks `FLIT` / `(F-OP)` |
 | File-Access + Block volumes | TZForth-style host + kernel CODE | `FileAccess.swift`, block file words, Hayes prepare-blocks |
 | XChar | Kernel UTF-8 CODE + high-level words; bulk `emit_buf` for multi-byte TYPE | ANS 18; validate via `ANSValidate/all-in-one.fth` |
-| Facility terminal grid | TZForth-style host | `FacilityTerminal.swift` — `PAGE`/`AT-XY` cell buffer for SZ-EDITOR (thread-safe) |
-| SZ-EDITOR | TZForth Library/Editor port | Own `FacilityEditorHost` window (v1.3.8+); `EDIT`/`VIEW`; find/clip/mouse/wheel; Cmd-S/W/Q — not in Console or App Output |
-| Hypertext | F-PC HYPER lineage | LOCATE/VIEW, multi-hit ⌘PgUp/Dn, ⌘E, `HYPER-REINDEX`, `HYPER-VOC` |
+| Facility terminal grid | TZForth-style host | `FacilityTerminal.swift` — `PAGE`/`AT-XY` (still present for Facility Ext; no longer drives an in-app editor) |
+| Editor | **64Edit** (separate repo) | External app; 64Forth `ForthEditorServer` on `edit.sock`. In-tree SZ-EDITOR removed in **v1.5.2** |
+| Hypertext | F-PC HYPER lineage | LOCATE/VIEW, multi-hit ⌘PgUp/Dn, ⌘E, `HYPER-REINDEX`, `HYPER-VOC`; VIEW stamps as full `path:line` |
 
 ---
 

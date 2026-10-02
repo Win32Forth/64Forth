@@ -1,10 +1,10 @@
 64Forth — Swift host + PickleForth ARM64 kernel
 ================================================
 
-Version 1.5.1 (build 45)
+Version 1.5.2 (build 46)
 
 Console header (ConsoleView banner), e.g.:
-  === 64Forth 1.5.1 === Sep 27, 2026 9:59 PM ===
+  === 64Forth 1.5.2 === Oct 2, 2026 1:48 PM ===
 Update the date/time only when finishing a version change set, just before
 DMG + commit/push — not on every intermediate build.
 
@@ -21,11 +21,16 @@ cross-reference IMMEDIATE words. See Docs/STATUS.md.
 Samples (App Output): Library/Sample/VED64.fth → VED64 (minimal VED);
 Library/Sample/MIDNIGHT.FTH → MAIN (Towers of Hanoi). See Docs/STATUS.md.
 
-Three windows (v1.3.8+, macOS)
------------------------------
-  Console     — Forth REPL only (live while the editor KEY loop runs).
-  SZ-EDITOR   — Facility grid in its own window (FacilityEditorHost).
-  App Output  — GRAPHICS / Emitter / stand-alone apps only (never the editor).
+Editor (v1.5.2+)
+----------------
+  The in-app SZ-EDITOR (Library/Editor) is removed. Editing moves to the
+  separate **64Edit** app (https://github.com/Win32Forth/64Edit), talking to
+  64Forth over a local socket (Application Support/64Forth/edit.sock).
+  Autoload keeps an empty EDITOR vocabulary so Hyper can ALSO EDITOR.
+  DEBUG / DBG stay console-only; SEE / VIEW / DBG print full path:line.
 
-  VIEW / Cmd-E / Cmd-click open the editor; SEE decompiles to the Console.
-  iOS: Console only (no SZ-EDITOR host). See STATUS.md for details.
+Windows (macOS)
+---------------
+  Console     — Forth REPL.
+  App Output  — GRAPHICS / Emitter / stand-alone apps only.
+  64Edit      — external editor (separate app), not inside 64Forth.

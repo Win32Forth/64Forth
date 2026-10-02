@@ -112,11 +112,9 @@ VARIABLE DBG-PAUSE-KEY
 ;
 
 : DBG-PAUSE-UI  ( -- )
-  \ Match asm order: post-step S/R (pad to col 23) + >> word + cursor,
-  \ then editor sync/HL. Sync before print poisoned DBG-LINE-COL / pad.
+  \ Console-only: print S/R + >> word + cursor; do not sync/HL/paint SZ-EDITOR.
   DBG-PAUSE-PREAMBLE
   DBG-PRINT-TOKEN-UI
-  [DEFINED] DBG-VIEW-UPDATE [IF]  DBG-VIEW-UPDATE  [THEN]
   BEGIN
     EKEY DBG-PAUSE-DECODE
     CASE

@@ -78,6 +78,15 @@ DOC" [IF] ( flag -- ) interpret if true else skip to [ELSE]/[THEN] (immediate)"
 DOC" ENDCASE ( -- ) end CASE, resolve branches (immediate)"
 : ENDCASE ?COMP POSTPONE DROP BEGIN DUP WHILE 1- >R POSTPONE THEN R> REPEAT DROP ; IMMEDIATE
 
+DOC" (( ( -- ) skip to matching )) (immediate)"
+: ((
+  1 BEGIN
+        BEGIN BL WORD COUNT DUP WHILE   \ if we got a word keep looking
+            2DUP S" ))" CEQUAL          \ if the word matches ))
+            DUP IF DROP EXIT THEN       \ then we are done
+        REPEAT 2DROP REFILL 0=          \ otherwise get the next line and keep trying
+    UNTIL DROP ; IMMEDIATE
+
 \ --- 5. Tools / extensions ---
 DOC" DOCOL? ( xt -- flag ) true if colon definition"
 : DOCOL? @ DOCOL-ADDR = ;
@@ -225,17 +234,25 @@ DOC" EDIT ( 'filename' -- ) edit 'filename'' (DEFER; SZ-EDITOR may IS)"
 DEFER EDIT
 ' TEXTEDIT is EDIT
 
+DOC" (SEE-LOC) ( xt -- xt ) print full VIEW path:line or (no source); leave xt"
+\ Full path so a later editor (64Edit/XPC) can open the exact file.
+: (SEE-LOC) ( xt -- xt )
+  DUP VIEW-FILE# ?DUP 0= IF ." (no source)" CR EXIT THEN
+  VIEW-PATH DUP 0= IF 2DROP ." (no source)" CR EXIT THEN
+  TYPE [CHAR] : EMIT
+  DUP VIEW-LINE 0 .R CR ;
+
 DOC" SEE ( 'name' -- ) show help and decompile word (DEFER; Hyper may IS)"
 DEFER SEE
 \ (SEE-HDR) is ( xt -- xt ); do not DUP before it or the xt is left on the stack.
-: (SEE) ' (SEE-HDR) DUP DOCOL? 0= IF (SEE-PRIM) EXIT THEN
+: (SEE) ' (SEE-HDR) (SEE-LOC) DUP DOCOL? 0= IF (SEE-PRIM) EXIT THEN
   >BODY BEGIN (SEE-STEP) DUP 0= UNTIL DROP ;
 ' (SEE) IS SEE
 DOC" DEBUG ( 'name' -- ) F6 over, F7 into, F8 out, Esc/q abort, Cmd-Shift-Y go"
 \ Esc/q aborts with THROW -1; swallow that so we return to the prompt quietly.
 \ DEFER so SZ-EDITOR can IS a wrapper without redefining.
 DEFER DEBUG
-: (DEBUG) ' DBG-ON CATCH DBG-OFF DUP -1 = IF DROP ELSE THROW THEN ;
+: (DEBUG) ' (SEE-LOC) DBG-ON CATCH DBG-OFF DUP -1 = IF DROP ELSE THROW THEN ;
 ' (DEBUG) IS DEBUG
 DOC" HELP ( 'name' -- ) show help and decompile word (same as SEE)"
 : HELP SEE ;

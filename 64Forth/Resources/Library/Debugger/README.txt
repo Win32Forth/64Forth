@@ -14,11 +14,11 @@ or under Hyper.
                  (loaded inside debugger.fth — not after Hyper)
                  (no Editor/Hyper required at load)
 
-AutoLoad:
+AutoLoad (v1.5.2+):
 
   FROMLIB REQUIRE Debugger/debugger.fth   \ loads bp, pause, ed links, maps
-  … Editor, Emitter, Hyper …
-  ALSO DEBUGGER  DBG-ED-INSTALL DROP      \ fill SZ-* / Hyper HL (autoload.fth)
+  … Emitter, Hyper …                      \ no in-app SZ-EDITOR
+  \ DBG-ED-INSTALL skipped — console-only DEBUG
 
 Kernel owns when to pause and thin helpers (_debug_call_xt nest RSP).
 Forth owns pause print/EKEY/step (DBG-PAUSE-XT) and key→mode (DBG-KEY-XT).
@@ -26,9 +26,15 @@ Forth owns pause print/EKEY/step (DBG-PAUSE-XT) and key→mode (DBG-KEY-XT).
   DBG-PAUSE-XT = DBG-PAUSE-UI     (default after Autoload)
   DBG-KEY-XT   = DBG-PAUSE-DECODE (asm fallback when PAUSE-XT is 0)
 
-Shared HL: DBG-HL-RUN (Debugger DEFER). DBG-ED-INSTALL sets it to
-DBG-MAP-HL when maps+editor are live, else SZ-HIGHLIGHT-NAME, and
-mirrors that xt into Hyper's HYPER-HL-XT for DBG-HIGHLIGHT-NAME.
+Shared HL: DBG-HL-RUN (Debugger DEFER). DBG-ED-INSTALL would bind
+map/editor HL when a host editor is present; Autoload no longer calls it.
+
+Console-only (current default):
+  DBG-PAUSE-UI does not call DBG-VIEW-UPDATE.
+  Hyper leaves DBG-SHOW-XT / DBG-HL-XT at 0.
+  host_debug_paint is a no-op; Autoload skips DBG-ED-INSTALL.
+  DEBUG / DBG step only in the Forth console.
+  Editing is external 64Edit (https://github.com/Win32Forth/64Edit).
 
 Install / revert:
   DBG-PAUSE-INSTALL / DBG-KEY-INSTALL

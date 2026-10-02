@@ -16,6 +16,7 @@ enum AppMain {
             AgentChannel.runAndExit()
         }
         // Normal interactive product.
+        ForthEditorServer.shared.start()
         SixtyFourForthApp.main()
     }
 }

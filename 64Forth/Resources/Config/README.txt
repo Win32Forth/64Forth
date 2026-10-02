@@ -42,8 +42,9 @@ HYPER.NDX format (v1 text)
   - Lines starting with @ set the current source file for following entries.
   - Paths are relative, forward-slash style:
         Kernel/forth.s
-        Library/Editor/sz-edit.fth
-    (Library/* is rewritten from Resources/Library/* at build time.)
+        Library/Hyper/hyper.fth
+    (Library/* is rewritten from Resources/Library/* at build time.
+     In-app Library/Editor was removed in v1.5.2; use 64Edit.)
   - Lookup is case-insensitive (matches 64Forth FIND).
   - CODE words: BOOT_WORD lines live next to their assembly in Kernel/forth.s
     (table rows still form a contiguous boot catalog via __DATA,__bootword).

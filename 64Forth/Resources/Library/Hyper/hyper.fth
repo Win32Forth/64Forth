@@ -338,19 +338,20 @@ VARIABLE HYPER-LEAF-U
       THEN THEN
    REPEAT ;
 
-\ --- Cold / Sources VIEW restamp from HYPER.NDX --------------------------------
+\ --- Cold / Library VIEW restamp from HYPER.NDX --------------------------------
 \ Cold .incbin blobs boot with SOURCE-ID 0, so CREATE never stamped VIEW-FILE#.
-\ Walk @ Library/Sources/… NDX sections and VIEW-STAMP matching dictionary
-\ words. Runs after HYPER-LOAD / HYPER-REINDEX (Editor already loaded by then).
+\ Also restamp Library/Hyper (and other Library) if live INCLUDE stamp was
+\ missed. Walk @ Library/… NDX sections and VIEW-STAMP matching dictionary
+\ words. Runs after HYPER-LOAD / HYPER-REINDEX.
 
-: HYPER-SOURCES-PATH?  ( ca u -- flag )
-   DUP 16 < IF  2DROP FALSE EXIT  THEN
-   DROP 16 S" Library/Sources/" COMPARE 0= ;
+: HYPER-LIB-PATH?  ( ca u -- flag )
+   DUP 8 < IF  2DROP FALSE EXIT  THEN
+   DROP 8 S" Library/" COMPARE 0= ;
 
 \ One NDX body line under current HYPER-CUR path: "NAME line"
 : (HYPER-STAMP-LINE)  ( a u -- )
    HYPER-CUR C@ 0= IF  2DROP EXIT  THEN
-   HYPER-CUR COUNT HYPER-SOURCES-PATH? 0= IF  2DROP EXIT  THEN
+   HYPER-CUR COUNT HYPER-LIB-PATH? 0= IF  2DROP EXIT  THEN
    HYPER-FIRST-WORD                          \ wa wu ra ru
    2SWAP                                     \ ra ru wa wu
    DUP 0= IF  2DROP 2DROP EXIT  THEN
@@ -371,6 +372,9 @@ VARIABLE HYPER-LEAF-U
 : HYPER-STAMP-COLD  ( -- )
    HYPER-ENSURE 0= IF  EXIT  THEN
    GET-ORDER
+   \ VIEW/LOCATE/DBG live in FORTH; ALSO FORTH so FIND sees them even when
+   \ context was only HYPER-VOC (e.g. quiet Autoload HYPER-REINDEX).
+   ALSO FORTH
    ALSO SYSVOC
    ALSO EDITOR
    ALSO GRAPHICS
@@ -539,36 +543,36 @@ VARIABLE HYPER-V-IX                    \ slot index while storing
 
 : HYPER-BIND-EDITOR  ( -- flag )
    ONLY FORTH ALSO EDITOR
-   S" SZ-EDIT-FILE-AT" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND IF  TO HYPER-EDIT-XT  ELSE  DROP 0 TO HYPER-EDIT-XT  THEN
-   S" SZ-HYPER-GOTO" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND IF  TO HYPER-GOTO-XT  ELSE  DROP 0 TO HYPER-GOTO-XT  THEN
-   S" SZ-EDITOR-ACTIVE" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND IF  TO HYPER-ACTIVE-XT  ELSE  DROP 0 TO HYPER-ACTIVE-XT  THEN
-   S" SZ-HYPER-ORIGIN" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND IF  TO HYPER-ORIGIN-XT  ELSE  DROP 0 TO HYPER-ORIGIN-XT  THEN
-   S" SZ-HYPER-HITS!" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND IF  TO HYPER-HITS-XT  ELSE  DROP 0 TO HYPER-HITS-XT  THEN
-   S" SZ-FL-NOTE-HERE" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND IF  TO HYPER-FL-NOTE-XT  ELSE  DROP 0 TO HYPER-FL-NOTE-XT  THEN
-   S" SZ-FL-RECORD" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND IF  TO HYPER-FL-REC-XT  ELSE  DROP 0 TO HYPER-FL-REC-XT  THEN
-   S" SZ-FL-CUR" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND IF  TO HYPER-FL-CUR-XT  ELSE  DROP 0 TO HYPER-FL-CUR-XT  THEN
-   S" SZ-FL-CLEAR" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND IF  TO HYPER-FL-CLR-XT  ELSE  DROP 0 TO HYPER-FL-CLR-XT  THEN
-   S" SZ-FL-PUT" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND IF  TO HYPER-FL-PUT-XT  ELSE  DROP 0 TO HYPER-FL-PUT-XT  THEN
-   S" SZ-FL-SET-CUR" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND IF  TO HYPER-FL-SCUR-XT  ELSE  DROP 0 TO HYPER-FL-SCUR-XT  THEN
-   S" SZ-HIGHLIGHT-NAME" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND IF  TO HYPER-HL-XT  ELSE  DROP 0 TO HYPER-HL-XT  THEN
-   S" SZ-HL-HIST-CLEAR" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND IF  TO HYPER-HL-CLR-XT  ELSE  DROP 0 TO HYPER-HL-CLR-XT  THEN
-   S" SZ-REDRAW" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND IF  TO HYPER-REDRAW-XT  ELSE  DROP 0 TO HYPER-REDRAW-XT  THEN
-   S" SZ-DBG-SHOW-AT" HYPER-CMD HYPER-PLACE
-   HYPER-CMD FIND IF  TO HYPER-DBG-SHOW-XT  ELSE  DROP 0 TO HYPER-DBG-SHOW-XT  THEN
+\   S" SZ-EDIT-FILE-AT" HYPER-CMD HYPER-PLACE
+\   HYPER-CMD FIND IF  TO HYPER-EDIT-XT  ELSE  DROP 0 TO HYPER-EDIT-XT  THEN
+\   S" SZ-HYPER-GOTO" HYPER-CMD HYPER-PLACE
+\   HYPER-CMD FIND IF  TO HYPER-GOTO-XT  ELSE  DROP 0 TO HYPER-GOTO-XT  THEN
+\   S" SZ-EDITOR-ACTIVE" HYPER-CMD HYPER-PLACE
+\   HYPER-CMD FIND IF  TO HYPER-ACTIVE-XT  ELSE  DROP 0 TO HYPER-ACTIVE-XT  THEN
+\   S" SZ-HYPER-ORIGIN" HYPER-CMD HYPER-PLACE
+\   HYPER-CMD FIND IF  TO HYPER-ORIGIN-XT  ELSE  DROP 0 TO HYPER-ORIGIN-XT  THEN
+\   S" SZ-HYPER-HITS!" HYPER-CMD HYPER-PLACE
+\   HYPER-CMD FIND IF  TO HYPER-HITS-XT  ELSE  DROP 0 TO HYPER-HITS-XT  THEN
+\   S" SZ-FL-NOTE-HERE" HYPER-CMD HYPER-PLACE
+\   HYPER-CMD FIND IF  TO HYPER-FL-NOTE-XT  ELSE  DROP 0 TO HYPER-FL-NOTE-XT  THEN
+\   S" SZ-FL-RECORD" HYPER-CMD HYPER-PLACE
+\   HYPER-CMD FIND IF  TO HYPER-FL-REC-XT  ELSE  DROP 0 TO HYPER-FL-REC-XT  THEN
+\   S" SZ-FL-CUR" HYPER-CMD HYPER-PLACE
+\   HYPER-CMD FIND IF  TO HYPER-FL-CUR-XT  ELSE  DROP 0 TO HYPER-FL-CUR-XT  THEN
+\   S" SZ-FL-CLEAR" HYPER-CMD HYPER-PLACE
+\   HYPER-CMD FIND IF  TO HYPER-FL-CLR-XT  ELSE  DROP 0 TO HYPER-FL-CLR-XT  THEN
+\   S" SZ-FL-PUT" HYPER-CMD HYPER-PLACE
+\   HYPER-CMD FIND IF  TO HYPER-FL-PUT-XT  ELSE  DROP 0 TO HYPER-FL-PUT-XT  THEN
+\   S" SZ-FL-SET-CUR" HYPER-CMD HYPER-PLACE
+\   HYPER-CMD FIND IF  TO HYPER-FL-SCUR-XT  ELSE  DROP 0 TO HYPER-FL-SCUR-XT  THEN
+\   S" SZ-HIGHLIGHT-NAME" HYPER-CMD HYPER-PLACE
+\   HYPER-CMD FIND IF  TO HYPER-HL-XT  ELSE  DROP 0 TO HYPER-HL-XT  THEN
+\   S" SZ-HL-HIST-CLEAR" HYPER-CMD HYPER-PLACE
+\   HYPER-CMD FIND IF  TO HYPER-HL-CLR-XT  ELSE  DROP 0 TO HYPER-HL-CLR-XT  THEN
+\   S" SZ-REDRAW" HYPER-CMD HYPER-PLACE
+\   HYPER-CMD FIND IF  TO HYPER-REDRAW-XT  ELSE  DROP 0 TO HYPER-REDRAW-XT  THEN
+\   S" SZ-DBG-SHOW-AT" HYPER-CMD HYPER-PLACE
+\   HYPER-CMD FIND IF  TO HYPER-DBG-SHOW-XT  ELSE  DROP 0 TO HYPER-DBG-SHOW-XT  THEN
    ONLY FORTH
    \ Debugger owns maps/HL links — install SZ-* → DBG-ED-*, then mirror HL xt.
    [DEFINED] DEBUGGER [IF]
@@ -842,15 +846,16 @@ VARIABLE HYPER-FL-IX
 
 \ ( c-addr u line -- ) open in SZ-EDITOR; rebinds if needed
 : HYPER-OPEN-AT  ( c-addr u line -- )
-   HYPER-EDIT-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
-   HYPER-EDIT-XT 0= IF
-      DROP 2DROP
-      ." VIEW: load SZ-EDITOR first" CR
-      ."   FROMLIB FLOAD Editor/SZ-EDITOR.fth" CR
-      EXIT
-   THEN
-   HYPER-SYNC-HITS
-   HYPER-EDIT-XT EXECUTE ;
+    DROP 2DROP ;
+\   HYPER-EDIT-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
+\   HYPER-EDIT-XT 0= IF
+\      DROP 2DROP
+\      ." VIEW: load SZ-EDITOR first" CR
+\      ."   FROMLIB FLOAD Editor/SZ-EDITOR.fth" CR
+\      EXIT
+\   THEN
+\   HYPER-SYNC-HITS
+\   HYPER-EDIT-XT EXECUTE ;
 
 \ In-editor: SZ-HYPER-GOTO ( a u line )
 \ Multi-hit next/prev must also land in the visit / Files list (path+line).
@@ -1009,28 +1014,19 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC
    HYPER-HIST-RECORD-DEST
    HYPER-APPLY-HIT ;
 
+\ Editor disconnected: VIEW / (VIEW) / SEE-SOURCE decompile like SEE
+\ (primitives print "(primitive)"). Do not open SZ-EDITOR or rebuild FL.
+ALSO SYSVOC
 : (VIEW)  ( c-addr u -- )
    DUP 0= IF  2DROP EXIT  THEN
-   HYPER-EDITOR-ACTIVE? IF  HYPER-VIEW-NAME EXIT  THEN
-   TRUE TO HYPER-VIEWING
-   (HYPER-FIND) 0= IF
-      HYPER-OK 0= IF  ." HYPER: index not loaded" CR
-      ELSE  HYPER-SEEK COUNT TYPE ."  not in HYPER.NDX" CR  THEN
-      EXIT
-   THEN
-   \ Editor shows path/line/(n/m); do not dump a long path onto the console
-   \ (it would reappear after Cmd-W when the host restores the transcript).
-   HYPER-EDITOR? 0= IF  HYPER-SHOW-HIT  THEN
-   HYPER-HIST-CLEAR
-   HYPER-HIT COUNT HYPER-LINE# 0 HYPER-V-STORE
-   1 TO HYPER-VN  0 TO HYPER-VI
-   HYPER-FL-REBUILD
-   HYPER-HIT COUNT HYPER-LINE# HYPER-OPEN-AT ;
+   PAD PLACE PAD FIND DUP 0= IF
+      DROP PAD COUNT TYPE ."  ?" CR EXIT
+   THEN DROP                                 \ xt
+   (SEE-HDR) (SEE-LOC) DUP DOCOL? 0= IF  (SEE-PRIM) EXIT  THEN
+   >BODY BEGIN  (SEE-STEP) DUP 0= UNTIL DROP ;
+PREVIOUS
 
-: VIEW  ( "name" -- )
-   PARSE-NAME
-   DUP 0= IF  2DROP ." VIEW needs a name" CR EXIT  THEN
-   (VIEW) ;
+: VIEW  ( "name" -- )  SEE ;
 
 \ DBG name — VIEW stamped source if the live xt has VIEW-FILE#, else console
 \ DEBUG only (no empty untitled). Mid-step Into a stamped colon opens the
@@ -1087,76 +1083,28 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC ALSO SYSVOC ALSO EDITOR
    [THEN]
 ;
 
-\ Show colon source for the word whose body contains the debug IP.
-\ Uses the enclosing CFA's VIEW stamp (not the name → NDX), so console
-\ : test does not open Pascal's VARIABLE test. Unstamped CFA → no-op.
-\ If the facility is not up yet, SZ-DBG-SHOW-AT opens it without nesting
-\ the edit loop (console DBG → Into a library word).
-: DBG-SYNC-VIEW  ( c-addr u -- )
-   2DUP DBG-SYNC-SKIP? IF  2DROP EXIT  THEN
-   DBG-CFA@ ?DUP 0= IF  2DROP EXIT  THEN       \ c-addr u cfa
-   DUP VIEW-FILE# 0= IF  DROP 2DROP EXIT  THEN
-   NIP NIP                                       \ cfa
-   DUP VIEW-FILE# VIEW-PATH                      \ cfa ca u | cfa 0 0
-   DUP 0= IF  2DROP DROP EXIT  THEN
-   ROT VIEW-LINE                                 \ ca u line
-   HYPER-DBG-SHOW-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
-   HYPER-DBG-SHOW-XT 0= IF  DROP 2DROP EXIT  THEN
-   HYPER-DBG-SHOW-XT EXECUTE 0= IF  EXIT  THEN   \ open failed
-   \ New colon → drop same-name hist so HL starts at CUR (def window), not
-   \ an earlier hit in the same file (e.g. INCLUDED call site in INCLUDE).
-   HYPER-HL-CLR-XT IF  HYPER-HL-CLR-XT EXECUTE  THEN
-   DBG-SYNC-COMMIT
-;
-' DBG-SYNC-VIEW DBG-SHOW-XT !
+\ Former editor sync for ITC DEBUG. Console-only debugger: leave DBG-SHOW-XT
+\ and DBG-HL-XT at 0 so the kernel never opens or highlights SZ-EDITOR.
+: DBG-SYNC-VIEW  ( c-addr u -- )  2DROP ;
+: DBG-HIGHLIGHT-NAME  ( c-addr u -- )  2DROP ;
+0 DBG-SHOW-XT !
+0 DBG-HL-XT !
 
-\ Highlight the upcoming threaded word token in the editor buffer (every pause).
-\ Use bound XTs (HYPER-BIND-EDITOR) — never ALSO/FIND here (DBG pause search
-\ order is hostile; ANEW Editor is fixed by rebind at end of SZ-EDITOR load).
-: DBG-HIGHLIGHT-NAME  ( c-addr u -- )
-   HYPER-EDITOR-ACTIVE? 0= IF  2DROP EXIT  THEN
-   2DUP DBG-HL-SKIP? IF  2DROP EXIT  THEN
-   HYPER-HL-XT 0= IF  HYPER-BIND-EDITOR DROP  THEN
-   \ HYPER-HL-XT is filled by Debugger DBG-ED-INSTALL (map or SZ-HIGHLIGHT-NAME).
-   HYPER-HL-XT IF  HYPER-HL-XT EXECUTE  ELSE  2DROP  THEN
-   HYPER-REDRAW-XT IF  HYPER-REDRAW-XT EXECUTE  THEN
+: DBG-RUN  ( xt -- )
+   \ Console-only: arm stepper, CATCH xt, disarm. Same shape as kernel (DEBUG).
+   DBG-ON CATCH               ( ior )
+   DBG-OFF
+   DUP -1 = IF  DROP ELSE  THROW  THEN
 ;
-' DBG-HIGHLIGHT-NAME DBG-HL-XT !
 
 : DBG  ( "name" -- )
-   \ Refuse while a stepper is already live (colon body that calls DBG, etc.).
-   SZ-DBG-BUSY @ IF
-      ." DBG: already in a debug session (nested DBG ignored)" CR
-      PARSE-NAME 2DROP EXIT
-   THEN
-   PARSE-NAME
-   DUP 0= IF  2DROP ." DBG needs a name" CR EXIT  THEN
-   2DUP PAD PLACE  PAD FIND
-   DUP 0= IF
-      DROP PAD COUNT TYPE ."  ?" CR
-      2DROP EXIT
-   THEN
-   DROP                                 \ c-addr u xt
-   DUP SZ-DBG-ARM
-   \ Stamped source → VIEW (dict hit sorts first in (HYPER-FIND)).
-   \ Unstamped (console) → console stepper only; Into a stamped word opens
-   \ the facility mid-step via DBG-SYNC-VIEW / SZ-DBG-SHOW-AT.
-   DUP VIEW-FILE# IF
-      DROP
-      2DUP (HYPER-FIND) IF
-         (VIEW)
-      ELSE
-         2DROP
-      THEN
-   ELSE
-      DROP 2DROP
-   THEN
-   SZ-DBG-RUN ;
+   \ Console-only: print path:line, then step (no SZ-EDITOR).
+   ' (SEE-LOC) DBG-RUN ;
 PREVIOUS
 
-: SEE-SOURCE  ( "name" -- )  VIEW ;
+: SEE-SOURCE  ( "name" -- )  SEE ;
 
-: HYPER-VIEW-CU  ( c-addr u -- )  HYPER-VIEW-NAME ;
+: HYPER-VIEW-CU  ( c-addr u -- )  (VIEW) ;
 
 \ Editor/debug hooks → SYSVOC (VIEW / LOCATE / SEE / DBG stay in FORTH).
 ALSO SYSVOC
@@ -1189,9 +1137,13 @@ PREVIOUS
    R> >IN !
    (SEE-OLD) EXECUTE ;
 
-\ SEE stays the kernel decompiler; VIEW / SEE-SOURCE open SZ-EDITOR.
+\ SEE / VIEW / SEE-SOURCE: kernel decompiler (no SZ-EDITOR).
 \ Re-point at kernel (SEE) directly (CONSTANT (SEE-OLD) is for SEE-HYPER only).
 ' (SEE) IS SEE
+
+\ Restamp after VIEW/LOCATE/DBG exist (earlier HYPER-STAMP-COLD runs before
+\ these defs). Autoload HYPER-REINDEX also restamps; this covers FLOAD Hyper alone.
+HYPER-STAMP-COLD
 
 : HYPER-RELOAD  ( -- )
    HYPER-LOAD IF  ." HYPER: " HYPER-NDX-NAME COUNT TYPE
@@ -1213,14 +1165,12 @@ PREVIOUS
 : HYPER-HELP  ( -- )
    CR
    ." LOCATE <name>     print path:line  [n/m] if multiple" CR
-   ." VIEW <name>       open source in SZ-EDITOR at line" CR
-   ." SEE <name>        decompile to console (kernel SEE; no editor)" CR
-   ." SEE-SOURCE        alias of VIEW" CR
-   ." SEE-HYPER         VIEW if indexed+editor, else decompile (optional)" CR
-   ." DBG <name>        VIEW stamped source or console DEBUG; Into opens sourced words" CR
-   ." Cmd-PgUp/PgDn     visit history (back/forward); else multi-hit n/m" CR
-   ." Cmd-Left/Right    prev/next occurrence in current editor file" CR
-   ." Cmd-E / Cmd-click VIEW word; side list = visits (line# + [X] close)" CR
+   ." VIEW <name>       same as SEE (path:line + decompile)" CR
+   ." SEE <name>        path:line + decompile (primitives: (primitive))" CR
+   ." SEE-SOURCE        alias of SEE" CR
+   ." SEE-HYPER         optional Hyper+editor path (unused without editor)" CR
+   ." DBG <name>        path:line then console DEBUG (no editor)" CR
+   ." Cmd-PgUp/PgDn     visit history / multi-hit (when editor present)" CR
    ." HYPER-REINDEX     rebuild Config/HYPER.NDX, reload" CR
    ." HYPER-RELOAD  .HYPER   |  ALSO HYPER-VOC WORDS  |  ORDER" CR ;
 
