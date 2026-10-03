@@ -51,17 +51,28 @@ DEFER DBG-PAUSE         \ ( -- )  full pause UI: print, wait key, set step mode
 ;
 
 \ --- Sibling loads (extend here; Autoload only REQUIREs this file) ----------
+\ INCLUDED (not REQUIRE): ANEW DEBUGGER_MODULE forgets sibling words but the
+\ include registry would still skip REQUIRE — always re-read on hub reload.
 
-FROMLIB REQUIRE Debugger/debug-bp.fth
-FROMLIB REQUIRE Debugger/dbg-pause.fth
+FROMLIB S" Debugger/debug-bp.fth" INCLUDED
+FROMLIB S" Debugger/dbg-pause.fth" INCLUDED
 \ Editor/Hyper links (DEFERs) then token maps — no Editor required at load.
-FROMLIB REQUIRE Debugger/dbg-ed.fth
-FROMLIB REQUIRE Debugger/dbg-map.fth
+FROMLIB S" Debugger/dbg-ed.fth" INCLUDED
+FROMLIB S" Debugger/dbg-map.fth" INCLUDED
 
 \ Phase 2 — full Forth pause UI (print / EKEY / step). Revert: 0 DBG-PAUSE-XT !
 \ Phase 3 — also arm key decode for asm fallback when PAUSE-XT is cleared.
 DBG-PAUSE-INSTALL
 DBG-KEY-INSTALL
+
+\ Bind file-backed dbg-map → DBG-HOST-SPAN for 64Edit (no SZ-EDITOR needed).
+\ Sets DBG-HL-XT so asm pause fallback also publishes spans before paint.
+\ DBG-ED-INSTALL ends with ONLY FORTH ALSO DEBUGGER — do not PREVIOUS here
+\ or the (DBG>FORTH) ticks below cannot find NOBREAKS / BREAK / …
+\ Must be a colon word: interpret-time IF/THEN leaves TRUE (−1) on the stack.
+: (DBG-HUB-ARM-HL)  ( -- )
+  DBG-MAP-BIND IF  DBG-ED-HL-XT DBG-SET-HL  THEN ;
+(DBG-HUB-ARM-HL)
 
 \ User entry points into FORTH so ONLY FORTH (Autoload / Hayes) still finds them.
 \ DEBUGGER vocabulary remains for hub helpers; type DEBUGGER to PUSH-ORDER it.

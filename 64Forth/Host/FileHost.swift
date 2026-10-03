@@ -49,6 +49,10 @@ final class FileHost {
     /// Last path opened for DEBUG reveal; open -a only when this changes.
     private var lastDebugRevealPath: String?
 
+    /// Monotonic count of successful EDIT-AT opens (VIEW stamp → 64Edit).
+    /// ForthEditorServer compares before/after `viewWord` to build `viewResult`.
+    private(set) var editAtOpenCount: Int = 0
+
     /// Optional emit sink (KernelBridge sets this for load/chdir messages).
     var onMessage: ((String) -> Void)?
 
@@ -1521,6 +1525,7 @@ final class FileHost {
             return
         }
         openInSystemEditor(url, line: max(0, line))
+        editAtOpenCount &+= 1
     }
 
     /// Bare EDIT: file open panel. FROMLIB arms start at Library without permanent CHDIR.

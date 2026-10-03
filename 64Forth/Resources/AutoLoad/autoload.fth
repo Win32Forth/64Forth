@@ -23,6 +23,11 @@
     FROMLIB REQUIRE HYPER/HYPER.fth
     HYPER-VOC MIN-HYPER-NOISE ON FORTH
     HYPER-REINDEX
+    \ Hyper clears DBG-HL-XT (console-only SZ-EDITOR era). Re-arm map→span
+    \ for 64Edit so asm pause fallback still publishes off+len before paint.
+    ALSO DEBUGGER
+    DBG-MAP-BIND IF  DBG-ED-HL-XT DBG-SET-HL  THEN
+    PREVIOUS
 
 \ Boot: ONLY FORTH ALSO DEFINITIONS (FORTH FORTH, CURRENT=FORTH).
 \ ALSO leaves a spare FORTH slot for vocabulary context; DEFINITIONS → FORTH.

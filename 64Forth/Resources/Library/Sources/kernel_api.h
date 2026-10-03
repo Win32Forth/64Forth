@@ -44,6 +44,10 @@ int64_t kernel_debug_inline(void);
 /// stamped, else 0 (*line = 0, path empty).
 int kernel_debug_location(char *path, int path_max, int *line);
 
+/// Peek token name at the last DEBUG pause (`debug_name`). Writes a
+/// NUL-terminated name into `buf` (up to buf_max). Returns length, or 0.
+int kernel_debug_peek_name(char *buf, int buf_max);
+
 void kernel_set_emit(void (*fn)(int c));
 /// Bulk TYPE path: emit `n` bytes at `buf` as one UTF-8 (or Latin-1 fallback) chunk.
 void kernel_set_emit_buf(void (*fn)(const char *buf, size_t n));

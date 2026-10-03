@@ -44,7 +44,8 @@ ONLY FORTH ALSO SYSVOC ALSO DEBUGGER DEFINITIONS
 
 5 CONSTANT DBG-SLOT-CELLS
 512 CONSTANT DBG-MAP-MAX-CELLS
-4 CONSTANT DBG-FSEC-CELLS
+\ fsec: next | file# | cmap-head | tbuf | tend
+5 CONSTANT DBG-FSEC-CELLS
 5 CONSTANT DBG-CMAP-HDR
 
 0 VALUE DBG-MAP-ROOT
@@ -71,12 +72,17 @@ CREATE DBG-MAP-NAME  64 ALLOT
 : DBG-CMAP-TBUF@   ( cmap -- a )    3 CELLS + @ ;
 : DBG-CMAP-FSEC@   ( cmap -- s )    4 CELLS + @ ;
 
+: DBG-FSEC-TBUF@  ( fsec -- a )  3 CELLS + @ ;
+: DBG-FSEC-TEND@  ( fsec -- a )  4 CELLS + @ ;
+: DBG-FSEC-TBUF!  ( a fsec -- )  3 CELLS + ! ;
+: DBG-FSEC-TEND!  ( a fsec -- )  4 CELLS + ! ;
+
 : DBG-MAP-FREE-CMAP  ( cmap -- )
   {: cmap -- :}
   cmap IF  cmap FREE DROP  THEN ;
 
 : DBG-MAP-FREE-SECTION  ( fsec -- )
-  {: fsec | cmap next -- :}
+  {: fsec | cmap next tbuf -- :}
   fsec IF
      fsec 2 CELLS + @ TO cmap
      BEGIN  cmap  WHILE
@@ -84,6 +90,10 @@ CREATE DBG-MAP-NAME  64 ALLOT
         cmap DBG-MAP-FREE-CMAP
         next TO cmap
      REPEAT
+     fsec DBG-FSEC-TBUF@ TO tbuf
+     tbuf IF  tbuf FREE DROP  THEN
+     0 fsec DBG-FSEC-TBUF!
+     0 fsec DBG-FSEC-TEND!
      fsec FREE DROP
   THEN ;
 
@@ -173,11 +183,54 @@ CREATE DBG-MAP-NAME  64 ALLOT
         DBG-MAP-ROOT fsec !
         file# fsec CELL+ !
         0 fsec 2 CELLS + !
-        0 fsec 3 CELLS + !
+        0 fsec DBG-FSEC-TBUF!
+        0 fsec DBG-FSEC-TEND!
         fsec TO DBG-MAP-ROOT
      THEN
   THEN
   fsec ;
+
+\ Bind portable DBG-ED-* buffer to this file section's ALLOCATE text.
+: DBG-MAP-BIND-FSEC-BUF  ( fsec -- )
+  {: fsec -- :}
+  fsec IF
+     fsec DBG-FSEC-TBUF@ fsec DBG-FSEC-TEND@ DBG-ED-SET-BUF
+  ELSE
+     DBG-ED-CLEAR-BUF
+  THEN ;
+
+\ Slurp VIEW-PATH for file# into fsec once (in-memory; no disk sidecar).
+\ Reuses an existing ALLOCATE buffer. Returns true if TBUF is usable.
+: DBG-MAP-LOAD-FILE-BUF  ( fsec file# -- flag )
+  {: fsec file# | patha pathu a u ior ok -- :}
+  FALSE TO ok
+  fsec IF
+     fsec DBG-FSEC-TBUF@ IF
+        fsec DBG-MAP-BIND-FSEC-BUF
+        TRUE TO ok
+     ELSE
+        file# VIEW-PATH TO pathu TO patha
+        pathu IF
+           patha pathu ['] (SLURP) CATCH TO ior
+           ior IF
+              \ CATCH restores ( c-addr u ); ior already consumed
+              2DROP
+           ELSE
+              TO u TO a
+              u IF
+                 a fsec DBG-FSEC-TBUF!
+                 a u + fsec DBG-FSEC-TEND!
+                 fsec DBG-MAP-BIND-FSEC-BUF
+                 TRUE TO ok
+              ELSE
+                 \ empty file — (SLURP) may leave PAD 0
+                 a PAD <> IF  a FREE DROP  THEN
+              THEN
+           THEN
+        THEN
+     THEN
+  THEN
+  ok ;
 
 : DBG-MAP-FIND-CFA  ( cfa -- cmap|0 )
   {: cfa | fsec cmap found -- :}
@@ -210,6 +263,14 @@ CREATE DBG-MAP-NAME  64 ALLOT
   {: addr -- :}
   addr @  addr 8 + +  7 + -8 AND ;
 
+\ Body span in bytes (EXIT-inclusive). lim is a high-water mark: branch
+\ targets and one-cell lookahead after each token grow it. Ordinary CALL
+\ must use "addr 8 + lim MAX" *after* advancing — "addr lim MAX" alone
+\ leaves lim stuck at body+8, so multi-DUP colons mapped as one cell and
+\ 64Edit always washed the first name match.
+\ Branch targets must grow lim by an extra cell (target+8): a bare
+\ target high-water stops the walk at THEN, so early EXIT inside IF
+\ truncates the map and the continuation (second DUP/0=/…) is missing.
 : DBG-COLON-BYTES  ( cfa -- bytes )
   {: cfa | addr lim xt done bytes -- :}
   0 TO bytes
@@ -225,19 +286,19 @@ CREATE DBG-MAP-NAME  64 ALLOT
            ELSE
               xt LIT-ADDR = IF
                  addr 16 + TO addr
-                 addr lim MAX TO lim
+                 addr 8 + lim MAX TO lim
               ELSE
                  xt DBG-BR-OP? IF
-                    addr 8 + @ addr 8 + + lim MAX TO lim
+                    addr 8 + @ addr 8 + + 8 + lim MAX TO lim
                     addr 16 + TO addr
-                    addr lim MAX TO lim
+                    addr 8 + lim MAX TO lim
                  ELSE
                     xt SLIT-ADDR = IF
                        addr 8 + DBG-SLIT-SKIP TO addr
-                       addr lim MAX TO lim
+                       addr 8 + lim MAX TO lim
                     ELSE
                        addr 8 + TO addr
-                       addr lim MAX TO lim
+                       addr 8 + lim MAX TO lim
                     THEN
                  THEN
               THEN
@@ -344,40 +405,83 @@ CREATE DBG-MAP-NAME  64 ALLOT
   c 13 = IF  TRUE TO f  THEN
   f ;
 
+\ 1-based VIEW line → address of that line's first byte (TBUF if line≤1).
+: DBG-MAP-LINE-START  ( line -- addr )
+  {: line | a n -- :}
+  DBG-ED-TBUF TO a
+  1 TO n
+  BEGIN
+     n line <
+     a DBG-ED-TEND U< AND
+  WHILE
+     a C@ 10 = IF  n 1+ TO n  THEN
+     a 1+ TO a
+  REPEAT
+  a ;
+
 \ beg = after ": NAME"; end = ";" of this definition (or TEND).
+\ Scan every ": …" in the buffer until NAME matches — the previous
+\ one-shot first-colon check left beg/end 0 for any word not first in
+\ its file (e.g. (VIEW-OPEN) in hyper.fth), so ALIGN never ran.
+\ Prefer VIEW-LINE as the search start so a redefinition stamps the
+\ right body; wrap once from TBUF if the line window misses.
 : DBG-MAP-SRC-WINDOW  ( cfa -- beg end )
-  {: cfa | from nameu colon after beg end found blank -- :}
+  {: cfa | from nameu colon after beg end found blank wrapped -- :}
   0 TO beg
   0 TO end
+  FALSE TO wrapped
   DBG-ED-TBUF IF
      cfa DBG-MAP-LOAD-NAME
      DBG-MAP-NAME C@ TO nameu
      nameu IF
-        DBG-ED-CUR @ DUP DBG-ED-TBUF U< IF  DROP DBG-ED-TBUF  THEN TO from
-        1 DBG-ED-TOKEN C!  [CHAR] : DBG-ED-TOKEN 1+ C!
-        from DBG-ED-TEND DBG-SEARCH-TO TO colon
-        colon 0= IF  DBG-ED-TBUF DBG-ED-TEND DBG-SEARCH-TO TO colon  THEN
-        colon IF
-           colon 1+ TO after
-           BEGIN
-              after DBG-ED-TEND U< IF
-                 after C@ DBG-BLANK? TO blank
-                 blank
+        cfa VIEW-LINE DUP IF
+           DBG-MAP-LINE-START
+        ELSE
+           DROP
+           DBG-ED-CUR @ DUP DBG-ED-TBUF U< IF  DROP DBG-ED-TBUF  THEN
+        THEN TO from
+        \ Past-EOF VIEW-LINE → TEND; fall back so the scan still runs.
+        from DBG-ED-TEND U< 0= IF  DBG-ED-TBUF TO from  THEN
+        from DBG-ED-TBUF <> TO wrapped   \ remember mid-file start for one wrap
+        BEGIN
+           end 0=
+           from DBG-ED-TEND U< AND
+        WHILE
+           1 DBG-ED-TOKEN C!  [CHAR] : DBG-ED-TOKEN 1+ C!
+           from DBG-ED-TEND DBG-SEARCH-TO TO colon
+           colon 0= IF
+              wrapped IF
+                 FALSE TO wrapped
+                 DBG-ED-TBUF TO from
               ELSE
-                 FALSE
+                 DBG-ED-TEND TO from
               THEN
-           WHILE
-              after 1+ TO after
-           REPEAT
-           DBG-MAP-NAME C@ DBG-ED-TOKEN C!
-           DBG-MAP-NAME CHAR+ DBG-ED-TOKEN CHAR+ DBG-MAP-NAME C@ CMOVE
-           after DBG-ED-WORD-HIT? IF
-              after nameu + TO beg
-              1 DBG-ED-TOKEN C!  [CHAR] ; DBG-ED-TOKEN 1+ C!
-              beg DBG-ED-TEND DBG-SEARCH-TO TO found
-              found IF  found TO end  ELSE  DBG-ED-TEND TO end  THEN
+           ELSE
+              colon 1+ TO after
+              BEGIN
+                 after DBG-ED-TEND U< IF
+                    after C@ DBG-BLANK? TO blank
+                    blank
+                 ELSE
+                    FALSE
+                 THEN
+              WHILE
+                 after 1+ TO after
+              REPEAT
+              DBG-MAP-NAME C@ DBG-ED-TOKEN C!
+              DBG-MAP-NAME CHAR+ DBG-ED-TOKEN CHAR+ DBG-MAP-NAME C@ CMOVE
+              after DBG-ED-WORD-HIT? IF
+                 after nameu + TO beg
+                 1 DBG-ED-TOKEN C!  [CHAR] ; DBG-ED-TOKEN 1+ C!
+                 beg DBG-ED-TEND DBG-SEARCH-TO TO found
+                 \ Include the ";" byte so EXIT→";" ALIGN can match it
+                 \ (SEARCH-TO is half-open on the end address).
+                 found IF  found 1+ TO end  ELSE  DBG-ED-TEND TO end  THEN
+              ELSE
+                 colon 1+ TO from
+              THEN
            THEN
-        THEN
+        REPEAT
      THEN
   THEN
   beg end ;
@@ -408,7 +512,10 @@ CREATE DBG-MAP-NAME  64 ALLOT
 : DBG-ALIAS-SETUP  ( kind xt -- )
   {: kind xt -- :}
   kind DBG-K-EXIT = IF
-     S" ;" DBG-SET-TOKEN
+     \ Prefer source EXIT before ";". Matching ";" first (with an
+     \ inclusive end window) let an early EXIT inside IF bind the
+     \ definition's terminating semicolon and zeroed every later slot.
+     S" EXIT" DBG-SET-TOKEN
   ELSE
      kind DBG-K-BR = IF
         xt 0BRANCH-ADDR = IF  S" IF" DBG-SET-TOKEN
@@ -499,7 +606,7 @@ CREATE DBG-MAP-NAME  64 ALLOT
                     ha IF  TRUE TO ok  THEN
                  THEN
                  ok 0= kind DBG-K-EXIT = AND IF
-                    S" EXIT" DBG-SET-TOKEN
+                    S" ;" DBG-SET-TOKEN
                     scan end DBG-SEARCH-TO TO ha
                     ha IF  TRUE TO ok  THEN
                  THEN
@@ -576,28 +683,30 @@ CREATE DBG-MAP-NAME  64 ALLOT
   DBG-MAP-PRUNE
   cfa IF
      cfa DOCOL? IF
-        cfa DBG-MAP-FIND-CFA TO cmap
-        cmap IF
-           cmap DBG-CMAP-TBUF@ DBG-ED-TBUF <> IF
-              cfa DBG-MAP-DROP-CFA
-              0 TO cmap
-           THEN
-        THEN
-        cmap 0= IF
-           cfa DBG-COLON-BYTES TO bytes
-           bytes 8 / TO ncells
-           ncells IF
-              ncells DBG-MAP-MAX-CELLS > IF  DBG-MAP-MAX-CELLS TO ncells  THEN
-              cfa VIEW-FILE# TO file#
-              file# DBG-MAP-ENSURE-FILE TO fsec
-              fsec IF
-                 cfa ncells fsec DBG-MAP-NEW-CMAP TO cmap
-                 cmap IF
-                    cmap DBG-MAP-FILL-BODY
-                    DBG-ED-HL-HIST-CLR
-                    cfa DBG-MAP-SRC-WINDOW TO end TO beg
-                    beg 0<> end 0<> AND IF
-                       cmap beg end DBG-MAP-ALIGN
+        cfa VIEW-FILE# TO file#
+        file# IF
+           file# DBG-MAP-ENSURE-FILE TO fsec
+           fsec file# DBG-MAP-LOAD-FILE-BUF IF
+              cfa DBG-MAP-FIND-CFA TO cmap
+              cmap IF
+                 cmap DBG-CMAP-TBUF@ DBG-ED-TBUF <> IF
+                    cfa DBG-MAP-DROP-CFA
+                    0 TO cmap
+                 THEN
+              THEN
+              cmap 0= IF
+                 cfa DBG-COLON-BYTES TO bytes
+                 bytes 8 / TO ncells
+                 ncells IF
+                    ncells DBG-MAP-MAX-CELLS > IF  DBG-MAP-MAX-CELLS TO ncells  THEN
+                    cfa ncells fsec DBG-MAP-NEW-CMAP TO cmap
+                    cmap IF
+                       cmap DBG-MAP-FILL-BODY
+                       DBG-ED-HL-HIST-CLR
+                       cfa DBG-MAP-SRC-WINDOW TO end TO beg
+                       beg 0<> end 0<> AND IF
+                          cmap beg end DBG-MAP-ALIGN
+                       THEN
                     THEN
                  THEN
               THEN
@@ -625,13 +734,29 @@ CREATE DBG-MAP-NAME  64 ALLOT
      0 0
   THEN ;
 
+\ Kernel debug_body_cells = (IP − CFA − 8) / 8. Map slots index from >BODY
+\ (CFA+16), so the spare DOES cell at CFA+8 is not a map slot. Subtract 1.
+: DBG-MAP-CELL#  ( -- cell# )
+  DBG-BODY# DUP IF  1-  THEN ;
+
 \ Highlight via map; ( c-addr u -- ) same contract as SZ-HIGHLIGHT-NAME.
+\ With file-backed TBUF, DBG-ED-HL-SPAN publishes off+len to 64Edit.
 : DBG-MAP-HL  ( c-addr u -- )
-  {: a u | cfa cell# cmap addr len used -- :}
+  {: a u | cfa cell# cmap addr len used file# fsec -- :}
   FALSE TO used
   0 TO cmap
-  DBG-ED-TBUF 0= IF  EXIT  THEN
   DBG-CFA@ TO cfa
+  cfa IF
+     cfa VIEW-FILE# TO file#
+     file# IF
+        file# DBG-MAP-ENSURE-FILE TO fsec
+        fsec file# DBG-MAP-LOAD-FILE-BUF DROP
+     THEN
+  THEN
+  DBG-ED-TBUF 0= IF
+     \ No source buffer — leave host span cleared; name fallback skipped.
+     EXIT
+  THEN
   cfa IF
      cfa DBG-MAP-FIND-CFA TO cmap
      cmap 0= IF
@@ -646,7 +771,7 @@ CREATE DBG-MAP-NAME  64 ALLOT
      THEN
   THEN
   cmap IF
-     DBG-BODY# TO cell#
+     DBG-MAP-CELL# TO cell#
      cmap cell# DBG-MAP-SPAN@ TO len TO addr
      len IF
         addr len DBG-ED-HL-SPAN
@@ -664,7 +789,110 @@ CREATE DBG-MAP-NAME  64 ALLOT
      THEN
   THEN ;
 
-: DBG-MAP-BIND  ( -- flag )  DBG-ED-INSTALL ;
+\ Optional console trace: 1 DBG-SPAN-TRACE !  then nest Into; shows BODY# + off/len.
+VARIABLE DBG-SPAN-TRACE
+\ Set by DBG-HOST-SPAN! — TRACE prints (host) only when the kernel pending span
+\ was updated (DBG-ED-HL-SPAN / SPAN@ alone is not proof).
+VARIABLE DBG-HOST-SPAN-OK
+\ Cached XT — do NOT ALSO/PREVIOUS/FIND on every pause (search order sticks;
+\ Hyper hit the same class of bug). Resolve once at load / MAP-BIND.
+VARIABLE DBG-HOST-SPAN-XT
+\ Last off/len successfully passed to kernel DBG-HOST-SPAN (Forth-side echo).
+VARIABLE DBG-LAST-PUB-OFF
+VARIABLE DBG-LAST-PUB-LEN
+
+\ FIND wants a counted string — use DBG-ED-FIND (DBG-PLACE). Never raw S" FIND.
+\ DBG-ED-HOST-SPAN-XT is in this vocabulary; write it directly (no FIND).
+: DBG-HOST-SPAN-BIND  ( -- )
+  ALSO SYSVOC
+  S" DBG-HOST-SPAN" DBG-ED-FIND IF
+     DUP DBG-HOST-SPAN-XT !
+     DBG-ED-HOST-SPAN-XT !
+  ELSE
+     0 DBG-HOST-SPAN-XT !
+     0 DBG-ED-HOST-SPAN-XT !
+  THEN
+  PREVIOUS ;
+\ ( off len -- ) call cached kernel DBG-HOST-SPAN. Sets DBG-HOST-SPAN-OK.
+: DBG-HOST-SPAN!  ( off len -- )
+  0 DBG-HOST-SPAN-OK !
+  DBG-HOST-SPAN-XT @ DUP IF
+     >R  2DUP DBG-LAST-PUB-LEN ! DBG-LAST-PUB-OFF !
+     R> EXECUTE
+     -1 DBG-HOST-SPAN-OK !
+  ELSE
+     DROP 2DROP
+     0 DBG-LAST-PUB-OFF !
+     0 DBG-LAST-PUB-LEN !
+  THEN ;
+\ Publish current pause span straight to the host (do not rely on DBG-HL-RUN
+\ still pointing at this file's DBG-MAP-HL after a reload — DEFER keeps the
+\ old XT while TRACE would already show the new CELL# math).
+\ Always call DBG-HOST-SPAN! with file-relative off+len — do not route through
+\ DEFER DBG-ED-HL-SPAN (can stay DBG-ED-2DROP after a partial INSTALL).
+: DBG-PUBLISH-SPAN  ( -- )
+  {: | cfa cmap addr len cell# file# fsec hoff -- :}
+  0 0 DBG-HOST-SPAN!
+  0 TO addr  0 TO len  0 TO cmap  0 TO hoff
+  DBG-CFA@ TO cfa
+  cfa IF
+     cfa VIEW-FILE# TO file#
+     file# IF
+        file# DBG-MAP-ENSURE-FILE TO fsec
+        fsec file# DBG-MAP-LOAD-FILE-BUF DROP
+     THEN
+     cfa DBG-MAP-FIND-CFA TO cmap
+     cmap 0= IF
+        cfa DBG-MAP-BUILD
+        cfa DBG-MAP-FIND-CFA TO cmap
+     THEN
+     cmap IF
+        cmap DBG-CMAP-TBUF@ DBG-ED-TBUF <> IF
+           cfa DBG-MAP-BUILD
+           cfa DBG-MAP-FIND-CFA TO cmap
+        THEN
+     THEN
+  THEN
+  cmap IF
+     DBG-MAP-CELL# TO cell#
+     cmap cell# DBG-MAP-SPAN@ TO len TO addr
+     len IF
+        DBG-ED-TBUF IF
+           addr DBG-ED-TBUF - TO hoff
+           hoff len DBG-HOST-SPAN!
+        THEN
+     THEN
+  THEN
+  \ Name fallback only when map miss; keeps console-defined CFAs from painting
+  \ namesakes in an unrelated buffer.
+  len 0= IF
+     cfa IF
+        cfa VIEW-FILE# IF
+           DBG-XT@ DUP IF  NAME>STRING DBG-ED-HL-NAME  ELSE  DROP  THEN
+        THEN
+     THEN
+  THEN
+  DBG-SPAN-TRACE @ IF
+     ." [span] body#=" DBG-BODY# .
+     ." map#=" DBG-MAP-CELL# .
+     ." xt=" DBG-XT@ DUP IF  NAME>STRING TYPE  ELSE  DROP ." ?"  THEN
+     ."  cfa=" cfa DUP IF  NAME>STRING TYPE  ELSE  DROP ." ?"  THEN
+     len IF
+        ."  off=" hoff . ." len=" len .
+        DBG-HOST-SPAN-OK @ IF  ."  (host)"  ELSE  ."  (map-only — host miss)"  THEN
+     ELSE
+        ."  (no span published)"
+     THEN
+     CR
+  THEN ;
+: DBG-MAP-BIND  ( -- flag )
+  DBG-HOST-SPAN-BIND
+  DBG-ED-INSTALL ;
+
+\ Arm pause UI + rebind HL-RUN to this file's DBG-MAP-HL (reload-safe).
+' DBG-PUBLISH-SPAN IS DBG-PAUSE-BEFORE-PAINT
+DBG-HOST-SPAN-BIND
+DBG-MAP-BIND DROP
 
 ONLY FORTH ALSO DEBUGGER
 

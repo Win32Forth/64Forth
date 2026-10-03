@@ -1,9 +1,18 @@
 # 64Forth development status
 
-**Current:** **1.5.3** (build **47**) — DEBUG/64Edit UX polish; companion version lockstep  
+**Current:** **1.5.3** (build **47**) shipped; main has post-release 64Edit/Hyper/span work (no new version bump yet)  
 **Last updated:** 2026-10-03
 
 ---
+
+## On main after 1.5.3 (unreleased)
+
+No marketing/build bump and no DMG yet. Companion **64Edit** on `main` matches these sock/Hyper changes.
+
+- **Current-word highlight:** `kernel_debug_peek_name` + sock `debugLocation(path:line:name:off:len)`. Prefers dbg-map file-relative UTF-8 spans (`DBG-HOST-SPAN` / `DBG-PUBLISH-SPAN`); 64Edit falls back to whole-word name search near the VIEW line (runtime→source aliases). Pastel green wash; clears on next pause or session end. `Library/DbgSpanSmoke/` exercises map build and publish.
+- **Soft VIEW for 64Edit Hyper:** `(VIEW) ( c-addr u -- flag )`; `VIEW` is `PARSE-NAME (VIEW) DROP` (no `'` abort). Sock `viewWord` / `viewResult(opened:)` so ⌘-click can fall back to in-file find on miss. `HYPER-VIEW-CU` removed.
+- **Autoload HL bind:** after Hyper, re-arm `DBG-MAP-BIND` / `DBG-SET-HL` so map→span survives Hyper clearing `DBG-HL-XT`.
+- **64Edit (companion repo):** New File / dirty Save sheets, line-number gutter, find bar, ⌘-click VIEW with disconnected fallback, thicker console splitter, Home/End.
 
 ## v1.5.3 — DEBUG multi-file polish; 64Edit version lockstep
 
@@ -25,6 +34,7 @@
 - **Location fallback:** `kernel_debug_location` tries stamped `debug_cfa`, then stamped `debug_xt` (unstamped CFA no longer blocks e.g. `DBG .FREE`).
 - **64Edit DEBUG UX:** toolbar focus + F5–F8 / browse-mode letters; Forth command field disabled while armed; single system **View** menu for Browse Mode; no sticky red “debugger not armed” after Continue/`g`.
 - **Sock hardening:** `SO_NOSIGPIPE` + `SIGPIPE` ignore; step/resume/stop on the editor-server I/O queue; `notifyDebugSessionArmed` on paint.
+- **Name peek for highlight:** `kernel_debug_peek_name` + sock `debugLocation(… name:)` (span `off`/`len` landed on main after this release).
 
 ## v1.5.2 — 64Edit companion, DEBUG follow, dual-app DMG
 

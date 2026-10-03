@@ -952,10 +952,8 @@ struct ConsoleView: View {
     /// Open Hyper VIEW for the token at `idx`. While the editor KEY loop is active,
     /// stages the line via key 133 (no nested host evaluate). Idle: host evaluate.
     ///
-    /// Uses FORTH `VIEW name` (not `S" name" HYPER-VIEW-CU`). `HYPER-VIEW-CU` /
-    /// `(VIEW)` live in SYSVOC after Hyper load, so a bare `HYPER-VIEW-CU` is
-    /// `undefined` under ONLY FORTH and leaves the string on the stack (+2 depth).
-    /// `VIEW` stays in FORTH and already calls `(VIEW)` by XT.
+    /// Uses FORTH `VIEW name`. `(VIEW) ( c-addr u -- flag )` is in SYSVOC;
+    /// `VIEW` parses the name and calls it (soft miss: `undefined: name`, no abort).
     private func viewForthToken(at idx: Int, in ns: NSString, placingCaretIn tv: NSTextView) {
         #if os(macOS)
         var i = idx

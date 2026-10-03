@@ -865,6 +865,8 @@ XFACILITY_OP_GO_END:
 .extern _host_app_img_render
 .extern _host_app_size
 .extern _host_debug_paint
+.extern _host_debug_set_span
+.extern _host_debug_get_span
 
 // (APP-OPEN) ( cols rows -- ior )  0=ok
     BOOT_WORD "(APP-OPEN)", "(APP-OPEN) ( cols rows -- ior ) open char-graphics window", 0, XAPP_OPEN, XAPP_OPEN_END
@@ -3137,6 +3139,40 @@ XDBGHOSTPAINT:
     SAVE_VM
     bl _host_debug_paint
     RESTORE_VM
+    NEXT
+
+    // ( off len -- ) file-relative span for 64Edit debugLocation; 0 0 clears.
+    BOOT_WORD "DBG-HOST-SPAN", "DBG-HOST-SPAN ( off len -- ) pending editor highlight span", 0, XDBGHOSTSPAN
+XDBGHOSTSPAN:
+    mov  x1, x20                   // len
+    ldr  x0, [x22], #8             // off
+    ldr  x20, [x22], #8
+    SAVE_VM
+    bl   _host_debug_set_span
+    RESTORE_VM
+    NEXT
+
+    // ( -- off len ) peek pending span; does not clear (paint still consumes).
+    BOOT_WORD "DBG-HOST-SPAN@", "DBG-HOST-SPAN@ ( -- off len ) peek pending editor highlight span", 0, XDBGHOSTSPANAT
+XDBGHOSTSPANAT:
+    stp  x29, x30, [sp, #-16]!
+    mov  x29, sp
+    sub  sp, sp, #16
+    add  x0, sp, #0                // &off
+    add  x1, sp, #8                // &len
+    str  xzr, [sp]
+    str  xzr, [sp, #8]
+    SAVE_VM
+    bl   _host_debug_get_span
+    RESTORE_VM
+    ldr  x1, [sp]                  // off
+    ldr  x2, [sp, #8]              // len
+    add  sp, sp, #16
+    ldp  x29, x30, [sp], #16
+    str  x20, [x22, #-8]!
+    mov  x20, x1                   // off under
+    str  x20, [x22, #-8]!
+    mov  x20, x2                   // len TOS
     NEXT
 
     // Forth pause UI calls this after >> word + cursor so pad-to-23 still
@@ -17852,6 +17888,50 @@ _kernel_debug_location:
 10:
     ldp x23, x24, [sp], #16
     ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ret
+
+
+// int kernel_debug_peek_name(char *buf, int buf_max)
+// Copy NUL-terminated peek token name from debug_name (counted). Returns length,
+// or 0 if empty / no room. debug_name[0]=u, chars follow (max 31).
+.globl _kernel_debug_peek_name
+_kernel_debug_peek_name:
+    stp x19, x20, [sp, #-16]!
+    mov x19, x0                    // buf
+    mov w20, w1                    // buf_max
+    adrp x0, debug_name@page
+    add x0, x0, debug_name@pageoff
+    ldrb w1, [x0], #1              // u; x0 → chars
+    cbz w1, 2f
+    cbz x19, 2f
+    cmp w20, #2
+    b.lt 2f
+    sub w20, w20, #1               // leave room for NUL
+    cmp w1, w20
+    b.ls 1f
+    mov w1, w20
+1:
+    mov x2, #0
+3:
+    cmp x2, x1
+    b.hs 4f
+    ldrb w3, [x0, x2]
+    strb w3, [x19, x2]
+    add x2, x2, #1
+    b 3b
+4:
+    strb wzr, [x19, x2]
+    mov x0, x1                     // return length
+    b 5f
+2:
+    cbz x19, 21f
+    cmp w20, #1
+    b.lt 21f
+    strb wzr, [x19]
+21:
+    mov x0, #0
+5:
     ldp x19, x20, [sp], #16
     ret
 

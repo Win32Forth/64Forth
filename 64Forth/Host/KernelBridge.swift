@@ -55,6 +55,12 @@ private func kernel_debug_location(
     _ line: UnsafeMutablePointer<Int32>?
 ) -> Int32
 
+@_silgen_name("kernel_debug_peek_name")
+private func kernel_debug_peek_name(
+    _ buf: UnsafeMutablePointer<CChar>?,
+    _ bufMax: Int32
+) -> Int32
+
 @_silgen_name("kernel_take_repl_batch_stop")
 private func kernel_take_repl_batch_stop() -> Int32
 
@@ -642,6 +648,39 @@ private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> 
 /// would never see `debugLocation` for `DBG .FREE` typed in the editor console.
 /// Console-typed DBG works because that `evaluate` is not nested under a main
 /// GCD block, so the old hop could still run during the run-loop pump.
+/// Pending file-relative highlight span from `DBG-HOST-SPAN` (0/0 = unset).
+/// Consumed by the next `host_debug_paint` into sock `debugLocation`.
+private var pendingDebugSpanOff: Int = 0
+private var pendingDebugSpanLen: Int = 0
+private let pendingDebugSpanLock = NSLock()
+
+/// DBG-HOST-SPAN ( off len -- ). File-relative UTF-8 byte offsets into the
+/// VIEW source; len 0 clears. Survives until the next paint broadcasts them.
+@_cdecl("host_debug_set_span")
+public func host_debug_set_span(_ off: Int64, _ len: Int64) {
+    pendingDebugSpanLock.lock()
+    if len > 0, off >= 0 {
+        pendingDebugSpanOff = Int(off)
+        pendingDebugSpanLen = Int(len)
+    } else {
+        pendingDebugSpanOff = 0
+        pendingDebugSpanLen = 0
+    }
+    pendingDebugSpanLock.unlock()
+}
+
+/// Peek pending span without consuming (Forth `DBG-HOST-SPAN@` self-tests).
+@_cdecl("host_debug_get_span")
+public func host_debug_get_span(
+    _ offOut: UnsafeMutablePointer<Int64>?,
+    _ lenOut: UnsafeMutablePointer<Int64>?
+) {
+    pendingDebugSpanLock.lock()
+    offOut?.pointee = Int64(pendingDebugSpanOff)
+    lenOut?.pointee = Int64(pendingDebugSpanLen)
+    pendingDebugSpanLock.unlock()
+}
+
 @_cdecl("host_debug_paint")
 public func host_debug_paint() {
     guard KernelBridge.shared.isAnyDebugArmed else { return }
@@ -655,6 +694,19 @@ public func host_debug_paint() {
     guard !path.isEmpty else { return }
     let lineCopy = Int(line)
 
+    var nameBuf = [CChar](repeating: 0, count: 64)
+    let nameLen = nameBuf.withUnsafeMutableBufferPointer { bp in
+        kernel_debug_peek_name(bp.baseAddress, Int32(bp.count))
+    }
+    let peekName = nameLen > 0 ? String(cString: nameBuf) : ""
+
+    pendingDebugSpanLock.lock()
+    let spanOff = pendingDebugSpanOff
+    let spanLen = pendingDebugSpanLen
+    pendingDebugSpanOff = 0
+    pendingDebugSpanLen = 0
+    pendingDebugSpanLock.unlock()
+
     // Arm 64Edit before/with location so the first letter key is not treated
     // as a view-mode edit attempt while the 100ms poll has not fired yet.
     ForthEditorServer.shared.notifyDebugSessionArmed()
@@ -664,7 +716,26 @@ public func host_debug_paint() {
     // matches the tab created by `open -a` (raw VIEW stamps are often relative).
     // No usable stamp → leave the current editor file alone (caller preference).
     guard let url = FileHost.shared.revealForDebug(path: path, line: lineCopy) else { return }
-    ForthEditorServer.shared.broadcast(.debugLocation(path: url.path, line: lineCopy))
+    // Diagnostic: prove sock payload (TRACE map-only vs host).
+    let spanLog = "/tmp/64forth-debug-span.log"
+    if !FileManager.default.fileExists(atPath: spanLog) {
+        FileManager.default.createFile(atPath: spanLog, contents: nil)
+    }
+    if let handle = FileHandle(forWritingAtPath: spanLog) {
+        defer { try? handle.close() }
+        handle.seekToEndOfFile()
+        let line = "paint path=\(url.path) line=\(lineCopy) name=\(peekName) off=\(spanOff) len=\(spanLen)\n"
+        if let data = line.data(using: .utf8) { handle.write(data) }
+    }
+    ForthEditorServer.shared.broadcast(
+        .debugLocation(
+            path: url.path,
+            line: lineCopy,
+            name: peekName,
+            off: spanOff,
+            len: spanLen
+        )
+    )
 }
 
 /// AT-XY? — facility cursor (0-based). Called from kernel CODE `XAT_XY_Q`.

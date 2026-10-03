@@ -1,0 +1,2 @@
+ANEW T3MOD
+: T3  DUP DUP DUP  0= 0=  R> R> ;

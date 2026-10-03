@@ -12,6 +12,8 @@ import Foundation
 enum EditorRequest: Codable, Equatable {
     case loadSource(path: String)
     case executeCommand(command: String)
+    /// ⌘-click / Hyper VIEW: evaluate `(VIEW)` and reply with `viewResult`.
+    case viewWord(name: String)
     case setBreakpoint(line: Int, enabled: Bool)
     case stepInto
     case stepOver
@@ -31,7 +33,11 @@ enum ForthResponse: Codable, Equatable {
     /// ITC DEBUG / TDBG stepper armed (true) or finished / aborted (false).
     case debugSession(armed: Bool)
     /// Source location for the paused word (VIEW stamp). Line is 1-based.
-    case debugLocation(path: String, line: Int)
+    /// `name` is the peek token to highlight (empty when unknown).
+    /// `off`/`len` are file-relative UTF-8 byte spans from dbg-map (0/0 = use name).
+    case debugLocation(path: String, line: Int, name: String, off: Int, len: Int)
+    /// Result of `viewWord`: `opened` is true when EDIT-AT ran (stamp found).
+    case viewResult(word: String, opened: Bool)
 }
 
 // MARK: - JSON on the wire (NSXPC cannot pass Swift enums)

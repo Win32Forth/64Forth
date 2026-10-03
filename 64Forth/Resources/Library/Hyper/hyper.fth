@@ -1016,36 +1016,35 @@ ONLY FORTH DEFINITIONS ALSO HYPER-VOC
 
 \ VIEW opens 64Edit at the word's VIEW stamp (path:line) via EDIT-AT.
 \ Prints path:line like SEE; does not decompile (use SEE for that).
+\ (VIEW) returns true only when EDIT-AT ran (64Edit sock uses that flag).
 \ ALSO SYSVOC so compile-time FIND sees (SEE-HDR)/(SEE-LOC) after vocsys move.
 ALSO SYSVOC
-\ ( xt -- xt ) if stamped, EDIT-AT path line; always leave xt.
-: (VIEW-OPEN)  ( xt -- xt )
-   DUP VIEW-FILE# ?DUP 0= IF  DROP EXIT  THEN     \ xt id  (id=0 → drop 0)
+\ ( xt -- xt flag ) if stamped, EDIT-AT path line; flag true when opened.
+: (VIEW-OPEN)  ( xt -- xt flag )
+   DUP VIEW-FILE# ?DUP 0= IF  FALSE EXIT  THEN    \ xt | false  (id=0)
    OVER VIEW-LINE >R                              \ xt id  R:line
    VIEW-PATH                                      \ xt c-addr u  R:line
-   DUP 0= IF  2DROP R> DROP EXIT  THEN            \ no path
-   R> EDIT-AT ;                                   \ EDIT-AT ( c-addr u line )
+   DUP 0= IF  2DROP R> DROP FALSE EXIT  THEN      \ no path
+   R> EDIT-AT TRUE ;                              \ EDIT-AT ( c-addr u line )
 
-: (VIEW)  ( c-addr u -- )
-   DUP 0= IF  2DROP EXIT  THEN
+\ ( c-addr u -- flag ) FIND + SEE header/loc; true if EDIT-AT opened 64Edit.
+: (VIEW)  ( c-addr u -- flag )
+   DUP 0= IF  2DROP FALSE EXIT  THEN
    PAD PLACE PAD FIND DUP 0= IF
-      DROP PAD COUNT TYPE ."  ?" CR EXIT
+      DROP ." undefined: " PAD COUNT TYPE CR FALSE EXIT
    THEN DROP                                      \ xt
-   (SEE-HDR) (SEE-LOC) (VIEW-OPEN) DROP ;
+   (SEE-HDR) (SEE-LOC) (VIEW-OPEN) NIP ;          \ xt flag -- flag
 
+\ Soft miss (no ' abort): prints "undefined: name" like the kernel and leaves depth clean.
 : VIEW  ( "name" -- )
-   ' (SEE-HDR) (SEE-LOC) (VIEW-OPEN) DROP ;
+   PARSE-NAME (VIEW) DROP ;
 PREVIOUS
 
 \ DBG name — VIEW stamped source if the live xt has VIEW-FILE#, else console
-\ DEBUG only (no empty untitled). Mid-step Into a stamped colon opens the
-\ facility via SZ-DBG-SHOW-AT without nesting SZ-EDIT-LOOP.
+\ DEBUG only (no empty untitled).
 \ Never open an HYPER.NDX namesake for a console-defined word
 \ (e.g. : test … ; DBG test must not open Pascal PASX-SAMPLE's VARIABLE test).
-\ Stamped words from the idle console still enter SZ-EDIT-LOOP via (VIEW).
-\ Already in the editor: switch buffer and DEBUG in this EVALUATE (command pane).
 \ Pin order for Hyper/SYSVOC names while compiling this block.
-\ Runtime SZ-* lookup uses ONLY FORTH ALSO EDITOR (idle order has no EDITOR).
 ONLY FORTH DEFINITIONS ALSO HYPER-VOC ALSO SYSVOC ALSO EDITOR
 
 : DBG-UNTITLED  ( -- )
@@ -1113,15 +1112,13 @@ PREVIOUS
 
 : SEE-SOURCE  ( "name" -- )  SEE ;
 
-: HYPER-VIEW-CU  ( c-addr u -- )  (VIEW) ;
-
 \ Editor/debug hooks → SYSVOC (VIEW / LOCATE / SEE / DBG stay in FORTH).
+\ HYPER-VIEW-CU removed (SZ-EDITOR leftover; console/64Edit use VIEW / (VIEW)).
 ALSO SYSVOC
 S" HYPER-NEXT"         FORTH>SYSVOC
 S" HYPER-PREV"         FORTH>SYSVOC
 S" HYPER-FLASH-HERE"   FORTH>SYSVOC
 S" HYPER-VIEW-NAME"    FORTH>SYSVOC
-S" HYPER-VIEW-CU"      FORTH>SYSVOC
 S" (VIEW)"             FORTH>SYSVOC
 S" DBG-UNTITLED"       FORTH>SYSVOC
 S" DBG-SYNC-VIEW"      FORTH>SYSVOC

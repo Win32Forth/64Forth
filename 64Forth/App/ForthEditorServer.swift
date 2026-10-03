@@ -224,7 +224,7 @@ final class ForthEditorServer {
         case .setBreakpoint:
             writeResponse(.error(message: "breakpoints not wired yet"), to: fd)
             return
-        case .executeCommand, .loadSource:
+        case .executeCommand, .loadSource, .viewWord:
             break
         }
 
@@ -242,6 +242,25 @@ final class ForthEditorServer {
                     response = st == 0
                         ? .consoleOutput(text: "ok(\(kernel.dataStackDepth))")
                         : .error(message: "status=\(st)")
+                }
+            case .viewWord(let name):
+                // Soft (VIEW): no ' abort. opened ⇔ EDIT-AT ran (stamp → 64Edit).
+                let word = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                if word.isEmpty || word.contains(where: { $0.isWhitespace || $0.isNewline }) {
+                    response = .error(message: "VIEW needs a single token")
+                } else if kernel.isAnyDebugArmed {
+                    response = .error(message: "debugger paused — use Step/Continue")
+                } else {
+                    let before = FileHost.shared.editAtOpenCount
+                    // VIEW uses PARSE-NAME (VIEW) DROP — miss prints "undefined: name" depth-clean.
+                    let st = kernel.evaluate("VIEW \(word)")
+                    kernel.forceFlushEmitSync()
+                    if st != 0 {
+                        response = .error(message: "status=\(st)")
+                    } else {
+                        let opened = FileHost.shared.editAtOpenCount > before
+                        response = .viewResult(word: word, opened: opened)
+                    }
                 }
             case .loadSource(let path):
                 if kernel.isAnyDebugArmed {

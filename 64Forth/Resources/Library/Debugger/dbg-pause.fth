@@ -111,8 +111,14 @@ VARIABLE DBG-PAUSE-KEY
   THEN
 ;
 
+\ dbg-map installs DBG-PUBLISH-SPAN here after it loads (ed/map follow pause).
+DEFER DBG-PAUSE-BEFORE-PAINT
+: DBG-PAUSE-BEFORE-PAINT-NOP  ( -- )  ;
+' DBG-PAUSE-BEFORE-PAINT-NOP IS DBG-PAUSE-BEFORE-PAINT
+
 : DBG-PAUSE-UI  ( -- )
-  \ Open/scroll 64Edit first so the sock can connect while the pause banner prints.
+  \ Map→host span, then open/scroll 64Edit so the sock gets off+len with paint.
+  DBG-PAUSE-BEFORE-PAINT
   DBG-HOST-PAINT
   DBG-PAUSE-PREAMBLE
   DBG-PRINT-TOKEN-UI
