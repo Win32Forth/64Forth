@@ -1442,9 +1442,11 @@ final class FileHost {
 
     /// DEBUG pause: scroll/open 64Edit to VIEW path:line without console spam.
     /// Writes pending-goto every pause; launches 64Edit only when the path changes.
-    func revealForDebug(path: String, line: Int) {
+    /// Returns the resolved absolute file URL (for sock `debugLocation`), or nil.
+    @discardableResult
+    func revealForDebug(path: String, line: Int) -> URL? {
         let name = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, line > 0 else { return }
+        guard !name.isEmpty, line > 0 else { return nil }
 
         let url: URL
         if name.hasPrefix("/"), FileManager.default.fileExists(atPath: name) {
@@ -1452,27 +1454,29 @@ final class FileHost {
         } else if let resolved = resolveLoadPath(name) {
             url = resolved
         } else {
-            return
+            return nil
         }
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
 
-        let standardized = url.standardizedFileURL.path
-        let pathChanged = lastDebugRevealPath != standardized
-        lastDebugRevealPath = standardized
+        let standardized = url.standardizedFileURL
+        let pathChanged = lastDebugRevealPath != standardized.path
+        lastDebugRevealPath = standardized.path
 
-        writePendingGoto(path: url.path, line: line, mode: "view")
+        writePendingGoto(path: standardized.path, line: line, mode: "view")
         #if os(macOS)
-        guard pathChanged, let app = locateSixtyFourEditApp() else { return }
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        task.arguments = ["-a", app.path, url.path]
-        do {
-            try task.run()
-            task.waitUntilExit()
-        } catch {
-            // Quiet during DEBUG; sock + pending-goto still deliver the location.
+        if pathChanged, let app = locateSixtyFourEditApp() {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            task.arguments = ["-a", app.path, standardized.path]
+            do {
+                try task.run()
+                task.waitUntilExit()
+            } catch {
+                // Quiet during DEBUG; sock + pending-goto still deliver the location.
+            }
         }
         #endif
+        return standardized
     }
 
     /// Clear DEBUG open-path cache when the stepper disarms.
@@ -1612,8 +1616,8 @@ final class FileHost {
         )
     }
 
-    /// Open `url` in 64Edit (experimental). Prefers a Debug build under
-    /// DerivedData, then `/Applications/64Edit.app`. Falls back to the default
+    /// Open `url` in 64Edit. Uses `locateSixtyFourEditApp()` (Release: sibling
+    /// or `/Applications`; Debug: DerivedData first). Falls back to the default
     /// system opener only if 64Edit cannot be found or launched.
     /// Uses `/usr/bin/open -a` so launch finishes before EDIT returns (async
     /// NSWorkspace open was cancelled when the agent process exited).
@@ -1657,43 +1661,71 @@ final class FileHost {
     }
 
     #if os(macOS)
-    /// Newest Debug `64Edit.app` under DerivedData, else Release there, else `/Applications`.
+    /// Locate companion `64Edit.app` for `EDIT` / `VIEW` / DEBUG open.
+    ///
+    /// **Release (DMG):** same folder as this `64Forth.app` (sibling), then
+    /// `/Applications/64Edit.app`, then DerivedData as a last resort.
+    /// **Debug:** newest DerivedData Debug build first (dev loop), then sibling,
+    /// then `/Applications`.
+    ///
+    /// Socket IPC (`edit.sock`) does not depend on this path — only `open -a`.
     private func locateSixtyFourEditApp() -> URL? {
         let fm = FileManager.default
-        let home = fm.homeDirectoryForCurrentUser
-        let dd = home.appendingPathComponent("Library/Developer/Xcode/DerivedData", isDirectory: true)
-        var candidates: [(url: URL, date: Date)] = []
-        if let dirs = try? fm.contentsOfDirectory(
-            at: dd,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) {
-            for dir in dirs where dir.lastPathComponent.hasPrefix("64Edit-") {
-                for config in ["Debug", "Release"] {
-                    let app = dir
-                        .appendingPathComponent("Build/Products/\(config)/64Edit.app", isDirectory: true)
-                    var isDir: ObjCBool = false
-                    guard fm.fileExists(atPath: app.path, isDirectory: &isDir), isDir.boolValue else { continue }
-                    let vals = try? app.resourceValues(forKeys: [.contentModificationDateKey])
-                    candidates.append((app, vals?.contentModificationDate ?? .distantPast))
+
+        func existsApp(_ url: URL) -> URL? {
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
+                return nil
+            }
+            return url
+        }
+
+        // Side-by-side install: Desktop or Applications folder containing both apps.
+        let sibling = Bundle.main.bundleURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("64Edit.app", isDirectory: true)
+        let applications = URL(fileURLWithPath: "/Applications/64Edit.app", isDirectory: true)
+
+        func derivedDataCandidate() -> URL? {
+            let home = fm.homeDirectoryForCurrentUser
+            let dd = home.appendingPathComponent("Library/Developer/Xcode/DerivedData", isDirectory: true)
+            var candidates: [(url: URL, date: Date)] = []
+            if let dirs = try? fm.contentsOfDirectory(
+                at: dd,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            ) {
+                for dir in dirs where dir.lastPathComponent.hasPrefix("64Edit-") {
+                    for config in ["Debug", "Release"] {
+                        let app = dir
+                            .appendingPathComponent("Build/Products/\(config)/64Edit.app", isDirectory: true)
+                        guard let url = existsApp(app) else { continue }
+                        let vals = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+                        candidates.append((url, vals?.contentModificationDate ?? .distantPast))
+                    }
                 }
             }
+            // Prefer Debug over Release when both exist; then newest mtime.
+            return candidates
+                .sorted(by: { a, b in
+                    let aDebug = a.url.path.contains("/Debug/")
+                    let bDebug = b.url.path.contains("/Debug/")
+                    if aDebug != bDebug { return aDebug && !bDebug }
+                    return a.date > b.date
+                })
+                .first?
+                .url
         }
-        // Prefer Debug over Release when both exist; then newest mtime.
-        if let best = candidates
-            .sorted(by: { a, b in
-                let aDebug = a.url.path.contains("/Debug/")
-                let bDebug = b.url.path.contains("/Debug/")
-                if aDebug != bDebug { return aDebug && !bDebug }
-                return a.date > b.date
-            })
-            .first {
-            return best.url
-        }
-        let applications = URL(fileURLWithPath: "/Applications/64Edit.app", isDirectory: true)
-        if fm.fileExists(atPath: applications.path) {
-            return applications
-        }
+
+        #if DEBUG
+        if let dd = derivedDataCandidate() { return dd }
+        if let s = existsApp(sibling) { return s }
+        if let a = existsApp(applications) { return a }
+        #else
+        if let s = existsApp(sibling) { return s }
+        if let a = existsApp(applications) { return a }
+        if let dd = derivedDataCandidate() { return dd }
+        #endif
         return nil
     }
     #endif

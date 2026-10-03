@@ -1,30 +1,31 @@
 # 64Forth development status
 
-**Current:** **1.5.2** (build **46**) — SZ-EDITOR removed; **64Edit** external editor; VIEW opens 64Edit at `path:line` in view mode; console DEBUG  
+**Current:** **1.5.2** (build **46**) — **64Edit** companion editor + DEBUG source follow; dual-app DMG  
 **Last updated:** 2026-10-02
 
 ---
 
-## v1.5.2 — 64Edit, console DEBUG, VIEW stamps
+## v1.5.2 — 64Edit companion, DEBUG follow, dual-app DMG
 
 **Version strings:** marketing **1.5.2**, build **46**.
 
-**Release:** version bump on `main` (rebuild in Xcode for the new banner). DMG when you cut one.
+**Release:** DMG ships **both** `64Edit.app` and `64Forth.app`. Drag both into `/Applications` (or the same folder). Rebuild Release before packing so the banner matches. GitHub release attaches the DMG plus `Getting 64Forth to run.jpg` (Gatekeeper steps apply to **each** app the first time).
 
 **Console header stamp** (`ConsoleView.swift` `banner`):
 
 ```text
-=== 64Forth 1.5.2 === Oct 2, 2026 1:48 PM ===
+=== 64Forth 1.5.2 === Oct 2, 2026 7:19 PM ===
 ```
 
 ### Highlights (vs 1.5.1)
 
-- **In-app SZ-EDITOR removed.** `Library/Editor/` (SZ-EDITOR and helpers) is gone from the tree and from Autoload. Editing moves to the separate **64Edit** app: https://github.com/Win32Forth/64Edit
-- **64Edit link:** 64Forth listens on `~/Library/Application Support/64Forth/edit.sock` (`ForthEditorServer`). 64Edit connects as a client. Autoload keeps an empty `EDITOR` vocabulary so Hyper can `ALSO EDITOR`.
-- **EDIT / VIEW → 64Edit:** `EDIT` launches 64Edit (Debug DerivedData preferred, then `/Applications`). Hyper `VIEW` / `EDIT-AT` write `~/Library/Application Support/64Forth/pending-goto.json` (`path`, `line`, `mode`) and post DistributedNotification `com.Win32Forth.64Edit.goto` so 64Edit opens the stamp and scrolls to the line. `mode: "view"` for VIEW/EDIT-AT (read-only until the user switches); `mode: "edit"` for EDIT.
-- **DEBUG / DBG** stay **console-only** (no facility-grid paint; `host_debug_paint` is a no-op; Autoload skips `DBG-ED-INSTALL`).
-- **SEE / VIEW / DBG** print a word’s VIEW stamp as full `path:line` (or `(no source)`). Nested `REQUIRE` / `INCLUDED` correctly push/pop the view source stack so Autoload Hyper words stamp as `Library/Hyper/hyper.fth:…`, not an earlier file.
-- `HYPER-STAMP-COLD` uses `ALSO FORTH` and restamps after `VIEW` / `LOCATE` / `DBG` exist; `HYPER-REINDEX` still restamps from the NDX.
+- **In-app SZ-EDITOR removed.** `Library/Editor/` is gone. Editing is the separate **64Edit** app: https://github.com/Win32Forth/64Edit
+- **Socket link (no special install wiring):** 64Forth listens on `~/Library/Application Support/64Forth/edit.sock`. 64Edit connects as a client. Works whenever both apps run, from Applications or elsewhere. Autoload keeps an empty `EDITOR` vocabulary for Hyper.
+- **EDIT / VIEW launch:** writes `pending-goto.json` (`path`, `line`, `mode`) and posts `com.Win32Forth.64Edit.goto`, then `/usr/bin/open -a` on the companion. **Release** prefers `64Edit.app` beside `64Forth.app`, then `/Applications/64Edit.app`. **Debug** prefers DerivedData first. `mode: "view"` for VIEW/EDIT-AT; `mode: "edit"` for EDIT.
+- **64Edit workspace:** single window with tabs, shared Forth console, Open/Save/Save As, pending-goto and debug find-or-open (path/inode). Per-tab caret, top line, and **view mode** (browse stays on every debug-opened file until Edit).
+- **DEBUG / DBG → 64Edit:** on pause, `host_debug_paint` resolves the VIEW stamp and opens/scrolls 64Edit (`revealForDebug` + sock `debugLocation`). Nested step into/out switches files and restores the prior tab. Toolbar in 64Edit: Step Over / Into / Out / Continue / Stop (sock → same keys as console F6 / F7 / F8 / `g` / `q`). Console DEBUG cursor erase uses BS in the sock replay path.
+- **SEE / VIEW / DBG** print full `path:line` (or `(no source)`). Nested `REQUIRE` / `INCLUDED` push/pop the view source stack so Autoload Hyper stamps stay on `Library/Hyper/hyper.fth:…`.
+- `HYPER-STAMP-COLD` uses `ALSO FORTH` and restamps after `VIEW` / `LOCATE` / `DBG` exist.
 
 ## v1.5.1 — OOP windows
 

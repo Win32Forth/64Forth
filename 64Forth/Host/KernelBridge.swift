@@ -648,8 +648,10 @@ public func host_debug_paint() {
     let publish: () -> Void = {
         // Drain pending emits into the sock replay buffer before open/connect.
         KernelBridge.shared.forceFlushEmitSync()
-        FileHost.shared.revealForDebug(path: pathCopy, line: lineCopy)
-        ForthEditorServer.shared.broadcast(.debugLocation(path: pathCopy, line: lineCopy))
+        // Resolve AutoLoad/Library stamps to an absolute path so 64Edit find-or-open
+        // matches the tab created by `open -a` (raw VIEW stamps are often relative).
+        guard let url = FileHost.shared.revealForDebug(path: pathCopy, line: lineCopy) else { return }
+        ForthEditorServer.shared.broadcast(.debugLocation(path: url.path, line: lineCopy))
     }
     if Thread.isMainThread {
         publish()
@@ -1995,6 +1997,13 @@ final class KernelBridge {
     func debugStepInto() -> Bool {
         guard isAnyDebugArmed else { return false }
         return pushKey(Int32(Character("i").asciiValue ?? 105))
+    }
+
+    /// Sock / editor step-out: F8 tagged EKEY (no ASCII letter in the asm policy).
+    @discardableResult
+    func debugStepOut() -> Bool {
+        guard isAnyDebugArmed else { return false }
+        return pushKey(FacilityFKey.event(FacilityFKey.f8))
     }
 
     /// Sock / editor continue: 134 (same as ⌘⇧Y / g while armed).

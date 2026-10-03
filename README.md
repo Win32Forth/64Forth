@@ -11,9 +11,9 @@
 2. **Open** and view the .jpg image called '**Getting 64Forth to run.jpg**'.
 3. This image shows a collage of the dialogs you have to traverse to get the MacOS to allow you to open the app.
 4. Don't despair, it's not that hard, just follow along;
-5. **Mount the .dmg** file and you will see **64Forth.app**.
-6. Drag the app onto your desktop.
-7. Hold down the **Control key** and click the app and select **Open** from the menu that pops up.
+5. **Mount the .dmg** file and you will see **64Forth.app** and **64Edit.app** (v1.5.2+).
+6. Drag **both** apps into **Applications** (recommended) or onto the desktop — keep them in the **same folder** so `EDIT` / `VIEW` can find 64Edit beside 64Forth.
+7. Hold down the **Control key** and click **64Forth.app**, then select **Open**.
 8. You will get an error dialog that tells you that the app cannot be verified and will not be opened.
 9. This last step is important because it sets up the MacOS so that you can now go into **Settings** and tell it to allow the app to open.
 10. **Open Settings**, and scroll down to **Privacy & Security**. A list of apps and setting will be displayed.
@@ -21,7 +21,8 @@
 12. To the right of the above message you will see a button **"Open Anyway"**. Click the button.
 13. After clicking Open Anyway, another dialog will pop up that says basically **Trash, Open Anyway and Done. Click Open Anyway.**
 14. After you click **Open Anyway** in that dialog, **another dialog will pop up and ask you for your password.** This is the final system dialog that is keeping you from running 64Forth. Simply type in your "**Macs" password,** and 64Forth will open and display it's **Opening screen.**
-15. You are done, you can now run 64Forth without having to go though this again.
+15. Repeat Control-click **Open** / **Open Anyway** once for **64Edit.app** the first time you launch it (or the first time 64Forth opens it via `EDIT` / `VIEW`).
+16. You are done. The two apps talk over `~/Library/Application Support/64Forth/edit.sock` automatically — no extra pairing step.
 
 64Forth is a **macOS SwiftUI console app** whose **execution engine** is the **PickleForth ARM64 assembly kernel**, while the **host** (console, menus, Resources layout, FROMLIB-style library paths) follows **TZForth**.
 
@@ -69,7 +70,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ## Status (v1.5.2)
 
-- [x] **v1.5.2:** In-app **SZ-EDITOR** removed; editing moves to **[64Edit](https://github.com/Win32Forth/64Edit)** (`edit.sock` + `EDIT`/`VIEW` open). Autoload keeps an empty `EDITOR` vocab. DEBUG/DBG console-only. `SEE`/`VIEW`/`DBG` print full `path:line`; nested INCLUDE view-stack fix. `VIEW` opens 64Edit at the stamp line in **view mode** (read-only until switch); `EDIT` opens edit mode
+- [x] **v1.5.2:** In-app **SZ-EDITOR** removed; companion **[64Edit](https://github.com/Win32Forth/64Edit)** over `edit.sock`. Dual-app DMG (`64Forth.app` + `64Edit.app`). `EDIT`/`VIEW` open 64Edit (view mode + line scroll); DEBUG pauses follow source in tabs with Step Over/Into/Out; nested INCLUDE `path:line` stamps — DMG + GitHub release
 - [x] **v1.5.1:** OOP windows, menus, buttons, and child views (`FROMLIB FLOAD Classes/oop.fth`); tag words via `OOP-ON` / `OOP-SERVE`. Separate from GRAPHICS App Output — DMG + GitHub release
 - [x] **v1.5.0:** Forth-2012 classes (`Library/Classes`); dictionary lookup folds case; colon bodies at CFA+16; `VOCABULARY` body is the hash-head wid and is registered for the emitter; float wordlist renamed **`FLOATING`**; `REPRESENT` writes its digit buffer; block seek / `EVALUATE` `BLK` / line-source echo; Hayes subset green (core `ACCEPT` still waits for a typed line); `EMIT-WINDOW-APP` keeps the window up (`(CATCH-OK)` reloc); Pascal `array [Limit+1]` — DMG + GitHub release
 - [x] **v1.4.3:** GRAPHICS `1BIT`/`COLOR8`/`TRUECOLOR`; Sample DOODLECOLOR64 / IMAGEVIEW64 / EDIT64 / VED64 / MIDNIGHT; cold **`xref.fth`** (`REF`/`XREF`/`ANYWORDS`, VIEW `leaf:line` titles; KEY during console eval; `REF` skips IMMEDIATE) — checkpoint, no separate DMG (folded into 1.5.0)
@@ -98,10 +99,10 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 - [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Agent-channel.md`
 - [ ] **Later (optional):** DMG `/Volumes/…` open noise — see STATUS
 
-**Console header** (GUI): `=== 64Forth 1.5.2 === Oct 2, 2026 1:48 PM ===`  
+**Console header** (GUI): `=== 64Forth 1.5.2 === Oct 2, 2026 7:19 PM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
 
-**Windows (macOS):** **Console** (Forth REPL) · **App Output** (GRAPHICS / Emitter only). Editing is the external **64Edit** app (https://github.com/Win32Forth/64Edit), not an in-app SZ-EDITOR window. iOS: Console only.
+**Windows (macOS):** **Console** (Forth REPL) · **App Output** (GRAPHICS / Emitter only) · **64Edit** (external editor / debug source). Install both apps from the DMG into the same folder (`/Applications` preferred). iOS: Console only.
 
 ## Status (v1.1.1)
 

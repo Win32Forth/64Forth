@@ -15,6 +15,7 @@ enum EditorRequest: Codable, Equatable {
     case setBreakpoint(line: Int, enabled: Bool)
     case stepInto
     case stepOver
+    case stepOut
     case resume
     case stop
 }

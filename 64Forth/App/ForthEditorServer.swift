@@ -155,7 +155,9 @@ final class ForthEditorServer {
 
         DispatchQueue.main.async {
             let kernel = KernelBridge.shared
-            let response: ForthResponse
+            // Step/resume/abort success needs no sock ack — console + debugLocation broadcasts
+            // already update 64Edit. Empty consoleOutput("") used to create blank lines there.
+            let response: ForthResponse?
             switch request {
             case .executeCommand(let command):
                 // Kernel holds evalLock while DEBUG waits for KEY; reject with a clear message.
@@ -177,27 +179,21 @@ final class ForthEditorServer {
                     response = st == 0 ? .consoleOutput(text: "ok") : .error(message: "load status=\(st)")
                 }
             case .stepOver:
-                response = kernel.debugStepOver()
-                    ? .consoleOutput(text: "")
-                    : .error(message: "debugger not armed")
+                response = kernel.debugStepOver() ? nil : .error(message: "debugger not armed")
             case .stepInto:
-                response = kernel.debugStepInto()
-                    ? .consoleOutput(text: "")
-                    : .error(message: "debugger not armed")
+                response = kernel.debugStepInto() ? nil : .error(message: "debugger not armed")
+            case .stepOut:
+                response = kernel.debugStepOut() ? nil : .error(message: "debugger not armed")
             case .resume:
-                response = kernel.debugResume()
-                    ? .consoleOutput(text: "")
-                    : .error(message: "debugger not armed")
+                response = kernel.debugResume() ? nil : .error(message: "debugger not armed")
             case .stop:
-                if kernel.debugAbort() {
-                    response = .consoleOutput(text: "")
-                } else {
-                    response = .executionFinished(exitCode: 0)
-                }
+                response = kernel.debugAbort() ? nil : .executionFinished(exitCode: 0)
             case .setBreakpoint:
                 response = .error(message: "breakpoints not wired yet")
             }
-            self.writeResponse(response, to: fd)
+            if let response {
+                self.writeResponse(response, to: fd)
+            }
         }
     }
 

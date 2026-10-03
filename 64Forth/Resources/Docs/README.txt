@@ -4,9 +4,13 @@
 Version 1.5.2 (build 46)
 
 Console header (ConsoleView banner), e.g.:
-  === 64Forth 1.5.2 === Oct 2, 2026 1:48 PM ===
+  === 64Forth 1.5.2 === Oct 2, 2026 7:19 PM ===
 Update the date/time only when finishing a version change set, just before
 DMG + commit/push — not on every intermediate build.
+
+DMG (v1.5.2+) contains 64Forth.app and 64Edit.app. Install both into the same
+folder (/Applications recommended). They link via
+~/Library/Application Support/64Forth/edit.sock — no extra pairing.
 
 Hybrid macOS app: ARM64 ITC kernel (assembly) + SwiftUI console/host
 (TZForth-style FileHost, AutoLoad, Library, FROMLIB).
@@ -27,13 +31,15 @@ Editor (v1.5.2+)
   separate **64Edit** app (https://github.com/Win32Forth/64Edit), talking to
   64Forth over a local socket (Application Support/64Forth/edit.sock).
   Autoload keeps an empty EDITOR vocabulary so Hyper can ALSO EDITOR.
-  DEBUG / DBG stay console-only; SEE / VIEW / DBG print full path:line.
-  EDIT opens 64Edit in edit mode. VIEW / EDIT-AT write pending-goto.json
-  (path, line, mode "view") so 64Edit scrolls to the definition and stays
-  read-only until the user switches to Edit (dialog or banner button).
+  SEE / VIEW / DBG print full path:line. EDIT opens 64Edit in edit mode.
+  VIEW / EDIT-AT / DEBUG pauses write pending-goto.json (path, line, mode
+  "view") and open or scroll 64Edit; tabs keep browse mode per file.
+  64Edit debug toolbar: Step Over / Into / Out / Continue / Stop (same as
+  console F6 / F7 / F8 / g / q). Release finds 64Edit beside 64Forth.app or
+  in /Applications; Debug builds prefer Xcode DerivedData first.
 
 Windows (macOS)
 ---------------
   Console     — Forth REPL.
   App Output  — GRAPHICS / Emitter / stand-alone apps only.
-  64Edit      — external editor (separate app), not inside 64Forth.
+  64Edit      — external editor + DEBUG source (separate app).

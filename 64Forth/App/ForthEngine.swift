@@ -41,6 +41,8 @@ final class ForthEngine: NSObject, ForthEngineXPC {
             return .consoleOutput(text: "step into")
         case .stepOver:
             return .consoleOutput(text: "step over")
+        case .stepOut:
+            return .consoleOutput(text: "step out")
         case .resume:
             return .consoleOutput(text: "resume")
         case .stop:

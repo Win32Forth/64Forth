@@ -1,7 +1,7 @@
 # 64Forth — Design Document
 
 **Public domain.**  
-**Updated:** 2026-10-02 — **v1.5.2** (build 46) — in-app **SZ-EDITOR** removed; editing moves to external **64Edit** (https://github.com/Win32Forth/64Edit) over `edit.sock`; `EDIT`/`VIEW` launch 64Edit via `pending-goto.json` (VIEW = view mode + scroll to line); console-only DEBUG; VIEW `path:line` stamps. Prior **v1.5.1** (build 45) — OOP `WINDOW`/`CHILD`/`MENU`/`BUTTON` via `(OOP-CALL)`, separate from GRAPHICS. Prior **v1.5.0** (build 44) — Forth-2012 classes; case-folding dictionary lookup; colon body at CFA+16; `VOCABULARY` wid is the hash-head array and is registered; float wordlist **`FLOATING`**; `REPRESENT` writes digits; Hayes subset green; stand-alone `(CATCH-OK)` reloc; Pascal array bounds accept a constant. Prior **1.4.3** (build 42): Sample VED64 + MIDNIGHT; `REF` skips IMMEDIATE; Pascal `RECURSE`; GRAPHICS color depths + IMAGEVIEW64/EDIT64; cold **`Kernel/xref.fth`**. Prior **1.4.2**: ANS SMUDGE / hide-until-`;`; FILE-ECHO line#s; GRAPHICS mouse + Sample/DOODLE64; Emitter SA CONSTANT/VALUE/LIT reloc for `EMIT-WINDOW-APP`; **1.4.1** TRAVERSE/DBG VIEW+HL + cold boot transcript + INCLUDE `file:line`; **1.4.0** token maps + pause UI; **1.3.9** FLOAD/INCLUDED load-cwd + THROW/CATCH polish; **1.3.8** SZ-EDITOR own window (retired in 1.5.2); **1.3.7** ANEW/MARKER + BREAK/BPGO; **1.3.6** Emitter **0.7** SA locals/BI + window I/O remap; app-kit freeze still `Docs/APPKIT.md` (GRAPHICS 80×25 / 640×400; `\ANS`/`\TCOM`/`\EMITTER`; tetra + PIMAIN).
+**Updated:** 2026-10-02 — **v1.5.2** (build 46) — dual-app DMG (`64Forth.app` + `64Edit.app`); in-app **SZ-EDITOR** removed; **64Edit** over `edit.sock` with tab workspace, VIEW mode, and DEBUG source follow (sock steppers Over/Into/Out); `EDIT`/`VIEW` via `pending-goto.json`; Release locates sibling or `/Applications/64Edit.app`; VIEW `path:line` stamps. Prior **v1.5.1** (build 45) — OOP `WINDOW`/`CHILD`/`MENU`/`BUTTON` via `(OOP-CALL)`, separate from GRAPHICS. Prior **v1.5.0** (build 44) — Forth-2012 classes; case-folding dictionary lookup; colon body at CFA+16; `VOCABULARY` wid is the hash-head array and is registered; float wordlist **`FLOATING`**; `REPRESENT` writes digits; Hayes subset green; stand-alone `(CATCH-OK)` reloc; Pascal array bounds accept a constant. Prior **1.4.3** (build 42): Sample VED64 + MIDNIGHT; `REF` skips IMMEDIATE; Pascal `RECURSE`; GRAPHICS color depths + IMAGEVIEW64/EDIT64; cold **`Kernel/xref.fth`**. Prior **1.4.2**: ANS SMUDGE / hide-until-`;`; FILE-ECHO line#s; GRAPHICS mouse + Sample/DOODLE64; Emitter SA CONSTANT/VALUE/LIT reloc for `EMIT-WINDOW-APP`; **1.4.1** TRAVERSE/DBG VIEW+HL + cold boot transcript + INCLUDE `file:line`; **1.4.0** token maps + pause UI; **1.3.9** FLOAD/INCLUDED load-cwd + THROW/CATCH polish; **1.3.8** SZ-EDITOR own window (retired in 1.5.2); **1.3.7** ANEW/MARKER + BREAK/BPGO; **1.3.6** Emitter **0.7** SA locals/BI + window I/O remap; app-kit freeze still `Docs/APPKIT.md` (GRAPHICS 80×25 / 640×400; `\ANS`/`\TCOM`/`\EMITTER`; tetra + PIMAIN).
 
 **Goal:** A macOS **SwiftUI app** (console + file/library UX from TZForth) driven by an **ARM64 assembly ITC kernel** (PickleForth lineage)—not a pure terminal binary and not the full Swift lbForth / TZForth engine.
 
@@ -11,7 +11,7 @@
 |--------|------|
 | **Console** | Forth REPL |
 | **App Output** | `AppOutputHost` — GRAPHICS / Emitter / stand-alone apps only |
-| **64Edit** (separate app) | External editor; `edit.sock` REPL pane; `EDIT`/`VIEW` open via `pending-goto.json` |
+| **64Edit** (separate app) | External editor + DEBUG source tabs; `edit.sock`; `EDIT`/`VIEW` / pause open via `pending-goto.json` + sock `debugLocation` |
 
 In-app **SZ-EDITOR** / `Library/Editor` are gone. Do not put an editor inside App Output.
 
@@ -30,8 +30,8 @@ In-app **SZ-EDITOR** / `Library/Editor` are gone. Do not put an editor inside Ap
 | File-Access + Block volumes | TZForth-style host + kernel CODE | `FileAccess.swift`, block file words, Hayes prepare-blocks |
 | XChar | Kernel UTF-8 CODE + high-level words; bulk `emit_buf` for multi-byte TYPE | ANS 18; validate via `ANSValidate/all-in-one.fth` |
 | Facility terminal grid | TZForth-style host | `FacilityTerminal.swift` — `PAGE`/`AT-XY` (still present for Facility Ext; no longer drives an in-app editor) |
-| Editor | **64Edit** (separate repo) | External app; `ForthEditorServer` on `edit.sock`; `FileHost` `EDIT`/`EDIT-AT` write `pending-goto.json` + open 64Edit. In-tree SZ-EDITOR removed in **v1.5.2** |
-| Hypertext | F-PC HYPER lineage | LOCATE/VIEW, multi-hit, `HYPER-REINDEX`, `HYPER-VOC`; VIEW stamps as full `path:line`; VIEW opens 64Edit in view mode at that line |
+| Editor | **64Edit** (separate repo) | External app; `ForthEditorServer` on `edit.sock`; `FileHost` `EDIT`/`EDIT-AT`/`revealForDebug` write `pending-goto.json` + `open -a` (Release: sibling or `/Applications/64Edit.app`). In-tree SZ-EDITOR removed in **v1.5.2** |
+| Hypertext | F-PC HYPER lineage | LOCATE/VIEW, multi-hit, `HYPER-REINDEX`, `HYPER-VOC`; VIEW stamps as full `path:line`; VIEW/DEBUG open 64Edit in view mode at that line |
 
 ---
 
@@ -133,7 +133,7 @@ Do **not** call `_kernel_cold_start` from the SwiftUI host.
 
 | Item | Design notes |
 |------|----------------|
-| **EDIT** | Host opens file in **64Edit** (Debug DerivedData preferred); honors FROMLIB; updates cwd. `EDIT-AT` / Hyper `VIEW` add `pending-goto.json` (`mode` view\|edit) so 64Edit scrolls and, for VIEW, stays read-only until the user switches |
+| **EDIT** | Host opens file in **64Edit** (Release: sibling or `/Applications`; Debug: DerivedData first); honors FROMLIB; updates cwd. `EDIT-AT` / Hyper `VIEW` / DEBUG pause add `pending-goto.json` (`mode` view\|edit) so 64Edit scrolls and, for VIEW/debug, stays read-only until the user switches |
 | **`\S` / `\s`** | Immediate: pin `>IN` to end of current SOURCE (file/eval/line). Nested INCLUDE only stops the inner file. Console SOURCE-ID 0 sets host multi-line paste stop (`replBatchStop`) |
 | **FILE-ECHO** | Echo INCLUDE/FLOAD source through emit_hook (not raw `write(1)`). Advance `file_echo_pos` **before** `_putchar` (emit clobbers caller-saved regs) |
 | **ANS pictured `#` / `#S` / `#>`** | Double-cell (ud = lo under, hi TOS). Single-cell `#` broke `BI.` / π (`n 0 <# #S #>` printed only hi → `0.000…`) |
