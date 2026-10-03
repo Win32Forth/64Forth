@@ -4,11 +4,11 @@
 Canonical plan: session `plan.md` (Phase 4.0).  
 Shared roadmap blurb: [`STATUS.md`](STATUS.md) § Debugger.
 
-**Last updated:** 2026-10-02  
+**Last updated:** 2026-10-03  
 **Pack release:** 64TCOM ARM64 **Version 0.9**  
 **Phase:** 64TCOM **4.0** utilities (slice 1 **shipped** in 0.9; editor next)  
 **Backend:** **SIMARM64 first** (native traps later)  
-**64Forth ITC `DEBUG` / `DBG`:** **1.3.0+** (current **1.5.2**) — console keys still work; **1.5.2** opens **64Edit** on pause (`revealForDebug` + sock `debugLocation`), multi-file tabs, steppers Over/Into/Out via `edit.sock`; TRAVERSE trampoline resolve/HL; `_ip_find_colon` over `WORDLISTS`; SYSVOC cold stamps in `HYPER-STAMP-COLD`; token maps in `Debugger/dbg-map.fth` + `dbg-ed.fth`; SZ-EDITOR removed; **1.4.0** maps/comment-safe HL/`I>>`; **1.3.9** FLOAD polish; **1.3.8** SZ-EDITOR window (retired); **1.3.7** `BREAK`/`BPGO`. Interactive `CODE`/`END-CODE`: `Assembler/ASSEMBLER.fth` / `STATUSASM64.md`. Emitter **0.7**. SYSVOC holds `DBG-SHOW-XT` / Hyper debug hooks.
+**64Forth ITC `DEBUG` / `DBG`:** **1.3.0+** (current **1.5.3**) — console keys still work; **1.5.2+** opens **64Edit** on pause (`revealForDebug` + sock `debugLocation`), multi-file tabs, steppers Over/Into/Out via `edit.sock`; **1.5.3** nested file follow without `open -a` flash when sock live, CFA→xt location fallback, editor focus/F-keys and Browse Mode in the system View menu; TRAVERSE trampoline resolve/HL; `_ip_find_colon` over `WORDLISTS`; SYSVOC cold stamps in `HYPER-STAMP-COLD`; token maps in `Debugger/dbg-map.fth` + `dbg-ed.fth`; SZ-EDITOR removed; **1.4.0** maps/comment-safe HL/`I>>`; **1.3.9** FLOAD polish; **1.3.8** SZ-EDITOR window (retired); **1.3.7** `BREAK`/`BPGO`. Interactive `CODE`/`END-CODE`: `Assembler/ASSEMBLER.fth` / `STATUSASM64.md`. Emitter **0.7**. SYSVOC holds `DBG-SHOW-XT` / Hyper debug hooks. Next: highlight the current debug word in 64Edit.
 
 **Debug-time token maps:** `Debugger/dbg-map.fth` — per-colon body↔source table in `ALLOCATE` (file sections; prune on `ANEW-HOOK`); kernel `DBG-IP@`/`DBG-CFA@`/`DBG-BODY#`/`DBG-XT@`; editor `SZ-HIGHLIGHT-SPAN`; highlight prefers map, falls back to name search. Autoload after Hyper; binds into `HYPER-HL-XT` via `DBG-ED-INSTALL`.
 

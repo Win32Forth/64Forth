@@ -1441,7 +1441,8 @@ final class FileHost {
     }
 
     /// DEBUG pause: scroll/open 64Edit to VIEW path:line without console spam.
-    /// Writes pending-goto every pause; launches 64Edit only when the path changes.
+    /// Writes pending-goto every pause; launches 64Edit only when the path changes
+    /// **and** no sock client is connected (sock `debugLocation` already switches tabs).
     /// Returns the resolved absolute file URL (for sock `debugLocation`), or nil.
     @discardableResult
     func revealForDebug(path: String, line: Int) -> URL? {
@@ -1462,19 +1463,22 @@ final class FileHost {
         let pathChanged = lastDebugRevealPath != standardized.path
         lastDebugRevealPath = standardized.path
 
-        writePendingGoto(path: standardized.path, line: line, mode: "view")
         #if os(macOS)
-        if pathChanged, let app = locateSixtyFourEditApp() {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            task.arguments = ["-a", app.path, standardized.path]
-            do {
-                try task.run()
-                task.waitUntilExit()
-            } catch {
-                // Quiet during DEBUG; sock + pending-goto still deliver the location.
-            }
+        let sockLive = ForthEditorServer.shared.hasConnectedClients
+        // Sock-connected 64Edit already gets `debugLocation` from host_debug_paint.
+        // Skip pending-goto + `open -a` so we do not double-open or reactivate
+        // the window on every pause / path change (visible flash).
+        // Cold path (no sock yet): pending-goto + launch when the path changes.
+        // Abort/DBG-OFF paint after disarm + clearDebugReveal must not reopen 64Edit.
+        if sockLive {
+            return standardized
         }
+        writePendingGoto(path: standardized.path, line: line, mode: "view")
+        if pathChanged, KernelBridge.shared.isAnyDebugArmed {
+            activateSixtyFourEdit(opening: standardized)
+        }
+        #else
+        writePendingGoto(path: standardized.path, line: line, mode: "view")
         #endif
         return standardized
     }
@@ -1619,32 +1623,40 @@ final class FileHost {
     /// Open `url` in 64Edit. Uses `locateSixtyFourEditApp()` (Release: sibling
     /// or `/Applications`; Debug: DerivedData first). Falls back to the default
     /// system opener only if 64Edit cannot be found or launched.
-    /// Uses `/usr/bin/open -a` so launch finishes before EDIT returns (async
-    /// NSWorkspace open was cancelled when the agent process exited).
     /// Writes `pending-goto.json`: VIEW (`line` > 0) opens read-only view mode;
     /// EDIT opens edit mode (and can clear a prior VIEW lock on the same file).
+    ///
+    /// When a sock client is connected, pending-goto + DistributedNotification is
+    /// enough — `open -a App file` (or even bare activate) reactivates the window
+    /// and flashes. Cold launch still passes the file path to Launch Services.
     private func openInSystemEditor(_ url: URL, line: Int) {
         #if os(macOS)
         let viewMode = line > 0
         writePendingGoto(path: url.path, line: line, mode: viewMode ? "view" : "edit")
-        if let app = locateSixtyFourEditApp() {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            task.arguments = ["-a", app.path, url.path]
-            do {
-                try task.run()
-                task.waitUntilExit()
-                if task.terminationStatus == 0 {
-                    if viewMode {
-                        msg("VIEW (64Edit): \(url.path):\(line)\n")
-                    } else {
-                        msg("EDIT (64Edit): \(url.path)\n")
-                    }
+        if locateSixtyFourEditApp() != nil {
+            if ForthEditorServer.shared.hasConnectedClients {
+                // Editor already live on edit.sock; notification delivers the goto.
+                if viewMode {
+                    msg("VIEW (64Edit): \(url.path):\(line)\n")
                 } else {
-                    msg("? EDIT 64Edit open failed (status \(task.terminationStatus)): \(url.path)\n")
+                    msg("EDIT (64Edit): \(url.path)\n")
                 }
-            } catch {
-                msg("? EDIT 64Edit launch failed: \(error.localizedDescription)\n")
+                return
+            }
+            // Running but not sock-connected yet: activate without re-opening the
+            // file path (pending-goto handles the buffer). Cold launch passes file.
+            let passFile = !isSixtyFourEditRunning()
+            let status = activateSixtyFourEdit(opening: passFile ? url : nil)
+            if status == 0 {
+                if viewMode {
+                    msg("VIEW (64Edit): \(url.path):\(line)\n")
+                } else {
+                    msg("EDIT (64Edit): \(url.path)\n")
+                }
+            } else if status >= 0 {
+                msg("? EDIT 64Edit open failed (status \(status)): \(url.path)\n")
+            } else {
+                msg("? EDIT 64Edit launch failed: \(url.path)\n")
             }
             return
         }
@@ -1659,6 +1671,38 @@ final class FileHost {
         msg("? EDIT open in system editor is not available on iOS: \(url.path)\n")
         #endif
     }
+
+    #if os(macOS)
+    /// True if a 64Edit process is already running (any build / path).
+    private func isSixtyFourEditRunning() -> Bool {
+        NSWorkspace.shared.runningApplications.contains {
+            $0.bundleIdentifier == "com.Win32Forth.SixtyFourEdit"
+        }
+    }
+
+    /// Activate or launch 64Edit. Pass `opening` only for a cold launch so
+    /// Launch Services opens that file; when nil, pending-goto / sock deliver
+    /// the path without an `open -a App file` reactivation flash.
+    /// Returns `open` termination status, or -1 on Process failure.
+    @discardableResult
+    private func activateSixtyFourEdit(opening file: URL?) -> Int32 {
+        guard let app = locateSixtyFourEditApp() else { return -1 }
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        if let file {
+            task.arguments = ["-a", app.path, file.path]
+        } else {
+            task.arguments = ["-a", app.path]
+        }
+        do {
+            try task.run()
+            task.waitUntilExit()
+            return task.terminationStatus
+        } catch {
+            return -1
+        }
+    }
+    #endif
 
     #if os(macOS)
     /// Locate companion `64Edit.app` for `EDIT` / `VIEW` / DEBUG open.

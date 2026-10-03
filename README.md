@@ -2,7 +2,7 @@
 
 **Public domain.**
 
-**64Forth's Heritage**: When I decided to make yet another Forth system, I went looking for a name for it. I thought of my earlier Forths, like F-PC, and Win32Forth, and thought possibly of Win64Forth. But this Forth is not designed for Windows, so that seemed wrong. I then thought of 64Forth, and went looking for Forth systems on the internet with that name. You will never guess what I found. Yes, you guessed it. 64Forth was the name of my earlier Forth system for the Commodore 64 Computer. In that case, the 64 represented the fact that the Commodore had I believe 64 MB of memory, which was quite a lot in that day. Anyway, I realized that I essentially already had dibs on the 64Forth name, so that is the name I chose for this MacOS M1-M5+ Forth system that is a hybrid of the two previous Forth systems I created this month. I hope you will find 64Forth interesting, at least enough to take a look. It is constructed mostly by Grok with an assembly language kernel, and a Swift code console and extensions, and like TZForth, it has some Libraries built right into the app. **As of v1.0.0** it includes File-Access, file-backed Blocks, Floating-point (`VOCABULARY FLOATING`), Core/Core Ext, String Ext, Locals, **Facility + Facility Ext** (structures, `EKEY>FKEY`, `K-*`), **FacilityTerminal** full-screen `PAGE`/`AT-XY`, **Hypertext** (LOCATE/VIEW, multi-hit ⌘PgUp/Dn, ⌘E, in-app `HYPER-REINDEX`), **Extended Character (UTF-8 XChar)**, **hashed multi-thread wordlists** (`DICT_THREADS`), a green Hayes subset (core through FP/paranoia Excellent), and modular Library **ANSValidate** (~383 passed / 0 failed). **As of v1.5.2** the in-app **SZ-EDITOR** is removed; use the separate **[64Edit](https://github.com/Win32Forth/64Edit)** app (socket link to 64Forth). Optional later: App Sandbox for store builds, richer 64Edit/XPC, richer reindex TYPE rules. The architecture is very interesting: CODE words are assembly labels; macros build traditional headers (NFA, LFA, FFA, CFA, BODY) plus an HFA (Help Field Address). Go Forth and prosper!
+**64Forth's Heritage**: When I decided to make yet another Forth system, I went looking for a name for it. I thought of my earlier Forths, like F-PC, and Win32Forth, and thought possibly of Win64Forth. But this Forth is not designed for Windows, so that seemed wrong. I then thought of 64Forth, and went looking for Forth systems on the internet with that name. You will never guess what I found. Yes, you guessed it. 64Forth was the name of my earlier Forth system for the Commodore 64 Computer. In that case, the 64 represented the fact that the Commodore had I believe 64 MB of memory, which was quite a lot in that day. Anyway, I realized that I essentially already had dibs on the 64Forth name, so that is the name I chose for this MacOS M1-M5+ Forth system that is a hybrid of the two previous Forth systems I created this month. I hope you will find 64Forth interesting, at least enough to take a look. It is constructed mostly by Grok with an assembly language kernel, and a Swift code console and extensions, and like TZForth, it has some Libraries built right into the app. **As of v1.0.0** it includes File-Access, file-backed Blocks, Floating-point (`VOCABULARY FLOATING`), Core/Core Ext, String Ext, Locals, **Facility + Facility Ext** (structures, `EKEY>FKEY`, `K-*`), **FacilityTerminal** full-screen `PAGE`/`AT-XY`, **Hypertext** (LOCATE/VIEW, multi-hit ⌘PgUp/Dn, ⌘E, in-app `HYPER-REINDEX`), **Extended Character (UTF-8 XChar)**, **hashed multi-thread wordlists** (`DICT_THREADS`), a green Hayes subset (core through FP/paranoia Excellent), and modular Library **ANSValidate** (~383 passed / 0 failed). **As of v1.5.2** the in-app **SZ-EDITOR** is removed; use the separate **[64Edit](https://github.com/Win32Forth/64Edit)** app (socket link to 64Forth). **As of v1.5.3** keep **64Edit**’s marketing version equal to **64Forth** (both **1.5.3**). Optional later: App Sandbox for store builds, richer 64Edit/XPC, richer reindex TYPE rules. The architecture is very interesting: CODE words are assembly labels; macros build traditional headers (NFA, LFA, FFA, CFA, BODY) plus an HFA (Help Field Address). Go Forth and prosper!
 
 
 **Getting 64Forth to run on your Mac**: All of the latest security changes Apple has made to MacOS, have made it fairly difficult to run apps obtained from outside the Apple App Store, but it is not impossible. Here is how you to it;
@@ -11,7 +11,7 @@
 2. **Open** and view the .jpg image called '**Getting 64Forth to run.jpg**'.
 3. This image shows a collage of the dialogs you have to traverse to get the MacOS to allow you to open the app.
 4. Don't despair, it's not that hard, just follow along;
-5. **Mount the .dmg** file and you will see **64Forth.app** and **64Edit.app** (v1.5.2+).
+5. **Mount the .dmg** file and you will see **64Forth.app** and **64Edit.app** (v1.5.2+; versions match as of v1.5.3).
 6. Drag **both** apps into **Applications** (recommended) or onto the desktop — keep them in the **same folder** so `EDIT` / `VIEW` can find 64Edit beside 64Forth.
 7. Hold down the **Control key** and click **64Forth.app**, then select **Open**.
 8. You will get an error dialog that tells you that the app cannot be verified and will not be opened.
@@ -68,8 +68,9 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ---
 
-## Status (v1.5.2)
+## Status (v1.5.3)
 
+- [x] **v1.5.3:** DEBUG multi-file polish (nested tab follow, no `open -a` flash when sock live, editor-typed DBG paint, CFA→xt location fallback); 64Edit UX (focus/F-keys, single View menu, no sticky “not armed”); **64Edit version lockstep** with 64Forth (**1.5.3** / build **47**)
 - [x] **v1.5.2:** In-app **SZ-EDITOR** removed; companion **[64Edit](https://github.com/Win32Forth/64Edit)** over `edit.sock`. Dual-app DMG (`64Forth.app` + `64Edit.app`). `EDIT`/`VIEW` open 64Edit (view mode + line scroll); DEBUG pauses follow source in tabs with Step Over/Into/Out; nested INCLUDE `path:line` stamps — DMG + GitHub release
 - [x] **v1.5.1:** OOP windows, menus, buttons, and child views (`FROMLIB FLOAD Classes/oop.fth`); tag words via `OOP-ON` / `OOP-SERVE`. Separate from GRAPHICS App Output — DMG + GitHub release
 - [x] **v1.5.0:** Forth-2012 classes (`Library/Classes`); dictionary lookup folds case; colon bodies at CFA+16; `VOCABULARY` body is the hash-head wid and is registered for the emitter; float wordlist renamed **`FLOATING`**; `REPRESENT` writes its digit buffer; block seek / `EVALUATE` `BLK` / line-source echo; Hayes subset green (core `ACCEPT` still waits for a typed line); `EMIT-WINDOW-APP` keeps the window up (`(CATCH-OK)` reloc); Pascal `array [Limit+1]` — DMG + GitHub release
@@ -99,7 +100,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 - [x] **v1.1.2:** agent channel (`--agent` headless load/eval/transcript) — see `Agent-channel.md`
 - [ ] **Later (optional):** DMG `/Volumes/…` open noise — see STATUS
 
-**Console header** (GUI): `=== 64Forth 1.5.2 === Oct 2, 2026 7:19 PM ===`  
+**Console header** (GUI): `=== 64Forth 1.5.3 === Oct 3, 2026 11:21 AM ===`  
 Stamp the date/time only when finishing a change set for a version, just before DMG + repo push (not every build). Edit `ConsoleView.swift` `banner`.
 
 **Windows (macOS):** **Console** (Forth REPL) · **App Output** (GRAPHICS / Emitter only) · **64Edit** (external editor / debug source). Install both apps from the DMG into the same folder (`/Applications` preferred). iOS: Console only.

@@ -1,13 +1,34 @@
 # 64Forth development status
 
-**Current:** **1.5.2** (build **46**) — **64Edit** companion editor + DEBUG source follow; dual-app DMG  
-**Last updated:** 2026-10-02
+**Current:** **1.5.3** (build **47**) — DEBUG/64Edit UX polish; companion version lockstep  
+**Last updated:** 2026-10-03
 
 ---
 
+## v1.5.3 — DEBUG multi-file polish; 64Edit version lockstep
+
+**Version strings:** marketing **1.5.3**, build **47**. Companion **64Edit** uses the **same** marketing version (**1.5.3**) and build (**47**) — keep them matched when shipping.
+
+**Release:** Rebuild both Release apps before packing the dual-app DMG. GitHub release attaches the DMG plus `Getting 64Forth to run.jpg` (Gatekeeper steps apply to **each** app the first time).
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.5.3 === Oct 3, 2026 11:21 AM ===
+```
+
+### Highlights (vs 1.5.2)
+
+- **Nested DEBUG file follow:** step into/out opens each new source tab and restores the prior file on EXIT; sock `debugLocation` uses the resolved absolute path from `revealForDebug`.
+- **Quieter opens:** when 64Edit is already on `edit.sock`, skip `open -a` (and DEBUG pending-goto) so Launch Services does not reactivate/flash the window; cold launch still opens the file.
+- **Editor-typed DBG:** `host_debug_paint` publishes on the Forth queue (no `main.async` hop) so source opens while `executeCommand` holds main inside `evaluate`.
+- **Location fallback:** `kernel_debug_location` tries stamped `debug_cfa`, then stamped `debug_xt` (unstamped CFA no longer blocks e.g. `DBG .FREE`).
+- **64Edit DEBUG UX:** toolbar focus + F5–F8 / browse-mode letters; Forth command field disabled while armed; single system **View** menu for Browse Mode; no sticky red “debugger not armed” after Continue/`g`.
+- **Sock hardening:** `SO_NOSIGPIPE` + `SIGPIPE` ignore; step/resume/stop on the editor-server I/O queue; `notifyDebugSessionArmed` on paint.
+
 ## v1.5.2 — 64Edit companion, DEBUG follow, dual-app DMG
 
-**Version strings:** marketing **1.5.2**, build **46**.
+**Version strings:** marketing **1.5.2**, build **46**. Companion **64Edit** was marketing **1.0** at first ship.
 
 **Release:** DMG ships **both** `64Edit.app` and `64Forth.app`. Drag both into `/Applications` (or the same folder). Rebuild Release before packing so the banner matches. GitHub release attaches the DMG plus `Getting 64Forth to run.jpg` (Gatekeeper steps apply to **each** app the first time).
 

@@ -17762,26 +17762,25 @@ _kernel_debug_get:
 
 // int kernel_debug_location(char *path, int path_max, int *line)
 // Fill NUL-terminated VIEW path and 1-based line for the enclosing colon CFA
-// (debug_cfa), else the peek xt (debug_xt). Returns 1 if stamped, else 0.
+// (debug_cfa) when stamped; else the peek xt (debug_xt). An unstamped CFA
+// must not block the peek (DBG .FREE while IP is still in CATCH/interpret).
+// Returns 1 if stamped, else 0.
 .globl _kernel_debug_location
 _kernel_debug_location:
     stp x19, x20, [sp, #-16]!
     stp x21, x22, [sp, #-16]!
+    stp x23, x24, [sp, #-16]!
     mov x19, x0                    // path dest
     mov w20, w1                    // path_max
     mov x21, x2                    // *line
-    // Prefer enclosing CFA; fall back to peek xt.
+    mov x23, #0                    // 0=trying CFA, 1=trying peek xt
     adrp x0, debug_cfa@page
     add x0, x0, debug_cfa@pageoff
     ldr x22, [x0]
-    cbnz x22, 1f
-    adrp x0, debug_xt@page
-    add x0, x0, debug_xt@pageoff
-    ldr x22, [x0]
-1:
-    cbz x22, 9f
+0:
+    cbz x22, 7f
     tst x22, #7
-    b.ne 9f
+    b.ne 7f
     ldr x0, [x22, #-8]             // FLAGS
     // line = (FLAGS >> 32) & 0xFFFF
     lsr x1, x0, #32
@@ -17789,13 +17788,13 @@ _kernel_debug_location:
     // file# = (FLAGS >> 48) & 0x7FFF
     lsr x2, x0, #48
     and x2, x2, #0x7FFF
-    cbz x2, 9f
-    cbz x1, 9f
+    cbz x2, 7f
+    cbz x1, 7f
     adrp x3, view_file_n@page
     add x3, x3, view_file_n@pageoff
     ldr x3, [x3]
     cmp x2, x3
-    b.hi 9f
+    b.hi 7f
     // counted path at view_paths + (id-1)*VIEW_PATH_MAX
     sub x4, x2, #1
     mov x5, #VIEW_PATH_MAX
@@ -17804,7 +17803,7 @@ _kernel_debug_location:
     add x5, x5, view_paths@pageoff
     add x5, x5, x4
     ldrb w6, [x5], #1              // u; x5 → chars
-    cbz w6, 9f
+    cbz w6, 7f
     cbz x21, 2f
     str w1, [x21]                  // *line = line
 2:
@@ -17829,6 +17828,17 @@ _kernel_debug_location:
 8:
     mov x0, #1
     b 10f
+7:
+    // CFA missing/unstamped → try peek xt once (skip if same pointer).
+    cbnz x23, 9f
+    mov x23, #1
+    mov x24, x22                   // prior candidate
+    adrp x0, debug_xt@page
+    add x0, x0, debug_xt@pageoff
+    ldr x22, [x0]
+    cmp x22, x24
+    b.eq 9f
+    b 0b
 9:
     cbz x21, 91f
     str wzr, [x21]
@@ -17840,6 +17850,7 @@ _kernel_debug_location:
 92:
     mov x0, #0
 10:
+    ldp x23, x24, [sp], #16
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
     ret

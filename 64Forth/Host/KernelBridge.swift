@@ -633,8 +633,18 @@ private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> 
 
 /// ITC DEBUG pause: open/scroll 64Edit to the paused word's VIEW path:line.
 /// Called from DBG-HOST-PAINT (Forth pause UI) and the asm stepper paint path.
+/// DBG-ABORT-SESSION / DBG-OFF clear `debug_armed` before painting; skip those
+/// so a quit-and-q abort cannot race `clearDebugReveal` and relaunch 64Edit.
+///
+/// Runs on the Forth kernel queue (not main). Do **not** hop to
+/// `DispatchQueue.main.async`: editor `executeCommand` already holds main inside
+/// `evaluate`'s pump, so a nested main item would sit until DEBUG ends and 64Edit
+/// would never see `debugLocation` for `DBG .FREE` typed in the editor console.
+/// Console-typed DBG works because that `evaluate` is not nested under a main
+/// GCD block, so the old hop could still run during the run-loop pump.
 @_cdecl("host_debug_paint")
 public func host_debug_paint() {
+    guard KernelBridge.shared.isAnyDebugArmed else { return }
     var line: Int32 = 0
     var buf = [CChar](repeating: 0, count: 1024)
     let ok = buf.withUnsafeMutableBufferPointer { bp in
@@ -643,21 +653,18 @@ public func host_debug_paint() {
     guard ok != 0, line > 0 else { return }
     let path = String(cString: buf)
     guard !path.isEmpty else { return }
-    let pathCopy = path
     let lineCopy = Int(line)
-    let publish: () -> Void = {
-        // Drain pending emits into the sock replay buffer before open/connect.
-        KernelBridge.shared.forceFlushEmitSync()
-        // Resolve AutoLoad/Library stamps to an absolute path so 64Edit find-or-open
-        // matches the tab created by `open -a` (raw VIEW stamps are often relative).
-        guard let url = FileHost.shared.revealForDebug(path: pathCopy, line: lineCopy) else { return }
-        ForthEditorServer.shared.broadcast(.debugLocation(path: url.path, line: lineCopy))
-    }
-    if Thread.isMainThread {
-        publish()
-    } else {
-        DispatchQueue.main.async(execute: publish)
-    }
+
+    // Arm 64Edit before/with location so the first letter key is not treated
+    // as a view-mode edit attempt while the 100ms poll has not fired yet.
+    ForthEditorServer.shared.notifyDebugSessionArmed()
+    // Drain pending emits into the sock replay buffer before open/connect.
+    KernelBridge.shared.forceFlushEmitSync()
+    // Resolve AutoLoad/Library stamps to an absolute path so 64Edit find-or-open
+    // matches the tab created by `open -a` (raw VIEW stamps are often relative).
+    // No usable stamp → leave the current editor file alone (caller preference).
+    guard let url = FileHost.shared.revealForDebug(path: path, line: lineCopy) else { return }
+    ForthEditorServer.shared.broadcast(.debugLocation(path: url.path, line: lineCopy))
 }
 
 /// AT-XY? — facility cursor (0-based). Called from kernel CODE `XAT_XY_Q`.
