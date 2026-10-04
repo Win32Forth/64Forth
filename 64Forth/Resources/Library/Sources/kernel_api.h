@@ -53,6 +53,18 @@ int kernel_debug_peek_name(char *buf, int buf_max);
 /// if the slot is empty / out of range / NFA looks invalid / no room.
 int kernel_break_name(int index, char *buf, int buf_max);
 
+/// 1 if slot `index` has an xt and a nonzero enable flag, else 0.
+int kernel_break_enabled(int index);
+
+/// Set enable for an occupied slot (no-op if empty / out of range).
+void kernel_break_set_enabled(int index, int enabled);
+
+/// Clear xt and enable for slot `index` (no-op if out of range).
+void kernel_break_clear(int index);
+
+/// Arm "run until enabled BREAK" (`debug_bp_go = 1`). Safe while DEBUG paused.
+void kernel_debug_bp_go(void);
+
 void kernel_set_emit(void (*fn)(int c));
 /// Bulk TYPE path: emit `n` bytes at `buf` as one UTF-8 (or Latin-1 fallback) chunk.
 void kernel_set_emit_buf(void (*fn)(const char *buf, size_t n));

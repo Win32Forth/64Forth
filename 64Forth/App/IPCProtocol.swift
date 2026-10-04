@@ -7,6 +7,12 @@
 
 import Foundation
 
+/// One BREAK-table slot for sock sync (name + enable).
+struct BreakpointEntry: Codable, Equatable, Hashable {
+    var name: String
+    var enabled: Bool
+}
+
 // MARK: - Messages from 64Edit to 64Forth
 
 enum EditorRequest: Codable, Equatable {
@@ -16,6 +22,14 @@ enum EditorRequest: Codable, Equatable {
     case viewWord(name: String)
     /// F9 / ⌘\: toggle BREAK on a dictionary word (xt slot), not a source line.
     case toggleBreakpoint(name: String)
+    /// Remove a BREAK slot by name (kernel clear; works while paused).
+    case removeBreakpoint(name: String)
+    /// Enable or disable a BREAK without removing it.
+    case setBreakpointEnabled(name: String, enabled: Bool)
+    /// Idle: evaluate `BPGO <name>` (run that word until an enabled BREAK hits).
+    case breakGo(name: String)
+    /// Paused: set `debug_bp_go` and Continue (run until enabled BREAK).
+    case armBreakGo
     case stepInto
     case stepOver
     case stepOut
@@ -39,8 +53,8 @@ enum ForthResponse: Codable, Equatable {
     case debugLocation(path: String, line: Int, name: String, off: Int, len: Int)
     /// Result of `viewWord`: `opened` is true when EDIT-AT ran (stamp found).
     case viewResult(word: String, opened: Bool)
-    /// Current BREAK table word names (after toggle, or on connect).
-    case breakpoints(names: [String])
+    /// Current BREAK table (after toggle/remove/enable, or on connect).
+    case breakpoints(entries: [BreakpointEntry])
 }
 
 // MARK: - JSON on the wire (NSXPC cannot pass Swift enums)

@@ -1,26 +1,15 @@
 # 64Forth development status
 
-**Current:** **1.5.3** (build **47**) shipped; main has post-release 64Edit/Hyper/span/BREAK work (no new version bump yet)  
+**Current:** **1.5.3** (build **47**) shipped — dual-app DMG + GitHub `v1.5.3`  
 **Last updated:** 2026-10-03
 
 ---
 
-## On main after 1.5.3 (unreleased)
-
-No marketing/build bump and no DMG yet. Companion **64Edit** on `main` matches these sock/Hyper/BREAK changes.
-
-- **Current-word highlight:** `kernel_debug_peek_name` + sock `debugLocation(path:line:name:off:len)`. Prefers dbg-map file-relative UTF-8 spans (`DBG-HOST-SPAN` / `DBG-PUBLISH-SPAN`); 64Edit falls back to whole-word name search near the VIEW line (runtime→source aliases). Pastel green wash; clears on next pause or session end. `Library/DbgSpanSmoke/` exercises map build and publish.
-- **Soft VIEW for 64Edit Hyper:** `(VIEW) ( c-addr u -- flag )`; `VIEW` is `PARSE-NAME (VIEW) DROP` (no `'` abort). Sock `viewWord` / `viewResult(opened:)` so ⌘-click can fall back to in-file find on miss. `HYPER-VIEW-CU` removed.
-- **Autoload HL bind:** after Hyper, re-arm `DBG-MAP-BIND` / `DBG-SET-HL` so map→span survives Hyper clearing `DBG-HL-XT`.
-- **Pass 1 BREAK toggle (console + 64Edit):** **F9** / **⌘\\** / Tools→Toggle Breakpoint (console) or Debug→Toggle Breakpoint (64Edit) run `TOGGLE-BREAK` on the whitespace-delimited Forth token under the caret. Marks an xt in the 8-slot `BREAK-TABLE` (`debug_bp_xts`); the break fires when **`BPGO <word>`** arms the stepper and that xt is hit. Sock `toggleBreakpoint(name:)` / `breakpoints(names:)` keep 64Edit’s pale-red wash in sync (broadcast on toggle and on connect). `kernel_break_name` exports slot names to the host. Library `debug-bp.fth`: `BREAK-HAS?` / `TOGGLE-BREAK` / stack-safe `UNBREAK-XT` / `.BREAKS`. Idle only while DEBUG is paused. Later: list/clear/disable UI, gutter marks.
-- **64Forth menus:** File holds FLOAD / CHDIR / EDIT / Update·Restore user data / Show Library·AutoLoad·Docs·Config (SZ New/Open/Save/Close removed). Tools keeps CLS, VIEW under cursor, Toggle Breakpoint.
-- **64Edit (companion repo):** New File / dirty Save sheets, line-number gutter, Find & Replace, ⌘-click VIEW with disconnected fallback, thicker console splitter, Home/End, Pass 1 BREAK wash + F9/⌘\\ (⌘\\ no longer Wrap Lines).
-
-## v1.5.3 — DEBUG multi-file polish; 64Edit version lockstep
+## v1.5.3 — BREAK Pass 1–2, dbg-map spans, 64Edit polish; version lockstep
 
 **Version strings:** marketing **1.5.3**, build **47**. Companion **64Edit** uses the **same** marketing version (**1.5.3**) and build (**47**) — keep them matched when shipping.
 
-**Release:** Rebuild both Release apps before packing the dual-app DMG. GitHub release attaches the DMG plus `Getting 64Forth to run.jpg` (Gatekeeper steps apply to **each** app the first time).
+**Release:** `64Forth/releases/64Forth-1.5.3-macOS.dmg` + GitHub `v1.5.3`. Dual-app DMG ships **both** `64Forth.app` and `64Edit.app`. GitHub release attaches the DMG plus `Getting 64Forth to run.jpg` (Gatekeeper steps apply to **each** app the first time).
 
 **Console header stamp** (`ConsoleView.swift` `banner`):
 
@@ -30,13 +19,19 @@ No marketing/build bump and no DMG yet. Companion **64Edit** on `main` matches t
 
 ### Highlights (vs 1.5.2)
 
+- **Pass 1 BREAK toggle (console + 64Edit):** **F9** / **⌘\\** / Tools→Toggle Breakpoint (console) or Debug→Toggle Breakpoint (64Edit) run `TOGGLE-BREAK` on the whitespace-delimited Forth token under the caret. Marks an xt in the 8-slot `BREAK-TABLE` (`debug_bp_xts`); the break fires when **`BPGO <word>`** arms the stepper and that xt is hit. Idle only while DEBUG is paused.
+- **Pass 2 BREAK panel + enable/Arm:** Kernel `BREAK-ENABLES` / `debug_bp_en`; Forth `DISABLE-BREAK` / `ENABLE-BREAK` / `.BREAKS` “(off)”. Sock `breakpoints(entries:)` with `{name,enabled}`; `removeBreakpoint` / `setBreakpointEnabled` (paused-safe via kernel clear/enable); `armBreakGo` while paused (set `debug_bp_go` + Continue). 64Edit **Breakpoints** popover next to Ping and on the Debug toolbar: list, checkbox enable/disable, delete, **Arm** (paused only — idle still uses console `BPGO <word>`). Wash: enabled pale-red, disabled gray.
+- **Current-word highlight:** `kernel_debug_peek_name` + sock `debugLocation(path:line:name:off:len)`. Prefers dbg-map file-relative UTF-8 spans (`DBG-HOST-SPAN` / `DBG-PUBLISH-SPAN`); 64Edit falls back to whole-word name search near the VIEW line (runtime→source aliases). Pastel green wash; clears on next pause or session end. `Library/DbgSpanSmoke/` exercises map build and publish.
+- **Soft VIEW for 64Edit Hyper:** `(VIEW) ( c-addr u -- flag )`; `VIEW` is `PARSE-NAME (VIEW) DROP` (no `'` abort). Sock `viewWord` / `viewResult(opened:)` so ⌘-click can fall back to in-file find on miss. `HYPER-VIEW-CU` removed.
+- **Autoload HL bind:** after Hyper, re-arm `DBG-MAP-BIND` / `DBG-SET-HL` so map→span survives Hyper clearing `DBG-HL-XT`.
 - **Nested DEBUG file follow:** step into/out opens each new source tab and restores the prior file on EXIT; sock `debugLocation` uses the resolved absolute path from `revealForDebug`.
 - **Quieter opens:** when 64Edit is already on `edit.sock`, skip `open -a` (and DEBUG pending-goto) so Launch Services does not reactivate/flash the window; cold launch still opens the file.
 - **Editor-typed DBG:** `host_debug_paint` publishes on the Forth queue (no `main.async` hop) so source opens while `executeCommand` holds main inside `evaluate`.
 - **Location fallback:** `kernel_debug_location` tries stamped `debug_cfa`, then stamped `debug_xt` (unstamped CFA no longer blocks e.g. `DBG .FREE`).
 - **64Edit DEBUG UX:** toolbar focus + F5–F8 / browse-mode letters; Forth command field disabled while armed; single system **View** menu for Browse Mode; no sticky red “debugger not armed” after Continue/`g`.
 - **Sock hardening:** `SO_NOSIGPIPE` + `SIGPIPE` ignore; step/resume/stop on the editor-server I/O queue; `notifyDebugSessionArmed` on paint.
-- **Name peek for highlight:** `kernel_debug_peek_name` + sock `debugLocation(… name:)` (span `off`/`len` landed on main after this release).
+- **64Forth menus:** File holds FLOAD / CHDIR / EDIT / Update·Restore user data / Show Library·AutoLoad·Docs·Config (SZ New/Open/Save/Close removed). Tools keeps CLS, VIEW under cursor, Toggle Breakpoint.
+- **64Edit (companion):** New File / dirty Save sheets, line-number gutter, Find & Replace, ⌘-click VIEW with disconnected fallback, thicker console splitter, Home/End, Pass 1–2 BREAK (F9/⌘\\, panel, Arm, red/gray wash).
 
 ## v1.5.2 — 64Edit companion, DEBUG follow, dual-app DMG
 
@@ -634,7 +629,7 @@ Shared plan with 64TCOM is in 64TCOM `STATUS.md`.
 
 **`DBG name`:** VIEW the word in SZ-EDITOR when it is in `HYPER.NDX`; if there is no source (console-defined), open **untitled** (or File→New if the editor is already up) and then `DEBUG` that xt. From the idle console, untitled/VIEW enters the editor loop first so the stack pane is live. `>>` lines go to the command pane (`SZ-CONSOLE-EMIT`). Step keys match Xcode: **F6/F7** step, **⌘⇧Y** continue. Wheel, mouse, resize-wake, space, and letters are ignored so they do not step-to-end.
 
-**Later:** Pass 2 list/clear/disable UI; gutter marks; listing/xref. (`BREAK`/`UNBREAK`/`TOGGLE-BREAK`/`BPGO` and F9/⌘\\ Pass 1 are on main after 1.5.3.)
+**Later:** gutter marks; idle Arm word picker; listing/xref. (Pass 1–2 BREAK toggle/enable/panel/Arm shipped in **1.5.3**.)
 
 **Open panel while already editing:** Bare `EDIT` / `SZEDIT` (and `DBG EDIT` once `EDIT` runs) used to queue `SZ-HOST-REQUEST-OPEN`. After **⌘W** the host still showed the file panel. `SZ-HOST-REQUEST-OPEN` now no-ops if `SZ-EDITOR-ACTIVE` and prints `editor already open; use Cmd-O`. The editor’s own **⌘O** remains the way to open a file.
 

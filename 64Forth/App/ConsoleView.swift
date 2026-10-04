@@ -973,7 +973,7 @@ struct ConsoleView: View {
         } else {
             // Keep connected 64Edit wash in sync with console toggles.
             ForthEditorServer.shared.broadcast(
-                .breakpoints(names: kernel.breakNames())
+                .breakpoints(entries: kernel.breakEntries())
             )
         }
         if !kernel.isFacilityTerminalActive {

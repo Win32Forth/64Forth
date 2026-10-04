@@ -40,7 +40,18 @@ final class ForthEngine: NSObject, ForthEngineXPC {
             return .viewResult(word: name, opened: false)
         case .toggleBreakpoint(let name):
             push(.consoleOutput(text: "TOGGLE-BREAK \(name)"))
-            return .breakpoints(names: [name])
+            return .breakpoints(entries: [BreakpointEntry(name: name, enabled: true)])
+        case .removeBreakpoint(let name):
+            push(.consoleOutput(text: "UNBREAK \(name)"))
+            return .breakpoints(entries: [])
+        case .setBreakpointEnabled(let name, let enabled):
+            push(.consoleOutput(text: "\(enabled ? "ENABLE" : "DISABLE")-BREAK \(name)"))
+            return .breakpoints(entries: [BreakpointEntry(name: name, enabled: enabled)])
+        case .breakGo(let name):
+            push(.consoleOutput(text: "BPGO \(name)"))
+            return .consoleOutput(text: "ok")
+        case .armBreakGo:
+            return .consoleOutput(text: "arm break-go")
         case .stepInto:
             return .consoleOutput(text: "step into")
         case .stepOver:

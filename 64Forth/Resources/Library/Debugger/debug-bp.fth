@@ -1,18 +1,21 @@
 \ debug-bp.fth — BREAK / UNBREAK / BPGO (ITC DEBUG breakpoints)
 \ Loaded only via Debugger/debugger.fth (DEBUGGER vocabulary / CURRENT).
-\ Kernel provides BREAK-TABLE and (BP-GO); this file is the Forth UI.
+\ Kernel provides BREAK-TABLE, BREAK-ENABLES, and (BP-GO); this file is the Forth UI.
 
 8 CONSTANT #BREAKS
 
 : NOBREAKS  ( -- )
     #BREAKS 0 DO
         0 I CELLS BREAK-TABLE + !
+        0 I CELLS BREAK-ENABLES + !
     LOOP ;
 
 : BREAK-XT  ( xt -- )
   BREAK-TABLE #BREAKS 0 DO
     DUP I CELLS + @ 0= IF
-      I CELLS + !  UNLOOP EXIT
+      I CELLS + !
+      -1 I CELLS BREAK-ENABLES + !
+      UNLOOP EXIT
     THEN
   LOOP
   2DROP ." BREAK table full" CR ;
@@ -20,7 +23,9 @@
 : UNBREAK-XT  ( xt -- )
   BREAK-TABLE #BREAKS 0 DO
     2DUP I CELLS + @ = IF
-      0 I CELLS BREAK-TABLE + !  2DROP UNLOOP EXIT
+      0 I CELLS BREAK-TABLE + !
+      0 I CELLS BREAK-ENABLES + !
+      2DROP UNLOOP EXIT
     THEN
   LOOP 2DROP ;
 
@@ -38,11 +43,32 @@
 
 : TOGGLE-BREAK  ( "<name>" -- )  ' TOGGLE-BREAK-XT ;
 
+: DISABLE-BREAK-XT  ( xt -- )
+  BREAK-TABLE #BREAKS 0 DO
+    2DUP I CELLS + @ = IF
+      0 I CELLS BREAK-ENABLES + !
+      2DROP UNLOOP EXIT
+    THEN
+  LOOP 2DROP ;
+
+: ENABLE-BREAK-XT  ( xt -- )
+  BREAK-TABLE #BREAKS 0 DO
+    2DUP I CELLS + @ = IF
+      -1 I CELLS BREAK-ENABLES + !
+      2DROP UNLOOP EXIT
+    THEN
+  LOOP 2DROP ;
+
+: DISABLE-BREAK  ( "<name>" -- )  ' DISABLE-BREAK-XT ;
+: ENABLE-BREAK   ( "<name>" -- )  ' ENABLE-BREAK-XT ;
+
 : .BREAKS  ( -- )
   CR ." breaks:" CR
   #BREAKS 0 DO
     I CELLS BREAK-TABLE + @ ?DUP IF
-      I . NAME>STRING TYPE CR
+      I . NAME>STRING TYPE
+      I CELLS BREAK-ENABLES + @ 0= IF ."  (off)" THEN
+      CR
     THEN
   LOOP ;
 

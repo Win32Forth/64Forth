@@ -68,6 +68,18 @@ private func kernel_break_name(
     _ bufMax: Int32
 ) -> Int32
 
+@_silgen_name("kernel_break_enabled")
+private func kernel_break_enabled(_ index: Int32) -> Int32
+
+@_silgen_name("kernel_break_set_enabled")
+private func kernel_break_set_enabled(_ index: Int32, _ enabled: Int32)
+
+@_silgen_name("kernel_break_clear")
+private func kernel_break_clear(_ index: Int32)
+
+@_silgen_name("kernel_debug_bp_go")
+private func kernel_debug_bp_go()
+
 @_silgen_name("kernel_take_repl_batch_stop")
 private func kernel_take_repl_batch_stop() -> Int32
 
@@ -2122,17 +2134,67 @@ final class KernelBridge {
 
     /// Names currently in the 8-slot BREAK table (`debug_bp_xts`), in slot order.
     func breakNames() -> [String] {
-        var names: [String] = []
+        breakEntries().map(\.name)
+    }
+
+    /// BREAK table slots with enable flags (empty slots omitted).
+    func breakEntries() -> [BreakpointEntry] {
+        var entries: [BreakpointEntry] = []
         for i in Int32(0)..<8 {
             var buf = [CChar](repeating: 0, count: 64)
             let n = buf.withUnsafeMutableBufferPointer { bp in
                 kernel_break_name(i, bp.baseAddress, Int32(bp.count))
             }
-            if n > 0 {
-                names.append(String(cString: buf))
-            }
+            guard n > 0 else { continue }
+            let name = String(cString: buf)
+            let enabled = kernel_break_enabled(i) != 0
+            entries.append(BreakpointEntry(name: name, enabled: enabled))
         }
-        return names
+        return entries
+    }
+
+    /// Slot index (0..7) for a BREAK name, or nil.
+    func breakIndex(named name: String) -> Int32? {
+        let want = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !want.isEmpty else { return nil }
+        for i in Int32(0)..<8 {
+            var buf = [CChar](repeating: 0, count: 64)
+            let n = buf.withUnsafeMutableBufferPointer { bp in
+                kernel_break_name(i, bp.baseAddress, Int32(bp.count))
+            }
+            guard n > 0 else { continue }
+            if String(cString: buf) == want { return i }
+        }
+        return nil
+    }
+
+    /// Clear a BREAK slot by name (works while DEBUG is paused).
+    @discardableResult
+    func breakClear(named name: String) -> Bool {
+        guard let i = breakIndex(named: name) else { return false }
+        kernel_break_clear(i)
+        return true
+    }
+
+    /// Enable/disable a BREAK slot by name (works while DEBUG is paused).
+    @discardableResult
+    func breakSetEnabled(named name: String, enabled: Bool) -> Bool {
+        guard let i = breakIndex(named: name) else { return false }
+        kernel_break_set_enabled(i, enabled ? 1 : 0)
+        return true
+    }
+
+    /// Arm run-until-enabled-BREAK (`debug_bp_go = 1`). Safe while paused.
+    func debugBpGo() {
+        kernel_debug_bp_go()
+    }
+
+    /// Paused Arm: set go-until-break, then Continue (key 134).
+    @discardableResult
+    func debugArmBreakGo() -> Bool {
+        guard isAnyDebugArmed else { return false }
+        kernel_debug_bp_go()
+        return debugResume()
     }
 
     /// NSEvent function-key characters → classic editor codes (no modifiers).

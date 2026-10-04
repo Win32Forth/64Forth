@@ -157,7 +157,7 @@ final class ForthEditorServer {
         lastDebugArmed = armed
         writeResponse(.debugSession(armed: armed), to: cfd)
         // Sync BREAK table so pale-red wash matches the host.
-        writeResponse(.breakpoints(names: KernelBridge.shared.breakNames()), to: cfd)
+        writeResponse(.breakpoints(entries: KernelBridge.shared.breakEntries()), to: cfd)
     }
 
     private func dropClient(_ fd: Int32) {
@@ -223,7 +223,37 @@ final class ForthEditorServer {
                 writeResponse(.executionFinished(exitCode: 0), to: fd)
             }
             return
-        case .executeCommand, .loadSource, .viewWord, .toggleBreakpoint:
+        case .armBreakGo:
+            // Paused: set go-until-break then Continue (no evaluate).
+            if !kernel.debugArmBreakGo() {
+                writeResponse(.error(message: "debugger not armed"), to: fd)
+            }
+            return
+        case .removeBreakpoint(let name):
+            let word = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if word.isEmpty || word.contains(where: { $0.isWhitespace || $0.isNewline }) {
+                writeResponse(.error(message: "BREAK needs a single token"), to: fd)
+            } else if !kernel.breakClear(named: word) {
+                writeResponse(.error(message: "BREAK \(word) not set"), to: fd)
+            } else {
+                let entries = kernel.breakEntries()
+                broadcast(.breakpoints(entries: entries))
+                writeResponse(.breakpoints(entries: entries), to: fd)
+            }
+            return
+        case .setBreakpointEnabled(let name, let enabled):
+            let word = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if word.isEmpty || word.contains(where: { $0.isWhitespace || $0.isNewline }) {
+                writeResponse(.error(message: "BREAK needs a single token"), to: fd)
+            } else if !kernel.breakSetEnabled(named: word, enabled: enabled) {
+                writeResponse(.error(message: "BREAK \(word) not set"), to: fd)
+            } else {
+                let entries = kernel.breakEntries()
+                broadcast(.breakpoints(entries: entries))
+                writeResponse(.breakpoints(entries: entries), to: fd)
+            }
+            return
+        case .executeCommand, .loadSource, .viewWord, .toggleBreakpoint, .breakGo:
             break
         }
 
@@ -274,11 +304,25 @@ final class ForthEditorServer {
                     if st != 0 {
                         response = .error(message: "status=\(st)")
                     } else {
-                        let names = kernel.breakNames()
+                        let entries = kernel.breakEntries()
                         // Broadcast so every connected editor refreshes pale-red wash.
-                        self.broadcast(.breakpoints(names: names))
-                        response = .breakpoints(names: names)
+                        self.broadcast(.breakpoints(entries: entries))
+                        response = .breakpoints(entries: entries)
                     }
+                }
+            case .breakGo(let name):
+                // Idle Arm: BPGO <name> (runs that word until an enabled BREAK hits).
+                let word = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                if word.isEmpty || word.contains(where: { $0.isWhitespace || $0.isNewline }) {
+                    response = .error(message: "BPGO needs a single token")
+                } else if kernel.isAnyDebugArmed {
+                    response = .error(message: "debugger paused — use Arm on the debug bar")
+                } else {
+                    let st = kernel.evaluate("BPGO \(word)")
+                    kernel.forceFlushEmitSync()
+                    response = st == 0
+                        ? .consoleOutput(text: "ok(\(kernel.dataStackDepth))")
+                        : .error(message: "status=\(st)")
                 }
             case .loadSource(let path):
                 if kernel.isAnyDebugArmed {

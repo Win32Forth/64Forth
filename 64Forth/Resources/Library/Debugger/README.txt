@@ -6,7 +6,7 @@ or under Hyper.
 
   debugger.fth   Sole Autoload entry: VOCABULARY DEBUGGER, hub DEFERs /
                  DBG-SET-*, INCLUDEDs siblings (ANEW-safe); arms phase-2/3.
-  debug-bp.fth   BREAK / UNBREAK / .BREAKS / BPGO
+  debug-bp.fth   BREAK / UNBREAK / DISABLE-BREAK / ENABLE-BREAK / .BREAKS / BPGO
   dbg-pause.fth  Key decode (DBG-PAUSE-DECODE) + full Forth pause UI
   dbg-ed.fth     Shared DBG-CMD/DBG-PLACE + DBG-HL-RUN; deferred DBG-ED-*
                  to Editor SZ-*; DBG-ED-INSTALL binds when Editor exists

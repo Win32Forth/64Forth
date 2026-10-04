@@ -261,12 +261,16 @@ next_debug:
     cbz  x3, 6f                     // not in "go until BP" mode
     adrp x3, debug_bp_xts@page
     add  x3, x3, debug_bp_xts@pageoff
+    adrp x6, debug_bp_en@page
+    add  x6, x6, debug_bp_en@pageoff
     mov  x4, #8
 3:
     ldr  x5, [x3], #8
+    ldr  x7, [x6], #8
     cbz  x5, 4f
+    cbz  x7, 4f                     // disabled slot → skip
     cmp  x5, x21
-    b.eq 7f                         // hit
+    b.eq 7f                         // hit enabled BREAK
 4:
     subs x4, x4, #1
     b.ne 3b
@@ -3555,6 +3559,13 @@ XBREAK_TABLE:
     str  x20, [x22, #-8]!
     adrp x20, debug_bp_xts@page
     add  x20, x20, debug_bp_xts@pageoff
+    NEXT
+
+    BOOT_WORD "BREAK-ENABLES", "BREAK-ENABLES ( -- addr ) 8 enable flags", 0, XBREAK_ENABLES
+XBREAK_ENABLES:
+    str  x20, [x22, #-8]!
+    adrp x20, debug_bp_en@page
+    add  x20, x20, debug_bp_en@pageoff
     NEXT
 
     BOOT_WORD "(BP-GO)", "(BP-GO) ( -- ) run until a BREAK-XT hits", 0, XBPGO
@@ -17965,6 +17976,73 @@ _kbn_done:
     ldp x19, x20, [sp], #16
     ret
 
+// int kernel_break_enabled(int index)
+// Returns 1 if slot has an xt and a nonzero enable flag, else 0.
+.globl _kernel_break_enabled
+_kernel_break_enabled:
+    cmp w0, #8
+    b.hs 1f
+    adrp x1, debug_bp_xts@page
+    add x1, x1, debug_bp_xts@pageoff
+    ubfiz x2, x0, #3, #3
+    ldr x3, [x1, x2]
+    cbz x3, 1f
+    adrp x1, debug_bp_en@page
+    add x1, x1, debug_bp_en@pageoff
+    ldr x3, [x1, x2]
+    cbz x3, 1f
+    mov x0, #1
+    ret
+1:
+    mov x0, #0
+    ret
+
+// void kernel_break_set_enabled(int index, int enabled)
+// Sets enable flag for a occupied slot (no-op if empty / OOR).
+.globl _kernel_break_set_enabled
+_kernel_break_set_enabled:
+    cmp w0, #8
+    b.hs 1f
+    adrp x2, debug_bp_xts@page
+    add x2, x2, debug_bp_xts@pageoff
+    ubfiz x3, x0, #3, #3
+    ldr x4, [x2, x3]
+    cbz x4, 1f
+    adrp x2, debug_bp_en@page
+    add x2, x2, debug_bp_en@pageoff
+    cmp w1, #0
+    cset x4, ne
+    neg x4, x4                     // 0 or -1 (Forth TRUE)
+    str x4, [x2, x3]
+1:
+    ret
+
+// void kernel_break_clear(int index)
+// Clears xt and enable for slot `index` (no-op if OOR).
+.globl _kernel_break_clear
+_kernel_break_clear:
+    cmp w0, #8
+    b.hs 1f
+    ubfiz x1, x0, #3, #3
+    adrp x2, debug_bp_xts@page
+    add x2, x2, debug_bp_xts@pageoff
+    str xzr, [x2, x1]
+    adrp x2, debug_bp_en@page
+    add x2, x2, debug_bp_en@pageoff
+    str xzr, [x2, x1]
+1:
+    ret
+
+// void kernel_debug_bp_go(void)
+// Arm "run until enabled BREAK" (same as Forth (BP-GO)). Safe while paused.
+.globl _kernel_debug_bp_go
+_kernel_debug_bp_go:
+    adrp x0, debug_bp_go@page
+    add x0, x0, debug_bp_go@pageoff
+    mov x1, #1
+    str x1, [x0]
+    ret
+
 // int kernel_debug_peek_name(char *buf, int buf_max)
 // Copy NUL-terminated peek token name from debug_name (counted). Returns length,
 // or 0 if empty / no room. debug_name[0]=u, chars follow (max 31).
@@ -18270,6 +18348,7 @@ debug_busy:     .quad 0            // set while _debug_pause runs
 debug_floor:    .quad 0            // RSP at DBG-ON; pause only if x23 < floor
 debug_bp_go:    .quad 0            // 1 = skip pause unless xt is in table
 debug_bp_xts:   .skip 64           // 8 xt slots, 0 = empty
+debug_bp_en:    .skip 64           // 8 enable flags (0 = disabled, ≠0 = armed)
 debug_over:     .quad 0            // F6 over colon: skip pause while x23 < this RSP
 debug_out:      .quad 0            // F8: skip pause while x23 <= this RSP
 debug_abort:    .quad 0            // Esc/q: THROW code for next_debug after pause
