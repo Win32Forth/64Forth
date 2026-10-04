@@ -14,7 +14,8 @@ enum EditorRequest: Codable, Equatable {
     case executeCommand(command: String)
     /// ⌘-click / Hyper VIEW: evaluate `(VIEW)` and reply with `viewResult`.
     case viewWord(name: String)
-    case setBreakpoint(line: Int, enabled: Bool)
+    /// F9 / ⌘\: toggle BREAK on a dictionary word (xt slot), not a source line.
+    case toggleBreakpoint(name: String)
     case stepInto
     case stepOver
     case stepOut
@@ -38,6 +39,8 @@ enum ForthResponse: Codable, Equatable {
     case debugLocation(path: String, line: Int, name: String, off: Int, len: Int)
     /// Result of `viewWord`: `opened` is true when EDIT-AT ran (stamp found).
     case viewResult(word: String, opened: Bool)
+    /// Current BREAK table word names (after toggle, or on connect).
+    case breakpoints(names: [String])
 }
 
 // MARK: - JSON on the wire (NSXPC cannot pass Swift enums)

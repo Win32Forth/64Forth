@@ -48,6 +48,11 @@ int kernel_debug_location(char *path, int path_max, int *line);
 /// NUL-terminated name into `buf` (up to buf_max). Returns length, or 0.
 int kernel_debug_peek_name(char *buf, int buf_max);
 
+/// BREAK table has 8 xt slots (`debug_bp_xts`). Copy the NUL-terminated
+/// dictionary name for slot `index` (0..7) into `buf`. Returns length, or 0
+/// if the slot is empty / out of range / NFA looks invalid / no room.
+int kernel_break_name(int index, char *buf, int buf_max);
+
 void kernel_set_emit(void (*fn)(int c));
 /// Bulk TYPE path: emit `n` bytes at `buf` as one UTF-8 (or Latin-1 fallback) chunk.
 void kernel_set_emit_buf(void (*fn)(const char *buf, size_t n));

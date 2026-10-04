@@ -43,86 +43,8 @@ struct SixtyFourForthApp: App {
             ContentView()
         }
         .commands {
-            // File → Open… (⌘O): open panel; while SZ-EDITOR is open, loads into editor.
+            // File: load / folder helpers (SZ New/Open/Save/Close removed — use 64Edit).
             CommandGroup(replacing: .newItem) {
-                Button("New") {
-                    // Direct — NotificationCenter/`onReceive` defers while KEY waits.
-                    KernelBridge.shared.requestFileNew()
-                }
-                .keyboardShortcut("n", modifiers: .command)
-                Button("Open…") {
-                    // Direct callback — do not use NotificationCenter/`onReceive`,
-                    // which defer while SZ-EDITOR KEY is waiting and only fire after ⌘W.
-                    KernelBridge.shared.requestFileOpen()
-                }
-                .keyboardShortcut("o", modifiers: .command)
-            }
-            // ⌘S / ⌘W: while SZ-EDITOR is open, Save / Close editor (not the app).
-            // ⌘Q still quits the application.
-            CommandGroup(replacing: .saveItem) {
-                Button("Save") {
-                    // Direct pushKey(19) while KEY waits (same deferral trap as Open).
-                    KernelBridge.shared.requestFileSave()
-                }
-                .keyboardShortcut("s", modifiers: .command)
-                Button("Save As…") {
-                    KernelBridge.shared.requestFileSaveAs()
-                }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
-            }
-            CommandGroup(after: .saveItem) {
-                Button("Close Editor") {
-                    KernelBridge.shared.requestFileClose()
-                }
-                .keyboardShortcut("w", modifiers: .command)
-            }
-            CommandMenu("Tools") {
-                Button("CLS") {
-                    NotificationCenter.default.post(name: .clearConsole, object: nil)
-                }
-                .keyboardShortcut("k", modifiers: [.command])
-
-                Button("VIEW Word Under Cursor") {
-                    // Direct — NotificationCenter/`onReceive` defers while KEY waits.
-                    KernelBridge.shared.requestViewWordUnderCursor()
-                }
-                .keyboardShortcut("e", modifiers: [.command])
-
-                Divider()
-
-                // Find: ⌘←/→ preferred; ⌘G / ⌘⇧G are reliable letter shortcuts (like ⌘E).
-                Button("Find Previous Word") {
-                    KernelBridge.shared.requestEditorFind(prev: true)
-                }
-                .keyboardShortcut(.leftArrow, modifiers: .command)
-
-                Button("Find Next Word") {
-                    KernelBridge.shared.requestEditorFind(prev: false)
-                }
-                .keyboardShortcut(.rightArrow, modifiers: .command)
-
-                Button("Find Previous Word (G)") {
-                    KernelBridge.shared.requestEditorFind(prev: true)
-                }
-                .keyboardShortcut("g", modifiers: [.command, .shift])
-
-                Button("Find Next Word (G)") {
-                    KernelBridge.shared.requestEditorFind(prev: false)
-                }
-                .keyboardShortcut("g", modifiers: .command)
-
-                Button("Hyper Previous Hit") {
-                    KernelBridge.shared.requestHyperNav(prev: true)
-                }
-                .keyboardShortcut(.pageUp, modifiers: .command)
-
-                Button("Hyper Next Hit") {
-                    KernelBridge.shared.requestHyperNav(prev: false)
-                }
-                .keyboardShortcut(.pageDown, modifiers: .command)
-
-                Divider()
-
                 Button("FLOAD…") {
                     NotificationCenter.default.post(name: .toolsFload, object: nil)
                 }
@@ -136,7 +58,6 @@ struct SixtyFourForthApp: App {
                 Button("EDIT…") {
                     NotificationCenter.default.post(name: .toolsEdit, object: nil)
                 }
-                // No ⌘E / ⌘⇧E — ⌘E is VIEW word under cursor (Phase 5)
 
                 Divider()
 
@@ -158,6 +79,25 @@ struct SixtyFourForthApp: App {
                 Button("Show Config Folder") {
                     FileHost.shared.revealInFinder(FileHost.shared.configURL)
                 }
+            }
+            // Suppress document-style Save items; editing is in 64Edit.
+            CommandGroup(replacing: .saveItem) { }
+            CommandMenu("Tools") {
+                Button("CLS") {
+                    NotificationCenter.default.post(name: .clearConsole, object: nil)
+                }
+                .keyboardShortcut("k", modifiers: [.command])
+
+                Button("VIEW Word Under Cursor") {
+                    // Direct — NotificationCenter/`onReceive` defers while KEY waits.
+                    KernelBridge.shared.requestViewWordUnderCursor()
+                }
+                .keyboardShortcut("e", modifiers: [.command])
+
+                Button("Toggle Breakpoint") {
+                    KernelBridge.shared.requestToggleBreakpointUnderCursor()
+                }
+                .keyboardShortcut("\\", modifiers: [.command])
             }
             CommandGroup(after: .help) {
                 Button("Show Boot Messages") {

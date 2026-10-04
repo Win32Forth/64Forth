@@ -17892,6 +17892,79 @@ _kernel_debug_location:
     ret
 
 
+// int kernel_break_name(int index, char *buf, int buf_max)
+// Copy NUL-terminated dictionary name for BREAK slot `index` (0..7).
+// Returns length, or 0 if empty / OOR / invalid NFA / no room.
+.globl _kernel_break_name
+_kernel_break_name:
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+    mov w19, w0                    // index
+    mov x20, x1                    // buf
+    mov w21, w2                    // buf_max
+    cmp w19, #8
+    b.hs _kbn_empty
+    cbz x20, _kbn_empty
+    cmp w21, #2
+    b.lt _kbn_empty
+    adrp x0, debug_bp_xts@page
+    add x0, x0, debug_bp_xts@pageoff
+    ubfiz x1, x19, #3, #3          // index * 8
+    ldr x0, [x0, x1]               // xt
+    cbz x0, _kbn_empty
+    tst x0, #7
+    b.ne _kbn_empty
+    ldr x1, [x0, #-8]
+    and x1, x1, #0xFFFF            // NFA_OFF
+    cbz x1, _kbn_empty
+    cmp x1, #4096
+    b.hs _kbn_empty
+    sub x22, x0, x1                // NFA
+    ldrb w0, [x22], #1             // count; x22 → chars
+    and w0, w0, #NFA_LEN_MASK
+    cbz w0, _kbn_empty
+    cmp w0, #64
+    b.hs _kbn_empty
+    mov x1, #0
+1:
+    cmp x1, x0
+    b.hs 2f
+    ldrb w2, [x22, x1]
+    cmp w2, #32
+    b.lo _kbn_empty
+    cmp w2, #126
+    b.hi _kbn_empty
+    add x1, x1, #1
+    b 1b
+2:
+    sub w21, w21, #1               // leave room for NUL
+    cmp w0, w21
+    b.ls 3f
+    mov w0, w21
+3:
+    mov x1, #0
+4:
+    cmp x1, x0
+    b.hs 5f
+    ldrb w2, [x22, x1]
+    strb w2, [x20, x1]
+    add x1, x1, #1
+    b 4b
+5:
+    strb wzr, [x20, x1]
+    b _kbn_done
+_kbn_empty:
+    cbz x20, _kbn_zero
+    cmp w21, #1
+    b.lt _kbn_zero
+    strb wzr, [x20]
+_kbn_zero:
+    mov x0, #0
+_kbn_done:
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ret
+
 // int kernel_debug_peek_name(char *buf, int buf_max)
 // Copy NUL-terminated peek token name from debug_name (counted). Returns length,
 // or 0 if empty / no room. debug_name[0]=u, chars follow (max 31).

@@ -156,6 +156,8 @@ final class ForthEditorServer {
         let armed = KernelBridge.shared.isAnyDebugArmed
         lastDebugArmed = armed
         writeResponse(.debugSession(armed: armed), to: cfd)
+        // Sync BREAK table so pale-red wash matches the host.
+        writeResponse(.breakpoints(names: KernelBridge.shared.breakNames()), to: cfd)
     }
 
     private func dropClient(_ fd: Int32) {
@@ -221,10 +223,7 @@ final class ForthEditorServer {
                 writeResponse(.executionFinished(exitCode: 0), to: fd)
             }
             return
-        case .setBreakpoint:
-            writeResponse(.error(message: "breakpoints not wired yet"), to: fd)
-            return
-        case .executeCommand, .loadSource, .viewWord:
+        case .executeCommand, .loadSource, .viewWord, .toggleBreakpoint:
             break
         }
 
@@ -260,6 +259,25 @@ final class ForthEditorServer {
                     } else {
                         let opened = FileHost.shared.editAtOpenCount > before
                         response = .viewResult(word: word, opened: opened)
+                    }
+                }
+            case .toggleBreakpoint(let name):
+                // TOGGLE-BREAK via ' — undefined aborts evaluate (status ≠ 0).
+                let word = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                if word.isEmpty || word.contains(where: { $0.isWhitespace || $0.isNewline }) {
+                    response = .error(message: "BREAK needs a single token")
+                } else if kernel.isAnyDebugArmed {
+                    response = .error(message: "debugger paused — use Step/Continue")
+                } else {
+                    let st = kernel.evaluate("TOGGLE-BREAK \(word)")
+                    kernel.forceFlushEmitSync()
+                    if st != 0 {
+                        response = .error(message: "status=\(st)")
+                    } else {
+                        let names = kernel.breakNames()
+                        // Broadcast so every connected editor refreshes pale-red wash.
+                        self.broadcast(.breakpoints(names: names))
+                        response = .breakpoints(names: names)
                     }
                 }
             case .loadSource(let path):

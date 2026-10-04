@@ -15,21 +15,32 @@
       I CELLS + !  UNLOOP EXIT
     THEN
   LOOP
-  DROP ." BREAK table full" CR ;
+  2DROP ." BREAK table full" CR ;
 
 : UNBREAK-XT  ( xt -- )
   BREAK-TABLE #BREAKS 0 DO
     2DUP I CELLS + @ = IF
-      0 I CELLS BREAK-TABLE + !  DROP UNLOOP EXIT
+      0 I CELLS BREAK-TABLE + !  2DROP UNLOOP EXIT
     THEN
-  LOOP DROP ;
+  LOOP 2DROP ;
 
 : BREAK    ( "<name>" -- )  ' BREAK-XT ;
 : UNBREAK  ( "<name>" -- )  ' UNBREAK-XT ;
 
+\ Was OVER: first `=` ate BREAK-TABLE, next OVER underflowed, `@` of 0 → XFETCH crash.
+: BREAK-HAS?  ( xt -- flag )
+  BREAK-TABLE #BREAKS 0 DO
+    2DUP I CELLS + @ = IF 2DROP TRUE UNLOOP EXIT THEN
+  LOOP 2DROP FALSE ;
+
+: TOGGLE-BREAK-XT  ( xt -- )
+  DUP BREAK-HAS? IF UNBREAK-XT ELSE BREAK-XT THEN ;
+
+: TOGGLE-BREAK  ( "<name>" -- )  ' TOGGLE-BREAK-XT ;
+
 : .BREAKS  ( -- )
   CR ." breaks:" CR
-  BREAK-TABLE #BREAKS 0 DO
+  #BREAKS 0 DO
     I CELLS BREAK-TABLE + @ ?DUP IF
       I . NAME>STRING TYPE CR
     THEN

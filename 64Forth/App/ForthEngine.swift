@@ -38,8 +38,9 @@ final class ForthEngine: NSObject, ForthEngineXPC {
         case .viewWord(let name):
             push(.consoleOutput(text: "VIEW \(name)"))
             return .viewResult(word: name, opened: false)
-        case .setBreakpoint(let line, let enabled):
-            return .consoleOutput(text: "breakpoint \(line) \(enabled ? "on" : "off")")
+        case .toggleBreakpoint(let name):
+            push(.consoleOutput(text: "TOGGLE-BREAK \(name)"))
+            return .breakpoints(names: [name])
         case .stepInto:
             return .consoleOutput(text: "step into")
         case .stepOver:

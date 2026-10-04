@@ -70,6 +70,7 @@ Requires a build that includes `App/AgentChannel.swift` (rebuild in Xcode after 
 
 ## Status (v1.5.3)
 
+- [ ] **On main after 1.5.3 (unreleased):** Pass 1 **BREAK** toggle — **F9** / **⌘\\** in console and **64Edit** (`TOGGLE-BREAK`, pale-red wash, sock `breakpoints`); File menu trimmed (edit in 64Edit); dbg-map spans + soft VIEW. No marketing/build bump or DMG yet.
 - [x] **v1.5.3:** DEBUG multi-file polish (nested tab follow, no `open -a` flash when sock live, editor-typed DBG paint, CFA→xt location fallback); 64Edit UX (focus/F-keys, single View menu, no sticky “not armed”); **64Edit version lockstep** with 64Forth (**1.5.3** / build **47**)
 - [x] **v1.5.2:** In-app **SZ-EDITOR** removed; companion **[64Edit](https://github.com/Win32Forth/64Edit)** over `edit.sock`. Dual-app DMG (`64Forth.app` + `64Edit.app`). `EDIT`/`VIEW` open 64Edit (view mode + line scroll); DEBUG pauses follow source in tabs with Step Over/Into/Out; nested INCLUDE `path:line` stamps — DMG + GitHub release
 - [x] **v1.5.1:** OOP windows, menus, buttons, and child views (`FROMLIB FLOAD Classes/oop.fth`); tag words via `OOP-ON` / `OOP-SERVE`. Separate from GRAPHICS App Output — DMG + GitHub release

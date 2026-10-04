@@ -1,18 +1,20 @@
 # 64Forth development status
 
-**Current:** **1.5.3** (build **47**) shipped; main has post-release 64Edit/Hyper/span work (no new version bump yet)  
+**Current:** **1.5.3** (build **47**) shipped; main has post-release 64Edit/Hyper/span/BREAK work (no new version bump yet)  
 **Last updated:** 2026-10-03
 
 ---
 
 ## On main after 1.5.3 (unreleased)
 
-No marketing/build bump and no DMG yet. Companion **64Edit** on `main` matches these sock/Hyper changes.
+No marketing/build bump and no DMG yet. Companion **64Edit** on `main` matches these sock/Hyper/BREAK changes.
 
 - **Current-word highlight:** `kernel_debug_peek_name` + sock `debugLocation(path:line:name:off:len)`. Prefers dbg-map file-relative UTF-8 spans (`DBG-HOST-SPAN` / `DBG-PUBLISH-SPAN`); 64Edit falls back to whole-word name search near the VIEW line (runtime→source aliases). Pastel green wash; clears on next pause or session end. `Library/DbgSpanSmoke/` exercises map build and publish.
 - **Soft VIEW for 64Edit Hyper:** `(VIEW) ( c-addr u -- flag )`; `VIEW` is `PARSE-NAME (VIEW) DROP` (no `'` abort). Sock `viewWord` / `viewResult(opened:)` so ⌘-click can fall back to in-file find on miss. `HYPER-VIEW-CU` removed.
 - **Autoload HL bind:** after Hyper, re-arm `DBG-MAP-BIND` / `DBG-SET-HL` so map→span survives Hyper clearing `DBG-HL-XT`.
-- **64Edit (companion repo):** New File / dirty Save sheets, line-number gutter, find bar, ⌘-click VIEW with disconnected fallback, thicker console splitter, Home/End.
+- **Pass 1 BREAK toggle (console + 64Edit):** **F9** / **⌘\\** / Tools→Toggle Breakpoint (console) or Debug→Toggle Breakpoint (64Edit) run `TOGGLE-BREAK` on the whitespace-delimited Forth token under the caret. Marks an xt in the 8-slot `BREAK-TABLE` (`debug_bp_xts`); the break fires when **`BPGO <word>`** arms the stepper and that xt is hit. Sock `toggleBreakpoint(name:)` / `breakpoints(names:)` keep 64Edit’s pale-red wash in sync (broadcast on toggle and on connect). `kernel_break_name` exports slot names to the host. Library `debug-bp.fth`: `BREAK-HAS?` / `TOGGLE-BREAK` / stack-safe `UNBREAK-XT` / `.BREAKS`. Idle only while DEBUG is paused. Later: list/clear/disable UI, gutter marks.
+- **64Forth menus:** File holds FLOAD / CHDIR / EDIT / Update·Restore user data / Show Library·AutoLoad·Docs·Config (SZ New/Open/Save/Close removed). Tools keeps CLS, VIEW under cursor, Toggle Breakpoint.
+- **64Edit (companion repo):** New File / dirty Save sheets, line-number gutter, Find & Replace, ⌘-click VIEW with disconnected fallback, thicker console splitter, Home/End, Pass 1 BREAK wash + F9/⌘\\ (⌘\\ no longer Wrap Lines).
 
 ## v1.5.3 — DEBUG multi-file polish; 64Edit version lockstep
 
@@ -456,7 +458,7 @@ Append new design sections as we go; mark items done when implemented.
 ```
 
 **Highlights (vs 1.3.1):**
-- **User data tree:** on first run, copy shipped `Library` / `AutoLoad` / `Docs` into `Documents/64Forth/…`; FROMLIB prefers that tree. Tools → **Update User Data in 64Forth Folder** and **Restore Shipped Files to 64Forth Folder**
+- **User data tree:** on first run, copy shipped `Library` / `AutoLoad` / `Docs` into `Documents/64Forth/…`; FROMLIB prefers that tree. File → **Update User Data in 64Forth Folder** and **Restore Shipped Files to 64Forth Folder**
 - **CODE `_END` labels:** assembly end markers on slicable primitives so a space-optimizing emitter can measure and copy CODE bodies into a target image (path toward stand-alone apps)
 - **Emitter (in progress):** `Library/Emitter/` — `reach.fth` (reachable xts), `target.fth` (target image / colon layout), `reloc.fth` (PC-rel retarget / veneers), `run.fth` (trampoline + `CALL-NATIVE`), load via `FROMLIB FLOAD Emitter/emitter.fth`. Not a finished compiler; experimental Step 1–3 work
 - Kernel: boot `(.)` / `(U.)`; `U.` emits a trailing blank; high-level `ARSHIFT`
@@ -632,7 +634,7 @@ Shared plan with 64TCOM is in 64TCOM `STATUS.md`.
 
 **`DBG name`:** VIEW the word in SZ-EDITOR when it is in `HYPER.NDX`; if there is no source (console-defined), open **untitled** (or File→New if the editor is already up) and then `DEBUG` that xt. From the idle console, untitled/VIEW enters the editor loop first so the stack pane is live. `>>` lines go to the command pane (`SZ-CONSOLE-EMIT`). Step keys match Xcode: **F6/F7** step, **⌘⇧Y** continue. Wheel, mouse, resize-wake, space, and letters are ignored so they do not step-to-end.
 
-**Later:** named `BREAK`/`UNBREAK`; gutter marks; listing/xref.
+**Later:** Pass 2 list/clear/disable UI; gutter marks; listing/xref. (`BREAK`/`UNBREAK`/`TOGGLE-BREAK`/`BPGO` and F9/⌘\\ Pass 1 are on main after 1.5.3.)
 
 **Open panel while already editing:** Bare `EDIT` / `SZEDIT` (and `DBG EDIT` once `EDIT` runs) used to queue `SZ-HOST-REQUEST-OPEN`. After **⌘W** the host still showed the file panel. `SZ-HOST-REQUEST-OPEN` now no-ops if `SZ-EDITOR-ACTIVE` and prints `editor already open; use Cmd-O`. The editor’s own **⌘O** remains the way to open a file.
 

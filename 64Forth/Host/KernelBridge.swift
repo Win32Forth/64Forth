@@ -61,6 +61,13 @@ private func kernel_debug_peek_name(
     _ bufMax: Int32
 ) -> Int32
 
+@_silgen_name("kernel_break_name")
+private func kernel_break_name(
+    _ index: Int32,
+    _ buf: UnsafeMutablePointer<CChar>?,
+    _ bufMax: Int32
+) -> Int32
+
 @_silgen_name("kernel_take_repl_batch_stop")
 private func kernel_take_repl_batch_stop() -> Int32
 
@@ -1682,6 +1689,9 @@ final class KernelBridge {
     /// Direct call — NotificationCenter/`onReceive` defers while KEY waits.
     var onViewWordUnderCursor: (() -> Void)?
 
+    /// Host callback for F9 / ⌘\ toggle BREAK under console caret (set by ConsoleView).
+    var onToggleBreakpointUnderCursor: (() -> Void)?
+
     /// ⌘E — VIEW word under caret (console transcript or facility caret).
     func requestViewWordUnderCursor() {
         let run: () -> Void = {
@@ -1689,6 +1699,18 @@ final class KernelBridge {
                 hook()
             } else {
                 NotificationCenter.default.post(name: .viewWordUnderCursor, object: nil)
+            }
+        }
+        if Thread.isMainThread { run() } else { DispatchQueue.main.async(execute: run) }
+    }
+
+    /// F9 / ⌘\ — toggle BREAK on the Forth token under the console caret.
+    func requestToggleBreakpointUnderCursor() {
+        let run: () -> Void = {
+            if let hook = self.onToggleBreakpointUnderCursor {
+                hook()
+            } else {
+                NotificationCenter.default.post(name: .toggleBreakpointUnderCursor, object: nil)
             }
         }
         if Thread.isMainThread { run() } else { DispatchQueue.main.async(execute: run) }
@@ -2098,6 +2120,21 @@ final class KernelBridge {
         return pushKey(Int32(Character("q").asciiValue ?? 113))
     }
 
+    /// Names currently in the 8-slot BREAK table (`debug_bp_xts`), in slot order.
+    func breakNames() -> [String] {
+        var names: [String] = []
+        for i in Int32(0)..<8 {
+            var buf = [CChar](repeating: 0, count: 64)
+            let n = buf.withUnsafeMutableBufferPointer { bp in
+                kernel_break_name(i, bp.baseAddress, Int32(bp.count))
+            }
+            if n > 0 {
+                names.append(String(cString: buf))
+            }
+        }
+        return names
+    }
+
     /// NSEvent function-key characters → classic editor codes (no modifiers).
     private static func mapHostKeyCode(_ c: Int32) -> Int32 {
         switch c {
@@ -2487,7 +2524,13 @@ final class KernelBridge {
                 return nil
             }
 
-            // Idle / facility-adjacent ⌘E / ⌘F / ⌘G
+            // Idle console: F9 → toggle BREAK under caret (same as ⌘\).
+            if !active, !mods.contains(.command), event.keyCode == 101 {
+                self.requestToggleBreakpointUnderCursor()
+                return nil
+            }
+
+            // Idle / facility-adjacent ⌘E / ⌘\ / ⌘F / ⌘G
             if mods.contains(.command) {
                 let ch = (event.charactersIgnoringModifiers ?? "").lowercased()
                 if ch == "e", !mods.contains(.shift) {
@@ -2500,6 +2543,11 @@ final class KernelBridge {
                         self.viewWordUnderConsoleCursor()
                         return nil
                     }
+                }
+                // ⌘\ — toggle BREAK (freed from Wrap Lines in 64Edit).
+                if ch == "\\", !mods.contains(.shift), !active {
+                    self.requestToggleBreakpointUnderCursor()
+                    return nil
                 }
                 // Find / clipboard: facility-global while editor KEY waits (any window).
                 if ch == "f", active && facilityOn, !mods.contains(.shift) {

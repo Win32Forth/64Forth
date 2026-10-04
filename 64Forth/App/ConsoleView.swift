@@ -37,6 +37,8 @@ extension Notification.Name {
     static let fileClose = Notification.Name("SixtyFourForthFileClose")
     /// Phase 5: ⌘E — VIEW word under console caret (if SZ-EDITOR is loaded).
     static let viewWordUnderCursor = Notification.Name("SixtyFourForthViewWordUnderCursor")
+    /// F9 / ⌘\ — toggle BREAK on the Forth token under the console caret.
+    static let toggleBreakpointUnderCursor = Notification.Name("SixtyFourForthToggleBreakpointUnderCursor")
     /// SZ-EDITOR: ⌘← / ⌘→ — prev/next occurrence of word under cursor (same file).
     static let editorFindPrev = Notification.Name("SixtyFourForthEditorFindPrev")
     static let editorFindNext = Notification.Name("SixtyFourForthEditorFindNext")
@@ -221,6 +223,10 @@ struct ConsoleView: View {
         kernel.onViewWordUnderCursor = { [self] in
             handleViewWordUnderCursor()
         }
+        // F9 / ⌘\ / Tools→Toggle Breakpoint: same direct-hook pattern.
+        kernel.onToggleBreakpointUnderCursor = { [self] in
+            handleToggleBreakpointUnderCursor()
+        }
         kernel.onTerminalRefresh = { _ in
             // Ignore late paints after FACILITY-OFF (race with async exit).
             guard FacilityTerminal.shared.isActive else { return }
@@ -328,6 +334,9 @@ struct ConsoleView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .viewWordUnderCursor)) { _ in
                 handleViewWordUnderCursor()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleBreakpointUnderCursor)) { _ in
+                handleToggleBreakpointUnderCursor()
             }
             .onReceive(NotificationCenter.default.publisher(for: .editorFindPrev)) { _ in
                 handleEditorFind(prev: true)
@@ -937,6 +946,41 @@ struct ConsoleView: View {
         let ns = tv.string as NSString
         if idx > ns.length { idx = ns.length }
         viewForthToken(at: idx, in: ns, placingCaretIn: tv)
+        #endif
+    }
+
+    /// F9 / ⌘\: toggle BREAK on the Forth token under the console caret.
+    /// Idle only — while DEBUG is armed the host cannot evaluate TOGGLE-BREAK.
+    private func handleToggleBreakpointUnderCursor() {
+        #if os(macOS)
+        if kernel.isAnyDebugArmed {
+            appendEngineOutput("BREAK: debugger paused — use Step/Continue\n")
+            return
+        }
+        guard !kernel.isEvaluating else { return }
+        guard let tv = consoleTextView else { return }
+        var idx = tv.selectedRange().location
+        let ns = tv.string as NSString
+        if idx > ns.length { idx = ns.length }
+        guard let word = Self.forthToken(at: idx, in: ns), !word.isEmpty else { return }
+        guard word.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return }
+        tv.setSelectedRange(NSRange(location: min(idx, ns.length), length: 0))
+        isProgrammaticConsoleAppend = true
+        let st = kernel.evaluate("TOGGLE-BREAK \(word)")
+        kernel.forceFlushEmitSync()
+        if st != 0 {
+            appendEngineOutput("(TOGGLE-BREAK failed status=\(st))\n")
+        } else {
+            // Keep connected 64Edit wash in sync with console toggles.
+            ForthEditorServer.shared.broadcast(
+                .breakpoints(names: kernel.breakNames())
+            )
+        }
+        if !kernel.isFacilityTerminalActive {
+            ensureInputPrompt()
+        }
+        isProgrammaticConsoleAppend = false
+        keepCursorVisible(followPrompt: true)
         #endif
     }
 
