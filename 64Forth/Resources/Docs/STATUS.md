@@ -1,9 +1,17 @@
 # 64Forth development status
 
 **Current:** **1.5.3** (build **47**) shipped — dual-app DMG + GitHub `v1.5.3`  
-**Last updated:** 2026-10-03
+**Last updated:** 2026-10-04
 
 ---
+
+## Since 1.5.3 (on main, unreleased)
+
+Marketing version stays **1.5.3** / build **47** until the next ship. Library/host-only unless noted.
+
+- **Hyper TYPE 0 / VIEW OVER:** `HX-SCAN-PREF` matches TYPE 0 prefixes only at the first non-blank on the line (mid-line `CREATE OVER` in `+FIELD` no longer indexes `OVER`). `(HYPER-STAMP-LINE)` keeps the first Library stamp (first-wins). `HYPER.CFG` docs updated. Leave local `Config/HYPER.NDX` unstaged; reindex after pull if needed.
+- **Companion flavor match:** `FileHost.locateSixtyFourEditApp` — Debug → sibling then DerivedData Debug only; Release → sibling then `/Applications` only (never Debug DerivedData). 64Edit Ping uses the same rule to launch 64Forth.
+- **64Edit (companion repo):** View → Show Forth Console / Show Line Numbers; Ping launches flavor-matched 64Forth (silent when connected); console splitter no longer flashes (AppStorage on drag end + global drag coordinates).
 
 ## v1.5.3 — BREAK Pass 1–2, dbg-map spans, 64Edit polish; version lockstep
 

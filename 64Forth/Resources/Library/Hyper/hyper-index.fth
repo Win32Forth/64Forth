@@ -3,7 +3,8 @@
 \ Loaded from hyper.fth. Writes Config/HYPER.NDX.
 \
 \ Phase 4:
-\   - TYPE 0 prefixes from Config/HYPER.CFG (fallback defaults)
+\   - TYPE 0 prefixes from Config/HYPER.CFG (fallback defaults);
+\     match only at first non-blank on the line (no mid-body CREATE)
 \   - SPECS expanded by host via virtual Config/HYPER.SPECS
 \   - *EXCLUDE applied by host when building the SPECS list
 \   - BOOT_WORD → CodeLabel in Library/Sources/forth.s
@@ -222,20 +223,18 @@ CREATE HX-LTAB  HX-LMAX HX-ESIZE * ALLOT
 : HX-REST-AFTER  ( -- a u )
    HX-MA 1+  HX-LA HX-LU + OVER - ;
 
+\ TYPE 0 only at first non-blank on the line. Mid-body CREATE OVER in
+\ : +FIELD CREATE OVER , + DOES> … must not index OVER (or HERE in
+\ BEGIN-STRUCTURE). Earlier SEARCH anywhere + BOUND-OK (space before
+\ CREATE) falsely emitted those names.
 : HX-SCAN-PREF  ( -- )
-   HX-LA HX-LU
-   BEGIN  DUP 0> WHILE
-      2DUP HX-PA HX-PU SEARCH
-      0= IF  2DROP 2DROP EXIT  THEN
-      TO HX-MU  TO HX-MA  2DROP
-      HX-MA HX-BOUND-OK IF
-         HX-MA HX-MU HX-PU /STRING
-         HX-NEXT-WORD 2DROP
-         2DUP HX-PLAUSIBLE? IF  HX-EMIT  ELSE  2DROP  THEN
-      THEN
-      HX-REST-AFTER
-   REPEAT
-   2DROP ;
+   HX-LA HX-LU HX-SKIP-BL                    \ a' u'  (first non-blank)
+   DUP HX-PU < IF  2DROP EXIT  THEN
+   OVER HX-PU HX-PA HX-PU COMPARE IF  2DROP EXIT  THEN
+   OVER TO HX-MA
+   HX-PU /STRING
+   HX-NEXT-WORD 2DROP
+   2DUP HX-PLAUSIBLE? IF  HX-EMIT  ELSE  2DROP  THEN ;
 
 : HX-PREF  ( c-addr u -- )  TO HX-PU  TO HX-PA  HX-SCAN-PREF ;
 

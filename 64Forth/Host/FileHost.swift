@@ -1712,10 +1712,10 @@ final class FileHost {
     #if os(macOS)
     /// Locate companion `64Edit.app` for `EDIT` / `VIEW` / DEBUG open.
     ///
-    /// **Release (DMG):** same folder as this `64Forth.app` (sibling), then
-    /// `/Applications/64Edit.app`, then DerivedData as a last resort.
-    /// **Debug:** newest DerivedData Debug build first (dev loop), then sibling,
-    /// then `/Applications`.
+    /// Flavor match: Debug Forth opens Debug 64Edit; Release Forth opens
+    /// sibling or `/Applications` (never a Debug DerivedData build).
+    /// **Debug:** sibling (same Products folder), then newest DerivedData Debug.
+    /// **Release:** sibling, then `/Applications/64Edit.app`.
     ///
     /// Socket IPC (`edit.sock`) does not depend on this path — only `open -a`.
     private func locateSixtyFourEditApp() -> URL? {
@@ -1735,7 +1735,7 @@ final class FileHost {
             .appendingPathComponent("64Edit.app", isDirectory: true)
         let applications = URL(fileURLWithPath: "/Applications/64Edit.app", isDirectory: true)
 
-        func derivedDataCandidate() -> URL? {
+        func derivedDataCandidate(config: String) -> URL? {
             let home = fm.homeDirectoryForCurrentUser
             let dd = home.appendingPathComponent("Library/Developer/Xcode/DerivedData", isDirectory: true)
             var candidates: [(url: URL, date: Date)] = []
@@ -1745,35 +1745,22 @@ final class FileHost {
                 options: [.skipsHiddenFiles]
             ) {
                 for dir in dirs where dir.lastPathComponent.hasPrefix("64Edit-") {
-                    for config in ["Debug", "Release"] {
-                        let app = dir
-                            .appendingPathComponent("Build/Products/\(config)/64Edit.app", isDirectory: true)
-                        guard let url = existsApp(app) else { continue }
-                        let vals = try? url.resourceValues(forKeys: [.contentModificationDateKey])
-                        candidates.append((url, vals?.contentModificationDate ?? .distantPast))
-                    }
+                    let app = dir
+                        .appendingPathComponent("Build/Products/\(config)/64Edit.app", isDirectory: true)
+                    guard let url = existsApp(app) else { continue }
+                    let vals = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+                    candidates.append((url, vals?.contentModificationDate ?? .distantPast))
                 }
             }
-            // Prefer Debug over Release when both exist; then newest mtime.
-            return candidates
-                .sorted(by: { a, b in
-                    let aDebug = a.url.path.contains("/Debug/")
-                    let bDebug = b.url.path.contains("/Debug/")
-                    if aDebug != bDebug { return aDebug && !bDebug }
-                    return a.date > b.date
-                })
-                .first?
-                .url
+            return candidates.sorted(by: { $0.date > $1.date }).first?.url
         }
 
         #if DEBUG
-        if let dd = derivedDataCandidate() { return dd }
         if let s = existsApp(sibling) { return s }
-        if let a = existsApp(applications) { return a }
+        if let dd = derivedDataCandidate(config: "Debug") { return dd }
         #else
         if let s = existsApp(sibling) { return s }
         if let a = existsApp(applications) { return a }
-        if let dd = derivedDataCandidate() { return dd }
         #endif
         return nil
     }

@@ -349,6 +349,9 @@ VARIABLE HYPER-LEAF-U
    DROP 8 S" Library/" COMPARE 0= ;
 
 \ One NDX body line under current HYPER-CUR path: "NAME line"
+\ First Library hit wins: do not overwrite a non-zero VIEW-FILE#.
+\ NDX can list the same name twice (e.g. real OVER in forth.s, then a
+\ mid-line CREATE OVER under +FIELD); last-wins stamped the wrong line.
 : (HYPER-STAMP-LINE)  ( a u -- )
    HYPER-CUR C@ 0= IF  2DROP EXIT  THEN
    HYPER-CUR COUNT HYPER-LIB-PATH? 0= IF  2DROP EXIT  THEN
@@ -361,6 +364,7 @@ VARIABLE HYPER-LEAF-U
    HYPER-SEEK FIND
    DUP 0= IF  2DROP R> DROP EXIT  THEN       \ miss
    DROP                                      \ xt
+   DUP VIEW-FILE# IF  DROP R> DROP EXIT  THEN  \ keep earlier Library stamp
    0 HYPER-CUR COUNT VIEW-REG                \ xt id  (0 under avoids underflow)
    DUP 0= IF  2DROP R> DROP EXIT  THEN
    R> VIEW-STAMP ;
