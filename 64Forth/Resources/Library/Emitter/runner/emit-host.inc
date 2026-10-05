@@ -3,11 +3,14 @@
  * gettimeofday), slots 10–11 (malloc / free), slots 12–14 (BI-MUL /
  * BI-DIVMOD / BI-ISQRT), slot 15 (host_app_mouse), slot 16 (cblit),
  * slots 17–20 (APP-IMG-CHOOSE/LOAD/SIZE/RENDER),
- * slots 21–25 (APP-FILE-CHOOSE/SAVE-AS/PATH/SLURP/SPEW).
+ * slots 21–25 (APP-FILE-CHOOSE/SAVE-AS/PATH/SLURP/SPEW),
+ * slot 26 (APP-SIZE?)/host_app_size — pending cols/rows after live resize.
  * Public domain.
  */
 #import <Cocoa/Cocoa.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 #include <unistd.h>
 #include <math.h>
@@ -68,6 +71,10 @@ static NSWindow *emit_window = nil;
 static NSView *emit_view = nil;
 static CGFloat emit_cw = 9.0, emit_ch = 16.0;
 static int emit_headless = 0; /* set if --agent / EMIT_HEADLESS */
+/* (APP-SIZE?): snap grid after live resize; Forth adopts via WINDOW-SIZE. */
+static int emit_pending_cols = 80, emit_pending_rows = 25;
+static int emit_size_dirty = 0;
+static int emit_live_resizing = 0;
 
 /* Decoded source image for (APP-IMG-*) — BGRA, top row first. */
 static uint8_t *emit_img_bgra = NULL;
@@ -81,6 +88,10 @@ static char emit_file_staged[PATH_MAX];
 static int emit_file_staged_set = 0;
 /* One-shot: drag-drop arms choose to accept staged path without a panel. */
 static int emit_file_open_once = 0;
+/* Diagnostic: synthesize a chrome OPEN click after WINDOW (EMIT_FILE_AUTOOPEN=1). */
+static int emit_file_autoopen = 0;
+static int emit_file_autoopen_armed = 0;
+static int emit_file_autoopen_phase = 0;
 
 static void emit_img_clear(void) {
   free(emit_img_bgra);
@@ -101,6 +112,23 @@ static void emit_img_stage_path(const char *path) {
   emit_img_staged_set = 1;
 }
 
+static void emit_file_log(const char *fmt, ...) {
+  FILE *lf = fopen("/tmp/emit-file.log", "a");
+  if (!lf) return;
+  va_list ap;
+  va_start(ap, fmt);
+  vfprintf(lf, fmt, ap);
+  va_end(ap);
+  fputc('\n', lf);
+  fclose(lf);
+  if (getenv("EMIT_DEBUG_FILE")) {
+    va_start(ap, fmt);
+    vfprintf(stderr, fmt, ap);
+    va_end(ap);
+    fputc('\n', stderr);
+  }
+}
+
 static void emit_file_stage_path(const char *path) {
   if (!path || !path[0]) {
     emit_file_staged_set = 0;
@@ -111,6 +139,7 @@ static void emit_file_stage_path(const char *path) {
   strncpy(emit_file_staged, path, sizeof(emit_file_staged) - 1);
   emit_file_staged[sizeof(emit_file_staged) - 1] = '\0';
   emit_file_staged_set = 1;
+  emit_file_log("emit-file: staged %s", emit_file_staged);
 }
 
 static void emit_clear_mouse(void) {
@@ -190,14 +219,24 @@ static int64_t emit_map_key(NSEvent *ev) {
 - (void)drawRect:(NSRect)dirty {
   [[NSColor blackColor] setFill];
   NSRectFill(self.bounds);
-  if (emit_has_pix && emit_pix) {
+  /* Match AppOutputHost.makePixelCGImage: never invent a CGImage wider/taller
+   * than the last cblit buffer — that shears TRUECOLOR into diagonals. */
+  if (emit_has_pix && emit_pix && emit_pix_w > 0 && emit_pix_h > 0) {
     int need = emit_pix_w * emit_pix_h * 4;
+    int buf_ok = 0;
     int x, y, i, n;
     uint8_t *d;
     CGColorSpaceRef cs;
     CGDataProviderRef prov;
     CGImageRef img;
     CGContextRef ctx;
+    if (emit_pix_depth == 32)
+      buf_ok = (emit_pix_n >= need);
+    else if (emit_pix_depth == 8)
+      buf_ok = (emit_pix_n >= emit_pix_w * emit_pix_h);
+    else
+      buf_ok = (emit_pix_n >= emit_pix_stride * emit_pix_h);
+    if (buf_ok) {
     emit_init_palette();
     if (!emit_bgra || emit_bgra_n < need) {
       free(emit_bgra);
@@ -207,7 +246,6 @@ static int64_t emit_map_key(NSEvent *ev) {
     d = emit_bgra;
     if (emit_pix_depth == 8) {
       n = emit_pix_w * emit_pix_h;
-      if (n > emit_pix_n) n = emit_pix_n;
       for (i = 0; i < n; i++) {
         uint32_t c = emit_palette[emit_pix[i]];
         d[i * 4] = (uint8_t)(c & 0xFF);
@@ -216,10 +254,8 @@ static int64_t emit_map_key(NSEvent *ev) {
         d[i * 4 + 3] = 0xFF;
       }
     } else if (emit_pix_depth == 32) {
-      n = need;
-      if (n > emit_pix_n) n = emit_pix_n;
-      memcpy(d, emit_pix, (size_t)n);
-      for (i = 3; i < n; i += 4) if (d[i] == 0) d[i] = 0xFF;
+      memcpy(d, emit_pix, (size_t)need);
+      for (i = 3; i < need; i += 4) if (d[i] == 0) d[i] = 0xFF;
     } else {
       for (y = 0; y < emit_pix_h; y++) {
         int row = y * emit_pix_stride;
@@ -247,6 +283,7 @@ static int64_t emit_map_key(NSEvent *ev) {
     if (img) CGImageRelease(img);
     if (prov) CGDataProviderRelease(prov);
     if (cs) CGColorSpaceRelease(cs);
+    }
   }
   if (!emit_cells) return;
   NSFont *font = [NSFont monospacedSystemFontOfSize:emit_ch - 2 weight:NSFontWeightRegular];
@@ -350,6 +387,33 @@ static int64_t emit_map_key(NSEvent *ev) {
 @interface EmitWinDelegate : NSObject <NSWindowDelegate>
 @end
 @implementation EmitWinDelegate
+- (void)windowWillStartLiveResize:(NSNotification *)n {
+  (void)n;
+  emit_live_resizing = 1;
+}
+- (void)windowDidResize:(NSNotification *)n {
+  (void)n;
+  [emit_view setNeedsDisplay:YES];
+}
+- (void)windowDidEndLiveResize:(NSNotification *)n {
+  (void)n;
+  emit_live_resizing = 0;
+  if (!emit_view) return;
+  CGFloat innerW = fmax(1.0, emit_view.bounds.size.width - 8.0);
+  CGFloat innerH = fmax(1.0, emit_view.bounds.size.height - 8.0);
+  int c = (int)(innerW / emit_cw);
+  int r = (int)(innerH / emit_ch);
+  if (c < 40) c = 40;
+  if (c > EMIT_COLS_MAX) c = EMIT_COLS_MAX;
+  if (r < 12) r = 12;
+  if (r > EMIT_ROWS_MAX) r = EMIT_ROWS_MAX;
+  if (c != emit_pending_cols || r != emit_pending_rows) {
+    emit_pending_cols = c;
+    emit_pending_rows = r;
+    emit_size_dirty = 1;
+  }
+  [emit_view setNeedsDisplay:YES];
+}
 - (BOOL)windowShouldClose:(NSWindow *)sender {
   (void)sender;
   emit_opened = 0;
@@ -400,6 +464,13 @@ static int64_t host_app_open(int64_t cols, int64_t rows) {
   if (rows > EMIT_ROWS_MAX) rows = EMIT_ROWS_MAX;
   emit_cols = (int)cols;
   emit_rows = (int)rows;
+  emit_pending_cols = emit_cols;
+  emit_pending_rows = emit_rows;
+  emit_size_dirty = 0;
+  /* Do not touch emit_pix_w/h here. AppOutputHost keeps pixW/pixH at the
+   * last cblit size; bumping them before the buffer grows makes drawRect
+   * build a wide CGImage from a narrow buffer (TV diagonal shear). cblit
+   * sets emit_pix_* from emit_cols/rows when Forth PREFRESHes. */
   emit_cell_n = emit_cols * emit_rows;
   free(emit_cells);
   emit_cells = (uint8_t *)malloc((size_t)emit_cell_n);
@@ -421,10 +492,13 @@ static int64_t host_app_open(int64_t cols, int64_t rows) {
                    NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
         backing:NSBackingStoreBuffered defer:NO];
       emit_view = [[EmitGridView alloc] initWithFrame:NSMakeRect(0, 0, cw, ch)];
+      emit_view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
       [emit_view registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
       emit_window.contentView = emit_view;
       emit_window.delegate = emit_delegate;
-    } else {
+      emit_window.contentMinSize = NSMakeSize(160, 100);
+    } else if (!emit_live_resizing) {
+      /* Forth asked for a new cell grid (adopt after drag) — snap content. */
       [emit_window setContentSize:NSMakeSize(cw, ch)];
       emit_view.frame = NSMakeRect(0, 0, cw, ch);
     }
@@ -436,6 +510,11 @@ static int64_t host_app_open(int64_t cols, int64_t rows) {
     emit_kr = emit_kw = 0;
     emit_clear_mouse();
     emit_opened = 1;
+    if (emit_file_autoopen) {
+      emit_file_autoopen_armed = 1;
+      emit_file_autoopen_phase = 0;
+      emit_file_log("emit-file: autoopen armed after WINDOW");
+    }
     [emit_view setNeedsDisplay:YES];
   });
   return 0;
@@ -469,15 +548,25 @@ static int64_t host_app_blit(int64_t addr, int64_t nbytes) {
 }
 
 static int64_t host_app_cblit_depth(int64_t addr, int64_t nbytes, int64_t depth) {
-  int d, stride, need, n;
+  int d, stride, need, n, w, h;
   if (!emit_opened || !addr || nbytes <= 0) return 0;
+  /* Match Forth G-PX×G-PY = cols×8 by rows×16 (AppOutputHost forthPixW/H).
+   * Stale emit_pix_w/h after WINDOW-SIZE adopt shears TRUECOLOR into diagonals. */
+  w = emit_cols * 8;
+  h = emit_rows * 16;
+  if (w < 1) w = 1;
+  if (h < 1) h = 1;
+  emit_pix_w = w;
+  emit_pix_h = h;
   if (depth == 8) {
-    d = 8; stride = emit_pix_w; need = emit_pix_w * emit_pix_h;
+    d = 8; stride = w; need = w * h;
   } else if (depth == 32) {
-    d = 32; stride = emit_pix_w * 4; need = emit_pix_w * emit_pix_h * 4;
+    d = 32; stride = w * 4; need = w * h * 4;
   } else {
-    d = 1; stride = (emit_pix_w + 7) / 8; need = stride * emit_pix_h;
+    d = 1; stride = (w + 7) / 8; need = stride * h;
   }
+  /* Cap: 256×128 cells × 8×16 × 4 = 16 MiB truecolor. */
+  if (need <= 0 || need > 16 * 1024 * 1024) return 0;
   if (!emit_pix || emit_pix_n < need) {
     free(emit_pix);
     emit_pix = (uint8_t *)malloc((size_t)need);
@@ -523,9 +612,39 @@ static void emit_pump_events(NSTimeInterval timeout) {
   }
 }
 
+/* Drive ED-HIT-CHROME OPEN once: pixel (col 14, top chrome row). */
+static void emit_file_autoopen_tick(void) {
+  int pw, ph;
+  if (!emit_file_autoopen || !emit_file_autoopen_armed || !emit_opened)
+    return;
+  pw = emit_has_pix ? (emit_pix_w > 0 ? emit_pix_w : emit_cols * 8)
+                    : emit_cols * 8;
+  ph = emit_has_pix ? (emit_pix_h > 0 ? emit_pix_h : emit_rows * 16)
+                    : emit_rows * 16;
+  /* OPEN label starts near col 12; hit col 14 center. Y near top of G-PY. */
+  emit_mouse_x = 14 * 8 + 4;
+  emit_mouse_y = ph - 8;
+  if (emit_file_autoopen_phase == 0) {
+    emit_mouse_buttons = 1;
+    emit_file_autoopen_phase = 1;
+    emit_file_log("emit-file: autoopen click down x=%lld y=%lld pw=%d ph=%d",
+                  (long long)emit_mouse_x, (long long)emit_mouse_y, pw, ph);
+  } else if (emit_file_autoopen_phase == 1) {
+    /* Keep button down one more tick so ED-HANDLE-MOUSE sees it. */
+    emit_mouse_buttons = 1;
+    emit_file_autoopen_phase = 2;
+  } else {
+    emit_mouse_buttons = 0;
+    emit_file_autoopen_armed = 0;
+    emit_file_autoopen = 0;
+    emit_file_log("emit-file: autoopen click up");
+  }
+}
+
 static int64_t host_app_keyq(int64_t a, int64_t b) {
   (void)a; (void)b;
   emit_pump_events(0.001);
+  emit_file_autoopen_tick();
   if (emit_kr == emit_kw) return 0;
   return -1;
 }
@@ -578,6 +697,7 @@ static int64_t host_app_tone(int64_t freq, int64_t dur) {
 static int64_t host_app_pump(int64_t a, int64_t b) {
   (void)a; (void)b;
   emit_pump_events(0.01);
+  emit_file_autoopen_tick();
   if (emit_headless) usleep(10000);
   return 0;
 }
@@ -834,9 +954,10 @@ static int64_t host_app_file_choose(int64_t a, int64_t b) {
   (void)a;
   (void)b;
   if (emit_headless) return -1;
-  /* Drag-drop: accept staged path once without a panel. */
+  /* Drag-drop / --file: accept staged path once without a panel. */
   if (emit_file_open_once && emit_file_staged_set) {
     emit_file_open_once = 0;
+    emit_file_log("emit-file: choose once path=%s", emit_file_staged);
     return 0;
   }
   __block int64_t ior = -1;
@@ -870,6 +991,8 @@ static int64_t host_app_file_choose(int64_t a, int64_t b) {
     emit_file_stage_path(panel.URL.path.UTF8String);
     ior = 0;
   });
+  emit_file_log("emit-file: choose ior=%lld path=%s",
+                (long long)ior, emit_file_staged_set ? emit_file_staged : "(none)");
   return ior;
 }
 
@@ -920,22 +1043,36 @@ static int64_t host_app_file_path(int64_t dest, int64_t max) {
   size_t n = strlen(emit_file_staged);
   if (n > (size_t)max) n = (size_t)max;
   memcpy((void *)(uintptr_t)dest, emit_file_staged, n);
+  emit_file_log("emit-file: path dest=%p max=%lld -> %zu",
+                (void *)(uintptr_t)dest, (long long)max, n);
   return (int64_t)n;
 }
 
 static int64_t host_app_file_slurp(void *dest, int64_t max, int64_t *out_u) {
   if (out_u) *out_u = 0;
-  if (!dest || max <= 0) return -2;
-  if (!emit_file_staged_set || !emit_file_staged[0]) return -1;
+  if (!dest || max <= 0) {
+    emit_file_log("emit-file: slurp bad dest=%p max=%lld out_u=%p",
+                  dest, (long long)max, (void *)out_u);
+    return -2;
+  }
+  if (!emit_file_staged_set || !emit_file_staged[0]) {
+    emit_file_log("emit-file: slurp no staged path out_u=%p", (void *)out_u);
+    return -1;
+  }
   FILE *f = fopen(emit_file_staged, "rb");
-  if (!f) return -2;
+  if (!f) {
+    emit_file_log("emit-file: slurp fopen fail %s", emit_file_staged);
+    return -2;
+  }
   if (fseek(f, 0, SEEK_END) != 0) {
     fclose(f);
+    emit_file_log("emit-file: slurp fseek fail %s", emit_file_staged);
     return -2;
   }
   long sz = ftell(f);
   if (sz < 0) {
     fclose(f);
+    emit_file_log("emit-file: slurp ftell fail %s", emit_file_staged);
     return -2;
   }
   rewind(f);
@@ -944,6 +1081,19 @@ static int64_t host_app_file_slurp(void *dest, int64_t max, int64_t *out_u) {
   size_t got = fread(dest, 1, n, f);
   fclose(f);
   if (out_u) *out_u = (int64_t)got;
+  {
+    char head[64];
+    size_t show = got < 48 ? got : 48;
+    size_t i;
+    for (i = 0; i < show; i++) {
+      unsigned char c = ((unsigned char *)dest)[i];
+      head[i] = (c >= 32 && c < 127) ? (char)c : '.';
+    }
+    head[show] = '\0';
+    emit_file_log("emit-file: slurp dest=%p max=%lld out_u=%p *out_u=%lld got=%zu head=%s",
+                  dest, (long long)max, (void *)out_u,
+                  out_u ? (long long)*out_u : -1LL, got, head);
+  }
   return 0;
 }
 
@@ -952,6 +1102,8 @@ __attribute__((noinline, optnone))
 static int64_t host_app_file_slurp_slot(int64_t dest, int64_t max) {
   int64_t *out_u;
   __asm__ volatile("mov %0, x2" : "=r"(out_u));
+  emit_file_log("emit-file: slurp_slot dest=%lld max=%lld x2/out_u=%p",
+                (long long)dest, (long long)max, (void *)out_u);
   return host_app_file_slurp((void *)(uintptr_t)dest, max, out_u);
 }
 
@@ -967,8 +1119,24 @@ static int64_t host_app_file_spew(int64_t src, int64_t nbytes) {
   return 0;
 }
 
-/* Slot table — must match Emitter reloc.fth HOST-APP slots 0–25. */
-static emit_host_fn host_fn[26] = {
+/* Slot 26: (APP-SIZE?) bl _host_app_size — x0=&cols x1=&rows; ret -1 if dirty. */
+static int64_t host_app_size(int64_t *cols, int64_t *rows) {
+  if (cols) *cols = emit_pending_cols;
+  if (rows) *rows = emit_pending_rows;
+  if (emit_size_dirty) {
+    emit_size_dirty = 0;
+    return -1;
+  }
+  return 0;
+}
+
+static int64_t host_app_size_slot(int64_t cols_ptr, int64_t rows_ptr) {
+  return host_app_size((int64_t *)(uintptr_t)cols_ptr,
+                       (int64_t *)(uintptr_t)rows_ptr);
+}
+
+/* Slot table — must match Emitter reloc.fth HOST-APP slots 0–26. */
+static emit_host_fn host_fn[27] = {
   host_app_open,
   host_app_close,
   host_app_blit,
@@ -994,5 +1162,6 @@ static emit_host_fn host_fn[26] = {
   host_app_file_save_as,
   host_app_file_path,
   host_app_file_slurp_slot,
-  host_app_file_spew
+  host_app_file_spew,
+  host_app_size_slot
 };

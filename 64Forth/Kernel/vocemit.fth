@@ -9,7 +9,7 @@
 ONLY FORTH DEFINITIONS
 DECIMAL
 
-DOC" EMITTER ( -- ) vocabulary for the native-code emitter / slicer; execute to ALSO it"
+DOC" EMITTER ( -- ) vocabulary for the native-code emitter / slicer; ALSO EMITTER to use"
 VOCABULARY EMITTER
 
 \ --- Move a header from FORTH-WORDLIST into another wid (same hash thread) ---

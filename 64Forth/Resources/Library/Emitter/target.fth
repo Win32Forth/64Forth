@@ -428,9 +428,17 @@ VARIABLE DOES-N
     a 8 + TO a
   REPEAT ;
 
-\ DOVAR user PFA (new+16): drop host heap / foreign pointers so stand-alone
-\ does not FREE or dereference emit-session malloc addresses (BI-* after PI.).
-\ Keep small cells and pointers that rebase into sliced data.
+\ DOVAR/DODOES user PFA (new+16): drop host heap / foreign pointers so
+\ stand-alone does not FREE or dereference emit-session malloc addresses.
+\ CONSTANT is CREATE , DOES> @ (DODOES), so its value cell is sanitized too.
+\ Keep:
+\   - integers below 4 GiB (DOCON / SCAN-DOCON cutoff): ED-CAP0, VED-CAP,
+\     BI-BASE (1e9)
+\   - sign-extended negatives (-1, -2, …) — same rule as LIT-PAYLOAD;
+\     unsigned ">= 4GiB" would otherwise zero -1 CONSTANT / VALUE
+\ Host malloc is a canonical user VA above 4 GiB (top bits clear).
+\ Older $10000 / $100000 thresholds zeroed size CONSTANTs (empty Open,
+\ BI!U UM/MOD with BI-BASE=0 → SEGV).
 : SA-SANITIZE-DOVAR  ( new u -- )
   {: new u | a end v -- :}
   new 16 + TO a
@@ -438,11 +446,14 @@ VARIABLE DOES-N
   BEGIN  a 8 + end U> 0= WHILE
     a @ TO v
     v IF
-      v $10000 U< 0= IF          \ keep small integers
-        v MAP-FIND ?DUP IF  DROP  \ keep mapped xt
-        ELSE
-          v DATA-REBASE IF  a !   \ slide into sliced data
-          ELSE  0 a !  THEN       \ foreign (host heap, etc.) → 0
+      v $FFFF000000000000 AND IF  \ sign-extended immediate — keep
+      ELSE
+        v $100000000 U< 0= IF     \ keep small integers / buffer sizes
+          v MAP-FIND ?DUP IF  DROP  \ keep mapped xt
+          ELSE
+            v DATA-REBASE IF  a !   \ slide into sliced data
+            ELSE  0 a !  THEN       \ foreign (host heap, etc.) → 0
+          THEN
         THEN
       THEN
     THEN
@@ -482,6 +493,10 @@ VARIABLE DOES-N
     new 8 + @ DOES-SLICE
     new 8 + !
     new 8 + 1 PTR-RELOC-ADD
+    \ VALUE/DEFER/CREATE payloads: zero host heap (e.g. G-BUF) before xt remap.
+    \ IMPORT-RELOC alone leaves foreign pointers; stand-alone then skips
+    \ G-ALLOC-BUF and SIGSEGVs — window flashes.
+    new u SA-SANITIZE-DOVAR
     new u IMPORT-RELOC-XT-CELLS
   THEN ;
 

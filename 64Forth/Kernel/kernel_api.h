@@ -188,11 +188,10 @@ int64_t host_app_file_spew(const void *src, int64_t nbytes);
 /// Returns 1 if set since last call, else 0; always clears the flag (TZForth-style).
 int kernel_take_repl_batch_stop(void);
 
-/// SZ-EDITOR bare open request (SZ-HOST-REQUEST-OPEN / bare SZEDIT).
-/// Returns 1 if set since last call, else 0; always clears the flag.
+/// Legacy SZ-EDITOR open-panel sticky (Forth no longer sets). Always clears.
 int kernel_take_sz_editor_open(void);
 
-/// Cmd-Q while SZ-EDITOR open: quit app only after the editor session ends.
+/// Cmd-Q while a facility editor session is open: quit after it ends.
 void kernel_set_sz_app_quit(void);
 void kernel_clear_sz_app_quit(void);
 /// Nonzero if app-quit-after-editor is pending (does not clear).

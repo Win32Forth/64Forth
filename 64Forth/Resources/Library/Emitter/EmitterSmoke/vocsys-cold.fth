@@ -34,7 +34,7 @@ S" (SUBST-FIND)"     ['] SYSVOC   (CHECK-TO)
 S" (XQ-SZ)"          ['] SYSVOC   (CHECK-TO)
 \ (FILE-OP-CALL) → EMITTER (FLAG_EMM)
 S" FORTH>VOC"        ['] SYSVOC   (CHECK-TO)
-S" (SZ-CLICK)"       ['] EDITOR   (CHECK-TO)
+\ (SZ-CLICK) retired with SZ-EDITOR; clipboard/cwd live in FORTH as CLIP! CLIP@ CWD@
 S" (FACILITY-SIZE)"  ['] EDITOR   (CHECK-TO)
 S" (APP-BLIT)"       ['] GRAPHICS (CHECK-TO)
 S" (APP-OPEN)"       ['] GRAPHICS (CHECK-TO)

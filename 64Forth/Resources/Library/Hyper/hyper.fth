@@ -2,7 +2,7 @@
 \
 \ Load: FROMLIB FLOAD Hyper/hyper.fth
 \ Use:  ALSO HYPER-VOC  LOCATE DUP  PREVIOUS
-\       (or: HYPER-VOC LOCATE DUP FORTH)
+\       (classic VOCABULARY replaces CONTEXT; do not bare HYPER-VOC … FORTH)
 \
 \ Internals in HYPER-VOC. User commands VIEW/LOCATE/SEE/DBG stay in FORTH.
 \ Editor/debug hooks (HYPER-NEXT/PREV, (VIEW), DBG-*-…) move to SYSVOC.

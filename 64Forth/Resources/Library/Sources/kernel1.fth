@@ -131,19 +131,29 @@ DOC" CONSTANT ( x 'name' -- ) create a constant"
 DOC" RECURSE ( -- ) recurse into current definition (immediate)"
 : RECURSE ?COMP LAST , ; IMMEDIATE
 
-\ --- Search-Order / VOCABULARY ---
-DOC" VOCABULARY ( 'name' -- ) named word list; execute to push onto search order"
-\ The body is the wid (xt + 2 CELLS). It must be DICT-THREADS head cells,
-\ or words defined into the vocabulary hash into memory that FIND never searches.
+\ --- Search-Order / VOCABULARY / NAMESPACE ---
+\ CONTEXT! matches FORTH / classic Win32Forth·F-PC·GForth VOCABULARY: write
+\ search_order[0] (wid1) without growing n. Empty order becomes n=1.
+DOC" CONTEXT! ( wid -- ) replace first search-order entry (CONTEXT)"
+: CONTEXT!  ( wid -- )
+  >R GET-ORDER
+  DUP 0= IF DROP R> 1 SET-ORDER EXIT THEN
+  NIP R> SWAP SET-ORDER ;
+\ Body is the wid (xt + 2 CELLS): DICT-THREADS head cells so FIND can hash.
+DOC" VOCABULARY ( 'name' -- ) named word list; execute replaces CONTEXT (classic)"
 : VOCABULARY CREATE DICT-THREADS 0 DO 0 , LOOP
+  LAST >BODY (REGISTER-WID) DOES> CONTEXT! ;
+\ ciforth-style push: grow search order then set CONTEXT (like ALSO + replace).
+DOC" NAMESPACE ( 'name' -- ) named word list; execute pushes onto search order"
+: NAMESPACE CREATE DICT-THREADS 0 DO 0 , LOOP
   LAST >BODY (REGISTER-WID) DOES> PUSH-ORDER ;
-DOC" BIG-INTEGER ( -- ) vocabulary for big-integer extensions; execute to ALSO it"
+DOC" BIG-INTEGER ( -- ) vocabulary for big-integer extensions; ALSO BIG-INTEGER to use"
 VOCABULARY BIG-INTEGER
-DOC" EDITOR ( -- ) vocabulary for editor extensions; execute to ALSO it"
+DOC" EDITOR ( -- ) vocabulary for editor extensions; ALSO EDITOR to use"
 VOCABULARY EDITOR
-DOC" ASSEMBLER ( -- ) vocabulary for assembler extensions; execute to ALSO it"
+DOC" ASSEMBLER ( -- ) vocabulary for assembler extensions; ALSO ASSEMBLER to use"
 VOCABULARY ASSEMBLER
-DOC" FLOATING ( -- ) vocabulary for floating-point word set; execute to ALSO it"
+DOC" FLOATING ( -- ) vocabulary for floating-point word set; ALSO FLOATING to use"
 VOCABULARY FLOATING
 
 ONLY FORTH DEFINITIONS

@@ -2,7 +2,7 @@
 
 **Public domain.** Headless control so tools (Grok, CI, scripts) can load Forth files and capture console output without driving the GUI.
 
-**Status:** shipped (**64Forth 1.1.2+**; current **1.5.3**, build **47**, banner `Oct 3, 2026 11:21 AM`). Rebuild the app in Xcode before the installed binary supports `--agent`. See also [STATUS.md](STATUS.md) (section **v1.1.2 — agent channel**).
+**Status:** shipped (**64Forth 1.1.2+**; current **1.5.4**, build **48**, banner `Oct 4, 2026 10:28 PM`). Rebuild the app in Xcode before the installed binary supports `--agent`. See also [STATUS.md](STATUS.md) (section **v1.1.2 — agent channel**).
 ## Why
 
 The GUI app does not treat stdin as a REPL. Accessibility can type keys but cannot reliably read the SwiftUI console. The agent channel runs the same kernel (`kernel_eval`) with EMIT captured to **stdout** and an optional transcript file.

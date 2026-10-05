@@ -1,15 +1,15 @@
 64Forth — Swift host + PickleForth ARM64 kernel
 ================================================
 
-Version 1.5.3 (build 47)
+Version 1.5.4 (build 48)
 
 Console header (ConsoleView banner), e.g.:
-  === 64Forth 1.5.3 === Oct 3, 2026 11:21 AM ===
+  === 64Forth 1.5.4 === Oct 4, 2026 10:28 PM ===
 Update the date/time only when finishing a version change set, just before
 DMG + commit/push — not on every intermediate build.
 
 DMG (v1.5.2+) contains 64Forth.app and 64Edit.app. Keep their marketing
-versions matched (both 1.5.3 as of this release). Install both into the same
+versions matched (both 1.5.4 as of this release). Install both into the same
 folder (/Applications recommended). They link via
 ~/Library/Application Support/64Forth/edit.sock — no extra pairing.
 
@@ -26,7 +26,7 @@ cross-reference IMMEDIATE words. See Docs/STATUS.md.
 Samples (App Output): Library/Sample/VED64.fth → VED64 (minimal VED);
 Library/Sample/MIDNIGHT.FTH → MAIN (Towers of Hanoi). See Docs/STATUS.md.
 
-Editor (v1.5.2+; version lockstep v1.5.3+)
+Editor (v1.5.2+; version lockstep v1.5.3+ / current 1.5.4)
 -----------------------------------------
   The in-app SZ-EDITOR (Library/Editor) is removed. Editing moves to the
   separate **64Edit** app (https://github.com/Win32Forth/64Edit), talking to

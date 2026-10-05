@@ -57,10 +57,12 @@ $D61F0200 CONSTANT ARM-BR-X16
 \ 15 (APP-MOUSE)/host_app_mouse.
 \ 16 (APP-CBLIT)/host_app_cblit (depth 1/8/32).
 \ 17–20 image viewer: choose load size render.
+\ 21–25 file choose/save-as/path/slurp/spew.
+\ 26 (APP-SIZE?)/host_app_size — pending cols/rows after live resize.
 \ .quad = HOST-CALL-MAGIC|slot until HOST-BIND.
 
 $C0DE000000000000 CONSTANT HOST-CALL-MAGIC
-26 CONSTANT #HOST-APP
+27 CONSTANT #HOST-APP
 128 CONSTANT #HOST-RELOC
 
 CREATE HOST-APP-VA     #HOST-APP CELLS ALLOT
@@ -585,7 +587,10 @@ S" KEY?"  (GFX-IO-XT) CONSTANT GFX-KEY?
   S" (APP-FILE-SAVE-AS)" HOST-APP-XT 22 HOST-APP-SET
   S" (APP-FILE-PATH)"    HOST-APP-XT 23 HOST-APP-SET
   S" (APP-FILE-SLURP)"   HOST-APP-XT 24 HOST-APP-SET
-  S" (APP-FILE-SPEW)"    HOST-APP-XT 25 HOST-APP-SET ;
+  S" (APP-FILE-SPEW)"    HOST-APP-XT 25 HOST-APP-SET
+  \ (APP-SIZE?) is a FORTH boot word (forth.s), not GRAPHICS — use ['] like MS@.
+  \ Without a slot, SA chrome never adopts after live resize.
+  ['] (APP-SIZE?) 26 HOST-APP-SET ;
 
 \ --- re-encode from new pc to same tgt --------------------------------
 
@@ -835,7 +840,12 @@ $D63F0120 CONSTANT ARM-BLR-X9
   npc abs SA-BSS-ENSURE PATCH-ADRP-ADD
   TRUE ;
 
-\ First three ADRP+ADD in CATCH → ensure shared cells; remember cfa_catch_ok.
+\ CATCH ADRP+ADD order (Kernel/forth.s XCATCH):
+\   0 throw_handler  1 eval_resume_sp  2 source_sp
+\   3 cfa_catch_ok   4 catch_ok_cell   (+ optional debug_*)
+\ Older code treated index 1 as cfa_catch_ok; FIX-CFA then wrote the
+\ (CATCH-OK) CFA into eval_resume_sp. catch_ok_cell stayed 0 → NEXT
+\ after the body loaded a null CFA (window flash / SIGSEGV x21=0).
 : SA-EXCEPT-DISCOVER  ( -- )
   {: code u off n abs -- :}
   SA-XC @ IF  EXIT  THEN
@@ -845,7 +855,7 @@ $D63F0120 CONSTANT ARM-BLR-X9
     code off ADRP-ADD-ABS TO abs
     abs IF
       abs SA-BSS-ENSURE DROP
-      n 1 = IF
+      n 3 = IF
         abs SA-XC !
         abs SA-BSS-FIND SA-DC !
       THEN
@@ -855,8 +865,11 @@ $D63F0120 CONSTANT ARM-BLR-X9
       off 4 + TO off
     THEN
   REPEAT
-  n 3 < IF
+  n 5 < IF
     ." sa-bss: CATCH ADRP discover failed (n=" n . ." )" CR ABORT
+  THEN
+  SA-DC @ 0= IF
+    ." sa-bss: cfa_catch_ok not found in CATCH" CR ABORT
   THEN
   ." sa-bss catch cells n=" SA-BSS-N @ .
   ."  cfa-ok data=" SA-DC @ U. CR ;

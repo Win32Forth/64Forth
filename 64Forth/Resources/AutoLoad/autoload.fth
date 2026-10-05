@@ -21,7 +21,10 @@
     FROMLIB REQUIRE Emitter/emitter.fth
     \ Load the hyper text code, and finally re-index so everything is up to date
     FROMLIB REQUIRE HYPER/HYPER.fth
-    HYPER-VOC MIN-HYPER-NOISE ON FORTH
+    \ Classic VOCABULARY replaces CONTEXT — ALSO keeps FORTH while setting
+    \ HYPER-VOC's MIN-HYPER-NOISE (quiet reindex). Bare HYPER-VOC … FORTH
+    \ after Hyper's FORTH-first order left only HYPER-VOC and undefined ON.
+    ALSO HYPER-VOC MIN-HYPER-NOISE ON PREVIOUS
     HYPER-REINDEX
     \ Hyper clears DBG-HL-XT (console-only SZ-EDITOR era). Re-arm map→span
     \ for 64Edit so asm pause fallback still publishes off+len before paint.
@@ -30,9 +33,9 @@
     PREVIOUS
 
 \ Boot: ONLY FORTH ALSO DEFINITIONS (FORTH FORTH, CURRENT=FORTH).
-\ ALSO leaves a spare FORTH slot for vocabulary context; DEFINITIONS → FORTH.
-\ BREAK/BPGO live in FORTH (debugger.fth rechains them). Type DEBUGGER to
-\ PUSH-ORDER hub words when needed.
+\ ALSO leaves a spare FORTH slot so ALSO DEBUGGER / ALSO FLOATING keep FORTH.
+\ BREAK/BPGO live in FORTH (debugger.fth rechains them). Classic VOCABULARY
+\ replaces CONTEXT; use ALSO <vocab> (or NAMESPACE) when you need to push.
 ONLY FORTH ALSO DEFINITIONS
 
 \ --- Required boot word ------------------------------------------------------

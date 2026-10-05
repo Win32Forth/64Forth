@@ -86,7 +86,7 @@ FALSE DIRECTIVE \EMITTER      \ optional; Emitter usually slices ITC, not source
 [THEN]
 
 VOCABULARY GRAPHICS
-GRAPHICS DEFINITIONS
+ALSO GRAPHICS DEFINITIONS
 
 80 VALUE G-COLS
 25 VALUE G-ROWS
@@ -168,7 +168,9 @@ VARIABLE G-T0-MS                     \ TIME-RESET baseline (MS@)
     REFRESH
   THEN ;
 
-G-ALLOC-BUF
+\ Do not G-ALLOC-BUF at cold load: a live host G-BUF is copied into
+\ EMIT-WINDOW-APP images and stand-alone then dereferences a stale pointer.
+\ WINDOW / WINDOW-SIZE allocate lazily when the grid is first opened.
 
 : WINDOW-OFF  ( -- )
   G-OPEN? IF  (APP-CLOSE)  0 TO G-OPEN?  0 TO G-DIRTY?  THEN

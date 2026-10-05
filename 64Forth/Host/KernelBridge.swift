@@ -573,7 +573,7 @@ private let kernelFloatOpTrampoline: @convention(c) (
 }
 
 /// Facility terminal: 1=PAGE 2=AT-XY 3=TERMINAL-REFRESH 4=FACILITY-OFF 5=resize 6=reverse
-/// 7=console-emit  8=command-line done  9=CLS  10=Save As panel
+/// 7/8/10 were SZ-EDITOR console-emit / cmd-done / Save As (retired); 9=CLS
 private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> Void = { op, a, b in
     let term = FacilityTerminal.shared
     switch op {
@@ -625,14 +625,11 @@ private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> 
     case 6:
         // FACILITY-REV ( f -- ): nonzero → reverse-video on subsequent EMITs
         term.setReverse(a != 0)
-    case 7:
-        // (SZ-CONSOLE-EMIT) ( f -- ): nonzero → TYPE/EMIT go to host command pane
-        KernelBridge.shared.setFacilityEmitBypass(a != 0)
-    case 8:
-        // (SZ-CMD-DONE) ( -- ): command-pane line finished; host appends ok(n)> prompt
-        KernelBridge.shared.notifyCommandLineDone()
+    case 7, 8, 10:
+        // Retired SZ-EDITOR facility ops (console-emit / cmd-done / Save As).
+        break
     case 9:
-        // CLS ( -- ): clear host console + ok prompt (not SZ-EDITOR exit)
+        // CLS ( -- ): clear host console + ok prompt
         let clear: () -> Void = {
             KernelBridge.shared.onHostClearConsole?()
         }
@@ -640,16 +637,6 @@ private let kernelFacilityOpTrampoline: @convention(c) (Int64, Int64, Int64) -> 
             clear()
         } else {
             DispatchQueue.main.async(execute: clear)
-        }
-    case 10:
-        // Untitled ⌘S: NSSavePanel on main, then stage path + SZ-CMD-SAVE-AS (135).
-        let saveAs: () -> Void = {
-            KernelBridge.shared.onSaveAsPanelRequest?()
-        }
-        if Thread.isMainThread {
-            DispatchQueue.main.async(execute: saveAs)
-        } else {
-            DispatchQueue.main.async(execute: saveAs)
         }
     default:
         break
@@ -768,57 +755,27 @@ public func host_facility_xy(
     rowOut?.pointee = Int64(term.cursorRow)
 }
 
-/// (SZ-CLICK) — last mouse event in facility grid. Clears one pending event.
-/// Returns 0 if none; else:
-///   bit0    = valid
-///   bit1    = Command held (⌘-click VIEW)
-///   bits2–3 = phase: 0=down, 1=drag, 2=up
-///   bit4    = Shift held (extend selection)
-///   bit5    = double-click (space-delimited word)
-///   bit6    = triple-click (whole logical line)
-/// Fills col/row (0-based facility cells).
-@_cdecl("host_sz_click")
-public func host_sz_click(
-    _ colOut: UnsafeMutablePointer<Int64>?,
-    _ rowOut: UnsafeMutablePointer<Int64>?
-) -> Int32 {
-    KernelBridge.shared.takeFacilityClick(colOut: colOut, rowOut: rowOut)
-}
-
-/// (SZ-VIEW-CELLS) — preferred facility grid size from the console window.
-/// cols/rows in monospaced cells; rows already reserve 5 lines for the command area.
-@_cdecl("host_sz_view_cells")
-public func host_sz_view_cells(
-    _ colsOut: UnsafeMutablePointer<Int64>?,
-    _ rowsOut: UnsafeMutablePointer<Int64>?
-) {
-    let cells = KernelBridge.shared.preferredFacilityCells()
-    colsOut?.pointee = Int64(cells.cols)
-    rowsOut?.pointee = Int64(cells.rows)
-}
-
-/// (SZ-CLIP!) ( c-addr u -- ) set host/system clipboard from Forth bytes.
-@_cdecl("host_sz_clip_set")
-public func host_sz_clip_set(_ ptr: UnsafeRawPointer?, _ len: Int) {
+/// CLIP! ( c-addr u -- ) set host/system clipboard from Forth bytes.
+@_cdecl("host_clip_set")
+public func host_clip_set(_ ptr: UnsafeRawPointer?, _ len: Int) {
     KernelBridge.shared.setEditorClipboard(ptr: ptr, length: len)
 }
 
-/// (SZ-CLIP@) copy host clipboard into buffer; returns length written (≤ max).
-@_cdecl("host_sz_clip_get")
-public func host_sz_clip_get(_ ptr: UnsafeMutableRawPointer?, _ maxLen: Int) -> Int {
+/// CLIP@ copy host clipboard into buffer; returns length written (≤ max).
+@_cdecl("host_clip_get")
+public func host_clip_get(_ ptr: UnsafeMutableRawPointer?, _ maxLen: Int) -> Int {
     KernelBridge.shared.getEditorClipboard(into: ptr, maxLength: maxLen)
 }
 
-/// (SZ-PATH@) ( c-addr max -- u ) take host-staged open path (Cmd-O while KEY waits).
-@_cdecl("host_sz_path_get")
-public func host_sz_path_get(_ ptr: UnsafeMutableRawPointer?, _ maxLen: Int) -> Int {
-    KernelBridge.shared.takeStagedEditorOpenPath(into: ptr, maxLength: maxLen)
-}
-
-/// (SZ-CMD@) ( c-addr max -- u ) take host-staged console command line (split pane).
-@_cdecl("host_sz_cmd_get")
-public func host_sz_cmd_get(_ ptr: UnsafeMutableRawPointer?, _ maxLen: Int) -> Int {
-    KernelBridge.shared.takeStagedCommandLine(into: ptr, maxLength: maxLen)
+/// CWD@ ( c-addr max -- u ) copy FileHost logical working directory (same as PWD).
+@_cdecl("host_cwd_get")
+public func host_cwd_get(_ ptr: UnsafeMutableRawPointer?, _ maxLen: Int) -> Int {
+    let data = Data(FileHost.shared.logicalCurrentDirectory.utf8)
+    let n = min(max(0, maxLen), data.count)
+    if n > 0, let ptr {
+        data.copyBytes(to: ptr.assumingMemoryBound(to: UInt8.self), count: n)
+    }
+    return n
 }
 
 // MARK: - Bridge
@@ -1355,7 +1312,7 @@ final class KernelBridge {
 
     // MARK: - Editor open path staging (Cmd-O while KEY waits)
 
-    /// Path staged by the host open panel for the next `SZ-DO-MENU-OPEN` / `(SZ-PATH@)`.
+    /// Path staged by the host open panel (legacy SZ-EDITOR; Forth no longer takes it).
     private var stagedEditorOpenPath: String = ""
     /// Last successful editor file (absolute or Library-relative). Drives open-panel start dir.
     private(set) var lastEditorFilePath: String?
@@ -1512,9 +1469,8 @@ final class KernelBridge {
         return pushKey(133) // SZ-CMD-EVAL
     }
 
-    /// Stage a path for Forth `(SZ-PATH@)` / `SZ-HOST-TAKE-PATH` (no nested evaluate).
-    /// Prefer Library-relative form when the file is under the bundle Library so
-    /// SZ-FNAME / visit slots stay short (absolute DerivedData paths are huge).
+    /// Stage a path for legacy SZ-EDITOR open (host still uses this for dead openInSzEditor).
+    /// Prefer Library-relative form when the file is under the bundle Library.
     func stageEditorOpenPath(_ path: String) {
         let staged: String
         if let lib = FileHost.shared.libraryURL {

@@ -69,7 +69,7 @@ Samples: `Library/Sample/DOODLE64.fth` → `DOODLE` (1-bit); `Library/Sample/DOO
 
 ### Host CODE ABI (must remain imports for Emitter)
 
-`(APP-OPEN)` `(APP-CLOSE)` `(APP-BLIT)` `(APP-PBLIT)` `(APP-CBLIT)` `(APP-KEY?)` `(APP-KEY)` `(APP-NAME)` `(APP-TONE)` `(APP-PUMP)` `(APP-MOUSE)` `(APP-IMG-CHOOSE)` `(APP-IMG-LOAD)` `(APP-IMG-SIZE)` `(APP-IMG-RENDER)` `(APP-FILE-CHOOSE)` `(APP-FILE-SAVE-AS)` `(APP-FILE-PATH)` `(APP-FILE-SLURP)` `(APP-FILE-SPEW)` plus `MS@` for timers.
+`(APP-OPEN)` `(APP-CLOSE)` `(APP-BLIT)` `(APP-PBLIT)` `(APP-CBLIT)` `(APP-KEY?)` `(APP-KEY)` `(APP-NAME)` `(APP-TONE)` `(APP-PUMP)` `(APP-MOUSE)` `(APP-IMG-CHOOSE)` `(APP-IMG-LOAD)` `(APP-IMG-SIZE)` `(APP-IMG-RENDER)` `(APP-FILE-CHOOSE)` `(APP-FILE-SAVE-AS)` `(APP-FILE-PATH)` `(APP-FILE-SLURP)` `(APP-FILE-SPEW)` `(APP-SIZE?)` plus `MS@` for timers.
 
 - `(APP-PBLIT) ( c-addr u -- )` — **1-bit only** (legacy SA).
 - `(APP-CBLIT) ( c-addr u depth -- )` — depth `1` / `8` / `32`.
@@ -83,7 +83,7 @@ Samples: `Library/Sample/DOODLE64.fth` → `DOODLE` (1-bit); `Library/Sample/DOO
 - `(APP-FILE-SLURP) ( c-addr max -- u ior )` — read staged file into buffer.
 - `(APP-FILE-SPEW) ( c-addr u -- ior )` — write buffer to staged path.
 
-Emitter `HOST-APP` slot table is append-only; `(APP-MOUSE)` **15**, `(APP-CBLIT)` **16**, `(APP-IMG-*)` **17–20**, `(APP-FILE-*)` **21–25** in `reloc.fth` / `emit-host.inc`. Stand-alone `TGT-BUILD` opens a **2 MiB** data arena (and **256 KiB** code) so TRUECOLOR `G-PIX` (~1 MiB) can import.
+Emitter `HOST-APP` slot table is append-only; `(APP-MOUSE)` **15**, `(APP-CBLIT)` **16**, `(APP-IMG-*)` **17–20**, `(APP-FILE-*)` **21–25**, `(APP-SIZE?)` **26** in `reloc.fth` / `emit-host.inc`. Stand-alone `TGT-BUILD` opens a **2 MiB** data arena (and **256 KiB** code) so TRUECOLOR `G-PIX` (~1 MiB) can import.
 
 **`emit-run` binary:** the stand-alone runner at `Library/Emitter/runner/emit-run` is **gitignored** (build product). Sources are `emit-run.m` + `emit-host.inc` (tracked). After changing host slots or `emit-host.inc`, rebuild before `EMIT-WINDOW-APP` / `app-build.sh`:
 

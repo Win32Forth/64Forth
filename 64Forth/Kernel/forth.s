@@ -636,11 +636,9 @@ XAT_XY_END:
 // AT-XY? ( -- col row )  facility cursor, 0-based (host FacilityTerminal)
 // Not ANSI DSR — works with the SwiftUI cell grid console.
 .extern _host_facility_xy
-.extern _host_sz_click
-.extern _host_sz_view_cells
-.extern _host_sz_clip_set
-.extern _host_sz_clip_get
-.extern _host_sz_path_get
+.extern _host_clip_set
+.extern _host_clip_get
+.extern _host_cwd_get
 
     BOOT_WORD "AT-XY?", "AT-XY? ( -- col row ) facility cursor position (0-based)", 0, XAT_XY_Q, XAT_XY_Q_END
 XAT_XY_Q:
@@ -665,127 +663,27 @@ XAT_XY_Q:
 XAT_XY_Q_END:
     NEXT
 
-// (SZ-VIEW-CELLS) ( -- cols rows )  preferred facility grid from host window
-// Host reserves 5 monospaced lines below the facility for command entry.
-    BOOT_WORD "(SZ-VIEW-CELLS)", "(SZ-VIEW-CELLS) ( -- cols rows ) preferred facility size from window", 0, XSZ_VIEW_CELLS
-XSZ_VIEW_CELLS:
-    stp  x29, x30, [sp, #-16]!
-    mov  x29, sp
-    sub  sp, sp, #16
-    add  x0, sp, #0                // &cols
-    add  x1, sp, #8                // &rows
-    str  xzr, [sp]
-    str  xzr, [sp, #8]
-    SAVE_VM
-    bl   _host_sz_view_cells
-    RESTORE_VM
-    ldr  x1, [sp]                  // cols
-    ldr  x2, [sp, #8]              // rows
-    add  sp, sp, #16
-    ldp  x29, x30, [sp], #16
-    str  x20, [x22, #-8]!
-    mov  x20, x1                   // cols under
-    str  x20, [x22, #-8]!
-    mov  x20, x2                   // rows TOS
-    NEXT
-
-// (SZ-CLICK) ( -- col row flag )  last facility mouse click (Phase 4a); clears pending
-    BOOT_WORD "(SZ-CLICK)", "(SZ-CLICK) ( -- col row flag ) facility mouse click if any", 0, XSZ_CLICK
-XSZ_CLICK:
-    stp  x29, x30, [sp, #-16]!
-    mov  x29, sp
-    sub  sp, sp, #16
-    add  x0, sp, #0
-    add  x1, sp, #8
-    str  xzr, [sp]
-    str  xzr, [sp, #8]
-    SAVE_VM
-    bl   _host_sz_click            // x0 = flag
-    RESTORE_VM
-    mov  x3, x0                    // flag
-    ldr  x1, [sp]
-    ldr  x2, [sp, #8]
-    add  sp, sp, #16
-    ldp  x29, x30, [sp], #16
-    str  x20, [x22, #-8]!
-    mov  x20, x1                   // col
-    str  x20, [x22, #-8]!
-    mov  x20, x2                   // row
-    str  x20, [x22, #-8]!
-    mov  x20, x3                   // flag TOS
-    NEXT
-
-// (SZ-CLIP!) ( c-addr u -- )  push bytes to host/system clipboard
-    BOOT_WORD "(SZ-CLIP!)", "(SZ-CLIP!) ( c-addr u -- ) set host clipboard", 0, XSZ_CLIP_STORE
-XSZ_CLIP_STORE:
+// CLIP! ( c-addr u -- )  push bytes to host/system clipboard
+    BOOT_WORD "CLIP!", "CLIP! ( c-addr u -- ) set host clipboard", 0, XCLIP_STORE
+XCLIP_STORE:
     mov  x1, x20                   // u
     ldr  x0, [x22], #8             // c-addr
     ldr  x20, [x22], #8
     SAVE_VM
-    bl   _host_sz_clip_set
+    bl   _host_clip_set
     RESTORE_VM
     NEXT
 
-// (SZ-CLIP@) ( c-addr max -- u )  copy host clipboard into buffer
-    BOOT_WORD "(SZ-CLIP@)", "(SZ-CLIP@) ( c-addr max -- u ) fetch host clipboard", 0, XSZ_CLIP_FETCH
-XSZ_CLIP_FETCH:
+// CLIP@ ( c-addr max -- u )  copy host clipboard into buffer
+    BOOT_WORD "CLIP@", "CLIP@ ( c-addr max -- u ) fetch host clipboard", 0, XCLIP_FETCH
+XCLIP_FETCH:
     mov  x1, x20                   // max
     ldr  x0, [x22], #8             // c-addr
     SAVE_VM
-    bl   _host_sz_clip_get         // x0 = length
+    bl   _host_clip_get            // x0 = length
     RESTORE_VM
     mov  x20, x0
     NEXT
-
-// (SZ-PATH@) ( c-addr max -- u )  take host-staged open path (Cmd-O while KEY waits)
-    BOOT_WORD "(SZ-PATH@)", "(SZ-PATH@) ( c-addr max -- u ) take staged editor open path", 0, XSZ_PATH_FETCH
-XSZ_PATH_FETCH:
-    mov  x1, x20                   // max
-    ldr  x0, [x22], #8             // c-addr
-    SAVE_VM
-    bl   _host_sz_path_get         // x0 = length
-    RESTORE_VM
-    mov  x20, x0
-    NEXT
-
-// (SZ-CMD@) ( c-addr max -- u )  take host-staged command-pane line (split console)
-.extern _host_sz_cmd_get
-    BOOT_WORD "(SZ-CMD@)", "(SZ-CMD@) ( c-addr max -- u ) take staged command-pane line", 0, XSZ_CMD_FETCH
-XSZ_CMD_FETCH:
-    mov  x1, x20                   // max
-    ldr  x0, [x22], #8             // c-addr
-    SAVE_VM
-    bl   _host_sz_cmd_get          // x0 = length
-    RESTORE_VM
-    mov  x20, x0
-    NEXT
-
-// (SZ-CONSOLE-EMIT) ( f -- )  nonzero → TYPE/EMIT to host even if facility active
-    BOOT_WORD "(SZ-CONSOLE-EMIT)", "(SZ-CONSOLE-EMIT) ( f -- ) route EMIT to host command pane", 0, XSZ_CONSOLE_EMIT
-XSZ_CONSOLE_EMIT:
-    DPOP x1                        // flag
-    mov  x0, #7
-    mov  x2, #0
-    b    _facility_op_go
-
-// (SZ-CMD-DONE) ( -- )  notify host: command-pane line finished (append ok prompt)
-    BOOT_WORD "(SZ-CMD-DONE)", "(SZ-CMD-DONE) ( -- ) command-pane line finished", 0, XSZ_CMD_DONE
-XSZ_CMD_DONE:
-    // Persist DSP/TOS so host kernel_data_depth() sees live stack for ok(n)>.
-    // Without this, depth stayed at the stale pre-editor value (always 0).
-    bl   _vm_save
-    mov  x0, #8
-    mov  x1, #0
-    mov  x2, #0
-    b    _facility_op_go
-
-// (SZ-SAVE-AS-REQ) ( -- )  host NSSavePanel while KEY waits; then key 135 (SZ-CMD-SAVE-AS)
-    BOOT_WORD "(SZ-SAVE-AS-REQ)", "(SZ-SAVE-AS-REQ) ( -- ) request Save As panel (untitled ⌘S)", 0, XSZ_SAVE_AS_REQ
-XSZ_SAVE_AS_REQ:
-    mov  x0, #10
-    mov  x1, #0
-    mov  x2, #0
-    b    _facility_op_go
 
 // TERMINAL-REFRESH ( -- )
 
@@ -1232,7 +1130,7 @@ XAPP_FILE_SPEW:
 XAPP_FILE_SPEW_END:
     NEXT
 
-// int kernel_take_sz_editor_open(void) — sticky flag from SZ-HOST-REQUEST-OPEN
+// int kernel_take_sz_editor_open(void) — legacy sticky; Forth no longer sets it
 .globl _kernel_take_sz_editor_open
 _kernel_take_sz_editor_open:
     adrp x1, sz_editor_open_flag@page
@@ -1241,34 +1139,7 @@ _kernel_take_sz_editor_open:
     str  xzr, [x1]
     ret
 
-// (SZ-OPEN-REQ) ( -- )  set flag for host open panel after evaluate
-
-    BOOT_WORD "(SZ-OPEN-REQ)", "(SZ-OPEN-REQ) ( -- ) request SZ-EDITOR open panel after this evaluate", 0, XSZ_OPEN_REQ
-XSZ_OPEN_REQ:
-    adrp x0, sz_editor_open_flag@page
-    add  x0, x0, sz_editor_open_flag@pageoff
-    mov  x1, #1
-    str  x1, [x0]
-    NEXT
-
-// (SZ-CLR-APP-QUIT) ( -- )  cancel pending quit-app after editor close (user cancelled S/D)
-
-    BOOT_WORD "(SZ-CLR-APP-QUIT)", "(SZ-CLR-APP-QUIT) ( -- ) cancel pending app quit after editor close", 0, XSZ_CLR_APP_QUIT
-XSZ_CLR_APP_QUIT:
-    adrp x0, sz_app_quit_flag@page
-    add  x0, x0, sz_app_quit_flag@pageoff
-    str  xzr, [x0]
-    NEXT
-
-// (SZ-SET-APP-QUIT) ( -- )  host may also set via API; Forth rarely needs this
-XSZ_SET_APP_QUIT:
-    adrp x0, sz_app_quit_flag@page
-    add  x0, x0, sz_app_quit_flag@pageoff
-    mov  x1, #1
-    str  x1, [x0]
-    NEXT
-
-// int kernel_take_sz_app_quit(void) — 1 if quit-app after editor; does not clear
+// Host-only app-quit-after-editor helpers (no Forth BOOT_WORD; SZ-EDITOR retired)
 // int kernel_clear_sz_app_quit(void)
 // void kernel_set_sz_app_quit(void)
 .globl _kernel_sz_app_quit_pending
@@ -4564,6 +4435,17 @@ XPWD:
     blr  x0
     RESTORE_VM
 1:
+    NEXT
+
+// CWD@ ( c-addr max -- u )  copy logical working directory (same path PWD prints)
+    BOOT_WORD "CWD@", "CWD@ ( c-addr max -- u ) copy logical working directory", 0, XCWD_FETCH
+XCWD_FETCH:
+    mov  x1, x20                   // max
+    ldr  x0, [x22], #8             // c-addr
+    SAVE_VM
+    bl   _host_cwd_get             // x0 = length written (0 if none / max<=0)
+    RESTORE_VM
+    mov  x20, x0
     NEXT
 
 // DIR ( -- )  optional path/filespec; bare lists cwd (FROMLIB → Library)
@@ -18421,8 +18303,8 @@ sa_float_bss_stack:     .space 128
 bi_divmod_hook: .quad 0            // void (*)(int64 num, den, quot, rem)
 bi_isqrt_hook:   .quad 0            // void (*)(int64 a, int64 r)
 kernel_inited:  .quad 0
-sz_editor_open_flag: .quad 0       // set by (SZ-OPEN-REQ); taken by host after eval
-sz_app_quit_flag: .quad 0          // Cmd-Q while editor: quit app after editor closes
+sz_editor_open_flag: .quad 0       // legacy; Forth no longer sets (host take still clears)
+sz_app_quit_flag: .quad 0          // Cmd-Q while facility editor: quit app after close
 
 str_search_order: .asciz "Search order: "
 str_comp_wl:      .asciz "Compilation wordlist: "

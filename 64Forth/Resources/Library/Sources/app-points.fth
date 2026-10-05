@@ -69,7 +69,9 @@ DOC" G-PIX ( -- addr ) pixel map (sized for 32-bit; depth selects used bytes)"
     G-PIX G-PIXMAX 0 FILL
   THEN ;
 
-G-ALLOC-PIX
+\ Do not G-ALLOC-PIX at cold load: a live host G-PIX is copied into
+\ EMIT-WINDOW-APP images, sanitized to 0, then PIX-ERASE FILL SIGSEGVs.
+\ PIXEL-ON / PIX-ERASE allocate lazily when pixel mode is first used.
 
 DOC" G-DEPTH ( -- n ) 1=bits 8=index 32=BGRA"
 1 VALUE G-DEPTH
@@ -94,7 +96,9 @@ DOC" G-PIXBYTES ( -- u ) bytes used by G-PIX at current G-DEPTH"
   THEN THEN ;
 
 DOC" PIXEL-ON ( -- ) enable pixel mode for this window"
-: PIXEL-ON   ( -- )  -1 TO G-PMODE? ;
+: PIXEL-ON   ( -- )
+  G-PIX 0= IF  G-ALLOC-PIX  THEN
+  -1 TO G-PMODE? ;
 
 DOC" PIXEL-OFF ( -- ) return refresh to character-only"
 : PIXEL-OFF  ( -- )   0 TO G-PMODE? ;
@@ -137,6 +141,8 @@ DOC" >COLOR ( n -- ) n COLOR !"
 
 DOC" PIX-ERASE ( -- ) zero the used pixel map without blitting"
 : PIX-ERASE  ( -- )
+  G-PIX 0= IF  G-ALLOC-PIX  THEN
+  G-PIX 0= IF  EXIT  THEN
   G-PIX  G-PIXBYTES  0 FILL
   -1 TO G-PDIRTY?
   ;

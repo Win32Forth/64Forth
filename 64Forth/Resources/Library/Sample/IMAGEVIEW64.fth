@@ -174,19 +174,14 @@ VARIABLE IV-LAST-PY
   IV-REFRESH
   ;
 
-: XXIV-ADOPT-WINDOW  ( -- )
+\ After the user finishes a live resize, adopt the host grid so chrome
+\ (QUIT/OPEN/FIT) reflows with G-COLS/G-ROWS. Mid-drag leaves the old grid.
+: IV-ADOPT-WINDOW  ( -- )
   (APP-SIZE?) 0= IF 2DROP EXIT THEN     \ no finished drag
   WINDOW-SIZE                           \ adopt cols/rows, new G-PIX
   G-PX IV-LAST-PX !
   G-PY IV-LAST-PY !
-  IV-FIT                                \ optional: refit photo to the new window
-  ;
-
-: IV-ADOPT-WINDOW  ( -- )
-  G-PX IV-LAST-PX @ =  G-PY IV-LAST-PY @ = AND IF EXIT THEN
-  G-PX IV-LAST-PX !
-  G-PY IV-LAST-PY !
-  IV-FIT
+  IV-FIT                                \ refit photo to the new window
   ;
 
 : IV-ZOOM-AT  ( fx fy factor -- )   \ +2 = ×2, -2 = ÷2

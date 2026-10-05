@@ -53,7 +53,7 @@ DECIMAL
 : FORTH>VOC  ( c-addr u vocab-xt -- )
   VOC-WID FORTH>WL ;
 
-DOC" SYSVOC ( -- ) vocabulary for system / support words; execute to ALSO it"
+DOC" SYSVOC ( -- ) vocabulary for system / support words; ALSO SYSVOC to use"
 VOCABULARY SYSVOC
 
 : FORTH>SYSVOC   ( c-addr u -- )  ['] SYSVOC   FORTH>VOC ;
@@ -175,20 +175,10 @@ S" (LOAD-RUN)"         FORTH>SYSVOC
 S" (LOCAL!)"           FORTH>SYSVOC
 S" (LOCAL@)"           FORTH>SYSVOC
 
-\ --- Phase B: editor host hooks → EDITOR ---
-
-\ S" (SZ-VIEW-CELLS)"   FORTH>EDITOR
-\ S" (SZ-CLICK)"        FORTH>EDITOR
-\ S" (SZ-CLIP!)"        FORTH>EDITOR
-\ S" (SZ-CLIP@)"        FORTH>EDITOR
-\ S" (SZ-PATH@)"        FORTH>EDITOR
-\ S" (SZ-CMD@)"         FORTH>EDITOR
-\ S" (SZ-CONSOLE-EMIT)" FORTH>EDITOR
-\ S" (SZ-CMD-DONE)"     FORTH>EDITOR
-\ S" (SZ-SAVE-AS-REQ)"  FORTH>EDITOR
-\ S" (SZ-OPEN-REQ)"     FORTH>EDITOR
-\ S" (SZ-CLR-APP-QUIT)" FORTH>EDITOR
-\ S" (FACILITY-SIZE)"   FORTH>EDITOR
+\ --- Phase B: retired SZ-EDITOR host hooks (kept as comments) ---
+\ Clipboard / cwd are FORTH words: CLIP! CLIP@ CWD@
+\ Former (SZ-VIEW-CELLS) (SZ-CLICK) (SZ-PATH@) (SZ-CMD@) (SZ-CONSOLE-EMIT)
+\ (SZ-CMD-DONE) (SZ-SAVE-AS-REQ) (SZ-OPEN-REQ) (SZ-CLR-APP-QUIT) removed.
 
 \ --- Phase C: graphics host hooks → GRAPHICS ---
 

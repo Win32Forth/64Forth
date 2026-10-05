@@ -75,7 +75,7 @@ DBG-KEY-INSTALL
 (DBG-HUB-ARM-HL)
 
 \ User entry points into FORTH so ONLY FORTH (Autoload / Hayes) still finds them.
-\ DEBUGGER vocabulary remains for hub helpers; type DEBUGGER to PUSH-ORDER it.
+\ DEBUGGER vocabulary remains for hub helpers; ALSO DEBUGGER (or DEBUGGER after ALSO).
 ALSO SYSVOC
 : (DBG>FORTH)  ( xt -- )  ['] DEBUGGER VOC-WID FORTH-WORDLIST XT>WL-FROM ;
 ' NOBREAKS   (DBG>FORTH)

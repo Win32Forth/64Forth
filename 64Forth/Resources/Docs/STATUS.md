@@ -1,17 +1,30 @@
 # 64Forth development status
 
-**Current:** **1.5.3** (build **47**) shipped — dual-app DMG + GitHub `v1.5.3`  
+**Current:** **1.5.4** (build **48**) — dual-app DMG ready; GitHub release pending  
 **Last updated:** 2026-10-04
 
 ---
 
-## Since 1.5.3 (on main, unreleased)
+## v1.5.4 — Hyper VIEW, companion flavor, Emitter sanitize, 64Edit chrome
 
-Marketing version stays **1.5.3** / build **47** until the next ship. Library/host-only unless noted.
+**Version strings:** marketing **1.5.4**, build **48**. Companion **64Edit** uses the **same** marketing version (**1.5.4**) and build (**48**) — keep them matched when shipping.
 
+**Release:** `64Forth/releases/64Forth-1.5.4-macOS.dmg` in tree (replaces 1.5.3); GitHub `v1.5.4` pending until tagged. Dual-app DMG ships **both** `64Forth.app` and `64Edit.app`. GitHub release attaches the DMG plus `Getting 64Forth to run.jpg` (Gatekeeper steps apply to **each** app the first time).
+
+**Console header stamp** (`ConsoleView.swift` `banner`):
+
+```text
+=== 64Forth 1.5.4 === Oct 4, 2026 10:28 PM ===
+```
+
+### Highlights (vs 1.5.3)
+
+- **Classic `VOCABULARY`:** execute replaces CONTEXT (`search_order[0]`) like Win32Forth / F-PC / GForth and like `FORTH`; it no longer `PUSH-ORDER`s. Use `ALSO <vocab>` when the prior wordlist must stay on the order (e.g. `ALSO FLOATING`, `ALSO GRAPHICS DEFINITIONS`). New `NAMESPACE` is the push-and-set form (ciforth-style). `CONTEXT! ( wid -- )` is the shared replace helper. ANSValidate `search.fth` now expects depth **2** after `ONLY FORTH ALSO SW-FOO` (not 3) and depth **1** after `PREVIOUS`. Kernel rebuild required for `kernel1.fth`.
 - **Hyper TYPE 0 / VIEW OVER:** `HX-SCAN-PREF` matches TYPE 0 prefixes only at the first non-blank on the line (mid-line `CREATE OVER` in `+FIELD` no longer indexes `OVER`). `(HYPER-STAMP-LINE)` keeps the first Library stamp (first-wins). `HYPER.CFG` docs updated. Leave local `Config/HYPER.NDX` unstaged; reindex after pull if needed.
 - **Companion flavor match:** `FileHost.locateSixtyFourEditApp` — Debug → sibling then DerivedData Debug only; Release → sibling then `/Applications` only (never Debug DerivedData). 64Edit Ping uses the same rule to launch 64Forth.
-- **64Edit (companion repo):** View → Show Forth Console / Show Line Numbers; Ping launches flavor-matched 64Forth (silent when connected); console splitter no longer flashes (AppStorage on drag end + global drag coordinates).
+- **64Edit (companion repo):** View → Show Forth Console / Show Line Numbers; Ping launches flavor-matched 64Forth when `edit.sock` is down (silent when connected — no pong line); console splitter no longer flashes (AppStorage on drag end + global drag coordinates; opaque transcript).
+- **Emitter `SA-SANITIZE-DOVAR`:** keep integers below **4 GiB** (`$100000000`, same threshold as DOCON) **and** sign-extended negatives (`$FFFF…` top bits). Earlier `$100000` / unsigned-only `>=4GiB` rules zeroed `ED-CAP0` (64K → EDIT64 Open empty), `VED-CAP` (256K), `BI-BASE` (1e9 → PIMAIN blink/SEGV on `UM/MOD` by 0), and `-1 CONSTANT` cells. Host malloc stays a canonical VA above 4 GiB. Re-emit Sample stand-alone apps (`EDIT64`, `VED64`, `PIMAIN`, …) after the change.
+- **Emitter body offsets (audit):** host `>BODY` and emitter `BODY` remain CFA+**16**; stand-alone emitted colon bodies start at CFA+**8** (`WRITE-COLON` omits the host `DOES>` slot); `SA-DOCOL-IP8` / `emit-run` enter with `#8`. Data PFAs and `GRAPHICS-WID` stay CFA+16.
 
 ## v1.5.3 — BREAK Pass 1–2, dbg-map spans, 64Edit polish; version lockstep
 
