@@ -5598,10 +5598,11 @@ XVIEW_PATH:
 // VIEW-REG ( c-addr u -- id ) register path, return file-id (0 on fail)
     BOOT_WORD "VIEW-REG", "VIEW-REG ( c-addr u -- id ) register source path for VIEW", 0, XVIEW_REG
 XVIEW_REG:
+    // ( c-addr u -- id ): 2 in, 1 out — do not pop under c-addr (old code
+    // did, so Hyper had to push a dummy 0 under COUNT).
     // Guard: bad stack → garbage c-addr caused EXC_BAD_ACCESS in register_path
     mov  x1, x20                   // u
     ldr  x0, [x22], #8             // c-addr
-    ldr  x20, [x22], #8
     // Reject absurd lengths (COUNT of corrupt memory)
     cmp  x1, #0
     b.le 1f

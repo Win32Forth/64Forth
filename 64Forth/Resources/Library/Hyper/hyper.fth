@@ -348,10 +348,30 @@ VARIABLE HYPER-LEAF-U
    DUP 8 < IF  2DROP FALSE EXIT  THEN
    DROP 8 S" Library/" COMPARE 0= ;
 
+\ Stamp one xt from HYPER-CUR + line. True if stamped.
+: (HYPER-STAMP-XT)  ( xt line -- flag )
+   OVER VIEW-FILE# IF  2DROP FALSE EXIT  THEN   \ keep earlier Library stamp
+   SWAP >R                                       \ R: xt  ( line )
+   HYPER-CUR COUNT VIEW-REG                      \ line id
+   DUP 0= IF  DROP R> DROP FALSE EXIT  THEN
+   R> SWAP ROT                                   \ xt id line
+   VIEW-STAMP TRUE ;
+
+\ Search one wid for HYPER-SEEK; stamp first unstamped match.
+: (HYPER-STAMP-WID)  ( wid line -- flag )
+   >R HYPER-SEEK COUNT ROT SEARCH-WORDLIST
+   DUP 0= IF  DROP R> DROP FALSE EXIT  THEN
+   DROP R> (HYPER-STAMP-XT) ;
+
 \ One NDX body line under current HYPER-CUR path: "NAME line"
 \ First Library hit wins: do not overwrite a non-zero VIEW-FILE#.
 \ NDX can list the same name twice (e.g. real OVER in forth.s, then a
 \ mid-line CREATE OVER under +FIELD); last-wins stamped the wrong line.
+\
+\ Walk WORDLISTS (FORTH registered first) instead of FIND: ALSO GRAPHICS
+\ made FIND hit GRAPHICS TYPE before cold FORTH TYPE, so VIEW TYPE stayed
+\ (no source) while the graphics homonym got forth.s:3469. Per-wid walk
+\ stamps FORTH TYPE from forth.s, then GRAPHICS TYPE from app-output.fth.
 : (HYPER-STAMP-LINE)  ( a u -- )
    HYPER-CUR C@ 0= IF  2DROP EXIT  THEN
    HYPER-CUR COUNT HYPER-LIB-PATH? 0= IF  2DROP EXIT  THEN
@@ -360,28 +380,20 @@ VARIABLE HYPER-LEAF-U
    DUP 0= IF  2DROP 2DROP EXIT  THEN
    HYPER-SEEK HYPER-PLACE                    \ ra ru
    HYPER->LINE 0= IF  EXIT  THEN             \ line
-   >R
-   HYPER-SEEK FIND
-   DUP 0= IF  2DROP R> DROP EXIT  THEN       \ miss
-   DROP                                      \ xt
-   DUP VIEW-FILE# IF  DROP R> DROP EXIT  THEN  \ keep earlier Library stamp
-   0 HYPER-CUR COUNT VIEW-REG                \ xt id  (0 under avoids underflow)
-   DUP 0= IF  2DROP R> DROP EXIT  THEN
-   R> VIEW-STAMP ;
+   HYPER-TMP-LINE !
+   WORDLISTS HYPER-TMP-N ! HYPER-TMP-ADDR !
+   0 HYPER-TMP-I !
+   BEGIN  HYPER-TMP-I @ HYPER-TMP-N @ < WHILE
+      HYPER-TMP-ADDR @ HYPER-TMP-I @ CELLS + @
+      HYPER-TMP-LINE @ (HYPER-STAMP-WID)
+      IF  EXIT  THEN
+      1 HYPER-TMP-I +!
+   REPEAT ;
 
-\ FIND only sees the search order. vocsys FORTH>SYSVOC (and EDITOR/GRAPHICS)
-\ moves cold helpers out of FORTH, so stamp must ALSO those vocabs or
-\ (SHOW-VOCAB)/(WID.THREADS)/… stay VIEW-FILE#=0 and DBG sync/HL no-ops
-\ (sticky TRAVERSE-WORDLIST highlight while stepping the visitor).
+\ WORDLISTS covers FORTH + every VOCABULARY (SYSVOC/EDITOR/GRAPHICS/…).
+\ No ALSO/FIND — see (HYPER-STAMP-LINE).
 : HYPER-STAMP-COLD  ( -- )
    HYPER-ENSURE 0= IF  EXIT  THEN
-   GET-ORDER
-   \ VIEW/LOCATE/DBG live in FORTH; ALSO FORTH so FIND sees them even when
-   \ context was only HYPER-VOC (e.g. quiet Autoload HYPER-REINDEX).
-   ALSO FORTH
-   ALSO SYSVOC
-   ALSO EDITOR
-   ALSO GRAPHICS
    0 TO HYPER-POS
    0 HYPER-CUR C!
    BEGIN  HYPER-EOF? 0= WHILE
@@ -394,8 +406,7 @@ VARIABLE HYPER-LEAF-U
          THEN
       ELSE  (HYPER-STAMP-LINE)
       THEN THEN
-   REPEAT
-   SET-ORDER ;
+   REPEAT ;
 
 \ --- Dictionary VIEW hits (header file-id + line) ----------------------------
 \ NOTE: TRAVERSE-WORDLIST keeps state on the return stack — do NOT use {: :}
