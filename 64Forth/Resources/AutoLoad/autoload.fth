@@ -28,8 +28,10 @@
     HYPER-REINDEX
     \ Hyper clears DBG-HL-XT (console-only SZ-EDITOR era). Re-arm map→span
     \ for 64Edit so asm pause fallback still publishes off+len before paint.
+    \ Use the colon wrapper: interpret-time IF/THEN leaves TRUE (−1) on the stack
+    \ (same pitfall documented at (DBG-HUB-ARM-HL) in Debugger/debugger.fth).
     ALSO DEBUGGER
-    DBG-MAP-BIND IF  DBG-ED-HL-XT DBG-SET-HL  THEN
+    (DBG-HUB-ARM-HL)
     PREVIOUS
 
 \ Boot: ONLY FORTH ALSO DEFINITIONS (FORTH FORTH, CURRENT=FORTH).

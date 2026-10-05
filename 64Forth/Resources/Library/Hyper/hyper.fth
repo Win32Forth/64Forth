@@ -1042,12 +1042,26 @@ ALSO SYSVOC
    DUP 0= IF  2DROP R> DROP FALSE EXIT  THEN      \ no path
    R> EDIT-AT TRUE ;                              \ EDIT-AT ( c-addr u line )
 
-\ ( c-addr u -- flag ) FIND + SEE header/loc; true if EDIT-AT opened 64Edit.
+\ Name already in PAD (counted). Search order first; on miss, walk FORTH plus
+\ every named VOCABULARY (XREF-COLLECT-WIDS) so ⌘-click finds Emitter-only
+\ names like /EMIT-CONSOLE without ALSO EMITTER (Autoload ends with ONLY FORTH).
+\ Avoid FINDANY here — its push loop currently returns n without xts.
+: (VIEW-XT)  ( -- xt true | false )
+   PAD FIND DUP IF  DROP TRUE EXIT  THEN 2DROP
+   XREF-COLLECT-WIDS
+   XREF-WIDN @ 0 ?DO
+      PAD COUNT XREF-WIDS I CELLS + @ SEARCH-WORDLIST
+      IF  TRUE UNLOOP EXIT  THEN
+   LOOP
+   FALSE ;
+
+\ ( c-addr u -- flag ) resolve + SEE header/loc; true if EDIT-AT opened 64Edit.
 : (VIEW)  ( c-addr u -- flag )
    DUP 0= IF  2DROP FALSE EXIT  THEN
-   PAD PLACE PAD FIND DUP 0= IF
-      DROP ." undefined: " PAD COUNT TYPE CR FALSE EXIT
-   THEN DROP                                      \ xt
+   PAD PLACE
+   (VIEW-XT) 0= IF
+      ." undefined: " PAD COUNT TYPE CR FALSE EXIT
+   THEN
    (SEE-HDR) (SEE-LOC) (VIEW-OPEN) NIP ;          \ xt flag -- flag
 
 \ Soft miss (no ' abort): prints "undefined: name" like the kernel and leaves depth clean.
